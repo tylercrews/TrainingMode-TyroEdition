@@ -197,6 +197,7 @@
     ENTRY TM_ShineAfterIASA
     ENTRY TM_SettingsCommitPending
     ENTRY TM_SettingsEventCharacters
+    ENTRY TM_UnderFireInitMenu
 
     # TmDt Data Pointers
     .set TM_Data, TM_tmFunction - 0x4

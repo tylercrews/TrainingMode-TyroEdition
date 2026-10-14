@@ -289,6 +289,7 @@ typedef struct EventVars
     void (*set_local_overlay)(GOBJ *, const GXColor *);
     unsigned (*get_restore_serial)(void);
     int (*is_protected)(GOBJ *);
+    void (*set_tangibility_overlay)(const s16 *);
 } EventVars;
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
 #define event_vars (*event_vars_ptr_loc)
@@ -413,6 +414,8 @@ int ActionCues_Remaining(GOBJ *gobj);
 int ActionCues_CommonState(int kind, int state);
 void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
+void ActionCues_SetTangibilityOverlay(const s16 *enabled);
+void UnderFire_InitMenu(void);
 void OSDContext_Clear(void);
 void OSDContext_Tick(FighterData *fighter);
 void OSDContext_LCancel(GOBJ *fighter);

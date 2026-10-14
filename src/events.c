@@ -798,11 +798,47 @@ EventVars stc_event_vars = {
     .set_local_overlay = ActionCues_SetLocalOverlay,
     .get_restore_serial = Events_RestoreSerial,
     .is_protected = ActionCues_IsProtected,
+    .set_tangibility_overlay = ActionCues_SetTangibilityOverlay,
 };
 
 static GOBJ *stc_msgmgr;
 static Savestate_v1 *stc_savestate;
 static TipMgr stc_tipmgr;
+
+/* Under Fire keeps its native lava/ledge logic, with an event-local C pause
+ * menu so its new diagnostic and Exit behave like the other practice events. */
+static void UnderFire_Exit(GOBJ *menu) {
+    ActionCues_SetTangibilityOverlay(0);
+    Memcard_SaveIfChanged();
+    stc_match->state = 3;
+    Match_EndVS();
+}
+static EventOption under_fire_options[] = {
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Highlight Dropped Invincibility",
+     .desc = {"Pulse red whenever invincibility/intangibility drops.",
+              "Overrides the Invincibility Overlay while On."}},
+    {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = UnderFire_Exit,
+     .desc = {"Return to the Event Selection Screen."}},
+};
+static EventMenu under_fire_menu = {
+    .name = "Under Fire", .option_num = countof(under_fire_options),
+    .options = under_fire_options,
+};
+static void UnderFire_Update(void) {
+    /* The native practice restore resets match time. The menu must also allow
+     * closing while paused, which EventMenu_Update handles independently. */
+    stc_event_vars.game_timer = stc_match->time_frames;
+    EventMenu_Update(stc_event_vars.menu_gobj);
+    Develop_UpdateMatchHotkeys();
+}
+void UnderFire_InitMenu(void) {
+    under_fire_options[0].val = under_fire_options[0].val_prev = 1;
+    under_fire_menu.scroll = under_fire_menu.cursor = 0;
+    stc_event_vars.event_desc = &Ledgestall;
+    stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
+    ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
+    stc_hsd_update->onFrame = UnderFire_Update;
+}
 
 static Vec2 stc_msg_queue_offsets_vertical[] = {
     {0, 5.15f},

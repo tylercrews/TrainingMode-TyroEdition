@@ -25,7 +25,7 @@ enum menu_options
     OPT_RESETDELAY,
     OPT_LEDGE,
     OPT_CRITERION,
-    OPT_PROTECTION,
+    OPT_TANGIBILITY,
     OPT_EGG,
     OPT_ABOUT,
     OPT_DEFAULTS,
@@ -198,8 +198,8 @@ static EventOption LdshOptions_Main[] = {
         .values = LdshOptions_Criteria, .OnChange = Ledgedash_ChangeCriterion,
     },
     {
-        .kind = OPTKIND_TOGGLE, .val = 1, .name = "Protection Highlight",
-        .desc = {"Brighten the action color while invincible/intangible.", "Works independently of Color Overlays."},
+        .kind = OPTKIND_TOGGLE, .val = 1, .name = "Highlight Dropped Invincibility",
+        .desc = {"Pulse red whenever invincibility/intangibility drops.", "Overrides the Invincibility Overlay while On.", "Works independently of Color Overlays."},
     },
     {
         .kind = OPTKIND_MENU, .name = "Egg Targets", .menu = &LdshMenu_Eggs,
@@ -279,7 +279,7 @@ static void Ledgedash_ResetSettings(GOBJ *menu) {
     /* Defaults for the event-local choices too; callbacks run once after the batch. */
     static const u8 main_defaults[OPT_EGG] = {
         [OPT_RESET] = TM_LEDGE_DEFAULT_RESET, [OPT_HUD] = 1, [OPT_TIPS] = TM_LEDGE_DEFAULT_TIPS,
-        [OPT_RESETDELAY] = TM_LEDGE_DEFAULT_DELAY, [OPT_PROTECTION] = 1,
+        [OPT_RESETDELAY] = TM_LEDGE_DEFAULT_DELAY, [OPT_TANGIBILITY] = 1,
     };
     static const u8 egg_defaults[EGG_DAMAGE + 1] = {
         [EGG_DISTANCE] = 20, [EGG_MIN_DISTANCE] = 10, [EGG_MAX_DISTANCE] = 35, [EGG_DAMAGE] = 10,
@@ -307,6 +307,7 @@ static void Ledgedash_ResetSettings(GOBJ *menu) {
 void Event_Init(GOBJ *gobj)
 {
     Ledgedash_LoadSettings();
+    event_vars->set_tangibility_overlay(&LdshOptions_Main[OPT_TANGIBILITY].val);
     LedgedashData *event_data = gobj->userdata;
     Ledgedash_EggCleanup();
     GOBJ *cleanup = GObj_Create(0, 0, 0);
@@ -384,6 +385,7 @@ void Event_Exit(GOBJ *menu)
     Memcard_SaveIfChanged();
     Ledgedash_EggCleanup();
     event_vars->set_local_overlay(Fighter_GetGObj(0), 0);
+    event_vars->set_tangibility_overlay(0);
     // end game
     stc_match->state = 3;
 
@@ -1449,15 +1451,7 @@ static void Ledgedash_ApplyOverlay(LedgedashData *data, GOBJ *fighter) {
     if (frame < countof(data->action_state.action_log)) action = data->action_state.action_log[frame];
     GXColor color = action_colors[action];
     int colored = LdshOptions_Main[OPT_OVERLAYS].val && frame < countof(data->action_state.action_log);
-    int protected = LdshOptions_Main[OPT_PROTECTION].val && event_vars->is_protected(fighter);
-    if (protected) {
-        if (!colored || action == LDACT_NONE) color = action_colors[LDACT_GALINT];
-        color.r += (255 - color.r) * 2 / 5;
-        color.g += (255 - color.g) * 2 / 5;
-        color.b += (255 - color.b) * 2 / 5;
-        color.a = 230;
-    }
-    event_vars->set_local_overlay(fighter, !ft->flags.dead && (colored || protected) ? &color : 0);
+    event_vars->set_local_overlay(fighter, !ft->flags.dead && colored ? &color : 0);
 }
 static void Ledgedash_ChangeLedge(GOBJ *menu, int value) {
     LedgedashData *data = event_vars->event_gobj->userdata;

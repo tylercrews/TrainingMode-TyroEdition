@@ -577,6 +577,7 @@ LedgeStallLoad:
     li r4, 3                                            # Priority (After EnvCOllision)
     li r5, 0
     bl CreateEventThinkFunction
+    rtocbl r12, TM_UnderFireInitMenu
 
     # Destroy Lava map_gobj proc
     li r3, 8                                            # lava's map_gobj ID
@@ -892,61 +893,9 @@ LedgeStallThink_CheckTimer:
     cmpwi r3, 0
     bgt LedgeStallThink_Exit
 
-    # Pasue game
-    lfs f1, -0x4D68(rtoc)
-    branchl r12, 0x8016b274                             # Pause game engine
-    # Check if player had any score when taking damage
-    lwz r3, SurvivalTime(REG_EventData)
-    cmpwi r3, 0
-    ble LedgeStallThink_Failure
-
-LedgeStallThink_Success:
-    # Get current high score
-    lwz r3, MemcardData(r13)
-    lbz r20, 0x535(r3)
-    mr r3, r20
-    branchl r12, Events_GetEventSavedScore
-    lwz r4, SurvivalTime(REG_EventData)
-    cmpw r4, r3
-    ble LedgeStallThink_Success_NoHighScore
-
-LedgeStallThink_Success_NewHighScore:
-    li r3, 2
-    branchl r12, 0x8016b33c                             # Display Success + SFX
-    load r3, 0x9c40
-    branchl r12, 0x8016b350
-    li r3, 325
-    branchl r12, 0x8016b364                             # queue crowd cheer after Success
-    branchl r12, 0x8016b328                             # set game as ended
-    mr r3, r20                                          # update score
-    lwz r4, SurvivalTime(REG_EventData)
-    branchl r12, Events_SetEventSavedScore
-    mr r3, r20                                          # set event as played
-    branchl r12, Events_SetEventAsPlayed
-    b LedgeStallThink_Success_DestroyGObj
-
-LedgeStallThink_Success_NoHighScore:
-    li r3, 2
-    branchl r12, 0x8016b33c                             # Display New Record + SFX
-    li r3, 324
-    branchl r12, 0x8016b364                             # queue crowd cheer after New Record
-    branchl r12, 0x8016b328                             # set game as ended
-    b LedgeStallThink_Success_DestroyGObj
-
-LedgeStallThink_Failure:
-    li r3, 6
-    branchl r12, 0x8016b33c                             # Display Failure + SFX
-    li r3, 328
-    branchl r12, 0x8016b364                             # queue crowd sigh after failure
-    li r3, 40
-    branchl r12, 0x8016b378                             # frames to linger?
-    branchl r12, 0x8016b328                             # set game as ended
-    b LedgeStallThink_Success_DestroyGObj
-
-LedgeStallThink_Success_DestroyGObj:
-    mr r3, REG_EventGObj
-    branchl r12, GObj_Destroy                           # destroy event gobj
-    b LedgeStallThink_Exit
+    # Keep practicing after a hit/death, regardless of the survival score.
+    # The event's pause-menu Exit is the only event-owned completion path.
+    b LedgeStallThink_Restore
 
 LedgeStallThink_Restore:
     # Restore State
@@ -962,9 +911,12 @@ LedgeStallThink_Restore:
     li r4, 0
     rlwimi r3, r4, 3, 28, 28
     stb r3, 0x221D(REG_P1Data)
-    # Shorten Timer
+    # Restart the displayed clock; InitializePositions restores the full lava delay.
     li r3, 0
-    sth r3, LavaTimer(REG_EventData)
+    load r4, 0x8046b6a0
+    stw r3, 0x28(r4)
+    sth r3, 0x2C(r4)
+    b LedgeStallThink_Exit
 
 LedgeStallThink_Exit:
     restore

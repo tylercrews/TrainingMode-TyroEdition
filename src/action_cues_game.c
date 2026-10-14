@@ -13,11 +13,15 @@ typedef struct CueFighter {
     int missed_entry;
     GXColor local_color;
     int local_active;
+    unsigned tangible_red;
 } CueFighter;
 static CueFighter fighters[12];
 static GOBJ *manager;
 static unsigned last_frame;
 static int seen_frame, live;
+/* Borrow the event's existing Boolean option. Draw-time reads also work paused. */
+static const s16 *tangibility_option;
+static int tangibility_enabled(void) { return tangibility_option && *tangibility_option; }
 static void Cue_Draw(GOBJ *gobj, int pass);
 int ActionCues_IsProtected(GOBJ *gobj) {
     if (!gobj || !gobj->userdata) return 0;
@@ -52,9 +56,9 @@ static CueFighter *get_fighter(GOBJ *gobj) {
          * gx_cb is already our wrapper; losing it makes the reborn fighter vanish. */
         entry->spawn = data->spawn_num;
         entry->cue = (TMCueState){0}; entry->color = TM_CUE_NONE; entry->missed_entry = -1;
-        entry->local_active = 0;
+        entry->local_active = 0; entry->tangible_red = 0;
     }
-    int wrap = entry->local_active || Settings_Get(TM_SETTING_FLAG, TM_FLAG_LAST_BLOCKED_FRAME) ||
+    int wrap = entry->local_active || tangibility_enabled() || Settings_Get(TM_SETTING_FLAG, TM_FLAG_LAST_BLOCKED_FRAME) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_MISSED_LCANCEL) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_RUN_TURNAROUND) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY);
@@ -70,6 +74,16 @@ void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color) {
     entry->local_active = color != 0;
     if (color) entry->local_color = *color;
     get_fighter(gobj); /* Reconcile the draw wrapper after changing local ownership. */
+}
+void ActionCues_SetTangibilityOverlay(const s16 *enabled) {
+    tangibility_option = enabled;
+    for (int ply = 0; ply < 6; ++ply)
+        for (int sub = 0; sub < 2; ++sub) {
+            GOBJ *ft = Fighter_GetSubcharGObj(ply, sub);
+            if (!ft || !ft->userdata) continue;
+            CueFighter *entry = get_fighter(ft);
+            if (entry) entry->tangible_red = 0;
+        }
 }
 
 /* Normalize exceptional ordinary attacks; these are not character specials. */
@@ -160,10 +174,13 @@ static void Cue_Think(GOBJ *gobj) {
             if (!entry) continue;
             if (data->flags.dead) {
                 entry->cue = (TMCueState){0}; entry->color = TM_CUE_NONE; entry->missed_entry = -1;
-                entry->local_active = 0;
+                entry->local_active = 0; entry->tangible_red = 0;
                 continue;
             }
             int frozen = data->flags.hitlag || data->flags.freeze;
+            if (!tangibility_enabled() || ActionCues_IsProtected(ft)) entry->tangible_red = 0;
+            else if (!entry->tangible_red) entry->tangible_red = 1;
+            else if (!frozen) entry->tangible_red = entry->tangible_red % TM_CUE_PULSE_FRAMES + 1;
             if (data->state_id < ASID_LANDINGAIRN || data->state_id > ASID_LANDINGAIRLW)
                 entry->missed_entry = -1;
             else if (entry->missed_entry < 0)
@@ -190,11 +207,13 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
     /* Use current effective whole-body hurt status, not the action name or a
      * remaining-frame timer: script dodges and engine ledge/respawn protection
      * meet here. Read at draw time so pause, toggles and restores are immediate. */
-    int protected = live && !data->flags.dead &&
+    int tangibility = live && !data->flags.dead && tangibility_enabled();
+    int tangible = tangibility && !ActionCues_IsProtected(gobj);
+    int protected = live && !data->flags.dead && !tangibility &&
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY) &&
         ActionCues_IsProtected(gobj);
     int local = live && !data->flags.dead && entry->local_active;
-    if (!cue && !protected && !local) { entry->draw(gobj, pass); return; }
+    if (!cue && !protected && !local && !tangible) { entry->draw(gobj, pass); return; }
     /* Render-time composition: native/event colanim state survives byte-for-byte.
      * Timing explicitly replaces missed-cancel red, including Lab's own overlay. */
     ColorOverlay saved[3];
@@ -212,6 +231,11 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
         uint32_t rgba = TMTrail_PlayerColor(player ? player->color_accent : 4, !player || player->p_kind == 1);
         color = (GXColor){rgba >> 24, rgba >> 16, rgba >> 8, 112};
     }
+    /* Dropped invincibility must remain visible even over timing/local tints. */
+    if (tangible) {
+        color = colors[TM_CUE_RED];
+        color.a = TMCue_RedAlpha(entry->tangible_red ? entry->tangible_red - 1 : 0);
+    }
     data->color[selected].hex = color;
     data->color[selected].color_enable = 1;
     entry->draw(gobj, pass);
@@ -223,15 +247,18 @@ void ActionCues_Clear(void) {
         fighters[i].cue = (TMCueState){0};
         fighters[i].color = TM_CUE_NONE; fighters[i].missed_entry = -1;
         fighters[i].local_active = 0;
+        fighters[i].tangible_red = 0;
     }
     seen_frame = 0; /* Retain original draw callbacks while clearing tracking. */
 }
 void ActionCues_SceneChange(void) {
     live = 0; manager = 0;
+    tangibility_option = 0;
     ActionCues_Clear(); /* Native scene cleanup owns fighters and the service GOBJ. */
 }
 void ActionCues_MatchStart(void) {
     if (manager) return;
+    tangibility_option = 0;
     memset(fighters, 0, sizeof(fighters)); ActionCues_Clear(); live = 1;
     manager = GObj_Create(0, 7, 0);
     if (!manager) { live = 0; return; }

@@ -19,4 +19,8 @@ powerpc-eabi-gcc -O2 -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
     src/settings.c src/settings_game.c src/trails.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c src/action_cues.c src/action_cues_game.c src/ledgedash_logic.c tests/settings_support.c tests/settings_hooks.S \
     -o build/settings-test.elf
 "${settings_hgecko}" -q ASM build/settings-codes-test.gct
+# Keep labels for executing the actual Under Fire think/restart assembly.
+(cd 'ASM/training-mode/Custom Events' && powerpc-eabi-as -mregnames \
+    'Custom Event Code - Rewrite.asm' -o ../../../build/under-fire-native-test.o)
+powerpc-eabi-ld -Ttext=0x80480000 -e 0 build/under-fire-native-test.o -o build/under-fire-native-test.elf
 python tests/test_settings.py -v

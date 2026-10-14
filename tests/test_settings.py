@@ -263,8 +263,9 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         self.m.cpu.mem_write(self.base, bytes(payload))
         for i in range(num_exports):
             index, offset = struct.unpack_from(">II", dat, 32 + exports + i * 8)
-            if index in [27, 28, 38, 39]:
-                self.m.symbols[{27:"DAT_Get",28:"DAT_Set",38:"DAT_Commit",39:"DAT_Characters"}[index]] = self.base + offset
+            if index in [27, 28, 38, 39, 40]:
+                self.m.symbols[{27:"DAT_Get",28:"DAT_Set",38:"DAT_Commit",39:"DAT_Characters",
+                               40:"DAT_UnderFire"}[index]] = self.base + offset
         # Native memcpy is an external SDK dependency; use the tested PPC stub.
         address = self.m.symbols["memcpy"]
         self.m.cpu.mem_write(0x800031F4, struct.pack(">4I", 0x3D800000 | (address >> 16),
@@ -274,6 +275,54 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         address = self.m.symbols["memset"]
         self.m.cpu.mem_write(native_memset, struct.pack(">4I", 0x3D800000 | (address >> 16),
             0x618C0000 | (address & 0xFFFF), 0x7D8903A6, 0x4E800420))
+
+    def test_under_fire_menu_default_and_explicit_exit_after_real_dat_relocation(self):
+        from unicorn import UC_HOOK_CODE
+        m = self.m
+        m.init()
+        before = m.record()
+        start = m.symbols['DAT_UnderFire']
+        # The first direct call creates the C menu. Bound rendering/allocation,
+        # while executing the real relocated initialization and Exit callback.
+        for pc in range(start, start + 256, 4):
+            word = struct.unpack('>I', m.cpu.mem_read(pc, 4))[0]
+            if word & 0xFC000003 == 0x48000001:
+                delta = word & 0x03FFFFFC
+                if delta & 0x02000000: delta -= 0x04000000
+                create_menu = pc + delta
+                break
+        else: self.fail('Under Fire does not create its event menu')
+        menus, ended = [], []
+        def dependencies(cpu, address, size, user):
+            if address == create_menu:
+                menus.append(cpu.reg_read(gpr(3)))
+                cpu.reg_write(gpr(3), 0x80407600)
+            elif address == 0x8003418C: cpu.reg_write(gpr(3), 0)  # No fighters during menu init.
+            elif address == 0x8016C7F0: ended.append(True)
+            elif address != 0x8001CC84: return
+            cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
+        try:
+            m.call('DAT_UnderFire')
+            self.assertEqual(len(menus), 1)
+            menu = menus[0]
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x02\0\0')
+            options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
+            label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
+            self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
+            self.assertEqual(bytes(m.cpu.mem_read(options + 6, 4)), b'\0\1\0\1')
+            self.assertNotEqual(bytes(m.cpu.mem_read(0x80479D88, 4)), bytes(4))  # Menu update installed.
+            self.assertEqual(ended, [])
+            self.assertEqual(m.record(), before)
+            m.cpu.mem_write(options + 6, b'\0\0')
+            m.call('DAT_UnderFire')
+            self.assertEqual(bytes(m.cpu.mem_read(options + 6, 2)), b'\0\1')  # New event defaults On.
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 44 + 40, 4))[0]
+            m.call('DAT_UnderFireExit', 0x80407600)
+            self.assertEqual(ended, [True])
+            self.assertEqual(bytes(m.cpu.mem_read(0x8046B6A0, 1)), b'\x03')
+            self.assertEqual(m.record(), before)
+        finally: m.cpu.hook_del(hook)
 
     def test_character_export_after_real_dat_relocation_and_event_switch(self):
         m=self.m;m.init();backup=0x8045A6C0+3344
@@ -2089,6 +2138,80 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(m.call("TestEditorLabelChar", 20, 0), ord("O"))
 
 
+class UnderFireNativeTests(unittest.TestCase):
+    def test_hit_and_death_restart_without_ending_match_at_zero_or_positive_score(self):
+        from unicorn import UC_HOOK_CODE
+        m = Machine()
+        m.init()
+        m.call('TestCueInit')
+        elf = (ROOT / 'build/under-fire-native-test.elf').read_bytes()
+        shoff = struct.unpack_from('>I', elf, 0x20)[0]
+        shsize, shnum = struct.unpack_from('>HH', elf, 0x2E)
+        sections = [struct.unpack_from('>10I', elf, shoff + i * shsize) for i in range(shnum)]
+        symbols = {}
+        for s in sections:
+            _, kind, flags, address, offset, size, link, _, _, entsize = s
+            if flags & 2 and size and kind != 8:
+                m.cpu.mem_write(address, elf[offset:offset + size])
+            if kind == 2:
+                strings = sections[link]
+                table = elf[strings[4]:strings[4] + strings[5]]
+                for i in range(0, size, entsize):
+                    name, value, _, _, _, section = struct.unpack_from('>IIIBBH', elf, offset + i)
+                    if section: symbols[table[name:].split(b'\0', 1)[0].decode()] = value
+        m.symbols['UnderFireThink'] = symbols['LedgeStallThink'] + 4  # Skip callback-pointer blrl.
+        obj, data = m.call('TestCueObject', 0), m.call('TestCueData', 0)
+        event, state = 0x80407200, 0x80407400
+        m.cpu.mem_write(event + 0x2C, struct.pack('>I', state))
+        calls = []
+        bound = {symbols[name]: name for name in ('GetAllPlayerPointers', 'CheckIfFirstFrame',
+                 'SaveState_Load', 'PlaceOnLedge', 'UpdateCameraBox', 'IntToFloat',
+                 'Ledgestall_UpdateLavaPosition')}
+
+        def dependencies(cpu, address, size, user):
+            name = bound.get(address)
+            if not name: return
+            if name == 'GetAllPlayerPointers':
+                for n, value in ((3, obj), (4, data), (5, 0), (6, 0)): cpu.reg_write(gpr(n), value)
+            elif name == 'CheckIfFirstFrame': cpu.reg_write(gpr(3), 0)
+            elif name == 'IntToFloat':
+                value = cpu.reg_read(gpr(3))
+                if value & 0x80000000: value -= 0x100000000
+                cpu.reg_write(reg.UC_PPC_REG_FPR1, struct.unpack('>Q', struct.pack('>d', float(value)))[0])
+            else:
+                calls.append(name)
+                if name == 'SaveState_Load':
+                    self.assertEqual((cpu.reg_read(gpr(3)), cpu.reg_read(gpr(4))), (state + 0x10, 1))
+                    cpu.mem_write(data + 0x10, struct.pack('>I', 253))
+                    cpu.mem_write(data + 0x221F, b'\0')
+                elif name == 'Ledgestall_UpdateLavaPosition':
+                    self.assertEqual(struct.unpack('>f', cpu.mem_read(state + 8, 4))[0], -100)
+            cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+
+        hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
+        try:
+            for dead in (False, True):
+                for score in (0, 300):
+                    for attempt in range(2):  # The think GOBJ survives and resets repeatedly.
+                        calls.clear()
+                        m.cpu.mem_write(state, struct.pack('>BBHIf', 1, 0, 0, score, 10))
+                        m.cpu.mem_write(data + 0x10, struct.pack('>I', 14 if dead else 75))
+                        m.cpu.mem_write(data + 0x221F, b'\x40' if dead else b'\0')
+                        m.cpu.mem_write(data + 0x221D, b'\x08')
+                        m.cpu.mem_write(0x8046B6C8, struct.pack('>IH', 8, 59))
+                        for frame in range(29):
+                            m.call('UnderFireThink', event)
+                            self.assertEqual(calls, [])
+                        self.assertEqual(bytes(m.cpu.mem_read(state + 1, 1)), b'\x01')
+                        m.call('UnderFireThink', event)
+                        self.assertEqual(calls, ['SaveState_Load', 'PlaceOnLedge', 'UpdateCameraBox',
+                                               'Ledgestall_UpdateLavaPosition'])
+                        self.assertEqual(bytes(m.cpu.mem_read(state, 8)), struct.pack('>BBHI', 0, 0, 123, 0))
+                        self.assertEqual(bytes(m.cpu.mem_read(0x8046B6C8, 6)), bytes(6))
+                        self.assertEqual(bytes(m.cpu.mem_read(data + 0x221D, 1)), b'\0')
+        finally: m.cpu.hook_del(hook)
+
+
 class ActionCueTests(unittest.TestCase):
     YELLOW, GREEN, RED = 0xFFF000DC, 0x50FF5ADC, 0xFF2828B4
 
@@ -2462,6 +2585,82 @@ class ActionCueTests(unittest.TestCase):
         m.call("TestCueDraw", 0)
         self.assertEqual(m.call("TestCueDrawColor", 0), 0)
 
+    def test_event_tangibility_live_toggle_overrides_without_changing_saved_settings(self):
+        m = self.m
+        m.write(11, 4, 0)
+        m.write(11, 7, 1)
+        option = 0x80407000
+        m.cpu.mem_write(option, struct.pack('>h', 1))
+        before_settings = m.record()
+        m.call('TestCueState', 0, 14, 0, 40, 100)
+        m.call('ActionCues_SetTangibilityOverlay', option)
+        self.assertEqual(self.show(1, 14, 0), self.RED)
+        for script, game in ((1, 0), (2, 0), (0, 1), (0, 2)):
+            m.call('TestCueProtection', 0, script, game, 0)
+            m.call('TestCueDraw', 0)  # No new tick: protection changes while paused.
+            self.assertEqual(m.call('TestCueDrawColor', 0), 0)
+        m.cpu.mem_write(option, struct.pack('>h', 0))
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), 0xFF464670)
+        m.cpu.mem_write(option, struct.pack('>h', 1))
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), 0)
+        m.call('TestCueProtection', 0, 0, 0, 0)
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), self.RED)
+        m.call('ActionCues_Clear')  # Restore clears pulse/history, retaining the event toggle.
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), self.RED)
+        self.assertEqual(m.record(), before_settings)
+        m.call('ActionCues_SetTangibilityOverlay', 0)
+        m.call('TestCueProtection', 0, 0, 2, 0)
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), 0xFF464670)
+        m.call('TestCueInit')  # A new scene recreates fighter objects and their native renderers.
+        self.assertEqual(self.show(2, 14, 0), 0)
+
+    def test_event_tangibility_all_fighters_priority_pulse_and_native_color_preservation(self):
+        m = self.m
+        option = 0x80407000
+        m.cpu.mem_write(option, struct.pack('>h', 1))
+        for slot in range(12):
+            m.call('TestCueState', slot, 42, 3, 5, 100)
+        m.call('ActionCues_SetTangibilityOverlay', option)
+        for slot in range(12):
+            data = m.call('TestCueData', slot)
+            m.cpu.mem_write(data + 0x430, struct.pack('>I', 9))
+            m.call('TestCueLocal', slot, 0xAABBCCDD)
+        m.call('TestCueTick', 1)
+        for slot in range(12):
+            data = m.call('TestCueData', slot)
+            before = bytes(m.cpu.mem_read(data, 0x23EC))
+            m.call('TestCueDraw', slot)
+            self.assertEqual(m.call('TestCueDrawColor', slot), self.RED)  # Wins over yellow/local.
+            self.assertEqual(bytes(m.cpu.mem_read(data, 0x23EC)), before)
+        m.write(11, 4, 0)
+        alphas = [180, 140, 100, 60, 20, 60, 100, 140]
+        for tick, alpha in enumerate(alphas[1:], 2):
+            m.call('TestCueTick', tick)
+            m.call('TestCueDraw', 0)
+            self.assertEqual(m.call('TestCueDrawColor', 0), 0xFF282800 | alpha)
+        m.call('TestCueFrozen', 0, 1)
+        self.assertEqual(self.show(9, 42, 3, 5), 0xFF28288C)
+        m.call('TestCueFrozen', 0, 0)
+        m.call('TestCueProtection', 0, 2, 0, 0)
+        m.call('TestCueTick', 10)
+        m.call('TestCueProtection', 0, 0, 0, 0)
+        self.assertEqual(self.show(11, 14, 0), self.RED)  # Fresh pulse when protection drops.
+        m.call('TestCueCapsules', 0, 15, 2)
+        m.call('TestCueLocal', 0, 0)
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), 0)
+        m.call('TestCueCapsule', 0, 4, 0)
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), self.RED)
+        m.call('TestCueSpawn', 0, 2, 1)
+        m.call('TestCueDraw', 0)
+        self.assertEqual(m.call('TestCueDrawColor', 0), 0)
+
     def test_marth_roy_counter_windows_follow_native_flags_and_overlay_toggle(self):
         m=self.m;m.init();m.call('TestCueInit');m.write(11,7,1)
         m.call('TestCuePlayer',0,1,0)
@@ -2513,6 +2712,45 @@ class ActionCueTests(unittest.TestCase):
                     m.call(callback,obj)
                     self.assertEqual(m.call('ActionCues_IsProtected',obj),expected)
                 self.assertEqual(bytes(m.cpu.mem_read(data+0x221B,1)),b'\x40')
+
+    def test_nana_belay_native_protection_on_subfighter(self):
+        m = self.m
+        m.write(11, 7, 1)
+        m.call('TestCuePlayer', 0, 1, 0)
+        m.call('TestCueKind', 0, 10)  # Popo.
+        m.call('TestCueKind', 1, 11)  # Nana, using the actual subfighter slot.
+        m.call('TestCueState', 0, 347, 0, 60, 100)
+        obj = m.call('TestCueObject', 1)
+        data = m.call('TestCueData', 1)
+        # Native opcode 0x68 handler's hurt-status setter. Belay's original
+        # scripts use 0x68000002 at startup and 0x68000001 during the throw.
+        dol = (ROOT / 'build/Start.dol').read_bytes()
+        address, end = 0x8007B62C, 0x8007B6A0
+        for section in range(18):
+            offset, base, length = [struct.unpack_from('>I', dol, at + section * 4)[0]
+                                    for at in (0, 0x48, 0x90)]
+            if base <= address and end <= base + length:
+                m.cpu.mem_write(address, dol[offset + address - base:offset + end - base])
+                break
+        # Only bound the unrelated native color-animation request.
+        m.cpu.mem_write(0x800BFFD0, bytes.fromhex('4e800020'))
+        m.symbols['NativeBelayHurtStatus'] = address
+        for frame, state, status in ((1, 361, 2), (2, 362, 1), (3, 364, 2),
+                                     (4, 365, 1), (5, 365, 0), (6, 35, 0)):
+            m.call('TestCueState', 1, state, 0, 60, 100)
+            m.call('NativeBelayHurtStatus', obj, status)
+            self.assertEqual(m.call('ActionCues_IsProtected', obj), int(status > 0))
+            m.call('TestCueTick', frame)
+            before = bytes(m.cpu.mem_read(data, 0x23EC))
+            m.call('TestCueDraw', 1)
+            self.assertEqual(m.call('TestCueDrawColor', 1), 0x4691FF70 if status else 0)
+            self.assertEqual(bytes(m.cpu.mem_read(data, 0x23EC)), before)
+            m.call('TestCueDraw', 0)
+            self.assertEqual(m.call('TestCueDrawColor', 0), 0)
+        m.call('NativeBelayHurtStatus', obj, 1)
+        m.write(11, 7, 0)
+        m.call('TestCueDraw', 1)
+        self.assertEqual(m.call('TestCueDrawColor', 1), 0)
 
     def test_yoshi_double_jump_armor_and_move_protection(self):
         m = self.m

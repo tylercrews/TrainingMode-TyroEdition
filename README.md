@@ -17,6 +17,11 @@ The Tyro version and stable game/save identity live in [version.h](version.h). U
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
+### T4 (V1.4.1T4)
+
+- Replace Ledgedash's Protection Highlight with event-local Highlight Dropped Invincibility, using the red diagnostic pulse when protection drops. It overrides the global invincibility tint. Is enabled by default in Under Fire.
+- Make Under Fire restart after hits or deaths, resetting its lava and timer for repeated practice; add a pause menu with the highlight toggle and Exit.
+
 ### T3 (V1.4.1T3)
 
 - Remember the selected event and page across sessions, restoring the cursor and scroll position on boot.

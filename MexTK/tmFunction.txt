@@ -38,3 +38,4 @@ OSD_ShineBeforeIASA
 OSD_ShineAfterIASA
 Settings_CommitPending
 Settings_EventCharacters
+UnderFire_InitMenu

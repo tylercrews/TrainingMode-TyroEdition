@@ -1896,7 +1896,7 @@ static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = TM_GLOBAL_INVINCIBILITY_NAME,
-        .desc = {"Show protected fighters in their translucent trail color.", "Includes moves, dodges, respawn, ledge and Yoshi jump armor.", "Actionable Yellow/Green takes priority while active."},
+        .desc = {"Show protected fighters in their translucent trail color.", "Includes Nana Up-B, counters, dodges, ledge and Yoshi armor.", "Actionable Yellow/Green takes priority while active."},
         .OnChange = Lab_ChangeGlobalCue,
     },
     {
