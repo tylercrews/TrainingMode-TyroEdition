@@ -377,6 +377,19 @@ void Event_Think(GOBJ *menu) {
         sideb.range_locked = true;
     }
 
+    /* Landing can occur before Marth reaches down-tilt or after he freezes.
+     * During startup/dash, native Side-B collision switches directly to the
+     * grounded special states; endlag lands in LandingFallSpecial instead. */
+    if (sideb.attempted && state != STATE_RESET
+        && (hmn_data->state_id == ASID_LANDING
+            || hmn_data->state_id == ASID_LANDINGFALLSPECIAL
+            || (hmn_data->phys.air_state == 0
+                && hmn_data->state_id >= 347 && hmn_data->state_id <= 349))) {
+        FrameSpeedChange(cpu, 1.0);
+        reset_timer = 30;
+        state = STATE_RESET;
+    }
+
     // Begin CPU AI logic
     Fighter_ZeroCPUInputs(cpu_data);
 

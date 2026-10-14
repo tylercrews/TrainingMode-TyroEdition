@@ -234,7 +234,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         header = None
         for i in range(root_count):
             offset, name = struct.unpack_from(">II", dat, nodes + i * 8)
-            if dat[strings + name:].split(b"\0", 1)[0] == b"tmFunction":
+            if dat[strings + name:].split(b"\0", 1)[0] == getattr(self, 'dat_root', b'tmFunction'):
                 header = struct.unpack_from(">6I", dat, 32 + offset)
         self.assertIsNotNone(header)
         code, table, count, exports, num_exports, size = header
@@ -263,6 +263,9 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         self.m.cpu.mem_write(self.base, bytes(payload))
         for i in range(num_exports):
             index, offset = struct.unpack_from(">II", dat, 32 + exports + i * 8)
+            if getattr(self, 'dat_root', b'tmFunction') == b'evFunction':
+                if index == 2: self.m.symbols['DAT_SweetspotThink'] = self.base + offset
+                continue
             if index in [27, 28, 38, 39, 40, 41]:
                 self.m.symbols[{27:"DAT_Get",28:"DAT_Set",38:"DAT_Commit",39:"DAT_Characters",
                                40:"DAT_UnderFire",41:"DAT_UnderFireScore"}[index]] = self.base + offset
@@ -2175,6 +2178,96 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(m.read(15, 15), 1)
         self.assertEqual(m.call("TestEditorLabelChar", 21, 0), 0)
         self.assertEqual(m.call("TestEditorLabelChar", 20, 0), ord("O"))
+
+
+class SweetspotResetTests(unittest.TestCase):
+    dat_path = ROOT / 'build/sweetspot-reset-test.dat'
+    dat_root = b'evFunction'
+
+    def setUp(self):
+        from unicorn import UC_HOOK_CODE
+        RelocatedDATSettingsTests.setUp(self)
+        m = self.m
+        m.init()
+        m.call('TestCueInit')
+        self.human, self.cpu_data = m.call('TestCueData', 0), m.call('TestCueData', 2)
+        objects = (m.call('TestCueObject', 0), m.call('TestCueObject', 2))
+        context = 0x80409000
+        m.cpu.mem_write(0x803D7054, struct.pack('>I', context))
+        m.cpu.mem_write(context + 0x14, struct.pack('>I', 2))
+        # Bind the repositioning routine while executing the actual optimized
+        # event state machine, countdown and unfreeze calls in its relocated DAT.
+        start = m.symbols['DAT_SweetspotThink']
+        for pc in range(start, start + 256, 4):
+            word = struct.unpack('>I', m.cpu.mem_read(pc, 4))[0]
+            if word & 0xFC000003 == 0x48000001:
+                delta = word & 0x03FFFFFC
+                if delta & 0x02000000: delta -= 0x04000000
+                self.reset = pc + delta
+                break
+        self.resets, self.speeds = [], []
+        sfx = int(next(line.split(':')[0] for line in (ROOT/'MexTK/melee.link').read_text().splitlines()
+                       if line.endswith(':SFX_Play')), 16)
+        def dependencies(cpu, address, size, user):
+            if address == self.reset: self.resets.append(cpu.reg_read(gpr(3)))
+            elif address == 0x80034110: cpu.reg_write(gpr(3), objects[cpu.reg_read(gpr(3))])
+            elif address == 0x8006F190:
+                self.speeds.append(struct.unpack('>d', struct.pack('>Q', cpu.reg_read(reg.UC_PPC_REG_FPR1)))[0])
+            elif address not in (0x800B4A78, sfx): return
+            cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        self.hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
+        m.call('TestCueState', 2, 14, 0, 40, 100)
+
+    def tearDown(self): self.m.cpu.hook_del(self.hook)
+
+    def step(self, state, air=1):
+        self.m.call('TestCueState', 0, state, 0, 40, 100)
+        self.m.cpu.mem_write(self.human + 0xE0, struct.pack('>I', air))
+        self.m.call('DAT_SweetspotThink', 0)
+
+    def attempt(self, frozen):
+        self.step(350)
+        if frozen:
+            self.step(351)
+            self.m.call('TestCueState', 2, 57, 7, 40, 100)
+            self.step(352)
+            self.assertEqual(self.speeds[-1], 0)
+
+    def test_landing_resets_once_before_or_after_marth_freezes(self):
+        for landing in (42, 43, 347, 348, 349):
+            for frozen in (False, True):
+                with self.subTest(landing=landing, frozen=frozen):
+                    self.tearDown(); self.setUp()
+                    self.attempt(frozen)
+                    self.step(landing, 0)
+                    self.assertEqual(self.speeds[-1], 1)
+                    for frame in range(29):
+                        self.step(landing, 0)
+                        self.assertEqual(self.resets, [])
+                    self.step(landing, 0)
+                    self.assertEqual(self.resets, [2])
+
+    def test_ledge_delay_and_death_reset_are_preserved(self):
+        self.attempt(True)
+        self.step(252)
+        self.assertEqual(self.speeds[-1], 1)
+        for frame in range(59):
+            self.step(43, 0)  # Landing cannot replace an already scheduled ledge reset.
+            self.assertEqual(self.resets, [])
+        self.step(43, 0)
+        self.assertEqual(self.resets, [2])
+        self.tearDown(); self.setUp()
+        self.attempt(True)
+        self.m.call('TestCueSpawn', 0, 1, 1)
+        self.step(352)
+        self.assertEqual(self.resets, [2])  # Death still resets immediately.
+
+    def test_landing_without_side_b_and_airborne_special_do_not_reset(self):
+        for frame in range(35): self.step(43, 0)
+        self.assertEqual(self.resets, [])
+        self.attempt(False)
+        for frame in range(35): self.step(349, 1)
+        self.assertEqual(self.resets, [])
 
 
 class UnderFireNativeTests(unittest.TestCase):
