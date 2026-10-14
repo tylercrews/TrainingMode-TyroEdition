@@ -16,15 +16,15 @@ static struct {
     unsigned shown_page, shown_pages;
     int canvas, seen;
 } layout;
-static const char *category_names[TM_SETTINGS_OSDS] = {
+static const char *category_names[TM_OSD_CATEGORIES] = {
     "Wavedash", "L-Cancel", "Act OoS", "Dashback", "Fighter-specific Tech",
     "Powershield", "SDI Inputs", "Lockout Timers", "Item Throw Interrupts", "Boost Grab",
     "Act OoWait", "Act OoAirborne", "Jump Cancel", "Fastfall", "Frame Advantage",
-    "Combo Counter", "Grab Breakout", "Ledgedash", "Act OoHitstun",
+    "Combo Counter", "Grab Breakout", "Ledgedash", "Act OoHitstun", TM_GLOBAL_ASMASH_RELEASE_NAME,
 };
 static const char *slot_name(unsigned key) {
     unsigned slot = key % TM_OSD_SLOTS;
-    if (slot == TM_SETTINGS_OSDS) return "JC Shine";
+    if (slot == TM_OSD_CATEGORIES) return "JC Shine";
     if (slot == 4 && (layout.map.split_owners & (1u << (key / TM_OSD_SLOTS)))) return "Jump Out Of Shine";
     return category_names[slot];
 }
@@ -270,7 +270,6 @@ static void footer(GOBJ *object, unsigned mode) {
     if (msg->layout_footer_state != state) {
         char line[128], part[24];
         unsigned used = 0;
-        for (const char *p = part; *p; ++p) line[used++] = *p;
         if (mode == TM_OSD_PANEL) {
             Text_SetText(msg->layout_footer, 7, "");
             const char *title = msg->layout_title[0] ? msg->layout_title : slot_name(msg->layout_key);

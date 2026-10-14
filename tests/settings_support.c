@@ -38,6 +38,13 @@ int sprintf(char *out, const char *format, ...) {
     *out = 0; va_end(args); return out - start;
 }
 int TestDirty(void) { return stc_memcard_state->memcard_changed; }
+unsigned Events_ScoreIndex(unsigned page, unsigned event) {
+    static const unsigned counts[3] = {5, 16, 7};
+    if (page >= 3 || event >= counts[page]) return UINT32_MAX;
+    unsigned index = event;
+    for (unsigned p = 0; p < page; ++p) index += counts[p];
+    return index;
+}
 void TestEventCharacters(unsigned save) { Settings_Characters(save, -1, -1, 1); }
 int TestTextCopyFormat(char *out, int limit, const char *format, void *args) {
     /* Native SetText fixture inputs are already formatted, as in the timing

@@ -3,15 +3,15 @@
 
 int TMOSD_Key(int player, int category) {
     if ((unsigned)player >= TM_OSD_PLAYERS) return -1;
-    if (category == 64) return player * TM_OSD_SLOTS + TM_SETTINGS_OSDS;
-    for (unsigned i = 0; i < TM_SETTINGS_OSDS; ++i)
-        if (TMSettings_OSDIDs[i] == category) return player * TM_OSD_SLOTS + i;
+    if (category == 64) return player * TM_OSD_SLOTS + TM_OSD_CATEGORIES;
+    for (unsigned i = 0; i < TM_OSD_CATEGORIES; ++i)
+        if (TMSettings_OSDCategoryID(i) == (unsigned)category) return player * TM_OSD_SLOTS + i;
     return -1;
 }
 int TMOSD_Category(int key) {
     if ((unsigned)key >= TM_OSD_KEYS) return -1;
     unsigned slot = key % TM_OSD_SLOTS;
-    return slot == TM_SETTINGS_OSDS ? 8 : TMSettings_OSDIDs[slot];
+    return slot == TM_OSD_CATEGORIES ? 8 : TMSettings_OSDCategoryID(slot);
 }
 int TMOSD_MessageKey(int player, int category, int kind) { return TMOSD_Key(player, category == 8 && kind == 64 ? 64 : category); }
 void TMOSD_MapSplitOwners(TMOSDMap *map, unsigned owners) { map->split_owners = owners & 63; }
@@ -26,7 +26,7 @@ void TMOSD_MapOwners(TMOSDMap *map, unsigned eligible) {
 }
 static unsigned categories(const TMOSDMap *map) {
     unsigned count = 0;
-    for (unsigned i = 0; i < TM_SETTINGS_OSDS; ++i) count += !!(map->mask & (1u << TMSettings_OSDIDs[i]));
+    for (unsigned i = 0; i < TM_OSD_CATEGORIES; ++i) count += !!(map->mask & (1u << TMSettings_OSDCategoryID(i)));
     return count;
 }
 static unsigned split(const TMOSDMap *map, unsigned player) { return !!(map->split_owners & (1u << player)) && !!(map->mask & (1u << 8)); }
@@ -46,15 +46,15 @@ TMOSDCell TMOSD_Cell(const TMOSDMap *map, int key, unsigned layout) {
     if (category < 0 || !(map->mask & (1u << category))) return out;
     unsigned owner = 0;
     unsigned player = key / TM_OSD_SLOTS, slot = key % TM_OSD_SLOTS;
-    if (slot == TM_SETTINGS_OSDS && !split(map, player)) return out;
+    if (slot == TM_OSD_CATEGORIES && !split(map, player)) return out;
     while (owner < map->owner_count && map->owners[owner] != player) ++owner;
     if (owner == map->owner_count) return out;
     unsigned index = owner * categories(map);
     for (unsigned i = 0; i < owner; ++i) index += split(map, map->owners[i]);
-    unsigned before = slot == TM_SETTINGS_OSDS ? 5 : slot;
+    unsigned before = slot == TM_OSD_CATEGORIES ? 5 : slot;
     for (unsigned i = 0; i < before; ++i)
-        index += !!(map->mask & (1u << TMSettings_OSDIDs[i]));
-    if (slot != TM_SETTINGS_OSDS && slot > 4) index += split(map, player);
+        index += !!(map->mask & (1u << TMSettings_OSDCategoryID(i)));
+    if (slot != TM_OSD_CATEGORIES && slot > 4) index += split(map, player);
     unsigned capacity = TMOSD_Capacity(layout);
     out.key = key; out.page = index / capacity; out.cell = index % capacity;
     out.x = layout == TM_OSD_PANEL ? -26.f : -23.2f + (out.cell % TM_OSD_GRID_COLUMNS) * 11.6f;

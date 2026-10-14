@@ -338,7 +338,13 @@ void Lab_ChangeOSDs(GOBJ *menu_gobj, int value) {
     unsigned row;
     for (row = 0; row < countof(LabOSD_ID); ++row)
         if (selected == &LabOptions_OSDs[row]) break;
-    if (row == countof(LabOSD_ID)) return;
+    if (row == countof(LabOSD_ID)) {
+        if (selected != &LabOptions_OSDs[TM_SETTINGS_OSDS + 2]) return;
+        TM_SetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID, value);
+        LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
+        Memcard_SaveIfChanged();
+        return;
+    }
     // Only the selected category changes; other editors' choices remain authoritative.
     TM_SetSetting(TM_SETTING_OSD_COLOR, LabOSD_ID[row], value);
     for (unsigned i = 0; i < countof(LabOSD_ID); ++i)
@@ -6145,6 +6151,7 @@ void Event_Init(GOBJ *gobj)
     }
     for (int i = 0; i < (int)countof(LabOSD_ID); i++)
         LabOptions_OSDs[i].val = TM_GetSetting(TM_SETTING_OSD_COLOR, LabOSD_ID[i]);
+    LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
 
     LabOptions_OSDs[TM_SETTINGS_OSDS + 3].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_VERY_FAST);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 4].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_INSTANT);

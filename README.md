@@ -19,6 +19,9 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Add nine saved Techchase chance presets, ground/platform starting locations and Spotdodge Punish; remember its OSD, reset, invisibility and camera-mode choices while keeping manual percentages and camera coordinates session-only.
+- Add global A-Smash Release timing feedback, with 1f as the fastest A-button release; preserve existing OSD settings and palette storage.
+- Verify and protect unused event-score storage for a separate 12-byte preferences extension, preserving all active scores and leaving 80 spare bytes.
 - Replace Ledgedash's Protection Highlight with event-local Highlight Dropped Invincibility, using the red diagnostic pulse when protection drops. It overrides the global invincibility tint. Is enabled by default in Under Fire.
 - Make Under Fire restart after hits or deaths, resetting its lava and timer for repeated practice; show Session Best beneath the timer and save an improved high score on pause-menu Exit.
 - Reset Side-B Sweetspot after landing on stage or platforms following Side-B, unfreezing Marth and preserving the existing death and ledge reset timing.

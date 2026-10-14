@@ -759,6 +759,16 @@ EventPage *EventPages[] = {
     &General_Page,
     &CharacterSpecific_Page,
 };
+/* Slots 28..50 belong to the bounded preference extension. Grow the event
+ * catalogue only alongside an explicit extension relocation/migration. */
+typedef char event_scores_fit[(countof(Minigames_Events) + countof(General_Events) +
+    countof(CharacterSpecific_Events) <= 28) ? 1 : -1];
+unsigned Events_ScoreIndex(unsigned page, unsigned event) {
+    if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
+    unsigned index = event;
+    for (unsigned p = 0; p < page; ++p) index += EventPages[p]->eventNum;
+    return index < 28 ? index : UINT32_MAX;
+}
 
 ////////////////////////
 /// Static Variables ///

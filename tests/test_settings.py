@@ -1137,14 +1137,14 @@ class OSDLayoutTests(unittest.TestCase):
         for player in range(6):
             for slot, category in enumerate(IDS):
                 key = m.call("TMOSD_Key",player,category)
-                self.assertEqual(key,player*20+slot)
+                self.assertEqual(key,player*21+slot)
                 self.assertEqual(m.call("TMOSD_Category",key),category)
                 for mode, capacity in [(1,10),(2,9)]:
                     index=player*19+slot
                     self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,0),index//capacity)
                     self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,1),index%capacity)
-        self.assertEqual(m.call("TMOSD_Key",0,64),19)
-        self.assertEqual(m.call("TestLayoutCell",ptr,19,1,0),0xFFFFFFFF) # Non-space-animal roster has no JC slot.
+        self.assertEqual(m.call("TMOSD_Key",0,64),20)
+        self.assertEqual(m.call("TestLayoutCell",ptr,20,1,0),0xFFFFFFFF) # Non-space-animal roster has no JC slot.
         for player, category in [(-1,0),(6,0),(0,2)]:
             self.assertEqual(m.call("TMOSD_Key",player,category),0xFFFFFFFF)
 
@@ -1158,6 +1158,88 @@ class OSDLayoutTests(unittest.TestCase):
         m.call("TMOSD_MapOwners",ptr,1)
         self.assertEqual(m.call("TMOSD_Count",ptr),6)  # Hidden owners retain their cells.
 
+    def test_additive_asmash_category_maps_all_owners_and_preserves_old_cells_when_off(self):
+        m=self.m;ptr=0x80406000
+        old_mask=sum(1<<id for id in IDS)
+        for enabled in (0,1,0):
+            m.call("TMOSD_MapReset",ptr,old_mask|((1<<30) if enabled else 0))
+            m.call("TMOSD_MapOwners",ptr,63)
+            m.call("TMOSD_MapSplitOwners",ptr,63)
+            self.assertEqual(m.call("TMOSD_Count",ptr),6*(20+enabled))
+            for player in range(6):
+                key=m.call("TMOSD_Key",player,30)
+                self.assertEqual(key,player*21+19)
+                self.assertEqual(m.call("TMOSD_Category",key),30)
+                for mode,capacity in ((1,10),(2,9)):
+                    if enabled:
+                        index=player*21+20
+                        self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,0),index//capacity)
+                        self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,1),index%capacity)
+                    else:
+                        self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,0),0xFFFFFFFF)
+                        for slot,category in enumerate(IDS):
+                            old_key=m.call("TMOSD_Key",player,category)
+                            index=player*20+slot+(slot>4)
+                            self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,0),index//capacity)
+                            self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,1),index%capacity)
+
+    def test_asmash_result_renders_in_all_layouts_and_does_not_move_existing_results(self):
+        for mode in range(3):
+            with self.subTest(mode=mode):
+                self.m=Machine();self.m.init();self.start(mode,ids=(0,20));m=self.m
+                wave=m.call("TestLayoutEmit",0,0,1,0)
+                fast=m.call("TestLayoutEmit",0,20,2,20)
+                m.call("TestLayoutTick",1)
+                positions=[(m.call("TestLayoutX100",obj),m.call("TestLayoutY100",obj)) for obj in (wave,fast)]
+                core=m.record()
+                m.call("Settings_Set",14,30,6)
+                self.assertEqual(m.record(),core)
+                smash=m.call("TestLayoutEmit",0,30,1,70)
+                m.call("TestLayoutTick",2)
+                self.assertEqual(m.call("TestLayoutVisible",smash),1)
+                self.assertEqual([(m.call("TestLayoutX100",obj),m.call("TestLayoutY100",obj)) for obj in (wave,fast)],positions)
+                if mode==0:
+                    self.assertEqual(m.call("TestLayoutRecent"),3)
+                elif mode==1:
+                    self.assertNotIn((m.call("TestLayoutX100",smash),m.call("TestLayoutY100",smash)),positions)
+                else:
+                    title=lambda row:bytes(m.call("TestLayoutFooterRowChar",smash,row,i) for i in range(33)).split(b"\0",1)[0]
+                    self.assertEqual((title(0),title(1)),(b"A-Smash",b"Release"))
+                    self.assertIn(b"1f",self.footer(smash))
+                m.call("Settings_Set",14,30,0);m.call("TestLayoutTick",3)
+                self.assertEqual(m.record(),core)
+                self.assertEqual([(m.call("TestLayoutX100",obj),m.call("TestLayoutY100",obj)) for obj in (wave,fast)],positions)
+                self.assertEqual(m.call("TestLayoutFreed"),int(mode>0))
+
+    def test_asmash_master_and_cpu_suppression_cover_all_layouts_and_restore_saved_palette(self):
+        for mode in range(3):
+            with self.subTest(mode=mode):
+                self.m=Machine();self.m.init();self.start(mode,ids=());m=self.m
+                m.call("Settings_Set",14,30,6)
+                m.call("TestCueState",2,14,1,40,100);m.call("TestCuePlayer",1,1,1)
+                m.call("TestLayoutTick",1)
+                human=m.call("TestLayoutEmit",0,30,1,70)
+                cpu=m.call("TestLayoutEmit",1,30,2,70)
+                m.call("TestLayoutTick",2)
+                def hidden(obj):
+                    message=struct.unpack(">I",m.cpu.mem_read(obj+0x2C,4))[0]
+                    text=struct.unpack(">I",m.cpu.mem_read(message,4))[0]
+                    m.call("OSD_MessageGX",obj,2)
+                    hidden_value=bytes(m.cpu.mem_read(text+0x4D,1))[0]
+                    # Separate panel title/timing Texts must obey the same
+                    # draw-time suppression as the producer's original Text.
+                    for offset in (0x58,0x8C):
+                        extra=struct.unpack(">I",m.cpu.mem_read(message+offset,4))[0]
+                        if extra:self.assertEqual(bytes(m.cpu.mem_read(extra+0x4D,1))[0],hidden_value)
+                    return hidden_value
+                self.assertEqual((hidden(human),hidden(cpu)),(0,0))
+                m.call("Settings_Set",11,0,1)
+                self.assertEqual((hidden(human),hidden(cpu)),(1,1))
+                m.call("Settings_Set",11,0,0);m.call("Settings_Set",11,8,1)
+                self.assertEqual((hidden(human),hidden(cpu)),(0,1))
+                m.call("Settings_Set",11,8,0)
+                self.assertEqual((hidden(human),hidden(cpu)),(0,0))
+                self.assertEqual(m.call("Settings_Get",14,30),6)
     def test_repeated_results_retain_positions_and_do_not_expire_in_both_styles(self):
         for mode in (1,2):
             self.m = Machine();self.m.init();self.start(mode)
@@ -2111,7 +2193,7 @@ class OSDEditorTests(unittest.TestCase):
         m = self.m
         m.call("TestEditorInit")
         before = m.record()
-        for row in [21, 29, 65535]:
+        for row in [29, 65535]:
             self.assertEqual(m.call("TestEditorInput", 0x200, row), 1)
             self.assertEqual(m.call("TestEditorInput", 0x10, row), 1)
         for button in [1, 2, 4, 8, 0x100, 0x400, 0x800, 0x1000]:
@@ -2153,7 +2235,7 @@ class OSDEditorTests(unittest.TestCase):
     def test_grouped_editor_gaps_and_native_exit_keep_every_preference(self):
         m = self.m
         physical = [0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,12,13,14,15,16,17,18,19,20,21,22,23,25,27]
-        expected = IDS + [29,6,255,2,4,7,17,11,23,25]
+        expected = IDS + [29,6,30,2,4,7,17,11,23,25]
         for i, id in enumerate(IDS):
             m.write(14, id, (i % 7) + 1)
         for flag in range(8):
@@ -2162,7 +2244,7 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorInit")
         for row, native in enumerate(physical):
             self.assertEqual(m.call("TMSettings_EditorID", native), expected[row])
-            self.assertEqual(m.call("TestEditorHidden", row), int(row == 21))
+            self.assertEqual(m.call("TestEditorHidden", row), 0)
             self.assertEqual(m.read(17, native), m.call("TestEditorCache", row))
             self.assertEqual(m.call("TestSettingsEditorRow", native), m.call("TestEditorCache", row))
         label = "OVERRIDE ALL OSDS OFF"
@@ -2176,7 +2258,7 @@ class OSDEditorTests(unittest.TestCase):
             m.call("TestSettingsEditorWrite", native, m.call("TestEditorCache", row))
         self.assertEqual(m.record(), before)
         self.assertEqual(m.read(15, 15), 1)
-        self.assertEqual(m.call("TestEditorLabelChar", 21, 0), 0)
+        self.assertEqual(m.call("TestEditorLabelChar", 21, 0), ord("A"))
         self.assertEqual(m.call("TestEditorLabelChar", 20, 0), ord("O"))
 
 

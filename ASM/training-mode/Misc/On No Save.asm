@@ -31,6 +31,14 @@ ClearTyroSettings:
     stw r3, 0(r5)
     addi r5, r5, 4
     bdnz ClearTyroSettings
+    # The separately versioned extension owns three spare event-score words.
+    addi r5, r4, 0x1AE0
+    li r6, 3
+    mtctr r6
+ClearTyroExtension:
+    stw r3, 0(r5)
+    addi r5, r5, 4
+    bdnz ClearTyroExtension
 LegacyDefaults:
     # Set Max OSD on No Memcard
     li r3, 1

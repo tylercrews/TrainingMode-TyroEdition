@@ -69,6 +69,10 @@ Validation runs lazily after data is available. Only the exact running Tyro game
 
 Earlier unversioned `TYRE01` builds from step 0 cannot understand this packed record. Once migrated, avoid using those builds with the same Tyro save; the separate upstream/T1 `GTME01` namespace remains unaffected. Version-aware newer builds preserve unsupported settings, but this does not make arbitrary older game executables or recording formats compatible. No automatic upstream-save copy/import is implemented.
 
+T4 adds an independent 12-byte `TYEX` extension at `0x1AE0..0x1AEB`, inside unused event-score slots. The original 44-byte record and its 19 OSD palettes retain their format. The extension saves A-Smash Release's palette and eight Techchase choices: preset, reaction OSD, timing OSD, reset, invisibility, camera mode, location and Spotdodge Punish. Manual percentages and custom camera coordinates are not saved. Reads of a missing extension reconstruct defaults without initializing it; an explicit edit initializes it. Unknown extension formats retain their bytes and use private runtime preferences. See [the score-storage audit](SCORE-STORAGE-AUDIT.md) for native serialization/checksum tests, reset protection, fixed catalogue limits and downgrade behavior. Of the 92 verified spare bytes, 80 remain unallocated.
+
+Runtime OSD category count is separate from the original saved palette count. Category 30 is A-Smash Release, appended to runtime layouts and assigned the existing blank editor row. Existing categories keep their identities and palette bits. See [A-Smash Release](docs/A-SMASH-RELEASE.md) for its input timing and native hook contracts, and [Techchase settings](docs/TECHCHASE-SETTINGS.md) for presets, positioning and punish behavior.
+
 Run the actual PowerPC codec, runtime bridge and native-hook tests from the repository root:
 
 ```sh

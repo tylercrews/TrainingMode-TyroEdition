@@ -199,6 +199,10 @@
     ENTRY TM_SettingsEventCharacters
     ENTRY TM_UnderFireInitMenu
     ENTRY TM_UnderFireUpdateScore
+    ENTRY TM_SettingsResetEventRecords
+    ENTRY TM_SettingsEventScoreSlot
+    ENTRY TM_ASmashEnter
+    ENTRY TM_ASmashInput
 
     # TmDt Data Pointers
     .set TM_Data, TM_tmFunction - 0x4

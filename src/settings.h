@@ -11,6 +11,9 @@
 #define TM_SETTINGS_LEGACY_OVERLAYS 17
 #define TM_SETTINGS_OVERLAY_CHOICES 11
 #define TM_SETTINGS_OSDS 19
+#define TM_OSD_CATEGORIES (TM_SETTINGS_OSDS + 1) /* Append-only runtime category; core palette unchanged. */
+#define TM_GLOBAL_ASMASH_RELEASE_ID 30
+#define TM_GLOBAL_ASMASH_RELEASE_NAME "A-Smash Release"
 #define TM_SETTINGS_FLAGS_OFFSET 10
 #define TM_SETTINGS_OVERLAYS_OFFSET 12
 #define TM_SETTINGS_COLORS_OFFSET 30
@@ -93,6 +96,7 @@ enum TMSettingsField {
     TM_SETTING_CHARACTER, /* Index 0 human / 1 CPU; external ID, UINT32_MAX = unset. */
     TM_SETTING_SWEETSPOT_LINES, /* Index 0 only: Enable Line Guides; default On. */
     TM_SETTING_EVENT_SELECTION, /* Byte 5 high six bits; page remains in low two. */
+    TM_SETTING_TECHCHASE, /* Separate extension; manual chances are session-only. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -106,6 +110,11 @@ enum TMEggsPreference {
     TM_EGGS_FREE_PRACTICE, TM_EGGS_PREF_COUNT,
 };
 enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUNT };
+enum TMTechchasePreference {
+    TM_TECHCHASE_PRESET, TM_TECHCHASE_REACTION_OSD, TM_TECHCHASE_TIMING_OSD,
+    TM_TECHCHASE_RESET, TM_TECHCHASE_INVISIBILITY, TM_TECHCHASE_CAMERA,
+    TM_TECHCHASE_LOCATION, TM_TECHCHASE_SPOTDODGE, TM_TECHCHASE_PREF_COUNT,
+};
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1
 #define TM_LEDGE_DEFAULT_TIPS 1
@@ -113,6 +122,9 @@ enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUN
 #define TM_EGGS_DEFAULT_VELOCITY 1
 
 extern const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS];
+static inline unsigned TMSettings_OSDCategoryID(unsigned slot) {
+    return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] : TM_GLOBAL_ASMASH_RELEASE_ID;
+}
 extern const uint8_t TMSettings_EditorIDs[29];
 int TMSettings_EditorID(unsigned native_row);
 int TMSettings_NativeFlag(unsigned row);
@@ -134,5 +146,8 @@ int Settings_Status(void);
 void Settings_CommitPending(void);
 void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable);
 void Settings_EventCharacters(unsigned save);
+void Settings_ResetEventRecords(void *card);
+void *Settings_EventScoreSlot(unsigned event);
+unsigned Events_ScoreIndex(unsigned page, unsigned event);
 
 #endif

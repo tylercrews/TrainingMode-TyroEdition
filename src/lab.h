@@ -1854,8 +1854,9 @@ static EventOption LabOptions_OSDs[] = {
         .OnChange = Lab_ChangeOSDsOff,
     },
     {
-        .kind = OPTKIND_INFO, .disable = 1, .name = "",
-        .desc = {""},
+        .kind = OPTKIND_STRING, .name = TM_GLOBAL_ASMASH_RELEASE_NAME,
+        .value_num = 8, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
+        .desc = {"Time your A-button release after starting a smash.", "1f is fastest; C-stick and automatic full charge are excluded."},
     },
     {
         .kind = OPTKIND_TOGGLE,

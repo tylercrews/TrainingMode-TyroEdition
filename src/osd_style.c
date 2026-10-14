@@ -15,6 +15,7 @@ int OSD_MessageKind(int kind) {
 int OSD_MessageSettings(int kind) {
     if (!tagged(kind)) return -1;
     unsigned id = ((uint32_t)kind >> 8) & 31;
+    if (id == TM_GLOBAL_ASMASH_RELEASE_ID) return id;
     for (unsigned i = 0; i < TM_SETTINGS_OSDS; ++i)
         if (TMSettings_OSDIDs[i] == id) return id;
     return -1;

@@ -1,5 +1,6 @@
 #include "events.h"
 #include "action_cues.h"
+#include "asmash_osd.h"
 #include <stddef.h>
 
 typedef char cue_script_layout[(sizeof(TMCueScript) == 0x24 &&
@@ -243,6 +244,7 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
 }
 void ActionCues_Clear(void) {
     OSDContext_Clear();
+    ASMash_Clear();
     for (unsigned i = 0; i < countof(fighters); ++i) {
         fighters[i].cue = (TMCueState){0};
         fighters[i].color = TM_CUE_NONE; fighters[i].missed_entry = -1;
