@@ -8,6 +8,7 @@ static unsigned local_enabled, local_mode, active_mode = TM_TRAIL_DISABLED;
 static u32 native_frame;
 static int native_frame_seen;
 static int live;
+static const s16 *override_choice;
 static unsigned effective_mode(void);
 
 void Trails_Clear(void) { TMTrail_Clear(&bank); native_frame_seen = 0; }
@@ -18,8 +19,14 @@ void Trails_Configure(unsigned enabled, unsigned mode) {
     if (before != effective_mode()) Trails_Clear();
 }
 static unsigned effective_mode(void) {
+    if (override_choice) return TMTrail_OverrideMode(*override_choice);
     return TMTrail_Effective(Settings_Get(TM_SETTING_FLAG, TM_FLAG_TRAILS_VERY_FAST),
                             Settings_Get(TM_SETTING_FLAG, TM_FLAG_TRAILS_INSTANT), local_enabled, local_mode);
+}
+void Trails_SetOverride(const s16 *choice) {
+    unsigned before = effective_mode();
+    override_choice = choice;
+    if (before != effective_mode()) Trails_Clear();
 }
 static unsigned update_mode(void) {
     unsigned mode = effective_mode();
@@ -88,11 +95,13 @@ static void Trails_GX(GOBJ *gobj, int pass) {
 }
 void Trails_SceneChange(void) {
     live = 0;
+    override_choice = 0; /* The event's option can unload with its module. */
     manager = 0; /* Native scene cleanup owns the old GOBJ. */
     Trails_Clear();
 }
 void Trails_MatchStart(void) {
     if (manager) return;
+    override_choice = 0;
     local_enabled = 0; local_mode = TM_TRAIL_NORMAL; active_mode = TM_TRAIL_DISABLED;
     Trails_Clear();
     live = 1;

@@ -327,24 +327,30 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             m.call('DAT_UnderFire')
             self.assertEqual(len(menus), 1)
             menu = menus[0]
-            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x02\0\0')
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x03\0\0')
             options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
             label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
             self.assertEqual(bytes(m.cpu.mem_read(options + 6, 4)), b'\0\1\0\1')
+            trail_row=options+44
+            trail_label=struct.unpack('>I',m.cpu.mem_read(trail_row+12,4))[0]
+            self.assertEqual(bytes(m.cpu.mem_read(trail_label,14)),b'Hitbox Trails\0')
+            self.assertEqual(bytes(m.cpu.mem_read(trail_row+6,4)),bytes(4))
             self.assertNotEqual(bytes(m.cpu.mem_read(0x80479D88, 4)), bytes(4))  # Menu update installed.
             self.assertEqual(ended, [])
             self.assertEqual(scores, [])  # Best attempts are kept in RAM until Exit.
             self.assertEqual(text_rows[-1], (4, 0, 0, 0))
             self.assertEqual(m.record(), before)
             m.cpu.mem_write(options + 6, b'\0\0')
+            m.cpu.mem_write(trail_row+6,b'\0\3')
             m.call('DAT_UnderFire')
             self.assertEqual(bytes(m.cpu.mem_read(options + 6, 2)), b'\0\1')  # New event defaults On.
+            self.assertEqual(bytes(m.cpu.mem_read(trail_row+6,4)),bytes(4))  # Trails default Off on reentry.
             for score in (55, 50, 120, 0, 60):
                 m.call('DAT_UnderFireScore', score)
             self.assertEqual(text_rows[-1], (4, 0, 2, 0))
             self.assertEqual(scores, [])
-            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 44 + 40, 4))[0]
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 88 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
             self.assertEqual(scores, [(2, 120)])

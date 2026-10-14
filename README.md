@@ -19,6 +19,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Add event-local Hitbox Trails profiles to Ledgedash and Under Fire, overriding global trails; Under Fire starts with trails Off.
 - Add Ledgechase Training as General Tech #17, with selectable fighters on Final Destination, saved ledge/punish presets and spacing, native ledge options, fastfall jumps and automatic retries.
 - Add event-local CPU Invincibility Overlay colors to Ledgechase and Techchase, overriding the global CPU tint; make both Techchase chance-menu titles read Tech Chances.
 - Add nine saved Techchase chance presets, ground/platform starting locations and Spotdodge Punish; remember its OSD, reset, invisibility and camera-mode choices while keeping manual percentages and camera coordinates session-only.

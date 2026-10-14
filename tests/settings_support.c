@@ -252,6 +252,9 @@ static Playerblock cue_players[6];
 static int cue_active[12];
 static float cue_lengths[12];
 static void (*cue_early)(GOBJ *), (*cue_late)(GOBJ *);
+static void (*trail_think)(GOBJ *), (*trail_draw)(GOBJ *, int);
+static int trail_spheres;
+static GOBJ *trail_lookup[64];
 static uint32_t cue_draw_colors[12];
 static unsigned cue_draw_flags[12];
 static unsigned cue_draw_count[12];
@@ -259,8 +262,13 @@ GOBJ *GObj_Create(int entity_class, int p_link, int p_priority) { return &cue_ma
 GOBJProc *GObj_AddProc(GOBJ *gobj, void *callback, int priority) {
     if (priority == 0) cue_early = callback;
     if (priority == 23) cue_late = callback;
+    if (priority == 22) trail_think = callback;
     return 0;
 }
+void GObj_AddGXLink(GOBJ *gobj, void *callback, int link, int priority) {
+    if (link == 5) trail_draw = callback;
+}
+void Develop_DrawSphere(float size, Vec3 *a, Vec3 *b, GXColor *diffuse, GXColor *ambient) { ++trail_spheres; }
 GOBJ *Fighter_GetSubcharGObj(int ply, int sub) {
     unsigned slot = ply * 2 + sub;
     return slot < 12 && cue_active[slot] ? &cue_objects[slot] : 0;
@@ -306,6 +314,28 @@ void TestCueInit(void) {
     ActionCues_MatchStart();
 }
 uintptr_t TestCueData(unsigned slot) { return (uintptr_t)&cue_data[slot]; }
+static const TMTrailAPI test_trail_api = {Trails_Configure, Trails_Clear, Trails_SetOverride};
+static const TMSettingsAPI test_trail_settings = {Settings_Get, Settings_Set, Settings_Status};
+static EventVars test_trail_vars;
+static void TestTrailTangibility(const s16 *option) {}
+void TestTrailInit(void) {
+    TestCueInit();
+    *stc_gobj_lookup = trail_lookup;
+    memset(trail_lookup,0,sizeof(trail_lookup));
+    Trails_SceneChange(); Trails_MatchStart();
+    test_trail_vars.trails=&test_trail_api;
+    test_trail_vars.settings=&test_trail_settings;
+    test_trail_vars.set_tangibility_overlay=TestTrailTangibility;
+    *event_vars_ptr_loc=&test_trail_vars;
+}
+void TestTrailHit(int active) {
+    cue_active[0]=1;
+    cue_data[0].hitbox[0].active=active;
+    cue_data[0].hitbox[0].size=2;
+    cue_data[0].hitbox[0].dmg=8;
+}
+void TestTrailTick(unsigned frame) { stc_match->time_frames=frame; trail_think(&cue_manager); }
+int TestTrailDraw(void) { trail_spheres=0; trail_draw(&cue_manager,2); return trail_spheres; }
 uintptr_t TestCueObject(unsigned slot) { return (uintptr_t)&cue_objects[slot]; }
 void TestCueState(unsigned slot, int state, int frame, int end, int rate100) {
     cue_active[slot] = 1;

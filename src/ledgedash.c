@@ -26,6 +26,7 @@ enum menu_options
     OPT_LEDGE,
     OPT_CRITERION,
     OPT_TANGIBILITY,
+    OPT_TRAILS,
     OPT_EGG,
     OPT_ABOUT,
     OPT_DEFAULTS,
@@ -72,6 +73,7 @@ static int Ledgedash_EggDamage(GOBJ *object);
 static void Ledgedash_ChangeSavedSetting(GOBJ *menu, int value);
 static void Ledgedash_ChangeTips(GOBJ *menu, int value);
 static void Ledgedash_ResetSettings(GOBJ *menu);
+static void Ledgedash_ChangeHitboxTrails(GOBJ *menu, int value);
 typedef char ldsh_event_fits[(sizeof(LedgedashData) <= EVENT_DATASIZE) ? 1 : -1];
 static struct {
     GOBJ *object, *retiring;
@@ -87,6 +89,7 @@ static float LdshOptions_GameSpeeds[] = {1.f, 5.f/6.f, 2.f/3.f, 1.f/2.f, 1.f/4.f
 static const char *LdshOptions_GameSpeedText[] = {"1", "5/6", "2/3", "1/2", "1/4"};
 static const char *LdshOptions_Reset[] = {"None", "Same Side", "Swap", "Swap on Success", "Random"};
 static const char *LdshOptions_ResetDelay[] = {"Slow", "Normal", "Fast", "Instant"};
+static const char *LdshOptions_Trails[] = { TM_TRAIL_OVERRIDE_LABELS };
 static const char *LdshOptions_Ledge[] = {"Left", "Right"};
 static const char *LdshOptions_Criteria[] = {"GALINT", "Waveland", "Attack/Dash in GALINT", "Pop Egg in GALINT"};
 static const char *LdshCriterionLabels[] = {"GALINT", "Waveland", "Act GALINT", "Pop Egg"};
@@ -202,6 +205,11 @@ static EventOption LdshOptions_Main[] = {
         .desc = {"Pulse red whenever invincibility/intangibility drops.", "Overrides the Invincibility Overlay while On.", "Works independently of Color Overlays."},
     },
     {
+        .kind = OPTKIND_STRING, .name = "Hitbox Trails", .values = LdshOptions_Trails,
+        .value_num = TM_TRAIL_OVERRIDE_COUNT, .OnChange = Ledgedash_ChangeHitboxTrails,
+        .desc = {"Choose this event's trails, including Off.", "Overrides global hitbox trails during this event."},
+    },
+    {
         .kind = OPTKIND_MENU, .name = "Egg Targets", .menu = &LdshMenu_Eggs,
         .desc = {"Enable eggs and choose target, distance, randomization and damage."},
     },
@@ -275,6 +283,9 @@ static void Ledgedash_ChangeTips(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_LEDGEDASH, TM_LEDGE_TIPS, value);
     Tips_Toggle(menu, value);
 }
+static void Ledgedash_ChangeHitboxTrails(GOBJ *menu, int value) {
+    event_vars->trails->set_override(&LdshOptions_Main[OPT_TRAILS].val);
+}
 static void Ledgedash_ResetSettings(GOBJ *menu) {
     /* Defaults for the event-local choices too; callbacks run once after the batch. */
     static const u8 main_defaults[OPT_EGG] = {
@@ -308,6 +319,7 @@ void Event_Init(GOBJ *gobj)
 {
     Ledgedash_LoadSettings();
     event_vars->set_tangibility_overlay(&LdshOptions_Main[OPT_TANGIBILITY].val);
+    Ledgedash_ChangeHitboxTrails(0, LdshOptions_Main[OPT_TRAILS].val);
     LedgedashData *event_data = gobj->userdata;
     Ledgedash_EggCleanup();
     GOBJ *cleanup = GObj_Create(0, 0, 0);
@@ -382,6 +394,7 @@ void Event_Think(GOBJ *event)
 }
 void Event_Exit(GOBJ *menu)
 {
+    event_vars->trails->set_override(0);
     Memcard_SaveIfChanged();
     Ledgedash_EggCleanup();
     event_vars->set_local_overlay(Fighter_GetGObj(0), 0);

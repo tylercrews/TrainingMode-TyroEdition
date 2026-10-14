@@ -811,7 +811,7 @@ unsigned Events_ScoreIndex(unsigned page, unsigned event) {
 RNGControl rng;
 
 static const TMSettingsAPI settings_api = { Settings_Get, Settings_Set, Settings_Status };
-static const TMTrailAPI trails_api = { Trails_Configure, Trails_Clear };
+static const TMTrailAPI trails_api = { Trails_Configure, Trails_Clear, Trails_SetOverride };
 static unsigned restore_serial;
 static unsigned Events_RestoreSerial(void) { return restore_serial; }
 void Events_NotifyRestore(void) { restore_serial++; Message_LayoutClear(); }
@@ -868,6 +868,7 @@ void UnderFire_UpdateScore(int frames) {
 }
 static void UnderFire_Exit(GOBJ *menu) {
     ActionCues_SetTangibilityOverlay(0);
+    Trails_SetOverride(0);
     if (under_fire_best > 0 && under_fire_best > Events_GetSavedScore(under_fire_event)) {
         Events_StoreEventScore(under_fire_event, under_fire_best);
         Events_SetEventAsPlayed(under_fire_event);
@@ -876,10 +877,14 @@ static void UnderFire_Exit(GOBJ *menu) {
     stc_match->state = 3;
     Match_EndVS();
 }
+static const char *under_fire_trail_names[] = { TM_TRAIL_OVERRIDE_LABELS };
 static EventOption under_fire_options[] = {
     {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Highlight Dropped Invincibility",
      .desc = {"Pulse red whenever invincibility/intangibility drops.",
               "Overrides the Invincibility Overlay while On."}},
+    {.kind = OPTKIND_STRING, .name = "Hitbox Trails", .values = under_fire_trail_names,
+     .value_num = TM_TRAIL_OVERRIDE_COUNT,
+     .desc = {"Choose this event's trails, including Off.", "Overrides global hitbox trails during this event."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = UnderFire_Exit,
      .desc = {"Return to the Event Selection Screen."}},
 };
@@ -901,9 +906,11 @@ void UnderFire_InitMenu(void) {
     under_fire_event = stc_memcard->EventBackup.event;
     under_fire_best_text = 0;
     under_fire_options[0].val = under_fire_options[0].val_prev = 1;
+    under_fire_options[1].val = under_fire_options[1].val_prev = 0;
     under_fire_menu.scroll = under_fire_menu.cursor = 0;
     stc_event_vars.event_desc = &Ledgestall;
     stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
+    Trails_SetOverride(&under_fire_options[1].val);
     ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
     stc_hsd_update->onFrame = UnderFire_Update;
     int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
