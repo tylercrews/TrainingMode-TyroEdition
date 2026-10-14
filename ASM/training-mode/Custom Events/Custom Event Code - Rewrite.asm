@@ -812,6 +812,8 @@ LedgeStallThink_LavaRiseThink:
     lwz r3, SurvivalTime(REG_EventData)
     addi r3, r3, 1
     stw r3, SurvivalTime(REG_EventData)
+    # Preserve the live attempt's best before leaving lava or restarting.
+    rtocbl r12, TM_UnderFireUpdateScore
 
 LedgeStallThink_LavaRiseThink_SkipScoreIncrement:
     # Play HRC SFX every X score

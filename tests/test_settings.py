@@ -263,9 +263,9 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         self.m.cpu.mem_write(self.base, bytes(payload))
         for i in range(num_exports):
             index, offset = struct.unpack_from(">II", dat, 32 + exports + i * 8)
-            if index in [27, 28, 38, 39, 40]:
+            if index in [27, 28, 38, 39, 40, 41]:
                 self.m.symbols[{27:"DAT_Get",28:"DAT_Set",38:"DAT_Commit",39:"DAT_Characters",
-                               40:"DAT_UnderFire"}[index]] = self.base + offset
+                               40:"DAT_UnderFire",41:"DAT_UnderFireScore"}[index]] = self.base + offset
         # Native memcpy is an external SDK dependency; use the tested PPC stub.
         address = self.m.symbols["memcpy"]
         self.m.cpu.mem_write(0x800031F4, struct.pack(">4I", 0x3D800000 | (address >> 16),
@@ -281,6 +281,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         m = self.m
         m.init()
         before = m.record()
+        m.cpu.mem_write(0x8045A6C0 + 0x535, b'\x02')  # Capture Under Fire's event ID.
         start = m.symbols['DAT_UnderFire']
         # The first direct call creates the C menu. Bound rendering/allocation,
         # while executing the real relocated initialization and Exit callback.
@@ -292,14 +293,31 @@ class RelocatedDATSettingsTests(unittest.TestCase):
                 create_menu = pc + delta
                 break
         else: self.fail('Under Fire does not create its event menu')
-        menus, ended = [], []
+        menus, ended, text_rows, scores, played, saves = [], [], [], [], [], []
+        saved_score = [90]
+        rows = [0]
         def dependencies(cpu, address, size, user):
             if address == create_menu:
                 menus.append(cpu.reg_read(gpr(3)))
                 cpu.reg_write(gpr(3), 0x80407600)
             elif address == 0x8003418C: cpu.reg_write(gpr(3), 0)  # No fighters during menu init.
             elif address == 0x8016C7F0: ended.append(True)
-            elif address != 0x8001CC84: return
+            elif address == 0x8001CC84: saves.append(saved_score[0])
+            elif address == 0x8015CF5C: cpu.reg_write(gpr(3), saved_score[0])
+            elif address == 0x8015CF70:
+                scores.append((cpu.reg_read(gpr(3)), cpu.reg_read(gpr(4))))
+                saved_score[0] = cpu.reg_read(gpr(4))
+            elif address == 0x8015CEB4: played.append(cpu.reg_read(gpr(3)))
+            elif address == 0x803A611C: cpu.reg_write(gpr(3), 7)
+            elif address == 0x803A6754:
+                cpu.reg_write(gpr(3), 0x80407A00)
+                rows[0] = 0
+            elif address == 0x803A6B98:
+                cpu.reg_write(gpr(3), rows[0])
+                rows[0] += 1
+            elif address == 0x803A70A0:
+                text_rows.append(tuple(cpu.reg_read(gpr(n)) for n in (4, 6, 7, 8)))
+            elif address != 0x803A74F0: return
             cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
         hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
         try:
@@ -313,14 +331,35 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             self.assertEqual(bytes(m.cpu.mem_read(options + 6, 4)), b'\0\1\0\1')
             self.assertNotEqual(bytes(m.cpu.mem_read(0x80479D88, 4)), bytes(4))  # Menu update installed.
             self.assertEqual(ended, [])
+            self.assertEqual(scores, [])  # Best attempts are kept in RAM until Exit.
+            self.assertEqual(text_rows[-1], (4, 0, 0, 0))
             self.assertEqual(m.record(), before)
             m.cpu.mem_write(options + 6, b'\0\0')
             m.call('DAT_UnderFire')
             self.assertEqual(bytes(m.cpu.mem_read(options + 6, 2)), b'\0\1')  # New event defaults On.
+            for score in (55, 50, 120, 0, 60):
+                m.call('DAT_UnderFireScore', score)
+            self.assertEqual(text_rows[-1], (4, 0, 2, 0))
+            self.assertEqual(scores, [])
             m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
+            self.assertEqual(scores, [(2, 120)])
+            self.assertEqual(played, [2])
+            self.assertEqual(saves, [120])  # The score is stored before native card saving.
             self.assertEqual(bytes(m.cpu.mem_read(0x8046B6A0, 1)), b'\x03')
+            self.assertEqual(m.record(), before)
+            for score in (0, 80, 120):
+                m.call('DAT_UnderFire')
+                self.assertEqual(text_rows[-1], (4, 0, 0, 0))
+                m.call('DAT_UnderFireScore', score)
+                m.call('DAT_UnderFireExit', 0x80407600)
+            self.assertEqual(scores, [(2, 120)])  # Empty, lower and tied sessions never lower the record.
+            m.call('DAT_UnderFire')
+            m.call('DAT_UnderFireScore', 3679)
+            self.assertEqual(text_rows[-1], (4, 1, 1, 31))
+            m.call('DAT_UnderFireExit', 0x80407600)
+            self.assertEqual(scores[-1], (2, 3679))
             self.assertEqual(m.record(), before)
         finally: m.cpu.hook_del(hook)
 
@@ -2167,6 +2206,10 @@ class UnderFireNativeTests(unittest.TestCase):
         bound = {symbols[name]: name for name in ('GetAllPlayerPointers', 'CheckIfFirstFrame',
                  'SaveState_Load', 'PlaceOnLedge', 'UpdateCameraBox', 'IntToFloat',
                  'Ledgestall_UpdateLavaPosition')}
+        score_feed = []
+        bound[0x80407C00] = 'ScoreFeed'
+        bound[0x80364340] = 'fmod'
+        m.cpu.mem_write(0x80300000 - 200 + 41 * 4, struct.pack('>I', 0x80407C00))
 
         def dependencies(cpu, address, size, user):
             name = bound.get(address)
@@ -2178,6 +2221,9 @@ class UnderFireNativeTests(unittest.TestCase):
                 value = cpu.reg_read(gpr(3))
                 if value & 0x80000000: value -= 0x100000000
                 cpu.reg_write(reg.UC_PPC_REG_FPR1, struct.unpack('>Q', struct.pack('>d', float(value)))[0])
+            elif name == 'ScoreFeed': score_feed.append(cpu.reg_read(gpr(3)))
+            elif name == 'fmod':
+                cpu.reg_write(reg.UC_PPC_REG_FPR1, struct.unpack('>Q', struct.pack('>d', 1.0))[0])
             else:
                 calls.append(name)
                 if name == 'SaveState_Load':
@@ -2190,6 +2236,16 @@ class UnderFireNativeTests(unittest.TestCase):
 
         hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
         try:
+            m.cpu.mem_write(state, struct.pack('>BBHIf', 1, 0, 0, 60, 10))
+            m.cpu.mem_write(data + 0x10, struct.pack('>I', 253))
+            m.cpu.mem_write(data + 0xB4, struct.pack('>f', 0))
+            m.call('UnderFireThink', event)
+            m.call('UnderFireThink', event)
+            self.assertEqual(score_feed, [61, 62])
+            m.cpu.mem_write(data + 0xB4, struct.pack('>f', 11))
+            m.call('UnderFireThink', event)
+            self.assertEqual(score_feed, [61, 62])  # Leaving lava cannot erase the reported best.
+            self.assertEqual(bytes(m.cpu.mem_read(state + 4, 4)), bytes(4))
             for dead in (False, True):
                 for score in (0, 300):
                     for attempt in range(2):  # The think GOBJ survives and resets repeatedly.

@@ -416,6 +416,7 @@ void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
 void ActionCues_SetTangibilityOverlay(const s16 *enabled);
 void UnderFire_InitMenu(void);
+void UnderFire_UpdateScore(int frames);
 void OSDContext_Clear(void);
 void OSDContext_Tick(FighterData *fighter);
 void OSDContext_LCancel(GOBJ *fighter);

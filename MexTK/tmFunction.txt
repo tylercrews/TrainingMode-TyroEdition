@@ -39,3 +39,4 @@ OSD_ShineAfterIASA
 Settings_CommitPending
 Settings_EventCharacters
 UnderFire_InitMenu
+UnderFire_UpdateScore

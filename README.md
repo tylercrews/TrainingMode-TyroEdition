@@ -20,7 +20,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 ### T4 (V1.4.1T4)
 
 - Replace Ledgedash's Protection Highlight with event-local Highlight Dropped Invincibility, using the red diagnostic pulse when protection drops. It overrides the global invincibility tint. Is enabled by default in Under Fire.
-- Make Under Fire restart after hits or deaths, resetting its lava and timer for repeated practice; add a pause menu with the highlight toggle and Exit.
+- Make Under Fire restart after hits or deaths, resetting its lava and timer for repeated practice; show Session Best beneath the timer and save an improved high score on pause-menu Exit.
 
 ### T3 (V1.4.1T3)
 

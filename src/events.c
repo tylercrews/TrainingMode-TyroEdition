@@ -807,8 +807,26 @@ static TipMgr stc_tipmgr;
 
 /* Under Fire keeps its native lava/ledge logic, with an event-local C pause
  * menu so its new diagnostic and Exit behave like the other practice events. */
+static int under_fire_best, under_fire_event;
+static Text *under_fire_best_text;
+static void UnderFire_UpdateBestText(void) {
+    if (!under_fire_best_text) return;
+    unsigned frames = under_fire_best;
+    for (int row = 0; row < 5; ++row)
+        Text_SetText(under_fire_best_text, row, "Session Best: %d:%02d.%02d",
+            frames / 3600, frames / 60 % 60, frames % 60 * 100 / 60);
+}
+void UnderFire_UpdateScore(int frames) {
+    if (frames <= under_fire_best) return;
+    under_fire_best = frames;
+    UnderFire_UpdateBestText();
+}
 static void UnderFire_Exit(GOBJ *menu) {
     ActionCues_SetTangibilityOverlay(0);
+    if (under_fire_best > 0 && under_fire_best > Events_GetSavedScore(under_fire_event)) {
+        Events_StoreEventScore(under_fire_event, under_fire_best);
+        Events_SetEventAsPlayed(under_fire_event);
+    }
     Memcard_SaveIfChanged();
     stc_match->state = 3;
     Match_EndVS();
@@ -829,15 +847,40 @@ static void UnderFire_Update(void) {
      * closing while paused, which EventMenu_Update handles independently. */
     stc_event_vars.game_timer = stc_match->time_frames;
     EventMenu_Update(stc_event_vars.menu_gobj);
+    if (under_fire_best_text)
+        under_fire_best_text->hidden = ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
     Develop_UpdateMatchHotkeys();
 }
 void UnderFire_InitMenu(void) {
+    under_fire_best = 0;
+    under_fire_event = stc_memcard->EventBackup.event;
+    under_fire_best_text = 0;
     under_fire_options[0].val = under_fire_options[0].val_prev = 1;
     under_fire_menu.scroll = under_fire_menu.cursor = 0;
     stc_event_vars.event_desc = &Ledgestall;
     stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
     ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
     stc_hsd_update->onFrame = UnderFire_Update;
+    int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
+    Text *text = Text_CreateText(2, canvas);
+    if (!text) return;
+    under_fire_best_text = text;
+    text->kerning = 1;
+    text->align = 1;
+    text->trans.X = 320;
+    text->trans.Y = 80;
+    text->viewport_scale.X = text->viewport_scale.Y = 1;
+    text->scale.X = text->scale.Y = 0.45f;
+    GXColor shadow = {0, 0, 0, 255};
+    static const Vec2 offsets[4] = {{-1,-1}, {1,-1}, {-1,1}, {1,1}};
+    for (int row = 0; row < 4; ++row) {
+        int subtext = Text_AddSubtext(text, offsets[row].X, offsets[row].Y, "");
+        Text_SetColor(text, subtext, &shadow);
+    }
+    int foreground = Text_AddSubtext(text, 0, 0, "");
+    GXColor gold = {255, 225, 65, 255};
+    Text_SetColor(text, foreground, &gold);
+    UnderFire_UpdateBestText();
 }
 
 static Vec2 stc_msg_queue_offsets_vertical[] = {
