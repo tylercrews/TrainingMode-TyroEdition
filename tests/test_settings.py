@@ -399,7 +399,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         self.assertEqual(m.call("DAT_Get", 11, 1), 1)
         self.assertEqual(m.call("DAT_Get", 17, 19), 1)
         before = m.record()
-        m.call("DAT_Set", 17, 18, 1)  # Separator is not a saved preference.
+        m.call("DAT_Set", 17, 16, 1)  # A-Smash palette uses the separate extension.
         self.assertEqual(m.record(), before)
 
     def test_relocated_dat_migration_and_foreign_identity_preserve_records(self):
@@ -2130,16 +2130,16 @@ class OSDEditorTests(unittest.TestCase):
         m=self.m
         m.write(14,20,6); m.write(15,29,1)  # An unknown old enable bit must survive this row allocation.
         reserved=bytearray(m.record()); reserved[40:44]=b"\xf0ABC"; m.put(reserved)
-        m.call("TestEditorInit"); m.call("TestEditorInput",0x200,19)
+        m.call("TestEditorInit"); m.call("TestEditorInput",0x200,20)
         self.assertEqual(m.read(11,8),1)
         self.assertEqual(m.record()[40:44],b"\xf4ABC")
         self.assertEqual(m.read(15,29),1)
         self.assertEqual(m.read(14,20),6)
-        self.assertEqual(m.call("TestEditorHidden",19),0)
-        m.call("TestEditorAnimate",19); m.call("TestSettingsEditorWrite",16,m.call("TestEditorCache",19))
+        self.assertEqual(m.call("TestEditorHidden",20),0)
+        m.call("TestEditorAnimate",20); m.call("TestSettingsEditorWrite",17,m.call("TestEditorCache",20))
         saved=m.record(); fresh=Machine(); fresh.put(saved); fresh.call("TestEditorInit")
         self.assertEqual(fresh.call("Settings_Get",11,8),1)
-        for row,label in [(19,"OVERRIDE CPU OSDS OFF"),(20,"OVERRIDE ALL OSDS OFF")]:
+        for row,label in [(19,"A-Smash Release"),(20,"OVERRIDE CPU OSDS OFF"),(21,"OVERRIDE ALL OSDS OFF")]:
             self.assertEqual(''.join(chr(fresh.call("TestEditorLabelChar",row,i)) for i in range(len(label))),label)
         self.assertEqual(fresh.record(),saved)
 
@@ -2176,7 +2176,7 @@ class OSDEditorTests(unittest.TestCase):
             m.write(14, id, (id % 7) + 1)
         before = m.record()
         m.call("TestEditorInit")
-        for row, flag in [(22, 1), (23, 2), (20, 0)]:
+        for row, flag in [(22, 1), (23, 2), (21, 0)]:
             m.call("TestEditorInput", 0x200, row)
             self.assertEqual(m.read(11, flag), 1)
             self.assertEqual(m.call("TestEditorChoiceChar", row, 1), ord("n"))
@@ -2184,7 +2184,7 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(m.record()[11:], before[11:])
         self.assertEqual(m.read(11, 1), 1)
         self.assertEqual(m.read(11, 2), 1)
-        m.call("TestEditorInput", 0x10, 20)
+        m.call("TestEditorInput", 0x10, 21)
         self.assertEqual(m.read(11, 0), 0)
         self.assertEqual(m.read(11, 1), 1)
         self.assertEqual(m.read(11, 2), 1)
@@ -2208,7 +2208,7 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorInit")
         m.call("TestEditorInput", 0x200, 13)
         self.assertEqual(m.call("Settings_Get", 14, 20), 1)
-        m.call("TestEditorInput", 0x200, 20)
+        m.call("TestEditorInput", 0x200, 21)
         self.assertEqual(m.call("Settings_Get", 11, 0), 1)
         self.assertEqual(m.record(), bytes(future))
 
@@ -2218,24 +2218,24 @@ class OSDEditorTests(unittest.TestCase):
         for _ in range(6):
             m.call("TestEditorInput", 0x200, 13)
         m.call("TestEditorAnimate", 13)
-        m.call("TestEditorInput", 0x200, 20)
-        m.call("TestEditorAnimate", 20)
+        m.call("TestEditorInput", 0x200, 21)
+        m.call("TestEditorAnimate", 21)
         m.write(16, 20, m.call("TestEditorCache", 13))
-        m.write(16, 6, m.call("TestEditorCache", 20))
+        m.write(16, 6, m.call("TestEditorCache", 21))
         fresh = Machine()
         fresh.put(m.record())
         fresh.call("TestEditorInit")
         self.assertEqual(fresh.call("Settings_Get", 14, 20), 6)
         self.assertEqual(fresh.call("Settings_Get", 11, 0), 1)
         self.assertEqual(fresh.call("TestEditorChoiceChar", 13, 0), ord("C"))
-        fresh.call("TestEditorInput", 0x200, 20)
+        fresh.call("TestEditorInput", 0x200, 21)
         self.assertEqual(fresh.call("Settings_Get", 14, 20), 6)
         self.assertEqual(fresh.call("Settings_Get", 11, 0), 0)
 
     def test_grouped_editor_gaps_and_native_exit_keep_every_preference(self):
         m = self.m
         physical = [0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,12,13,14,15,16,17,18,19,20,21,22,23,25,27]
-        expected = IDS + [29,6,30,2,4,7,17,11,23,25]
+        expected = IDS + [30,29,6,2,4,7,17,11,23,25]
         for i, id in enumerate(IDS):
             m.write(14, id, (i % 7) + 1)
         for flag in range(8):
@@ -2248,7 +2248,7 @@ class OSDEditorTests(unittest.TestCase):
             self.assertEqual(m.read(17, native), m.call("TestEditorCache", row))
             self.assertEqual(m.call("TestSettingsEditorRow", native), m.call("TestEditorCache", row))
         label = "OVERRIDE ALL OSDS OFF"
-        self.assertEqual(''.join(chr(m.call("TestEditorLabelChar", 20, i)) for i in range(len(label))), label)
+        self.assertEqual(''.join(chr(m.call("TestEditorLabelChar", 21, i)) for i in range(len(label))), label)
         m.call("TestEditorInput", 0x200, 7)  # Lockout Timers palette.
         m.call("TestEditorAnimate", 7)
         m.call("TestEditorInput", 0x200, 25)  # Run Turnaround flag.
@@ -2258,7 +2258,7 @@ class OSDEditorTests(unittest.TestCase):
             m.call("TestSettingsEditorWrite", native, m.call("TestEditorCache", row))
         self.assertEqual(m.record(), before)
         self.assertEqual(m.read(15, 15), 1)
-        self.assertEqual(m.call("TestEditorLabelChar", 21, 0), ord("A"))
+        self.assertEqual(m.call("TestEditorLabelChar", 19, 0), ord("A"))
         self.assertEqual(m.call("TestEditorLabelChar", 20, 0), ord("O"))
 
 

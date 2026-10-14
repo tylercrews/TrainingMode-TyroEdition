@@ -39,10 +39,11 @@ int sprintf(char *out, const char *format, ...) {
 }
 int TestDirty(void) { return stc_memcard_state->memcard_changed; }
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
-    static const unsigned counts[3] = {5, 16, 7};
+    static const unsigned counts[3] = {5, 17, 7};
     if (page >= 3 || event >= counts[page]) return UINT32_MAX;
+    if(page==1 && event==16) return 50;
     unsigned index = event;
-    for (unsigned p = 0; p < page; ++p) index += counts[p];
+    for (unsigned p = 0; p < page; ++p) index += p==1?16:counts[p];
     return index;
 }
 void TestEventCharacters(unsigned save) { Settings_Characters(save, -1, -1, 1); }

@@ -1,6 +1,7 @@
 # Techchase settings
 
-The first row of Option Chances selects a preset. Only that choice is saved;
+The first row of Tech Chances selects a preset. Both the parent option and
+submenu title use this name. Only the preset choice is saved;
 editing any individual percentage remains available for the current session.
 Selecting another preset reapplies its four tech probabilities. Starting the
 event restores the saved preset and the original defaults for getup choices.
@@ -18,7 +19,7 @@ event restores the saved preset and the original defaults for getup choices.
 | Tyro Setting | 60 | 15 | 15 | 10 |
 
 Reaction Frame OSD, Timing OSD, Reset, Tech Invisibility, Camera mode,
-Starting Location and Spotdodge Punish are also saved. Camera coordinates,
+Starting Location, Spotdodge Punish and CPU Invincibility Overlay are also saved. Camera coordinates,
 manually moved fighters and individual percentages remain session-only.
 
 Starting Location offers Center Stage, Left Plat, Right Plat and Top Plat.
@@ -41,6 +42,12 @@ IASA, allowing normal spotdodge eligibility to decide the transition. It
 includes the native processed shoulder flag; no tech animation is shortened.
 The configured Fast/Slow reset delay starts after the spotdodge finishes.
 Reset None continues to disable automatic resets.
+
+CPU Invincibility Overlay selects Off, Red, Blue, Yellow, Green, Cyan, Magenta
+or Gray (default). It uses the shared natural-protection detector, including
+move and dodge invulnerability. This event-local choice overrides the global
+protection tint for CPU fighters, including when set to Off. Human coloring
+continues to follow Global Settings. The same setting is available in Ledgechase.
 
 `tests/test_techchase.py` executes the production C menu, positioning and
 punish logic as PowerPC code. It checks every preset, session-only edits,

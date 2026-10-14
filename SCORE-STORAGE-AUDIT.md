@@ -4,24 +4,28 @@ Verified October 14, 2026 against the current event catalogue, `build/Start.dol`
 the optimized shared event DAT and the compiled native hooks. The original
 44-byte settings format remains at `0x1F24..0x1F4F`.
 
-The usable candidate is **92 bytes / 736 bits at game-data offsets
-`0x1AE0..0x1B3B`**. These are score slots 28 through 50, not raw GCI offsets.
-The three pages contain 5, 16 and 7 events; their 28 four-byte scores occupy
-`0x1A70..0x1ADF`. The separate event-played flags at `0x1A68..0x1A6F` and the
-native word beginning at `0x1B3C` are excluded.
+The original candidate was 92 bytes at `0x1AE0..0x1B3B`. With Ledgechase,
+**88 bytes / 704 bits at game-data offsets `0x1AE0..0x1B37`** remain reserved
+for preferences. These are score slots 28 through 49, not raw GCI offsets.
+The three pages now contain 5, 17 and 7 events. The original 28 four-byte scores
+retain `0x1A70..0x1ADF`; the new General Tech event 17 uses fixed score slot 50
+at `0x1B38..0x1B3B`. Adding the menu row does not shift any old score. Separate
+event-played flags at `0x1A68..0x1A6F` and the native word beginning at `0x1B3C`
+are excluded.
 
-The new extension owns only the first **12 bytes at `0x1AE0..0x1AEB`**, with a
-separate `TYEX`, version, size and marker header. **80 bytes remain unallocated**.
-Native high scores have not moved or been removed, and OSD settings have not
-been repacked. See `src/settings_extension.h` and `src/settings_extension.c`
-for the current payload; the audit establishes the boundary independently of
-that payload.
+The version-2 extension owns **16 bytes at `0x1AE0..0x1AEF`**, with an eight-byte
+`TYEX`, version, size and marker header plus eight payload bytes. **72 bytes
+remain unallocated**. Native high scores have not moved or been removed, and
+the 44-byte OSD settings record has not been repacked. See
+`src/settings_extension.h` and `src/settings_extension.c` for the current
+payload; the audit establishes the boundary independently of that payload.
 
 ## Native save and checksum coverage
 
 The native manifest at `0x803BAB74` declares its main data entry as `0x1790`
 bytes. The getter at `0x8015CC40` returns game-data base plus `0x1868`, so the
-candidate lies at logical payload offsets `0x278..0x2D3`, safely inside the
+candidate lies at logical payload offsets `0x278..0x2CF`, and the new score at
+`0x2D0..0x2D3`, safely inside the
 main serialized entry. No manifest or memory-card file size change is needed.
 
 `tests/test_score_storage.py` executes the actual native block writer at
@@ -42,7 +46,7 @@ live verification before release confidence can include those paths.
 | Native path | Verified behavior | Protection or intended handling |
 | --- | --- | --- |
 | Getter `0x8015CF5C` / setter `0x8015CF70` | The original indexed functions can reach all 51 score slots. Earlier mod hooks added page offsets without checking bounds. | Getter hook `0x8015CF60` and setter hook `0x8015CF74` now call the bounded shared score resolver. Invalid indices read zero and write nothing. |
-| Event records reset `0x8015EEC8` | Clears 25 fighter-record subranges, then 216 bytes at `0x1A68..0x1B3F`. The original final clear erases the entire candidate. | Hook `0x8015EF14` replaces only that final clear. On `TYRE01`, clear the 120-byte played/assigned-score prefix and the four-byte adjacent word separately, preserving all 92 candidate bytes. |
+| Event records reset `0x8015EEC8` | Clears 25 fighter-record subranges, then 216 bytes at `0x1A68..0x1B3F`. The original final clear erases the entire candidate. | Hook `0x8015EF14` replaces only that final clear. On recognized `TYRE01` formats, clear the 120-byte played/assigned-score prefix and the final eight bytes (Ledgechase score plus adjacent word), preserving all 88 preference bytes. Unknown core/extension formats retain the original 92-byte protected region. |
 | New/missing/corrupt main-save initialization `gmMainLib_8015F600(1, ...)` | Native clear at `0x8015F77C..0x8015F788` clears `0x448` bytes beginning at `0x1868`, including the candidate. | Intentional fresh-save behavior; extension defaults are reconstructed. This path must not preserve stale preferences from another card/save. |
 | Boot initialization `0x8015FBA4` | Zeroes the entire native game-data object before initialization/loading. | Intentional RAM initialization; subsequent card loading restores serialized bytes. |
 | Normal card read/write | Copies full manifest entries through native card jobs. | Candidate bytes travel with the existing main entry and native checksum/encryption. No separate file or job is introduced. |
@@ -66,10 +70,13 @@ native routine, including its earlier fighter-record clears.
 ## Ownership, growth and downgrade policy
 
 `Events_ScoreIndex` validates the page and event against the actual page arrays.
-The catalogue has a compile-time guard requiring at most 28 scores. Adding a
-29th event therefore requires an explicit storage relocation/migration instead
-of silently overlapping extension bytes. Keep the storage boundary fixed when
-removing events; do not slide persisted preferences according to current count.
+The catalogue has a compile-time guard requiring the mapped counts 5/17/7.
+Minigames retain score slots 0..4, the original General Tech events retain
+5..20, character-specific events retain 21..27, and Ledgechase uses slot 50.
+Further catalogue changes require an explicit mapping instead of silently
+overlapping preferences or changing old score identities. Keep the storage
+boundary fixed when removing events; do not slide persisted preferences
+according to current count.
 
 Records-reset preservation checks the complete six-byte identity `TYRE01`.
 The tests verify that `GTME01`, `GALE01` and even `TYRE02` keep the original
@@ -78,13 +85,30 @@ upstream/vanilla use from accessing a Tyro save automatically.
 
 The extension has independent format recognition. Foreign identity, unsupported
 core format and unsupported extension versions use private runtime defaults;
-unknown persisted bytes are retained. An event-records reset preserves all 92
-candidate bytes on Tyro, including formats this build cannot understand.
-The owned payload is bounded to 12 bytes; unrelated spare bytes remain untouched.
+unknown persisted bytes are retained. Because older unknown extensions were
+allowed to own all 92 bytes, new Ledgechase score access reads zero and ignores
+writes when the core or extension format is unsupported. Erasing event records
+also preserves that complete opaque 92-byte region, including slot 50's four
+bytes. Recognized version 1, current version 2 and absent extensions permit
+Ledgechase's fixed slot 50. Validation during records erasure uses private
+copies and does not migrate or otherwise rewrite preferences.
 
-Unmodified older Tyro executables cannot implement these protections: their
-normal current-catalogue score writes do not touch the candidate, but their
-native **Erase Event Records** action still clears it. Fresh-save creation,
+The owned version-2 record is bounded to 16 bytes; unrelated preference bytes
+remain untouched. An exact version-1 header (`TYEX`, version 1, payload size 4,
+markers `A5 5A`) migrates to version 2, payload size 8. A-Smash's saved color,
+all eight earlier Techchase preferences and unclaimed padding bits survive.
+The new Techchase CPU protection color defaults to Gray. Ledgechase defaults to
+Left, CPU 100% Off, player 0%, Even preset, Close distance, Gray protection color
+and Spotdodge follow-up. Manual per-option percentages remain session-only.
+Migration marks the existing native save dirty once; it does not change the
+44-byte core record, prior event scores, slot 50 or bytes beyond the owned
+16-byte record. Unknown versions, sizes or markers remain untouched.
+
+Unmodified older Tyro executables cannot implement all these protections.
+The version-1-aware build treats version 2 as unsupported and preserves it;
+its original 28 score writes do not touch the preference candidate. Builds
+predating the score-region reset protection still clear preferences through
+their native **Erase Event Records** action. Fresh-save creation,
 explicit deletion of a save, and card replacement intentionally reset settings.
 Do not claim that arbitrary older executables preserve this extension. A missing
 or invalid extension header must continue to yield valid defaults rather than
@@ -100,5 +124,6 @@ bash tests/run_settings_tests.sh
 PYTHONPATH=build/tangibility-test-deps python tests/test_score_storage.py -v
 ```
 
-The audit has **10 passing tests**. It performs no physical card writes and
+The audit has **12 passing tests**, plus **10 passing extension codec/migration
+tests** and two passing catalogue tests. It performs no physical card writes and
 does not edit the input DOL, DAT or GCT. `CARDWrite` is intercepted in the emulator.

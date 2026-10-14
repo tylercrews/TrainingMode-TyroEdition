@@ -86,7 +86,7 @@ mex_build() {
 # make build directory if necessary
 mkdir -p build
 tyro_write_build_metadata
-settings_abi_stamp="$(cksum src/menu.h src/menu_controller.h src/menu_controller_layout.h src/menu_controller_ui.h src/settings.h src/settings_extension.h src/asmash_osd.h src/techchase_logic.h src/trails.h src/osd_style.h src/osd_layout.h src/osd_context.h src/action_cues.h src/ledgedash_logic.h src/events.h MexTK/tmFunction.txt MexTK/include/memcard.h MexTK/include/fighter.h MexTK/include/item.h MexTK/include/text.h MexTK/melee.link ASM/Globals.s)"
+settings_abi_stamp="$(cksum src/menu.h src/menu_controller.h src/menu_controller_layout.h src/menu_controller_ui.h src/settings.h src/settings_extension.h src/asmash_osd.h src/techchase_logic.h src/ledgechase_logic.h src/trails.h src/osd_style.h src/osd_layout.h src/osd_context.h src/action_cues.h src/ledgedash_logic.h src/events.h MexTK/tmFunction.txt MexTK/include/memcard.h MexTK/include/fighter.h MexTK/include/item.h MexTK/include/text.h MexTK/melee.link ASM/Globals.s)"
 
 # A partial build must not pair a new version/identity with old eventMenu or ASM code.
 if [[ -n "${mode}" ]] && { [[ "$(cat build/version-stamp 2>/dev/null || true)" != "${tyro_metadata_stamp}" ]] || \
@@ -116,6 +116,7 @@ queue_mex_build "evFunction" "build/sweetspot.dat" "src/sweetspot.c"
 queue_mex_build "evFunction" "build/laserland.dat" "src/laserland.c"
 queue_mex_build "evFunction" "build/eggs.dat" "src/eggs.c"
 queue_mex_build "evFunction" "build/techchase.dat" "src/techchase.c"
+queue_mex_build "evFunction" "build/ledgechase.dat" "src/ledgechase.c"
 queue_mex_build "evFunction" "build/slalom.dat" "src/slalom.c" "dats/wavedash.dat"
 
 # wait for compilation to finish
@@ -160,6 +161,7 @@ ${gc_fst} fs "${tyro_output_iso}" \
     insert TM/laserland.dat build/laserland.dat \
     insert TM/eggs.dat build/eggs.dat \
     insert TM/techchase.dat build/techchase.dat \
+    insert TM/ledgechase.dat build/ledgechase.dat \
     insert TM/slalom.dat build/slalom.dat \
     insert codes.gct build/codes.gct \
     insert Start.dol build/Start.dol \

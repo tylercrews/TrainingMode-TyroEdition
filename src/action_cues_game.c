@@ -22,7 +22,12 @@ static unsigned last_frame;
 static int seen_frame, live;
 /* Borrow the event's existing Boolean option. Draw-time reads also work paused. */
 static const s16 *tangibility_option;
+static const s16 *cpu_invincibility_option;
 static int tangibility_enabled(void) { return tangibility_option && *tangibility_option; }
+static int cpu_fighter(FighterData *data) {
+    Playerblock *player = Fighter_GetPlayerblock((u8)data->ply);
+    return player && player->p_kind == 1;
+}
 static void Cue_Draw(GOBJ *gobj, int pass);
 int ActionCues_IsProtected(GOBJ *gobj) {
     if (!gobj || !gobj->userdata) return 0;
@@ -59,7 +64,10 @@ static CueFighter *get_fighter(GOBJ *gobj) {
         entry->cue = (TMCueState){0}; entry->color = TM_CUE_NONE; entry->missed_entry = -1;
         entry->local_active = 0; entry->tangible_red = 0;
     }
-    int wrap = entry->local_active || tangibility_enabled() || Settings_Get(TM_SETTING_FLAG, TM_FLAG_LAST_BLOCKED_FRAME) ||
+    /* Retain the wrapper even for local Off, so a paused palette edit is
+     * visible immediately without waiting for the next simulation update. */
+    int wrap = entry->local_active || tangibility_enabled() ||
+        (cpu_invincibility_option && cpu_fighter(data)) || Settings_Get(TM_SETTING_FLAG, TM_FLAG_LAST_BLOCKED_FRAME) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_MISSED_LCANCEL) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_RUN_TURNAROUND) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY);
@@ -84,6 +92,14 @@ void ActionCues_SetTangibilityOverlay(const s16 *enabled) {
             if (!ft || !ft->userdata) continue;
             CueFighter *entry = get_fighter(ft);
             if (entry) entry->tangible_red = 0;
+        }
+}
+void ActionCues_SetCPUInvincibilityOverlay(const s16 *palette) {
+    cpu_invincibility_option = palette;
+    for (int ply = 0; ply < 6; ++ply)
+        for (int sub = 0; sub < 2; ++sub) {
+            GOBJ *ft = Fighter_GetSubcharGObj(ply, sub);
+            if (ft && ft->userdata) get_fighter(ft);
         }
 }
 
@@ -210,8 +226,10 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
      * meet here. Read at draw time so pause, toggles and restores are immediate. */
     int tangibility = live && !data->flags.dead && tangibility_enabled();
     int tangible = tangibility && !ActionCues_IsProtected(gobj);
+    int cpu_override = cpu_invincibility_option && cpu_fighter(data);
+    uint32_t cpu_color = cpu_override ? TMCue_CPUInvincibilityColor(*cpu_invincibility_option) : 0;
     int protected = live && !data->flags.dead && !tangibility &&
-        Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY) &&
+        (cpu_override ? !!cpu_color : Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY)) &&
         ActionCues_IsProtected(gobj);
     int local = live && !data->flags.dead && entry->local_active;
     if (!cue && !protected && !local && !tangible) { entry->draw(gobj, pass); return; }
@@ -229,7 +247,8 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
     if (cue == TM_CUE_RED) color.a = TMCue_RedAlpha(entry->cue.red);
     if (protected && cue != TM_CUE_YELLOW && cue != TM_CUE_GREEN) {
         Playerblock *player = Fighter_GetPlayerblock((u8)data->ply);
-        uint32_t rgba = TMTrail_PlayerColor(player ? player->color_accent : 4, !player || player->p_kind == 1);
+        uint32_t rgba = cpu_override ? cpu_color :
+            TMTrail_PlayerColor(player ? player->color_accent : 4, !player || player->p_kind == 1);
         color = (GXColor){rgba >> 24, rgba >> 16, rgba >> 8, 112};
     }
     /* Dropped invincibility must remain visible even over timing/local tints. */
@@ -256,11 +275,13 @@ void ActionCues_Clear(void) {
 void ActionCues_SceneChange(void) {
     live = 0; manager = 0;
     tangibility_option = 0;
+    cpu_invincibility_option = 0; /* Event modules may unload after this callback. */
     ActionCues_Clear(); /* Native scene cleanup owns fighters and the service GOBJ. */
 }
 void ActionCues_MatchStart(void) {
     if (manager) return;
     tangibility_option = 0;
+    cpu_invincibility_option = 0;
     memset(fighters, 0, sizeof(fighters)); ActionCues_Clear(); live = 1;
     manager = GObj_Create(0, 7, 0);
     if (!manager) { live = 0; return; }

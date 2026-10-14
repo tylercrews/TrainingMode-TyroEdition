@@ -1,6 +1,7 @@
 #include "events.h"
 #include "savestate.h"
 #include "osds.h"
+#include "settings_extension.h"
 #include <stdarg.h>
 
 /////////////////////
@@ -176,6 +177,37 @@ EventDesc TechChase = {
     .scoreType = SCORETYPE_KO,
     .callbackPriority = 3,
     .matchData = &TechChase_MatchData,
+};
+
+// Ledgechase Training
+static EventMatchData LedgeChase_MatchData = {
+    .timer = MATCH_TIMER_HIDE,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = false,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+EventDesc LedgeChase = {
+    .eventName = "Ledgechase Training\n",
+    .eventDescription = "React to ledge options and punish their recovery.\nPause to change ledge chances and CPU actions.",
+    .eventFile = "ledgechase",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_TRAINING,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .cpuKind = -1,
+    .stage = GRKINDEXT_FD,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &LedgeChase_MatchData,
 };
 
 // Float Cancel Training
@@ -731,6 +763,7 @@ static EventDesc *General_Events[] = {
     &WaveshineSDI,
     &SlideOff,
     &GrabMash,
+    &LedgeChase,
 };
 static EventPage General_Page = {
     .name = "General Tech",
@@ -759,15 +792,16 @@ EventPage *EventPages[] = {
     &General_Page,
     &CharacterSpecific_Page,
 };
-/* Slots 28..50 belong to the bounded preference extension. Grow the event
- * catalogue only alongside an explicit extension relocation/migration. */
-typedef char event_scores_fit[(countof(Minigames_Events) + countof(General_Events) +
-    countof(CharacterSpecific_Events) <= 28) ? 1 : -1];
+/* Persisted score identities do not follow menu insertion order. The original
+ * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
+ * versioned preferences extension. Further catalogue changes need a mapping. */
+typedef char event_score_map_matches[(countof(Minigames_Events) == 5 &&
+    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 7) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
-    unsigned index = event;
-    for (unsigned p = 0; p < page; ++p) index += EventPages[p]->eventNum;
-    return index < 28 ? index : UINT32_MAX;
+    if (page == 0) return event;
+    if (page == 1) return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : 5 + event;
+    return 21 + event;
 }
 
 ////////////////////////
@@ -809,6 +843,7 @@ EventVars stc_event_vars = {
     .get_restore_serial = Events_RestoreSerial,
     .is_protected = ActionCues_IsProtected,
     .set_tangibility_overlay = ActionCues_SetTangibilityOverlay,
+    .set_cpu_invincibility_overlay = ActionCues_SetCPUInvincibilityOverlay,
 };
 
 static GOBJ *stc_msgmgr;
@@ -1316,7 +1351,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             cpu_costume = preload->queued.fighters[1].costume;
         }
 
-        if (cpu_kind == CKIND_ZELDA)
+        /* Ledgechase's native controller supports either selected form. Other
+         * events retain their existing Sheik CPU convention. */
+        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase)
             cpu_kind = CKIND_SHEIK;
 
         if (cpu_kind != -1) {

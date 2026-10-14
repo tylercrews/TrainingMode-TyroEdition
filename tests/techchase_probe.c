@@ -26,6 +26,7 @@ static int native_calls;
 
 int GrColl_CheckIfLineEnabled(int line) { return test_enabled[line]; }
 int Stage_GetExternalID(void) { return test_stage_id; }
+GOBJ *Fighter_GetGObj(int player) { return &test_cpu; }
 __attribute__((noinline)) int TestTCNativeWaitIASA(GOBJ *cpu) {
     FighterData *data = cpu->userdata;
     ++native_calls;
@@ -118,4 +119,21 @@ int TestTCDodgeInputs(void) {
     return test_cpu_data.cpu.held == PAD_TRIGGER_R && test_cpu_data.cpu.lstickY == -127 &&
         test_cpu_data.input.held == (PAD_TRIGGER_R | 0x80000000u) && test_cpu_data.input.lstick.Y == -1 &&
         test_cpu_data.input.timer_lstick_tilt_y == 0;
+}
+int TestTCNativeColorsUnchanged(void) {
+    test_cpu_data.state_id = ASID_WAIT;
+    Options_Main[OPT_INVIS].val = OPTINVIS_NONE;
+    Options_Main[OPT_CPU_COLOR].val = TM_CPU_INVINCIBILITY_OFF;
+    u8 *bytes = (void *)&test_cpu_data.color[0];
+    for (unsigned i = 0; i < 2 * sizeof(ColorOverlay); ++i) bytes[i] = i ^ 0xA5;
+    Event_PostThink(0);
+    for (unsigned i = 0; i < 2 * sizeof(ColorOverlay); ++i) if (bytes[i] != (u8)(i ^ 0xA5)) return 0;
+    return 1;
+}
+int TestTCMenuCPUColorCount(void) { return Options_Main[OPT_CPU_COLOR].value_num; }
+unsigned TestTCChancesTitle(void) { return (unsigned)Menu_Chances.name; }
+int TestTCSetCPUColor(int value) {
+    Options_Main[OPT_CPU_COLOR].val = value;
+    ChangeCPUColor((GOBJ *)1, value);
+    return saved_preferences[TM_TECHCHASE_CPU_COLOR];
 }

@@ -1,0 +1,63 @@
+# Ledgechase Training
+
+General Tech #17 uses selectable human and CPU fighters on Final Destination,
+skipping stage selection. Each attempt starts the CPU holding the selected
+ledge with fresh native ledge invulnerability. The player starts grounded on
+stage, facing the CPU. Both damage values use the native percent HUD.
+
+The event saves these seven choices:
+
+| Setting | Choices | Default |
+| --- | --- | --- |
+| Ledge Side | Left, Right, Swap on Success, Random | Left |
+| CPU above 100% | Off / On; sets exactly 0% / 100% | Off |
+| Player Percent | 0%, 25%, 50%, 75%, 100%, 125%, 150% | 0% |
+| Ledge Option Chances | Six presets and session-only percentage edits | Even |
+| Player Distance | Edge, Close, Mid, Far, Safe | Close |
+| CPU Invincibility Overlay | Off, Red, Blue, Yellow, Green, Cyan, Magenta, Gray | Gray |
+| CPU Action | Spotdodge, Roll, Dash, Smash | Spotdodge |
+
+Native ledge-option selection switches to the slow variants at **100%**.
+The CPU percent toggle sets this value exactly. Player-distance steps are
+4, 12, 24, 40 and 80 stage units inward from the ledge. Safe places the player
+near center stage with a generous margin from ledge attacks; exact spacing
+and hurtbox coverage still need live roster verification.
+
+| Preset | Getup | Jump | Roll | Attack |
+| --- | ---: | ---: | ---: | ---: |
+| Even | 25 | 25 | 25 | 25 |
+| Getup Only | 100 | 0 | 0 | 0 |
+| Jump Only | 0 | 100 | 0 | 0 |
+| Roll Only | 0 | 0 | 100 | 0 |
+| Attack Only | 0 | 0 | 0 | 100 |
+| Tyro setting | 60 | 10 | 15 | 15 |
+
+Changing an individual percentage rebalances the remaining choices to 100%.
+Only the selected preset is saved. Ledge Hop Chance and Ledge Dash Chance are
+disabled placeholders with N/A values.
+
+Seventy percent of attempts choose the first legal ledge-action frame. The
+remaining attempts spread their delay through the available ledge protection
+and at most five vulnerable frames. Normal getup respects the native neutral
+stick-release latch, so its first legal input can be later than the other
+three options. The event supplies processed CPU inputs to native IASA; it
+does not replace ledge animations or shorten their recovery.
+
+Ledge jumps fastfall on the first native-eligible descending frame. The
+selected CPU action follows the ledge option when normal native action checks
+allow it. A 30-frame punish window follows completion of that action. Hits or
+grabs start a 15-frame retry delay; deaths and an attempt timeout also retry.
+Swap on Success changes sides only after a successful hit or grab. D-pad Left
+retries without counting success. Exit flushes pending preferences.
+
+The CPU overlay shares the global invincibility detector and render-time
+composition. Its local color overrides the global CPU protection tint,
+including Off. Human global colors remain active. The same event-local
+palette is available in Techchase Training. Scene cleanup detaches the menu
+option pointer before the event module unloads.
+
+`tests/test_ledgechase.py` covers production event logic as PowerPC code;
+`tests/test_ledgechase_catalogue.py` checks the actual relocated shared DAT's
+General Tech #17 entry, selectable CPU, fixed stage and native HUD contract.
+The score-storage and extension tests cover all original scores, the new
+fixed score slot and migration from the earlier T4 settings extension.

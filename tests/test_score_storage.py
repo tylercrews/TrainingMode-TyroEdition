@@ -18,6 +18,7 @@ from unicorn import ppc_const as reg
 ROOT = Path(__file__).resolve().parents[1]
 BASE = 0x8045A6C0
 SCORE_START, SPARE_START, SCORE_END = 0x1A70, 0x1AE0, 0x1B3C
+SPARE_END, SPARE_SIZE = 0x1B38, 88
 SAVE_START, SAVE_SIZE = 0x1868, 0x1790
 STOP = 0x100000
 
@@ -112,19 +113,20 @@ class NativeMachine:
 
 
 class ScoreStorageAudit(unittest.TestCase):
-    def test_catalogue_uses_only_first_28_of_51_score_slots(self):
+    def test_catalogue_retains_28_legacy_scores_and_reserves_slot_50_for_ledgechase(self):
         source = (ROOT / "src/events.c").read_text()
         counts = []
         for array in ("Minigames_Events", "General_Events", "CharacterSpecific_Events"):
             body = re.search(r"static EventDesc \*" + array + r"\[\] = \{(.*?)\};",
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
-        self.assertEqual(counts, [5, 16, 7])
-        self.assertEqual(SCORE_START + sum(counts) * 4, SPARE_START)
+        self.assertEqual(counts, [5, 17, 7])
+        self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
+        self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)
-        self.assertEqual(SCORE_END - SPARE_START, 92)
+        self.assertEqual(SPARE_END - SPARE_START, SPARE_SIZE)
 
-    def test_native_manifest_includes_all_92_spare_bytes(self):
+    def test_native_manifest_includes_all_88_spare_bytes_and_the_new_score(self):
         machine = NativeMachine()
         manifest = bytes(machine.cpu.mem_read(0x803BAB74, 10 * 12))
         self.assertEqual(struct.unpack_from(">III", manifest, 12), (SAVE_SIZE, 0, 0))
@@ -132,6 +134,7 @@ class ScoreStorageAudit(unittest.TestCase):
         self.assertGreaterEqual(SPARE_START, SAVE_START)
         self.assertLessEqual(SCORE_END, SAVE_START + SAVE_SIZE)
         self.assertEqual((SPARE_START - SAVE_START, SCORE_END - SAVE_START), (0x278, 0x2D4))
+        self.assertEqual(SPARE_END - SAVE_START, 0x2D0)
 
     def test_unpatched_native_score_access_can_reach_spare_slots(self):
         machine = NativeMachine()
@@ -188,9 +191,9 @@ class ScoreStorageAudit(unittest.TestCase):
         self.assertEqual(machine.call(0x803B31CC, sector, 0x2000), 0)
         decoded = bytes(machine.cpu.mem_read(sector + 0x20, SAVE_SIZE))
         self.assertEqual(decoded, data)
-        self.assertEqual(decoded[0x278:0x2D4], data[0x278:0x2D4])
-        self.assertEqual(decoded[0x274:0x278] + decoded[0x2D4:0x2D8],
-                         data[0x274:0x278] + data[0x2D4:0x2D8])
+        self.assertEqual(decoded[0x278:0x2D0], data[0x278:0x2D0])
+        self.assertEqual(decoded[0x274:0x278] + decoded[0x2D0:0x2D8],
+                         data[0x274:0x278] + data[0x2D0:0x2D8])
 
     def test_native_checksum_covers_first_middle_and_last_spare_bytes(self):
         machine, sector, data, encoded = self.encoded_main_sector()
@@ -200,7 +203,7 @@ class ScoreStorageAudit(unittest.TestCase):
         self.assertEqual(machine.call(0x803B31CC, sector, 0x2000), 0)
         plain = bytes(machine.cpu.mem_read(sector, 0x2000))
         output = 0x80503000
-        for offset in (0x278, 0x2A5, 0x2D3):
+        for offset in (0x278, 0x2A5, 0x2CF, 0x2D3):
             changed = bytearray(plain)
             changed[0x20 + offset] ^= 1
             machine.cpu.mem_write(sector, bytes(changed))
@@ -212,28 +215,32 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.cpu.mem_write(sector, bytes(changed))
         self.assertEqual(machine.call(0x803B31CC, sector, 0x2000), 0xFFFFFFFF)
 
-    def test_protected_score_hooks_keep_every_spare_byte_and_all_28_scores(self):
+    def test_protected_score_hooks_keep_spare_bytes_and_all_29_stable_scores(self):
         machine = NativeMachine()
         functions = machine.load_services()
         self.assertIn(43, functions)
         machine.install_hook(0x8015CF60, 0x80600000)
         machine.install_hook(0x8015CF74, 0x80602000)
-        canary = bytes((index * 13 + 3) & 255 for index in range(92))
+        canary = bytes((index * 13 + 3) & 255 for index in range(SPARE_SIZE))
         machine.cpu.mem_write(BASE + SPARE_START, canary)
-        for page, count, first in ((0, 5, 0), (1, 16, 5), (2, 7, 21)):
+        for page, count, first in ((0, 5, 0), (1, 17, 5), (2, 7, 21)):
             machine.call(functions[28], 2, 0, page)
             for event in range(count):
-                value = 0xAABB0000 | (first + event)
+                slot = 50 if page==1 and event==16 else first+event
+                value = 0xAABB0000 | slot
                 machine.call(0x8015CF70, event, value)
                 self.assertEqual(machine.call(0x8015CF5C, event), value)
-                self.assertEqual(machine.call(functions[43], event), BASE + SCORE_START + (first + event) * 4)
+                self.assertEqual(machine.call(functions[43], event), BASE + SCORE_START + slot * 4)
             for event in (count, count + 1, 28, 50, 51, 0xFFFFFFFF):
                 before = bytes(machine.cpu.mem_read(BASE + SCORE_START, 204))
                 self.assertEqual(machine.call(functions[43], event), 0)
                 self.assertEqual(machine.call(0x8015CF5C, event), 0)
                 machine.call(0x8015CF70, event, 0xFFFFFFFF)
                 self.assertEqual(bytes(machine.cpu.mem_read(BASE + SCORE_START, 204)), before)
-        self.assertEqual(bytes(machine.cpu.mem_read(BASE + SPARE_START, 92)), canary)
+        self.assertEqual(bytes(machine.cpu.mem_read(BASE + SPARE_START, SPARE_SIZE)), canary)
+        for slot in (*range(28),50):
+            self.assertEqual(struct.unpack('>I',machine.cpu.mem_read(BASE+SCORE_START+slot*4,4))[0],
+                             0xAABB0000|slot)
 
     def test_protected_native_records_reset_preserves_only_tyro_spare_bytes(self):
         machine = NativeMachine()
@@ -247,10 +254,50 @@ class ScoreStorageAudit(unittest.TestCase):
             machine.call(0x8015EEC8)
             self.assertEqual(bytes(machine.cpu.mem_read(BASE + 0x1A64, 4)), b"\xA5" * 4)
             self.assertEqual(bytes(machine.cpu.mem_read(BASE + 0x1A68, 120)), bytes(120))
-            self.assertEqual(bytes(machine.cpu.mem_read(BASE + SPARE_START, 92)),
-                             b"\xA5" * 92 if preserve else bytes(92))
-            self.assertEqual(bytes(machine.cpu.mem_read(BASE + 0x1B3C, 4)), bytes(4))
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE + SPARE_START, SPARE_SIZE)),
+                             b"\xA5" * SPARE_SIZE if preserve else bytes(SPARE_SIZE))
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE + SPARE_END, 8)), bytes(8))
             self.assertEqual(bytes(machine.cpu.mem_read(BASE + 0x1B40, 4)), b"\xA5" * 4)
+
+    def test_future_core_and_extension_protect_opaque_old_slot_50_from_score_and_reset(self):
+        for mode in ('extension','core'):
+            machine=NativeMachine(); functions=machine.load_services()
+            for address, allocation in ((0x8015CF60,0x80600000),(0x8015CF74,0x80602000),
+                                        (0x8015EF14,0x80604000)):
+                machine.install_hook(address,allocation)
+            machine.call(functions[28],2,0,1)
+            opaque=b'TYEX\x03\x54\xA5\x5A'+bytes(range(84))
+            if mode=='core':
+                opaque=b'TYEX\x02\x08\xA5\x5A'+bytes(range(84))
+                core=bytearray(machine.cpu.mem_read(BASE+0x1F24,44))
+                core[10]&=0x3F
+                machine.cpu.mem_write(BASE+0x1F24,bytes(core))
+            machine.cpu.mem_write(BASE+SPARE_START,opaque)
+            core=bytes(machine.cpu.mem_read(BASE+0x1F24,44))
+            self.assertEqual(machine.call(functions[43],16),0)
+            self.assertEqual(machine.call(0x8015CF5C,16),0)
+            machine.call(0x8015CF70,16,0xFFFFFFFF)
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE+SPARE_START,92)),opaque)
+            # Existing scores still operate while the new score is quarantined.
+            machine.call(0x8015CF70,0,123)
+            self.assertEqual(machine.call(0x8015CF5C,0),123)
+            machine.call(0x8015EEC8)
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE+SPARE_START,92)),opaque)
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1B3C,4)),bytes(4))
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1F24,44)),core)
+
+    def test_recognized_v1_and_v2_records_reset_score_50_without_migrating_saved_bytes(self):
+        for header in (b'TYEX\x01\x04\xA5\x5A', b'TYEX\x02\x08\xA5\x5A'):
+            machine=NativeMachine(); functions=machine.load_services()
+            machine.call(functions[28],2,0,1)
+            machine.install_hook(0x8015EF14,0x80604000)
+            saved=header+bytes(range(SPARE_SIZE-len(header)))
+            machine.cpu.mem_write(BASE+SPARE_START,saved+b'\xFF'*8)
+            core=bytes(machine.cpu.mem_read(BASE+0x1F24,44))
+            machine.call(0x8015EEC8)
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE)),saved)
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE+SPARE_END,8)),bytes(8))
+            self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1F24,44)),core)
 
     def test_score_and_reset_hooks_preserve_native_register_context(self):
         machine = NativeMachine()

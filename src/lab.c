@@ -339,9 +339,9 @@ void Lab_ChangeOSDs(GOBJ *menu_gobj, int value) {
     for (row = 0; row < countof(LabOSD_ID); ++row)
         if (selected == &LabOptions_OSDs[row]) break;
     if (row == countof(LabOSD_ID)) {
-        if (selected != &LabOptions_OSDs[TM_SETTINGS_OSDS + 2]) return;
+        if (selected != &LabOptions_OSDs[TM_SETTINGS_OSDS]) return;
         TM_SetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID, value);
-        LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
+        LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
         Memcard_SaveIfChanged();
         return;
     }
@@ -355,11 +355,11 @@ void Lab_ChangeOSDs(GOBJ *menu_gobj, int value) {
 void Lab_ChangeOSDsOff(GOBJ *menu_gobj, int value) {
     MenuData *menu = menu_gobj->userdata;
     EventOption *selected = EventMenu_SelectedOption(menu);
-    if (selected != &LabOptions_OSDs[TM_SETTINGS_OSDS] && selected != &LabOptions_OSDs[TM_SETTINGS_OSDS + 1]) return;
-    unsigned flag = selected == &LabOptions_OSDs[TM_SETTINGS_OSDS] ? TM_FLAG_CPU_OSDS_OFF : TM_FLAG_OSDS_OFF;
+    if (selected != &LabOptions_OSDs[TM_SETTINGS_OSDS + 1] && selected != &LabOptions_OSDs[TM_SETTINGS_OSDS + 2]) return;
+    unsigned flag = selected == &LabOptions_OSDs[TM_SETTINGS_OSDS + 1] ? TM_FLAG_CPU_OSDS_OFF : TM_FLAG_OSDS_OFF;
     TM_SetSetting(TM_SETTING_FLAG, flag, value);
-    LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF);
-    LabOptions_OSDs[TM_SETTINGS_OSDS + 1].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
+    LabOptions_OSDs[TM_SETTINGS_OSDS + 1].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF);
+    LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
     Memcard_SaveIfChanged();
 }
 static const unsigned global_cue_flags[] = {
@@ -6151,13 +6151,13 @@ void Event_Init(GOBJ *gobj)
     }
     for (int i = 0; i < (int)countof(LabOSD_ID); i++)
         LabOptions_OSDs[i].val = TM_GetSetting(TM_SETTING_OSD_COLOR, LabOSD_ID[i]);
-    LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
+    LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
 
     LabOptions_OSDs[TM_SETTINGS_OSDS + 3].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_VERY_FAST);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 4].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_INSTANT);
     Lab_ChangeHitboxTrails(0, 0);
-    LabOptions_OSDs[TM_SETTINGS_OSDS + 1].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
-    LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF);
+    LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
+    LabOptions_OSDs[TM_SETTINGS_OSDS + 1].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF);
     for (unsigned i = 0; i < countof(global_cue_flags); ++i)
         LabOptions_OSDs[TM_SETTINGS_OSDS + 5 + i].val = TM_GetSetting(TM_SETTING_FLAG, global_cue_flags[i]);
     LabOptions_OSDDisplay[0].val = TM_GetSetting(TM_SETTING_OSD_LAYOUT, 0);

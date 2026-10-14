@@ -263,6 +263,15 @@ class TechchaseTests(unittest.TestCase):
         self.assertEqual(self.m.call("TestTCDodgeStep", 1, 2), 2)
         self.assertEqual(calls, [0x80099794])
 
+    def test_cpu_palette_and_off_preserve_native_colors(self):
+        self.assertEqual(self.m.call("TestTCMenuCPUColorCount"), 8)
+        for value in range(8):
+            self.assertEqual(self.m.call("TestTCSetCPUColor", value), value)
+            self.assertEqual(self.m.call("TestTCLastWriteIndex"), 8)
+        title = self.m.call("TestTCChancesTitle")
+        self.assertEqual(bytes(self.m.cpu.mem_read(title, 32)).split(b"\0", 1)[0], b"Tech Chances")
+        self.assertEqual(self.m.call("TestTCNativeColorsUnchanged"), 1)
+
 
 if __name__ == "__main__":
     build()

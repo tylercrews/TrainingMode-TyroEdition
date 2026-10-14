@@ -31,9 +31,9 @@ ClearTyroSettings:
     stw r3, 0(r5)
     addi r5, r5, 4
     bdnz ClearTyroSettings
-    # The separately versioned extension owns three spare event-score words.
+    # The separately versioned extension owns four spare event-score words.
     addi r5, r4, 0x1AE0
-    li r6, 3
+    li r6, 4
     mtctr r6
 ClearTyroExtension:
     stw r3, 0(r5)

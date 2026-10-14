@@ -43,28 +43,26 @@ static int ness_continuation(int kind, int state) {
 static int ness_release(int kind, int state) {
     return kind == FTKIND_NESS && (state == 344 || state == 347);
 }
-/* These two SDK fields are named as floats, but native smash checks load them
- * with lwz: preserve the native integer representation without changing ABI. */
-static unsigned common_integer(const float *field) {
-    unsigned value; memcpy(&value, field, sizeof(value)); return value;
-}
 static int a_origin(FighterData *fighter, int family) {
     if (!(fighter->input.down & HSD_BUTTON_A)) return 0;
     ftCommonData *common = *stc_ftcommon;
     if (!common) return 0;
+    /* Native smash checks read 0x670/671. The SDK calls these "tilt" timers;
+     * its "smash" timers at 0x673/674 are unconsumed sticky copies. Consumers
+     * can stamp the active timers 254 without changing those sticky copies. */
     if (family == 1) {
         float x = fighter->input.lstick.X;
         if (x < 0) x = -x;
         return x >= common->dash_min_stick &&
             (fighter->state_id == ASID_DASH ||
-             (u8)fighter->input.timer_lstick_smash_x < common->dash_min_stick_tilt);
+             (u8)fighter->input.timer_lstick_tilt_x < common->dash_min_stick_tilt);
     }
     if (family == 2)
         return fighter->input.lstick.Y >= common->xcc &&
             (fighter->state_id == ASID_KNEEBEND ||
-             (u8)fighter->input.timer_lstick_smash_y < common_integer(&common->xd0));
+             (u8)fighter->input.timer_lstick_tilt_y < common->xd0);
     return fighter->input.lstick.Y <= common->xd4 &&
-        (u8)fighter->input.timer_lstick_smash_y < common_integer(&common->xd8);
+        (u8)fighter->input.timer_lstick_tilt_y < common->xd8;
 }
 void OSD_ASmashEnter(FighterData *fighter, int next_state) {
     if (!fighter) return;

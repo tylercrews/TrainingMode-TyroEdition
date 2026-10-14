@@ -68,7 +68,7 @@ static u8 *extension_view(void) {
         return extension_fallback;
     }
     extension_private_mode=0;
-    if(ext_status==TM_EXTENSION_REPAIRED) mark_changed();
+    if(ext_status==TM_EXTENSION_REPAIRED || ext_status==TM_EXTENSION_MIGRATED) mark_changed();
     return extension;
 }
 static void extension_set(unsigned field,unsigned index,u32 value) {
@@ -78,7 +78,7 @@ static void extension_set(unsigned field,unsigned index,u32 value) {
 uint32_t Settings_Get(unsigned field, unsigned index) {
     if (field == TM_SETTING_OSD_PAGE) return osd_page;
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorID(index); field=TM_SETTING_NATIVE_ROW; }
-    if(field==TM_SETTING_TECHCHASE || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID))
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID))
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && index==TM_GLOBAL_ASMASH_RELEASE_ID)
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
@@ -92,7 +92,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
 void Settings_Set(unsigned field, unsigned index, uint32_t value) {
     if (field == TM_SETTING_OSD_PAGE) { if (value < 19) osd_page = value; return; }
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorID(index); field=TM_SETTING_NATIVE_ROW; }
-    if(field==TM_SETTING_TECHCHASE || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)) {
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)) {
         extension_set(field,index,value); return;
     }
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && index==TM_GLOBAL_ASMASH_RELEASE_ID) {
@@ -122,16 +122,26 @@ int Settings_Status(void) {
 }
 void *Settings_EventScoreSlot(unsigned event) {
     unsigned slot = Events_ScoreIndex(Settings_Get(TM_SETTING_EVENT_PAGE, 0), event);
-    return slot < 28 ? (u8 *)stc_memcard + 0x1A70 + slot * 4 : 0;
+    /* Older opaque extensions were allowed to occupy all 92 spare bytes.
+     * Claim slot 50 only when this build understands the owning save format. */
+    if(slot==TM_EVENT_LEDGECHASE_SCORE_SLOT && extension_view()==extension_fallback) return 0;
+    return slot<TM_EVENT_LEGACY_SCORE_SLOTS || slot==TM_EVENT_LEDGECHASE_SCORE_SLOT
+        ? (u8 *)stc_memcard+TM_EVENT_SCORE_OFFSET+slot*4 : 0;
 }
 void Settings_ResetEventRecords(void *card) {
     u8 *bytes = card;
     if (!bytes) return;
     if (same_bytes((const u8 *)0x80000000, (const u8 *)TM_GAME_ID, 6)) {
-        /* Native Erase Event Records clears flags + all 51 score slots + the
-         * adjacent field. Preserve the extension, including unknown versions. */
-        memset(bytes + 0x1A68, 0, 120);
-        memset(bytes + 0x1B3C, 0, 4);
+        /* Validate private copies: records erasure must neither migrate the
+         * preferences nor claim the final four bytes of an opaque old record. */
+        u8 core[TM_SETTINGS_SIZE], extension[TM_EXTENSION_SIZE];
+        memcpy(core,bytes+TM_SETTINGS_OFFSET,sizeof(core));
+        memcpy(extension,bytes+TM_EXTENSION_OFFSET,sizeof(extension));
+        int understood=TMSettings_Prepare(core,1)!=TM_SETTINGS_UNSUPPORTED &&
+            TMExtension_Prepare(extension)!=TM_EXTENSION_UNSUPPORTED;
+        memset(bytes+0x1A68,0,TM_EXTENSION_OFFSET-0x1A68);
+        if(understood) memset(bytes+TM_EXTENSION_REGION_END,0,0x1B40-TM_EXTENSION_REGION_END);
+        else memset(bytes+0x1B3C,0,4);
     } else memset(bytes + 0x1A68, 0, 216);
 }
 

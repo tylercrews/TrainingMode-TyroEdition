@@ -23,6 +23,7 @@ static void ChangeTimingOSD(GOBJ *menu_gobj, int value);
 static void ChangeReset(GOBJ *menu_gobj, int value);
 static void ChangeInvisibility(GOBJ *menu_gobj, int value);
 static void ChangeSpotdodge(GOBJ *menu_gobj, int value);
+static void ChangeCPUColor(GOBJ *menu_gobj, int value);
 static void ChangeTechInPlaceChance (GOBJ *menu_gobj, int _new_val);
 static void ChangeTechAwayChance    (GOBJ *menu_gobj, int _new_val);
 static void ChangeTechTowardChance  (GOBJ *menu_gobj, int _new_val);
@@ -100,6 +101,7 @@ static const char *Options_Preset[] = {
 };
 static const char *Options_Location[] = {"Center Stage", "Left Plat", "Right Plat", "Top Plat"};
 static const char *Options_LocationDisplay[TC_LOCATION_COUNT];
+static const char *Options_CPUColor[] = {TM_CPU_INVINCIBILITY_NAMES};
 
 enum {
     OPT_CHANCE_MENU,
@@ -109,6 +111,7 @@ enum {
     OPT_INVIS,
     OPT_LOCATION,
     OPT_SPOTDODGE,
+    OPT_CPU_COLOR,
     OPT_SPEED,
     OPT_MOVE_CPU,
     OPT_MOVE_HMN,
@@ -168,6 +171,15 @@ static EventOption Options_Main[] = {
         .name = "Spotdodge Punish",
         .desc = {"CPU spotdodges as soon as its tech/getup ends.", "Punish its recovery; reset waits until it ends."},
         .OnChange = ChangeSpotdodge,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "CPU Invincibility Overlay",
+        .desc = {"Choose a color for the CPU's natural", "invincibility and intangibility."},
+        .values = Options_CPUColor,
+        .value_num = TM_CPU_INVINCIBILITY_COUNT,
+        .val = TM_CPU_INVINCIBILITY_DEFAULT,
+        .OnChange = ChangeCPUColor,
     },
     {
         .kind = OPTKIND_STRING,
@@ -319,7 +331,7 @@ static EventOption Options_Chances[] = {
 };
 
 static EventMenu Menu_Chances = {
-    .name = "Option Chances",
+    .name = "Tech Chances",
     .option_num = countof(Options_Chances),
     .options = Options_Chances,
 };
@@ -877,12 +889,6 @@ static void Event_PostThink(GOBJ *menu) {
         } break;
     }
 
-    memset(&cpu_data->color[1], 0, sizeof(ColorOverlay));
-    memset(&cpu_data->color[0], 0, sizeof(ColorOverlay));
-    if (state_id == ASID_WAIT) {
-        cpu_data->color[1].hex = (GXColor) {0xF0, 0xF0, 0xF0, 0xA0};
-        cpu_data->color[1].color_enable = 1;
-    }
 }
 
 void Event_Init(GOBJ *gobj) {
@@ -900,6 +906,8 @@ void Event_Init(GOBJ *gobj) {
     Options_Main[OPT_INVIS].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_INVISIBILITY);
     Options_Main[OPT_LOCATION].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_LOCATION);
     Options_Main[OPT_SPOTDODGE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE);
+    Options_Main[OPT_CPU_COLOR].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR);
+    event_vars->set_cpu_invincibility_overlay(&Options_Main[OPT_CPU_COLOR].val);
     Options_Main[OPT_CAM].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CAMERA);
     ApplyStartingLocation();
     ChangeCam(0, Options_Main[OPT_CAM].val);
@@ -908,6 +916,7 @@ void Event_Init(GOBJ *gobj) {
 }
 
 static void Exit(GOBJ *menu) {
+    event_vars->set_cpu_invincibility_overlay(0);
     Memcard_SaveIfChanged();
     stc_match->state = 3;
     Match_EndVS();
@@ -921,6 +930,7 @@ static void ChangeReactionOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_
 static void ChangeTimingOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_TIMING_OSD, value); }
 static void ChangeReset(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_RESET, value); }
 static void ChangeInvisibility(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_INVISIBILITY, value); }
+static void ChangeCPUColor(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR, value); }
 static void ChangeSpotdodge(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE, value);
     Reset();

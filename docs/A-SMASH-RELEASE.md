@@ -33,6 +33,17 @@ up smashes retain their native relaxed-timer behavior. Common smashes, Game &
 Watch's forward smash, Peach's three forward smashes and Ness's custom smashes are
 included. Ness's charge-state transitions keep the initial episode.
 
+Native smash checks read the consumable input timers at `0x670/0x671`, which
+the SDK misleadingly names `timer_lstick_tilt_x/y`. Its `smash_x/y` names refer
+to sticky copies at `0x673/0x674`. Native consumers can stamp the active timers
+254 while leaving sticky timers fresh. Checking the sticky copies can classify
+a C-stick smash plus A as an A-origin smash, or miss an event-generated A smash
+whose active input was refreshed. The producer uses the native active timers;
+regressions execute native side/up/down input branches with divergent copies.
+The up/down input windows at common-data offsets `0xD0/0xD8` are floats;
+native code converts the active byte timer to float before comparing them.
+The forward-smash window at `0x40` remains an integer.
+
 Native charge state 3 retires the episode before an A-release result, so a smash
 that automatically releases at its limit cannot report a subsequent A release.
 Ness's separate release states retire it too. State changes, death, respawn,
@@ -53,7 +64,7 @@ addresses and register verification.
 
 ## Verification
 
-`tests/test_asmash.py` has thirteen focused PowerPC regressions. They execute the
+`tests/test_asmash.py` has fourteen focused PowerPC regressions. They execute the
 actual native charge/input instructions from `build/Start.dol` with the assembled
 hooks, verify first-opportunity and delayed releases, test automatic release at
 the native float counter's limit, and check hook GPR/FPR/CR/CTR/XER preservation.

@@ -25,8 +25,9 @@ class ASmashTests(unittest.TestCase):
         common = self.m.symbols["cue_common"]
         for offset, value in [(0x3C, .8), (0xCC, .8), (0xD4, -.8)]:
             self.m.cpu.mem_write(common + offset, struct.pack(">f", value))
-        for offset in (0x40, 0xD0, 0xD8):
-            self.m.cpu.mem_write(common + offset, struct.pack(">I", 4))
+        self.m.cpu.mem_write(common + 0x40, struct.pack(">I", 4))
+        for offset in (0xD0, 0xD8):
+            self.m.cpu.mem_write(common + offset, struct.pack(">f", 4.0))
         self.m.call("TestWaitClear")
 
     def time(self, frame):
@@ -37,6 +38,7 @@ class ASmashTests(unittest.TestCase):
         m.cpu.mem_write(self.data + 0x620, struct.pack(">2f", x, y))
         m.cpu.mem_write(self.data + 0x65C, struct.pack(">I", held))
         m.cpu.mem_write(self.data + 0x668, struct.pack(">I", down))
+        m.cpu.mem_write(self.data + 0x670, bytes([timer, timer]))
         m.cpu.mem_write(self.data + 0x673, bytes([timer, timer]))
 
     def begin(self, state=60, kind=1, frame=10, old=14, held=0x100, timer=0):
@@ -109,6 +111,54 @@ class ASmashTests(unittest.TestCase):
         self.input(11,0)
         self.assertEqual(self.result(),1)
 
+    def test_native_side_up_down_origin_uses_active_timers_when_sticky_copies_diverge(self):
+        m=self.m
+        dol=(ROOT/"build/Start.dol").read_bytes()
+        for a,size in ((0x8008BFC4,0xD84),(0x800DF1C8,0x2B0)):
+            for i in range(18):
+                offset,base,length=[struct.unpack_from(">I",dol,j+i*4)[0] for j in (0,0x48,0x90)]
+                if base<=a and a+size<=base+length:
+                    m.cpu.mem_write(a,dol[offset+a-base:offset+a-base+size]);break
+            else:self.fail("Native smash input branches missing")
+        m.cpu.reg_write(gpr(13),0x804DB6A0)
+        m.cpu.mem_write(0x80300000-0x7560,struct.pack(">3f",0,1,-1))
+        m.cpu.mem_write(0x80300000-0x68B0,struct.pack(">f",0))
+        # The native vertical checks convert the active byte timer to float.
+        # Copy their real SDA2 conversion constant into this fixture's SDA2.
+        for displacement in (-0x7550, -0x7540):
+            native_constant = 0x804DF9E0 + displacement
+            for i in range(18):
+                offset,base,length=[struct.unpack_from('>I',dol,j+i*4)[0] for j in (0,0x48,0x90)]
+                if base <= native_constant and native_constant + 8 <= base + length:
+                    m.cpu.mem_write(0x80300000+displacement,dol[offset+native_constant-base:offset+native_constant-base+8])
+                    break
+            else: self.fail('Native timer conversion constant missing')
+        for a in (0x8007D964,0x8007D99C):
+            m.cpu.mem_write(a,struct.pack(">3I",0x3D808030,0xC02C9750,0x4E800020))
+        m.cpu.mem_write(0x8008C22C,bytes.fromhex("386000004e800020"))  # No held item.
+        callback=m.symbols["OSD_ASmashEnter"]
+        for address,state in ((0x8008C348,60),(0x8008CA38,63),(0x8008CC5C,64)):
+            # Bound state-entry/animation dependencies. The actual native
+            # A/C-stick selector runs, then calls the actual OSD entry adapter
+            # with the same original fighter and requested action state.
+            m.cpu.mem_write(address,struct.pack(">6I",0x8063002C,0x38800000|state,
+                0x3D800000|(callback>>16),0x618C0000|(callback&65535),0x7D8903A6,0x4E800420))
+        for state,address,x,y in ((60,0x8008BFC4,1,0),(63,0x8008C830,0,1),(64,0x8008CB44,0,-1)):
+            m.symbols["NativeSmashSelector"]=address
+            for active,sticky,cstick,expected in ((0,254,False,1),(254,0,True,0)):
+                with self.subTest(state=state,active=active,sticky=sticky):
+                    m.call("ASMash_Clear");m.call("TestWaitClear")
+                    m.call("TestCueState",0,14,0,40,100);self.time(10)
+                    self.buttons(0x100,0x100,x,y)
+                    m.cpu.mem_write(self.data+0x670,bytes([active,active]))
+                    m.cpu.mem_write(self.data+0x673,bytes([sticky,sticky]))
+                    m.cpu.mem_write(self.data+0x638,struct.pack(">2f",x if cstick else 0,y if cstick else 0))
+                    m.cpu.mem_write(self.data+0x640,bytes(8))
+                    self.assertEqual(m.call("NativeSmashSelector",self.obj),1)
+                    self.assertEqual(bytes(m.cpu.mem_read(self.data+0x670,2)),bytes([active,active]))
+                    m.call("TestCueState",0,state,0,40,100)
+                    self.input(11,0)
+                    self.assertEqual(self.result(),expected)
     def test_cancel_restore_rewind_death_spawn_and_auto_release_retire_attempt(self):
         for retire in ["cancel", "restore", "rewind", "death", "spawn", "maximum"]:
             with self.subTest(retire=retire):
@@ -181,7 +231,7 @@ class ASmashTests(unittest.TestCase):
                 if base<=a and a+s<=base+length:
                     m.cpu.mem_write(a,dol[offset+a-base:offset+a-base+s]);break
             else: self.fail("Native smash handlers missing from input DOL")
-        m.cpu.reg_write(gpr(13),0x804D6D5C)
+        m.cpu.reg_write(gpr(13),0x804DB6A0)
         for slot,name in [(44,"OSD_ASmashEnter"),(45,"OSD_ASmashInput")]:
             m.cpu.mem_write(0x80300000-200+slot*4,struct.pack(">I",m.symbols[name]))
         m.install_hook(0x800DF0E8)
@@ -189,7 +239,7 @@ class ASmashTests(unittest.TestCase):
         m.symbols["NativeSmashCharge"]=0x800DEF38
         shake=0x80407000
         m.cpu.mem_write(shake,struct.pack(">2I",0,4))
-        m.cpu.mem_write(0x804D1BE4,struct.pack(">I",shake))
+        m.cpu.mem_write(0x804D6528,struct.pack(">I",shake))
         m.cpu.mem_write(0x80300000-0x68B0,struct.pack(">f",0))
         m.cpu.mem_write(0x80300000-0x68AC,struct.pack(">f",1))
         m.cpu.mem_write(self.data+0x2128,struct.pack(">I",0x7B))
@@ -311,14 +361,21 @@ class RelocatedASmashTests(unittest.TestCase):
         data=m.call("TestCueData",0);obj=m.call("TestCueObject",0)
         common=m.symbols["cue_common"]
         m.cpu.mem_write(common+0x3C,struct.pack(">fI",.8,4))
-        m.call("TestContextTick",0,10)
-        m.cpu.mem_write(data+0x620,struct.pack(">2f",1,0))
-        m.cpu.mem_write(data+0x668,struct.pack(">I",0x100))
-        m.call("DAT_ASmashEnter",data,60)
-        m.call("TestCueState",0,60,0,40,100)
-        m.call("TestContextTick",0,11)
-        m.call("DAT_ASmashInput",obj)
-        self.assertEqual(m.call("TestWaitFrame"),1)
+        m.cpu.mem_write(common+0xCC,struct.pack(">4f",.8,4.,-.8,4.))
+        for state,x,y in ((60,1,0),(63,0,1),(64,0,-1)):
+            for active,sticky,expected in ((254,0,0),(0,254,1)):
+                with self.subTest(state=state,active=active,sticky=sticky):
+                    m.call('TestWaitClear');m.call('TestCueState',0,14,0,40,100)
+                    m.call("TestContextTick",0,10)
+                    m.cpu.mem_write(data+0x620,struct.pack(">2f",x,y))
+                    m.cpu.mem_write(data+0x668,struct.pack(">I",0x100))
+                    m.cpu.mem_write(data+0x670,bytes([active,active]))
+                    m.cpu.mem_write(data+0x673,bytes([sticky,sticky]))
+                    m.call("DAT_ASmashEnter",data,state)
+                    m.call("TestCueState",0,state,0,40,100)
+                    m.call("TestContextTick",0,11)
+                    m.call("DAT_ASmashInput",obj)
+                    self.assertEqual(m.call("TestWaitFrame"),expected)
         tag=m.call("TestWaitTag")
         self.assertEqual(m.call("OSD_MessageSettings",tag),30)
         self.assertEqual(m.call("OSD_MessageKind",tag),70)
