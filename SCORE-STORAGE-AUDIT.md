@@ -52,7 +52,7 @@ live verification before release confidence can include those paths.
 | Native path | Verified behavior | Protection or intended handling |
 | --- | --- | --- |
 | Getter `0x8015CF5C` / setter `0x8015CF70` | The original indexed functions can reach all 51 score slots. Earlier mod hooks added page offsets without checking bounds. | Getter hook `0x8015CF60` and setter hook `0x8015CF74` now call the bounded shared score resolver. Invalid indices read zero and write nothing. |
-| Event records reset `0x8015EEC8` | Clears 25 fighter-record subranges, then 216 bytes at `0x1A68..0x1B3F`. The original final clear erases the entire candidate. | Hook `0x8015EF14` replaces only that final clear. On recognized `TYRE01` formats, clear the 120-byte played/assigned-score prefix and the final eight bytes (Ledgechase score plus adjacent word), preserving all 88 preference bytes. Unknown core/extension formats retain the original 92-byte protected region. |
+| Event records reset `0x8015EEC8` | Clears 25 fighter-record subranges, then 216 bytes at `0x1A68..0x1B3F`. The original final clear erases the entire candidate. | Hook `0x8015EF14` replaces only that final clear. On recognized `TMTE01` formats, clear the 120-byte played/assigned-score prefix and the final eight bytes (Ledgechase score plus adjacent word), preserving all 88 preference bytes. Unknown core/extension formats retain the original 92-byte protected region. |
 | New/missing/corrupt main-save initialization `gmMainLib_8015F600(1, ...)` | Native clear at `0x8015F77C..0x8015F788` clears `0x448` bytes beginning at `0x1868`, including the candidate. | Intentional fresh-save behavior; extension defaults are reconstructed. This path must not preserve stale preferences from another card/save. |
 | Boot initialization `0x8015FBA4` | Zeroes the entire native game-data object before initialization/loading. | Intentional RAM initialization; subsequent card loading restores serialized bytes. |
 | Normal card read/write | Copies full manifest entries through native card jobs. | Candidate bytes travel with the existing main entry and native checksum/encryption. No separate file or job is introduced. |
@@ -84,8 +84,8 @@ overlapping preferences or changing old score identities. Keep the storage
 boundary fixed when removing events; do not slide persisted preferences
 according to current count.
 
-Records-reset preservation checks the complete six-byte identity `TYRE01`.
-The tests verify that `GTME01`, `GALE01` and even `TYRE02` keep the original
+Records-reset preservation checks the complete six-byte identity `TMTE01`.
+The tests verify that `GTME01`, `GALE01`, the former `TYRE01` and even `TMTE02` keep the original
 216-byte native clear. The separate Tyro save namespace prevents ordinary
 upstream/vanilla use from accessing a Tyro save automatically.
 

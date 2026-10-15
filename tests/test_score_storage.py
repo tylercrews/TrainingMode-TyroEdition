@@ -94,7 +94,7 @@ class NativeMachine:
             slot, offset = struct.unpack_from(">II", dat, 32 + exports + index * 8)
             functions[slot] = base + offset
             self.cpu.mem_write(0x804DF9E0 - 200 + slot * 4, struct.pack(">I", base + offset))
-        self.cpu.mem_write(0x80000000, b"TYRE01")
+        self.cpu.mem_write(0x80000000, b"TMTE01")
         self.cpu.mem_write(BASE + 0x1F24, bytes(44))
         return functions
 
@@ -251,8 +251,9 @@ class ScoreStorageAudit(unittest.TestCase):
         functions = machine.load_services()
         self.assertIn(42, functions)
         machine.install_hook(0x8015EF14, 0x80604000)
-        for identity, preserve in ((b"TYRE01", True), (b"GTME01", False),
-                                   (b"TYRE02", False), (b"GALE01", False)):
+        for identity, preserve in ((b"TMTE01", True), (b"GTME01", False),
+                                   (b"TMTE02", False), (b"GALE01", False),
+                                   (b"TYRE01", False)):
             machine.cpu.mem_write(0x80000000, identity)
             machine.cpu.mem_write(BASE + 0x1A64, b"\xA5" * 224)
             machine.call(0x8015EEC8)

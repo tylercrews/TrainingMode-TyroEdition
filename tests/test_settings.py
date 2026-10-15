@@ -75,7 +75,7 @@ class Machine:
         # The shared observer fans out to the inactive Under Fire fixture.
         self.cpu.mem_write(0x80407D00, struct.pack('>I', 0x4E800020))
         self.cpu.mem_write(0x80300000 - 200 + 49 * 4, struct.pack('>I', self.symbols['EventTiming_Observe']))
-        self.cpu.mem_write(0x80000000, b"TYRE01")
+        self.cpu.mem_write(0x80000000, b"TMTE01")
         self.cpu.mem_write(RECORD - 8, b"\xA5" * 60)
 
     def install_hook(self, address, allocation=0x80480000):
@@ -585,7 +585,7 @@ class NativeCardSaveTests(unittest.TestCase):
             self.assertEqual(m.call('TestDirty'),0)
         self.ready();m.cpu.mem_write(0x80000000,b'GTME01')
         m.call('Settings_CommitPending');self.assertEqual(m.call('TestDirty'),0)
-        m.cpu.mem_write(0x80000000,b'TYRE01');m.call('Settings_CommitPending')
+        m.cpu.mem_write(0x80000000,b'TMTE01');m.call('Settings_CommitPending')
         self.assertEqual(m.call('TestDirty'),1)
 
     def test_commit_retry_survives_leaving_menu_before_native_request_acceptance(self):
@@ -876,7 +876,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(m.call("Settings_Get", 15, IDS[0]), 1)
         self.assertEqual(m.call("TestDirty"), 0)
         self.assertEqual(m.record(), future)
-        for identity in (b"GTME01", b"GALE01", b"TYRE99"):
+        for identity in (b"GTME01", b"GALE01", b"TYRE01", b"TMTE99"):
             m.cpu.mem_write(0x80000000, identity)
             self.assertEqual(m.call("Settings_Status"), 4)
             m.call("Settings_Set", 12, 0, 5)

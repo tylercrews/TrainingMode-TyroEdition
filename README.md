@@ -19,6 +19,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Change the internal game/save ID from `TYRE01` to `TMTE01` (Training Mode Tyro Edition), starting a fresh save namespace without importing older saves or recordings.
 - Modernize Attack on Shield and Reversal Training with saved menus and Techchase distance presets; remove the native pause screen behind both menus. Attack on Shield adds a 1-5 shield-hit reaction count, local Infinite Shields override, Shield DI In/Out, all five short-hop aerials and Spotdodge Shine. Reversal remembers its selected attack and adds Grab, Run Up JC Grab that follows the player's position, and Spotdodge Shine. Both event names use muted cyan. See [event details](docs/SHIELD-TRAINING.md).
 - Highlight events with Tyro-specific additions or changes in cyan on the event select screen: Training Lab, Ledgedash, Techchase, Ledgechase, Powershield, Side-B Sweetspot, Low Laser Puff Practice, Eggs-ercise and Under Fire. Shared global features alone do not change an event's label color.
 - Add L + R + A + Start to exit every event directly during gameplay or from any menu, retaining each event's Exit cleanup and score saving; analog trigger presses are supported.

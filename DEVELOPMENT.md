@@ -45,7 +45,7 @@ Examples:
 
 Edit **[version.h](version.h)** at the repository root to update `TM_VERSION`, for example `V1.4.1T2`. This one value supplies the in-game short/long labels, disc/banner titles, memory-card caption, ISO filename, release folder/ZIP, and packaged patchers. Keep the newest version's implemented changes in the [README changelog](README.md#tyro-branch-changelog).
 
-`TM_GAME_ID` is Tyro's stable identity, **`TYRE01`**. Keep it unchanged between releases. Its `TYRE` game code differs from upstream's `GTME`, so Tyro uses its own native save namespace. Tyro starts with a fresh save by default; there is no automatic overwrite, retagging, or migration of the legacy upstream save. Existing `GTME` recordings also remain in their old namespace until an explicit compatible importer is implemented. Per-game Dolphin settings associated with the old ID may need deliberate copying.
+`TM_GAME_ID` is Tyro's stable identity, **`TMTE01`**. Keep it unchanged between releases. Its `TMTE` game code (Training Mode Tyro Edition) differs from upstream's `GTME` and the previous Tyro code `TYRE`, so it uses its own native save namespace. T4 switches from `TYRE01` to `TMTE01` and starts with a fresh save; there is no automatic overwrite, retagging, or migration of either older Tyro or upstream saves. Existing `TYRE` and `GTME` recordings remain in their old namespaces until an explicit compatible importer is implemented. Per-game Dolphin settings associated with an old ID may need deliberate copying.
 
 Run builds from the repository root:
 
@@ -240,7 +240,7 @@ Run `python tests/test_menu.py` after a full optimized build; it uses the existi
 - Development builds enable logging! Call `TMLOG(...)` to print to the dolphin console and the onscreen console. L/R+Z toggles console visibility.
 - **Use the dolphin debugger!** Make sure you have the latest version of dolphin for debugging.
     - To set a breakpoint, use the `bp()` fn call in C or the `SetBreakpoint` macro in ASM (which will clobber r3). Then when you boot up dolphin, put a breakpoint on the `bp` symbol.
-    - **For Tyro, load `build/TYRE01.map` with Symbols->Load Other Map File.** Or copy it to the Maps/ directory in the Dolphin data directory. The release ZIP includes this map; `GTME01.map` remains its source symbol map in the repository.
+    - **For Tyro, load `build/TMTE01.map` with Symbols->Load Other Map File.** Or copy it to the Maps/ directory in the Dolphin data directory. The release ZIP includes this map; `GTME01.map` remains its source symbol map in the repository.
 
 
 ## Grouped Global Settings Editor

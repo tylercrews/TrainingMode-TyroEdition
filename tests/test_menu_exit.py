@@ -101,12 +101,22 @@ class MenuExitTests(unittest.TestCase):
                         break
                 payload = bytearray(dat[32 + code:32 + code + payload_size])
                 # Only pointer relocations are needed to inspect these menus.
+                pointer_relocations = set()
                 for i in range(count):
                     word, target = struct.unpack_from('>II', dat, 32 + table + i * 8)
                     if word >> 24 == 1:
-                        struct.pack_into('>I', payload, word & 0xFFFFFF, target)
+                        offset = word & 0xFFFFFF
+                        pointer_relocations.add(offset)
+                        struct.pack_into('>I', payload, offset, target)
                 public = dict(struct.unpack_from('>II', dat, 32 + exports + i * 8) for i in range(export_count))
                 def word(at): return struct.unpack_from('>I', payload, at)[0]
+                def callback_pointer(at):
+                    target = word(at)
+                    # A function at code offset zero becomes a non-null pointer
+                    # when the native loader relocates the DAT into MEM1.
+                    if at in pointer_relocations and target & 0xF0000000 != 0x80000000:
+                        return 0x80700000 + target
+                    return target
                 if name == 'eventMenu':
                     title = payload.index(b'Under Fire\0')
                     menus = [at for at in range(0, len(payload) - 52, 4)
@@ -115,14 +125,14 @@ class MenuExitTests(unittest.TestCase):
                     root = menus[0]
                 else:
                     root = word(public[3])
-                callback = word(root + 48)
+                callback = callback_pointer(root + 48)
                 self.assertNotEqual(callback, 0)
                 options = word(root + 8)
                 exits = []
                 for i in range(payload[root + 4]):
                     option = options + i * 44
                     text = payload[word(option + 12):].split(b'\0', 1)[0]
-                    if text == b'Exit': exits.append(word(option + 40))
+                    if text == b'Exit': exits.append(callback_pointer(option + 40))
                 self.assertEqual(exits, [callback])
 
     def test_legacy_gameplay_and_pause_exit_on_every_port(self):
