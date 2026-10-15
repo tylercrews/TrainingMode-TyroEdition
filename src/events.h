@@ -108,6 +108,7 @@ typedef struct EventDesc
     char *eventCSSFile;
     u8 disable_hazards : 1; // removes stage hazards
     u8 force_sopo : 1;
+    u8 tyro_edited : 1; // event-specific Tyro changes; ESS reads byte 0x14, mask 0x20
     u8 CSSType;
     AllowedCharacters allowed_characters;
     s8 playerKind;                    // -1 = use selected fighter

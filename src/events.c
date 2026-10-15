@@ -34,6 +34,7 @@ static EventMatchData Lab_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Lab = {
+    .tyro_edited = true,
     // Event Name
     .eventName = "Training Lab\n",
     .eventDescription = "Free practice with\ncomplete control.\n",
@@ -101,6 +102,7 @@ static EventMatchData Ledgedash_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Ledgedash = {
+    .tyro_edited = true,
     .eventName = "Ledgedash Training\n",
     .eventDescription = "Practice Ledgedashes!\nUse D-Pad to change ledge.\n",
     .eventFile = "ledgedash",
@@ -133,6 +135,7 @@ static EventMatchData Wavedash_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Wavedash = {
+    .tyro_edited = true,
     .eventName = "Wavedash Training\n",
     .eventDescription = "Practice timing your wavedash,\na fundamental movement technique.\n",
     .eventFile = "wavedash",
@@ -165,6 +168,7 @@ static EventMatchData TechChase_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc TechChase = {
+    .tyro_edited = true,
     .eventName = "Techchase Training\n",
     .eventDescription = "Practice chasing techs! A\nuseful tool to extend combos.",
     .eventFile = "techchase",
@@ -196,6 +200,7 @@ static EventMatchData LedgeChase_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc LedgeChase = {
+    .tyro_edited = true,
     .eventName = "Ledgechase Training\n",
     .eventDescription = "React to ledge options and punish their recovery.\nPause to change ledge chances and CPU actions.",
     .eventFile = "ledgechase",
@@ -258,6 +263,7 @@ static EventMatchData Sweetspot_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Sweetspot = {
+    .tyro_edited = true,
     .eventName = "Side-B Sweetspot\n",
     .eventDescription = "Use a sweetspot Side-B to avoid Marth's\ndown-tilt and grab the ledge!",
     .eventFile = "sweetspot",
@@ -283,6 +289,7 @@ static EventMatchData LowLaser_MatchData = {
     .isCheckForZRetry = true,
 };
 EventDesc LowLaser = {
+    .tyro_edited = true,
     .eventName = "Low Laser Puff Practice\n",
     .eventDescription = "Practice low lasers against a frozen crouching Puff.\nMeasure laser-start and fastfall timing.",
     .eventFile = "lowlaser", .jumpTableIndex = -1,
@@ -411,6 +418,7 @@ static EventMatchData Powershield_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Powershield = {
+    .tyro_edited = true,
     .eventName = "Powershield Training\n",
     .eventDescription = "Powershield Falco's laser!",
     .eventFile = "powershield",
@@ -647,6 +655,7 @@ static EventMatchData Eggs_MatchData = {
 };
 
 EventDesc Eggs = {
+    .tyro_edited = true,
     .eventName = "Eggs-ercise \n",
     .eventDescription = "Break the eggs! Only strong hits will\nbreak them. Start = more options.",
     .eventFile = "eggs",
@@ -729,6 +738,7 @@ EventDesc Reaction = {
 };
 
 EventDesc Ledgestall = {
+    .tyro_edited = true,
     .eventName = "Under Fire\n",
     .eventDescription = "Count perfect ledge refreshes\nwhile the lava rises!\n",
     .eventFile = 0,
