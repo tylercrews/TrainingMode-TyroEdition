@@ -20,7 +20,7 @@
 /* Previously unused capacity: byte 6 bits 1-5 human ID+1, bits 6-7 marker 10;
  * byte 37 bits 1-5 CPU ID+1. Palette occupies byte 37 bit 0 only.
  * Byte 37 bit 6 extends Ledgedash's criterion; bit 7 remains unused.
- * Byte 43 bit 7 remains unused. */
+ * Byte 43 bit 7 stores Side-B Sweetspot's zoomed-out camera. */
 #define TM_SETTINGS_CRITERION_HIGH_MASK 0x40 /* Byte 37: criterion bit 2. */
 #define TM_SETTINGS_SIGNATURE_OFFSET 38
 #define TM_SETTINGS_RESERVED_OFFSET 40
@@ -30,7 +30,7 @@
 #define TM_SETTINGS_EVENT_TIPS_MASK 0x40 /* Byte 40 bit 6: Ledgedash hints. */
 #define TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK 0x80 /* Byte 40 bit 7: inverted; unset defaults On. */
 #define TM_SETTINGS_LAYOUT_MASK 0x60 /* Byte 43 bits 5-6: Recent / Fixed / Panel. */
-#define TM_SETTINGS_EGGS_FREE_MASK 0x80 /* Byte 43 bit 7 remains reserved. */
+#define TM_SETTINGS_SWEETSPOT_CAMERA_MASK 0x80 /* Byte 43 bit 7: Normal / Zoomed Out. */
 #define TM_OSD_LAYOUT_NAMES "Recent", "Fixed Grid", "Practice Panel"
 #define TM_OSD_DISPLAY_NAMES "HUD", "Sides", "Top Left", "Top Right", "Fixed Grid", "Practice Panel"
 #define TM_SETTINGS_LEDGE_OFFSET 41
@@ -103,6 +103,7 @@ enum TMSettingsField {
     TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
     TM_SETTING_LOW_LASER, /* Event OSDs and global suppression in the extension. */
     TM_SETTING_POWERSHIELD, /* Powershield event menu, append-only identity. */
+    TM_SETTING_SWEETSPOT_CAMERA, /* Index 0 only: Normal (0) / Zoomed Out (1). */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 

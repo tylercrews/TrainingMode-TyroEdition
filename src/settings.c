@@ -69,7 +69,7 @@ typedef struct EventPreference {
     uint8_t byte, shift, width, count, default_value;
 } EventPreference;
 /* 24 value bits + one initialization bit. Bytes are explicit, never C bitfields.
- * Keep byte 40's low three flags and byte 43's layout/free bits independent. */
+ * Keep byte 40's low three flags and byte 43's layout/camera bits independent. */
 static const EventPreference ledge_preferences[TM_LEDGE_PREF_COUNT] = {
     {41, 0, 3, 5, 0}, /* Starting Position: Ledge */
     {41, 3, 3, 5, TM_LEDGE_DEFAULT_RESET}, /* Reset: Same Side */
@@ -173,7 +173,7 @@ int TMSettings_Prepare(uint8_t r[TM_SETTINGS_SIZE], int owns_save) {
          * initialize it only on the first explicit event preference write. */
         r[40] &= ~TM_SETTINGS_EVENT_INITIALIZED;
         r[40] &= ~TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK; /* Older formats default guides On. */
-        r[43] &= ~TM_SETTINGS_LAYOUT_MASK;
+        r[43] &= ~(TM_SETTINGS_LAYOUT_MASK | TM_SETTINGS_SWEETSPOT_CAMERA_MASK);
     }
     if (!signed_format) {
         if (r[6] >= 2) r[6] = 0;
@@ -226,6 +226,8 @@ uint32_t TMSettings_Read(const uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsi
     case TM_SETTING_RECOMMENDED: return r[6] & 1;
     case TM_SETTING_SWEETSPOT_LINES:
         return index == 0 ? !(r[40] & TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK) : 0;
+    case TM_SETTING_SWEETSPOT_CAMERA:
+        return index == 0 ? !!(r[43] & TM_SETTINGS_SWEETSPOT_CAMERA_MASK) : 0;
     case TM_SETTING_CHARACTER: {
         if (index > 1 || (r[6] & 0xC0) != 0x80) return UINT32_MAX;
         unsigned code = (r[index ? 37 : 6] >> 1) & 31;
@@ -272,6 +274,13 @@ uint32_t TMSettings_Read(const uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsi
 
 int TMSettings_Write(uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsigned index, uint32_t value) {
     if (r[38] != 'T' || r[39] != 'Y' || (r[10] >> 6) != TM_SETTINGS_VERSION) return 0;
+    if (field == TM_SETTING_SWEETSPOT_CAMERA) {
+        if (index != 0 || value > 1) return 0;
+        uint8_t old = r[43];
+        r[43] = (r[43] & ~TM_SETTINGS_SWEETSPOT_CAMERA_MASK) |
+            (value ? TM_SETTINGS_SWEETSPOT_CAMERA_MASK : 0);
+        return r[43] != old;
+    }
     if (field == TM_SETTING_SWEETSPOT_LINES) {
         if (index != 0 || value > 1) return 0;
         uint8_t old = r[40];

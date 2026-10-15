@@ -468,6 +468,19 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         m.call("DAT_Set", 25, 0, 1)
         self.assertEqual(m.record(), before)
 
+    def test_sweetspot_camera_through_real_dat_relocation_and_reload(self):
+        m = self.m; m.init()
+        self.assertEqual(m.call('DAT_Get', 32, 0), 0)
+        before = m.record()
+        m.call('DAT_Set', 32, 0, 1)
+        expected = bytearray(before); expected[43] |= 0x80
+        self.assertEqual(m.record(), bytes(expected))
+        fresh = Machine(); fresh.put(m.record())
+        self.assertEqual(fresh.call('Settings_Get', 32, 0), 1)
+        self.assertEqual(fresh.call('TestDirty'), 0)
+        m.call('DAT_Set', 32, 0, 0)
+        self.assertEqual(m.record(), before)
+
     def test_layout_and_runtime_page_use_relocated_accessors_without_touching_preferences(self):
         m = self.m; m.init()
         m.call("DAT_Set",19,4,1); m.call("DAT_Set",18,4,0)
@@ -655,6 +668,58 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(m.read(25), 0)  # Sibling event resets cannot enable it.
         self.assertEqual(m.write(25, 0, 1), 1)
         self.assertEqual(m.read(25), 1)
+
+    def test_sweetspot_camera_is_independent_and_survives_other_event_edits(self):
+        m = self.m; m.init()
+        self.assertEqual(m.read(32), 0)
+        m.write(18, 0, 4); m.write(19, 0, 199); m.write(21, 0, 2)
+        m.write(25, 0, 0); m.write(24, 1, 20)
+        before = m.record()
+        self.assertEqual(m.write(32, 0, 1), 1)
+        expected = bytearray(before); expected[43] |= 0x80
+        self.assertEqual(m.record(), bytes(expected))
+        self.assertEqual(m.write(32, 0, 1), 0)
+        m.write(20, 0, 1); m.write(20, 1, 1)
+        for layout in range(3):
+            m.write(21, 0, layout)
+            self.assertEqual(m.read(32), 1)
+            self.assertEqual(m.read(25), 0)
+        before = m.record()
+        self.assertEqual(m.write(32, 0, 0), 1)
+        expected = bytearray(before); expected[43] &= ~0x80
+        self.assertEqual(m.record(), bytes(expected))
+
+    def test_sweetspot_camera_rejects_invalid_edits_and_defaults_older_formats(self):
+        m = self.m; m.init(); before = m.record()
+        for index, value in [(1, 0), (0, 2), (0, 0xFFFFFFFF)]:
+            self.assertEqual(m.write(32, index, value), 0)
+            self.assertEqual(m.record(), before)
+        self.assertEqual(m.read(32, 1), 0)
+        for version in (1, 2):
+            old = bytearray(before); old[10] = version << 6; old[43] = 0xFF
+            m.put(old)
+            self.assertEqual(m.call('TMSettings_Prepare', RECORD, 1), 1)
+            self.assertEqual(m.read(32), 0)
+
+    def test_sweetspot_camera_read_is_clean_and_foreign_future_records_are_preserved(self):
+        m = self.m; m.init()
+        self.assertEqual(m.call('Settings_Get', 32, 0), 0)
+        self.assertEqual(m.call('TestDirty'), 0)
+        m.call('Settings_Set', 32, 0, 1)
+        saved = m.record()
+        fresh = Machine(); fresh.put(saved)
+        self.assertEqual(fresh.call('Settings_Get', 32, 0), 1)
+        self.assertEqual(fresh.call('TestDirty'), 0)
+        self.assertEqual(fresh.record(), saved)
+        for foreign in (False, True):
+            fresh = Machine(); record = bytearray(saved)
+            if foreign: fresh.cpu.mem_write(0x80000000, b'GALE01')
+            else: record[10] &= 0x3F  # Unsupported signed version zero.
+            fresh.put(record)
+            self.assertEqual(fresh.call('Settings_Get', 32, 0), 0)
+            fresh.call('Settings_Set', 32, 0, 1)
+            self.assertEqual(fresh.call('Settings_Get', 32, 0), 1)
+            self.assertEqual(fresh.record(), bytes(record))
 
     def test_sweetspot_guides_reject_bad_values_and_default_old_saves_on(self):
         m = self.m; m.init(); before = m.record()
@@ -2351,6 +2416,102 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(m.read(15, 15), 1)
         self.assertEqual(m.call("TestEditorLabelChar", 19, 0), ord("A"))
         self.assertEqual(m.call("TestEditorLabelChar", 20, 0), ord("O"))
+
+
+class SweetspotCameraTests(unittest.TestCase):
+    dat_path = ROOT / 'build/sweetspot-reset-test.dat'
+    dat_root = b'evFunction'
+    stage = 0x8049E6C8
+
+    def setUp(self):
+        from unicorn import UC_HOOK_CODE
+        RelocatedDATSettingsTests.setUp(self)
+        m = self.m; m.init(); m.call('TestTrailInit')
+        dat = self.dat_path.read_bytes()
+        _, size, relocs, roots, refs = struct.unpack_from('>5I', dat)
+        nodes = 32 + size + relocs * 4; strings = nodes + (roots + refs) * 8
+        for i in range(roots):
+            at, name = struct.unpack_from('>II', dat, nodes + i * 8)
+            if dat[strings+name:].split(b'\0', 1)[0] == b'evFunction':
+                _, _, _, exports, count, _ = struct.unpack_from('>6I', dat, 32+at)
+                break
+        exported = dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
+        m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
+        menu = self.word(self.base + exported[3])
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 4)
+        options = self.word(menu+8)
+        self.row = options + 44
+        self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
+        self.assertEqual(struct.unpack('>H', m.cpu.mem_read(self.row+4, 2))[0], 2)
+        names = self.word(self.row+32)
+        self.assertEqual([self.text(self.word(names+i*4)) for i in range(2)], ['Normal', 'Zoomed Out'])
+        m.symbols['DAT_ChangeCamera'] = self.word(self.row+36)
+        # Nonzero camera offsets, tilt, blast zones and unrelated stage fields
+        # must survive both modes and the scene cleanup callback byte for byte.
+        m.cpu.mem_write(self.stage, struct.pack('>33f', *range(1, 34)))
+        for at, value in ((0, -160), (4, 160), (8, 110), (12, -60), (0x34, 150), (0x38, 400)):
+            m.cpu.mem_write(self.stage+at, struct.pack('>f', value))
+        self.original = bytes(m.cpu.mem_read(self.stage, 0x84))
+        link = (ROOT/'MexTK/melee.link').read_text().splitlines()
+        natives = {int(next(line.split(':')[0] for line in link if line.endswith(':'+name)), 16): name
+                   for name in ('Match_SetNormalCamera', 'Match_CorrectCamera', 'Stage_GetExternalID',
+                                'Stage_GetLeftOfLineCoordinates', 'Stage_GetRightOfLineCoordinates',
+                                'GObj_Create', 'GObj_AddGXLink', 'GObj_AddUserData')}
+        self.corrected = []
+        self.cleanup = None
+        def dependencies(cpu, address, size, user):
+            name = natives.get(address)
+            if not name: return
+            if name == 'Stage_GetExternalID': cpu.reg_write(gpr(3), 32)
+            elif name == 'GObj_Create': cpu.reg_write(gpr(3), 0x8040D000)
+            elif name == 'GObj_AddUserData':
+                self.cleanup = cpu.reg_read(gpr(5))
+                self.cleanup_data = cpu.reg_read(gpr(6))
+            elif name == 'Match_CorrectCamera':
+                self.corrected.append(bytes(cpu.mem_read(self.stage, 0x84)))
+            cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        self.hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
+
+    def tearDown(self): self.m.cpu.hook_del(self.hook)
+    def word(self, address): return struct.unpack('>I', self.m.cpu.mem_read(address, 4))[0]
+    def text(self, address): return bytes(self.m.cpu.mem_read(address, 80)).split(b'\0', 1)[0].decode()
+
+    def expected_zoom(self):
+        expected = bytearray(self.original)
+        for at, delta in ((0, -80), (4, 80), (8, 40), (12, -40)):
+            struct.pack_into('>f', expected, at, struct.unpack_from('>f', expected, at)[0]+delta)
+        for at in (0x34, 0x38):
+            struct.pack_into('>f', expected, at, struct.unpack_from('>f', expected, at)[0]*1.5)
+        return bytes(expected)
+
+    def test_normal_default_and_repeated_menu_changes_restore_exact_camera(self):
+        m = self.m; before = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(self.corrected[-1], self.original)
+        self.assertEqual(m.record(), before)
+        self.assertEqual(m.call('TestDirty'), 0)
+        for choice in (1, 1, 0, 1, 0):
+            m.cpu.mem_write(self.row+6, struct.pack('>h', choice))
+            m.call('DAT_ChangeCamera', 0, choice)
+            self.assertEqual(self.corrected[-1], self.expected_zoom() if choice else self.original)
+            self.assertEqual(m.call('Settings_Get', 32, 0), choice)
+            expected = bytearray(before); expected[43] |= choice << 7
+            self.assertEqual(m.record(), bytes(expected))
+
+    def test_saved_zoom_initializes_both_menu_values_and_cleanup_restores_stage(self):
+        m = self.m; m.write(32, 0, 1); saved = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(self.row+6, 4)), struct.pack('>2h', 1, 1))
+        self.assertEqual(self.corrected[-1], self.expected_zoom())
+        self.assertEqual(m.record(), saved)
+        self.assertEqual(m.call('TestDirty'), 0)
+        self.assertIsNotNone(self.cleanup)
+        m.symbols['DAT_CleanupCamera'] = self.cleanup
+        m.call('DAT_CleanupCamera', self.cleanup_data)
+        self.assertEqual(bytes(m.cpu.mem_read(self.stage, 0x84)), self.original)
+        self.assertEqual(m.record(), saved)
+        m.call('DAT_InitSweetspot', 0)  # Re-entering cannot compound the zoom.
+        self.assertEqual(self.corrected[-1], self.expected_zoom())
 
 
 class SweetspotResetTests(unittest.TestCase):
