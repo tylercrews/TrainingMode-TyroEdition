@@ -1749,8 +1749,27 @@ void EventInit(int page, int eventID, MatchInit *matchData)
     }
 };
 
+static void LegacyEventUpdate(void)
+{
+    // Legacy events use native pause handling, which otherwise requires pausing
+    // before LRAS. The per-frame callback also runs during active gameplay.
+    if (stc_match->state == 3)
+        return;
+    if (Event_CheckExitInput()) {
+        Memcard_SaveIfChanged();
+        stc_match->state = 3;
+        Match_EndVS();
+        return;
+    }
+    Develop_UpdateMatchHotkeys();
+}
+
 void StartOSDs(void)
 {
+    // Every event load calls this. Menu-backed events install their own update
+    // callback afterward so their normal Exit callbacks still own cleanup.
+    stc_hsd_update->onFrame = LegacyEventUpdate;
+
     // Add OSD callback
     // Very low priority of 20, runs after everything else
     GOBJ *osd_gobj = GObj_Create(0, 7, 0);

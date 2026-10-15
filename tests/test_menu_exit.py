@@ -18,7 +18,8 @@ def build():
         '-msdata=none', '-mcpu=750', '-nostdlib', '-ffunction-sections', '-fdata-sections',
         '-Wl,-Ttext=0x101000,-e,TestMenuExitInit,--gc-sections,--unresolved-symbols=ignore-all',
         *['-Wl,--undefined=' + name for name in exports],
-        'tests/menu_exit_probe.c', 'src/menu.c', '-o', 'build/menu-exit-test.elf'], cwd=ROOT, check=True)
+        'tests/menu_exit_probe.c', 'src/menu.c', 'src/events.c',
+        '-o', 'build/menu-exit-test.elf'], cwd=ROOT, check=True)
 
 
 class MenuExitTests(unittest.TestCase):
@@ -123,6 +124,42 @@ class MenuExitTests(unittest.TestCase):
                     text = payload[word(option + 12):].split(b'\0', 1)[0]
                     if text == b'Exit': exits.append(word(option + 40))
                 self.assertEqual(exits, [callback])
+
+    def test_legacy_gameplay_and_pause_exit_on_every_port(self):
+        for paused in (0, 1, 2):
+            for port in range(4):
+                with self.subTest(paused=paused, port=port):
+                    self.setUp()
+                    self.m.call('TestMenuExitLegacyInit', paused)
+                    self.pad(port, A | START, 0, left=43, right=43)
+                    self.m.call('TestMenuExitLegacyUpdate')
+                    self.assertEqual(self.m.call('TestMenuExitResult', 6), 1)
+                    self.assertEqual(self.m.call('TestMenuExitResult', 7), 3)
+                    self.assertEqual(self.m.call('TestMenuExitResult', 1), 1)
+                    self.assertEqual(self.m.call('TestMenuExitResult', 8), 0)
+                    # A held combo must not end the match or save twice.
+                    self.m.call('TestMenuExitLegacyUpdate')
+                    self.assertEqual(self.m.call('TestMenuExitResult', 6), 1)
+                    self.assertEqual(self.m.call('TestMenuExitResult', 1), 1)
+
+    def test_legacy_incomplete_chords_leave_gameplay_and_develop_controls_active(self):
+        self.m.call('TestMenuExitLegacyInit', 0)
+        for button in (A, START, L, R):
+            self.pad(held=COMBO & ~button)
+            self.m.call('TestMenuExitLegacyUpdate')
+        self.assertEqual(self.m.call('TestMenuExitResult', 6), 0)
+        self.assertEqual(self.m.call('TestMenuExitResult', 1), 0)
+        self.assertEqual(self.m.call('TestMenuExitResult', 8), 4)
+
+    def test_every_legacy_event_load_installs_the_shared_handler(self):
+        globals_text = (ROOT / 'ASM/Globals.s').read_text()
+        jump_table = globals_text.split('.macro EventJumpTable', 1)[1].split('.endm', 1)[0]
+        legacy_events = re.findall(r'^\s+bl (\w+)', jump_table, re.M)
+        assembly = (ROOT / 'ASM/training-mode/Custom Events/Custom Event Code - Rewrite.asm').read_text()
+        self.assertEqual(len(legacy_events), 15)  # Includes Under Fire's menu-backed legacy event.
+        for event in legacy_events:
+            with self.subTest(event=event):
+                self.assertRegex(assembly, event + r'Load:\s+blrl\s+backup\s+rtocbl r12, TM_StartOSDs')
 
 
 if __name__ == '__main__':

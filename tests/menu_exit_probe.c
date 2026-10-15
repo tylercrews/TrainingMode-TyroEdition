@@ -6,6 +6,9 @@ static GOBJ menu_gobj;
 static MenuData data;
 static EventMenu root, submenu;
 static int exits, saves, destroyed, custom_thinks;
+static int native_exits, develop_updates;
+static GOBJ osd_gobj;
+void StartOSDs(void);
 static uint32_t GetSetting(unsigned field, unsigned index) { return 0; }
 static const TMSettingsAPI settings = {.get = GetSetting};
 static void Exit(GOBJ *gobj) { if (gobj == &menu_gobj) ++exits; }
@@ -19,6 +22,10 @@ void Match_ShowHUD(void) {}
 void Match_HideHUD(void) {}
 void Match_AdjustSoundOnPause(int paused) {}
 int SFX_PlayCommon(int id) { return 0; }
+void Match_EndVS(void) { ++native_exits; }
+void Develop_UpdateMatchHotkeys(void) { ++develop_updates; }
+GOBJ *GObj_Create(int kind, int link, int priority) { return &osd_gobj; }
+GOBJProc *GObj_AddProc(GOBJ *gobj, void *callback, int priority) { return 0; }
 
 int TestMenuExitInit(void) {
     *event_vars_ptr_loc = &vars;
@@ -45,6 +52,12 @@ void TestMenuExitPad(int port, int held, int down, int triggers) {
     pad->triggerRight = triggers;
 }
 void TestMenuExitUpdate(void) { EventMenu_Update(&menu_gobj); }
+void TestMenuExitLegacyInit(int paused) {
+    stc_match->state = 0;
+    stc_hsd_update->pause_kind = paused;
+    StartOSDs();
+}
+void TestMenuExitLegacyUpdate(void) { stc_hsd_update->onFrame(); }
 int TestMenuExitResult(int which) {
     switch (which) {
     case 0: return exits;
@@ -53,6 +66,9 @@ int TestMenuExitResult(int which) {
     case 3: return custom_thinks;
     case 4: return data.mode;
     case 5: return data.controller_index;
+    case 6: return native_exits;
+    case 7: return stc_match->state;
+    case 8: return develop_updates;
     default: return 0;
     }
 }

@@ -146,6 +146,7 @@ static inline int EventMenu_OptionGroup(EventMenu *menu, int index) {
 GOBJ *EventMenu_Init(EventMenu *start_menu);
 void EventMenu_Draw(GOBJ *eventMenu);
 void EventMenu_Update(GOBJ *gobj);
+int Event_CheckExitInput(void);
 void EventMenu_ExitMenu(GOBJ *gobj);
 void EventMenu_PrevMenu(GOBJ *gobj);
 void EventMenu_NextMenu(GOBJ *gobj, EventMenu *menu);
