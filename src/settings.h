@@ -102,6 +102,7 @@ enum TMSettingsField {
     TM_SETTING_LEDGECHASE, /* Separate extension; manual ledge chances are session-only. */
     TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
     TM_SETTING_LOW_LASER, /* Event OSDs and global suppression in the extension. */
+    TM_SETTING_POWERSHIELD, /* Powershield event menu, append-only identity. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -134,6 +135,11 @@ enum TMUnderFirePreference {
 };
 enum TMLowLaserPreference {
     TM_LOW_LASER_OSDS, TM_LOW_LASER_SUPPRESS_GLOBAL, TM_LOW_LASER_PREF_COUNT
+};
+enum TMPowershieldPreference {
+    TM_PS_FIRE_SPEED, TM_PS_DELAY_MIN, TM_PS_DELAY_MAX, TM_PS_HEIGHT,
+    TM_PS_DIRECTION, TM_PS_MOVEMENT, TM_PS_NANA, TM_PS_OSDS,
+    TM_PS_SUPPRESS_GLOBAL, TM_PS_OVERLAY, TM_PS_PREF_COUNT
 };
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1

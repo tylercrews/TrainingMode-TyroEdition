@@ -292,6 +292,9 @@ typedef struct EventVars
     void (*set_tangibility_overlay)(const s16 *);
     void (*set_cpu_invincibility_overlay)(const s16 *);
     void (*set_osd_suppression)(const s16 *);
+    void (*set_powershield_observer)(void (*)(FighterData *, int, int, int),
+        void (*)(FighterData *, int, int), void (*)(void));
+    void (*set_timing_overlay)(GOBJ *, const GXColor *);
 } EventVars;
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
 #define event_vars (*event_vars_ptr_loc)
@@ -417,6 +420,7 @@ void ActionCues_LCancel(GOBJ *gobj);
 int ActionCues_Remaining(GOBJ *gobj);
 int ActionCues_CommonState(int kind, int state);
 void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color);
+void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
 void ActionCues_SetTangibilityOverlay(const s16 *enabled);
 void ActionCues_SetCPUInvincibilityOverlay(const s16 *palette);

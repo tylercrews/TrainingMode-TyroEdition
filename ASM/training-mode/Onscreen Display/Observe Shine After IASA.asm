@@ -8,6 +8,6 @@
     rtocbl r12, TM_ShineAfterIASA
     lwz r3, 0x2c(r30)
     li r4, 1
-    rtocbl r12, TM_UnderFireTiming
+    rtocbl r12, TM_EventTiming
     SettingsRestore
     lwz r0, 0x7c(r1)              # Original epilogue instruction.

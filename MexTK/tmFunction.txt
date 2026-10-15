@@ -47,4 +47,4 @@ OSD_ASmashInput
 UnderFire_Control
 UnderFire_Regrab
 UnderFire_SetCamera
-UnderFire_Timing
+EventTiming_Observe

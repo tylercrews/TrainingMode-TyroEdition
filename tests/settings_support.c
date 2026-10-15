@@ -5,6 +5,10 @@
 #include "../src/osd_layout.h"
 #include <stddef.h>
 
+/* The freestanding service fixture has no active native Under Fire event.
+ * Its production implementation is exercised via the relocated shared DAT. */
+void UnderFire_Timing(FighterData *fighter, int phase, int next) { }
+
 void memcpy(void *dst, const void *src, int size) {
     unsigned char *d = dst;
     const unsigned char *s = src;

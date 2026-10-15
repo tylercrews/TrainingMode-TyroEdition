@@ -207,6 +207,8 @@
     ENTRY TM_UnderFireRegrab
     ENTRY TM_UnderFireSetCamera
     ENTRY TM_UnderFireTiming
+    # Keep the full 50-slot ABI; slot 49 dispatches event timing/contact phases.
+    .set TM_EventTiming, TM_UnderFireTiming
 
     # TmDt Data Pointers
     .set TM_Data, TM_tmFunction - 0x4

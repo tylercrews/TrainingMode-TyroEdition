@@ -1,4 +1,5 @@
 #include "events.h"
+#include "powershield_osd.h"
 #include "savestate.h"
 #include "osds.h"
 #include "settings_extension.h"
@@ -862,6 +863,8 @@ EventVars stc_event_vars = {
     .set_tangibility_overlay = ActionCues_SetTangibilityOverlay,
     .set_cpu_invincibility_overlay = ActionCues_SetCPUInvincibilityOverlay,
     .set_osd_suppression = OSD_SetEventSuppression,
+    .set_powershield_observer = Powershield_SetObserver,
+    .set_timing_overlay = ActionCues_SetTimingOverlay,
 };
 
 static GOBJ *stc_msgmgr;
@@ -1901,6 +1904,7 @@ void OnFileLoad(HSD_Archive *archive) // this function is run right after TmDt i
 
 void OnSceneChange(void)
 {
+    Powershield_SceneChange();
     under_fire_active = 0;
     under_fire_camera = 0;
     OSD_SetEventSuppression(0);
@@ -1921,6 +1925,7 @@ void OnBoot(void)
 
 void OnStartMelee(void)
 {
+    Powershield_SceneChange();
     Settings_Status();
     Trails_MatchStart();
     ActionCues_MatchStart();

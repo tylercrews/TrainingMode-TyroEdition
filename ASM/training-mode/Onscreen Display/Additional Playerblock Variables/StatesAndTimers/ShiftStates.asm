@@ -11,7 +11,7 @@
     mr r3, r26
     li r4, 2
     mr r5, r24
-    rtocbl r12, TM_UnderFireTiming
+    rtocbl r12, TM_EventTiming
     SettingsRestore
 
 # Store Previous AS + Reset AS Frame Count Timer

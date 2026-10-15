@@ -134,3 +134,10 @@ PYTHONPATH=build/tangibility-test-deps python tests/test_score_storage.py -v
 The audit has **12 passing tests**, plus **10 passing extension codec/migration
 tests** and two passing catalogue tests. It performs no physical card writes and
 does not edit the input DOL, DAT or GCT. `CARDWrite` is intercepted in the emulator.
+
+
+## Version 8: Powershield preferences
+
+The current extension owns **20 bytes** at 0x1AE0..0x1AF3, leaving **68 bytes** of the existing 88-byte region unallocated. This supersedes the historical 16-byte ownership figures above. Bytes 16..19 contain Fire Speed, Min/Max Fire Delay, Laser Height, Direction, Movement, Nana, Event OSDs, Suppress Global OSDs and Laser Recovery Cue. Their word uses bits 0..23; bits 24..31 remain reserved. Defaults serialize as `00 14 B0 00`.
+
+Migration from the exact version-7 header (payload length 8) changes only version/length and the four newly owned bytes, preserving all earlier settings and their padding. Versions 1..6 retain their established migrations. The core remains 44 bytes / format 3, and the file manifest, checksums, score identities, slot-50 protections and 88-byte records-reset preservation are unchanged. Tests include version-7 migration canaries and recognized version-8 records reset through native code. Unknown future extensions and foreign identities cannot be claimed by Powershield settings. See [event documentation](docs/POWERSHIELD-TRAINING.md).

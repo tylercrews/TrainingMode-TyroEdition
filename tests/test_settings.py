@@ -72,9 +72,9 @@ class Machine:
         # Function slots appended after the original 27 exports.
         for slot, name in [(27, "Settings_Get"), (28, "Settings_Set")]:
             self.cpu.mem_write(0x80300000 - 200 + slot * 4, struct.pack(">I", self.symbols[name]))
-        # Inactive event diagnostics are a no-op in isolated global-OSD tests.
+        # The shared observer fans out to the inactive Under Fire fixture.
         self.cpu.mem_write(0x80407D00, struct.pack('>I', 0x4E800020))
-        self.cpu.mem_write(0x80300000 - 200 + 49 * 4, struct.pack('>I', 0x80407D00))
+        self.cpu.mem_write(0x80300000 - 200 + 49 * 4, struct.pack('>I', self.symbols['EventTiming_Observe']))
         self.cpu.mem_write(0x80000000, b"TYRE01")
         self.cpu.mem_write(RECORD - 8, b"\xA5" * 60)
 

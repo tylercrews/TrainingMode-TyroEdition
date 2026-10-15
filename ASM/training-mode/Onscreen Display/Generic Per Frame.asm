@@ -13,7 +13,7 @@
     rtocbl r12, TM_ShineBeforeIASA
     mr r3, playerdata
     li r4, 0
-    rtocbl r12, TM_UnderFireTiming
+    rtocbl r12, TM_EventTiming
     SettingsRestore
     
 OSD_ActOoWait:

@@ -1,4 +1,5 @@
 #include "events.h"
+#include "powershield_osd.h"
 #include "action_cues.h"
 #include "asmash_osd.h"
 #include <stddef.h>
@@ -15,6 +16,8 @@ typedef struct CueFighter {
     GXColor local_color;
     int local_active;
     unsigned tangible_red;
+    GXColor timing_color;
+    int timing_active;
 } CueFighter;
 static CueFighter fighters[12];
 static GOBJ *manager;
@@ -62,11 +65,11 @@ static CueFighter *get_fighter(GOBJ *gobj) {
          * gx_cb is already our wrapper; losing it makes the reborn fighter vanish. */
         entry->spawn = data->spawn_num;
         entry->cue = (TMCueState){0}; entry->color = TM_CUE_NONE; entry->missed_entry = -1;
-        entry->local_active = 0; entry->tangible_red = 0;
+        entry->local_active = 0; entry->tangible_red = 0; entry->timing_active = 0;
     }
     /* Retain the wrapper even for local Off, so a paused palette edit is
      * visible immediately without waiting for the next simulation update. */
-    int wrap = entry->local_active || tangibility_enabled() ||
+    int wrap = entry->local_active || entry->timing_active || tangibility_enabled() ||
         (cpu_invincibility_option && cpu_fighter(data)) || Settings_Get(TM_SETTING_FLAG, TM_FLAG_LAST_BLOCKED_FRAME) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_MISSED_LCANCEL) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_RUN_TURNAROUND) ||
@@ -83,6 +86,13 @@ void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color) {
     entry->local_active = color != 0;
     if (color) entry->local_color = *color;
     get_fighter(gobj); /* Reconcile the draw wrapper after changing local ownership. */
+}
+void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color) {
+    CueFighter *entry = get_fighter(gobj);
+    if (!entry) return;
+    entry->timing_active = color != 0;
+    if (color) entry->timing_color = *color;
+    get_fighter(gobj);
 }
 void ActionCues_SetTangibilityOverlay(const s16 *enabled) {
     tangibility_option = enabled;
@@ -191,7 +201,7 @@ static void Cue_Think(GOBJ *gobj) {
             if (!entry) continue;
             if (data->flags.dead) {
                 entry->cue = (TMCueState){0}; entry->color = TM_CUE_NONE; entry->missed_entry = -1;
-                entry->local_active = 0; entry->tangible_red = 0;
+                entry->local_active = 0; entry->tangible_red = 0; entry->timing_active = 0;
                 continue;
             }
             int frozen = data->flags.hitlag || data->flags.freeze;
@@ -232,7 +242,8 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
         (cpu_override ? !!cpu_color : Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY)) &&
         ActionCues_IsProtected(gobj);
     int local = live && !data->flags.dead && entry->local_active;
-    if (!cue && !protected && !local && !tangible) { entry->draw(gobj, pass); return; }
+    int timing_local = live && !data->flags.dead && entry->timing_active;
+    if (!cue && !protected && !local && !tangible && !timing_local) { entry->draw(gobj, pass); return; }
     /* Render-time composition: native/event colanim state survives byte-for-byte.
      * Timing explicitly replaces missed-cancel red, including Lab's own overlay. */
     ColorOverlay saved[3];
@@ -256,18 +267,22 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
         color = colors[TM_CUE_RED];
         color.a = TMCue_RedAlpha(entry->tangible_red ? entry->tangible_red - 1 : 0);
     }
+    /* Event-specific recovery confirmation keeps the same timing priority,
+     * including an immediate next action with its own global cue/protection. */
+    if (timing_local) color = entry->timing_color;
     data->color[selected].hex = color;
     data->color[selected].color_enable = 1;
     entry->draw(gobj, pass);
     memcpy(data->color, saved, sizeof(saved));
 }
 void ActionCues_Clear(void) {
+    Powershield_Clear();
     OSDContext_Clear();
     ASMash_Clear();
     for (unsigned i = 0; i < countof(fighters); ++i) {
         fighters[i].cue = (TMCueState){0};
         fighters[i].color = TM_CUE_NONE; fighters[i].missed_entry = -1;
-        fighters[i].local_active = 0;
+        fighters[i].local_active = 0; fighters[i].timing_active = 0;
         fighters[i].tangible_red = 0;
     }
     seen_frame = 0; /* Retain original draw callbacks while clearing tracking. */

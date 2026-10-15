@@ -10,7 +10,7 @@
     rtocbl r12, TM_OSDContextTick
     mr r3, r31
     li r4, 4
-    rtocbl r12, TM_UnderFireTiming
+    rtocbl r12, TM_EventTiming
     SettingsRestore
 
     # Don't Run During Hitlag

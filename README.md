@@ -19,6 +19,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Improve Powershield Training with laser-hitstun Yellow>Green cues, confirmed powershield successes, paired Act out of Laser / Powershield OSDs, in-game help and saved event options. See [event details](docs/POWERSHIELD-TRAINING.md).
 - Keep Low Laser Puff Practice's position lock in the native physics pass and refresh model matrices only on placement, avoiding late transform invalidation during active play.
 - Add **Low Laser Puff Practice** to Character-specific Tech: Fox/Falco versus a fixed startup-crouch Puff, five positions, neutral laser/fastfall OSDs, saved OSD toggles and Reset %. See [event details](docs/LOW-LASER-PUFF.md).
 - Rename Ledgedash's GALINT criterion to **Any GALINT** and add **4 GALINT**, **7 GALINT**, and **10 GALINT**, requiring at least that many frames on first becoming actionable.
@@ -29,7 +30,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - Add event-local CPU Invincibility Overlay colors to Ledgechase and Techchase, overriding the global CPU tint; make both Techchase chance-menu titles read Tech Chances.
 - Add nine saved Techchase chance presets, ground/platform starting locations and Spotdodge Punish; remember its OSD, reset, invisibility and camera-mode choices while keeping manual percentages and camera coordinates session-only.
 - Add global A-Smash Release timing feedback, with 1f as the fastest A-button release; group its menu row above both OSD overrides and preserve existing palette storage.
-- Verify and protect unused event-score storage for a separate 16-byte preferences extension, preserving all original scores, assigning Ledgechase a fixed spare score slot and leaving 72 spare bytes.
+- Verify and protect unused event-score storage for a separate preferences extension, now 20 bytes, preserving all original scores, assigning Ledgechase a fixed spare score slot and leaving 68 spare bytes.
 - Replace Ledgedash's Protection Highlight with event-local Highlight Dropped Invincibility, using the red diagnostic pulse when protection drops. It overrides the global invincibility tint. Is enabled by default in Under Fire.
 - Make Under Fire restart after hits or deaths, resetting its lava and timer for repeated practice; show Session Best beneath the timer and save an improved high score on pause-menu Exit.
 - Reset Side-B Sweetspot after landing on stage or platforms following Side-B, unfreezing Marth and preserving the existing death and ledge reset timing.

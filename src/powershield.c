@@ -1,5 +1,6 @@
 #include "../MexTK/mex.h"
 #include "events.h"
+#include "powershield_osd.h"
 
 #define LEDGE_X 70.f
 #define FULL_FALCO_SHORTHOP_DISTANCE 30.f
@@ -13,6 +14,8 @@ void ChangeRandomFireDelayMin(GOBJ *event_menu, int value);
 void ChangeRandomFireDelayMax(GOBJ *event_menu, int value);
 int GetRandomLaserDelay(void);
 void ChangeAllowNana(GOBJ *event_menu, int value);
+static void ChangePreference(GOBJ *menu, int value);
+static void ChangeOverlay(GOBJ *menu, int value);
 
 enum menu_options {
     OPT_FIRE_SPEED,
@@ -22,6 +25,10 @@ enum menu_options {
     OPT_DIRECTION,
     OPT_MOVEMENT,
     OPT_ALLOW_NANA,
+    OPT_OSDS,
+    OPT_SUPPRESS,
+    OPT_OVERLAY,
+    OPT_HELP,
     OPT_EXIT,
 };
 
@@ -56,6 +63,34 @@ static const char *Options_FireSpeed[] = { "Random", "Slow", "Medium", "Fast" };
 static const char *Options_LaserHeight[] = { "Random", "Very Low", "Low", "Mid", "High" };
 static const char *Options_Direction[] = { "Right", "Left" };
 static const char *Options_Movement[] = { "In-Place", "Random", "Approaching", "Retreating" };
+
+static EventOption help_options[] = {
+    {.kind = OPTKIND_INFO, .name = "Hard Press L / R",
+     .desc = {"Click L or R fully just before the laser arrives.",
+              "Analog light shield alone does not start reflection.",
+              "Release, then press crisply; avoid a slow squeeze."}},
+    {.kind = OPTKIND_INFO, .name = "Two Reflect Frames",
+     .desc = {"The projectile reflector lasts frames 1 and 2.",
+              "The normal shield and reflector are different shapes.",
+              "A shield hit during reflection is not proof of early input.",
+              "Try a different spacing, posture, or laser height."}},
+    {.kind = OPTKIND_INFO, .name = "Read Powershield",
+     .desc = {"Success means Melee accepted a reflected projectile.",
+              "The frame counts from hard-shield startup.",
+              "Reflect active / shield hit: check spacing or height.",
+              "No hard press: no eligible click. Reflect ended: late."}},
+    {.kind = OPTKIND_INFO, .name = "Read Act out of Laser",
+     .desc = {"Frame 1 is your first unfrozen chance after laser stun.",
+              "Laser hit, Shield hit, or Powershield identifies the source.",
+              "Counts until an input-driven action changes your state.",
+              "Automatic recovery transitions and hitlag do not count."}},
+    {.kind = OPTKIND_INFO, .name = "Laser Recovery Cue",
+     .desc = {"Yellow marks the last two frames of laser hitstun.",
+              "Green marks the first two frames after hitstun ends.",
+              "This cue is independent of the global timing overlay.",
+              "Shield hits and powershields use the OSD instead."}},
+};
+static EventMenu help_menu = {.name = "Powershield Help", .option_num = countof(help_options), .options = help_options};
 
 static EventOption Options_Main[] = {
     {
@@ -92,6 +127,7 @@ static EventOption Options_Main[] = {
         .name = "Laser Height",
         .desc = {"Change the laser height."},
         .values = Options_LaserHeight,
+        .OnChange = ChangePreference,
     },
     {
         .kind = OPTKIND_STRING,
@@ -107,6 +143,7 @@ static EventOption Options_Main[] = {
         .name = "Movement",
         .desc = {"Change how falco lasers around the stage."},
         .values = Options_Movement,
+        .OnChange = ChangePreference,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -115,6 +152,14 @@ static EventOption Options_Main[] = {
         .desc = {"Toggle Nana on or off."},
         .OnChange = ChangeAllowNana,
     },
+    {.kind = OPTKIND_TOGGLE, .name = "Event OSDs", .val = 1, .OnChange = ChangePreference,
+     .desc = {"Show Act out of Laser and Powershield side by side.", "Defaults On. This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Suppress Global OSDs", .OnChange = ChangePreference,
+     .desc = {"Hide global OSDs during this event only.", "Keeps the event's two OSDs independent.", "Defaults Off. This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Laser Recovery Cue", .val = 1, .OnChange = ChangeOverlay,
+     .desc = {"Yellow for the final two laser hitstun frames.", "Green for two frames after becoming actionable.", "Independent of global cues. This setting is saved."}},
+    {.kind = OPTKIND_MENU, .name = "Help", .menu = &help_menu,
+     .desc = {"Learn the native reflection window and read both OSDs."}},
     {
         .kind = OPTKIND_FUNC,
         .name = "Exit",
@@ -138,6 +183,151 @@ static int falco_jump_direction = 0;
 static int falco_shoot_direction = 0;
 
 static void PutOnGround(GOBJ *ft);
+
+typedef struct PowershieldData {
+    EventDesc *desc;
+    FighterData *fighter;
+    int spawn, kind, armed, ready, opportunities, opportunity_tick, input_tick, input_state, in_iasa;
+    int tick, seen_tick, cue_green, cue_color;
+    int act_frame, act_kind, ps_valid, ps_kind, ps_frame, ps_reason;
+    Text *text[2];
+} PowershieldData;
+typedef char powershield_data_fits[(sizeof(PowershieldData) <= EVENT_DATASIZE) ? 1 : -1];
+static PowershieldData *Data(void) { return event_vars->event_gobj->userdata; }
+static const unsigned preference_rows[TM_PS_PREF_COUNT] = {
+    OPT_FIRE_SPEED, OPT_FIRE_DELAY_RANDOM_MIN, OPT_FIRE_DELAY_RANDOM_MAX, OPT_LASER_HEIGHT,
+    OPT_DIRECTION, OPT_MOVEMENT, OPT_ALLOW_NANA, OPT_OSDS, OPT_SUPPRESS, OPT_OVERLAY,
+};
+static int CommonState(FighterData *ft, int state) {
+    return ft->kind == FTKIND_YOSHI && state >= 341 && state <= 345 ? state - 341 + ASID_GUARDON : state;
+}
+static void ApplyCue(void) {
+    PowershieldData *data = Data();
+    GOBJ *fighter = Fighter_GetGObj(0);
+    if (!fighter) return;
+    static const GXColor yellow = {255,240,0,220}, green = {80,255,90,220};
+    const GXColor *color = !Options_Main[OPT_OVERLAY].val ? 0 :
+        data->cue_color == TM_CUE_YELLOW ? &yellow : data->cue_color == TM_CUE_GREEN ? &green : 0;
+    event_vars->set_timing_overlay(fighter, color);
+}
+static void ClearTiming(void) {
+    PowershieldData *data = Data();
+    data->fighter = 0;
+    data->armed = data->ready = data->opportunities = data->in_iasa = 0;
+    data->seen_tick = data->cue_green = data->cue_color = data->ps_valid = 0;
+    data->opportunity_tick = data->input_tick = -1;
+    data->act_frame = -1;
+    ApplyCue();
+}
+static void LaserContact(FighterData *ft, int kind, int frame, int reason) {
+    if (ft->ply != 0 || ft->flags.ms) return;
+    PowershieldData *data = Data();
+    data->fighter = ft; data->spawn = ft->spawn_num;
+    data->kind = kind; data->armed = 1; data->ready = data->opportunities = data->in_iasa = 0;
+    data->opportunity_tick = data->input_tick = -1;
+    data->act_frame = -1; data->act_kind = kind;
+    data->ps_valid = 1; data->ps_kind = kind; data->ps_frame = frame; data->ps_reason = reason;
+    data->cue_green = data->cue_color = 0;
+    ApplyCue();
+}
+static void LaserTiming(FighterData *ft, int phase, int next) {
+    PowershieldData *data = Data();
+    if (ft != data->fighter || ft->ply != 0 || ft->flags.ms) return;
+    if (ft->spawn_num != data->spawn || ft->flags.dead || ft->flags.sleep) { ClearTiming(); return; }
+    if (phase == 1) { data->in_iasa = 0; return; }
+    if (ft->flags.hitlag || ft->flags.freeze || ft->dmg.hitlag_frames > 0) {
+        if (phase == 4) { data->cue_color = 0; ApplyCue(); }
+        return;
+    }
+    int tick = stc_match->time_frames;
+    if (phase == 4) {
+        if (data->seen_tick && tick < data->tick) { ClearTiming(); return; }
+        if (data->seen_tick && tick == data->tick) return;
+        data->seen_tick = 1; data->tick = tick;
+        int state = CommonState(ft, ft->state_id);
+        int ready = data->kind == TM_LASER_HIT ? !ft->flags.hitstun : state != ASID_GUARDSETOFF;
+        if (ready && !data->ready) {
+            data->ready = 1;
+            if (data->kind == TM_LASER_HIT) data->cue_green = 2;
+        } else if (data->cue_green) --data->cue_green;
+        data->cue_color = 0;
+        if (data->kind == TM_LASER_HIT) {
+            float stun;
+            memcpy(&stun, &ft->state_var.state_var1, sizeof(stun));
+            if (ft->flags.hitstun && stun > 0 && stun <= 2) data->cue_color = TM_CUE_YELLOW;
+            else if (data->cue_green) data->cue_color = TM_CUE_GREEN;
+        }
+        ApplyCue();
+    } else if (phase == 0 && data->armed && data->ready) {
+        data->in_iasa = 1; data->input_tick = tick; data->input_state = ft->state_id;
+        if (data->opportunity_tick != tick) {
+            data->opportunity_tick = tick;
+            if (data->opportunities < 32767) ++data->opportunities;
+        }
+    } else if (phase == 2 && data->armed && data->ready && data->in_iasa &&
+        data->input_tick == tick && data->input_state == ft->state_id && next != ft->state_id &&
+        !(next >= ASID_DAMAGEHI1 && next <= ASID_DAMAGEFLYROLL) &&
+        next > ASID_REBIRTHWAIT && CommonState(ft, next) != ASID_GUARDSETOFF) {
+        data->act_frame = data->opportunities; data->act_kind = data->kind;
+        data->armed = data->in_iasa = 0;
+    }
+}
+void Event_Init(GOBJ *event) {
+    PowershieldData *data = event->userdata;
+    EventDesc *desc = data->desc;
+    memset(data, 0, sizeof(*data)); data->desc = desc;
+    for (unsigned i = 0; i < TM_PS_PREF_COUNT; ++i) {
+        EventOption *option = &Options_Main[preference_rows[i]];
+        option->val = option->val_prev = TM_GetSetting(TM_SETTING_POWERSHIELD, i);
+    }
+    if (Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val > Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val)
+        Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val = Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val_prev = Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val;
+    Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].disable = Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].disable =
+        Options_Main[OPT_FIRE_SPEED].val != FIRE_SPEED_RANDOM;
+    Menu_Main.cursor = Menu_Main.scroll = help_menu.cursor = help_menu.scroll = 0;
+    event_vars->set_osd_suppression(&Options_Main[OPT_SUPPRESS].val);
+    event_vars->set_powershield_observer(LaserContact, LaserTiming, ClearTiming);
+    ClearTiming();
+    int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
+    GXColor white = {255,255,255,255};
+    for (int i = 0; i < 2; ++i) {
+        Text *text = data->text[i] = Text_CreateText(2, canvas);
+        if (!text) continue;
+        text->kerning = text->align = 1;
+        text->trans = (Vec3){i ? 385 : 255, 100, 0};
+        text->viewport_scale.X = text->viewport_scale.Y = 1;
+        text->scale.X = text->scale.Y = .45f;
+        Text_AddSubtext(text, 0, 0, i ? "Powershield" : "Act out of Laser");
+        Text_AddSubtext(text, 0, 22, "-");
+        Text_AddSubtext(text, 0, 44, "-");
+        for (int row = 0; row < 3; ++row) Text_SetColor(text, row, &white);
+    }
+}
+void Event_Update(void) {
+    PowershieldData *data = Data();
+    int paused = ((MenuData *)event_vars->menu_gobj->userdata)->mode == MenuMode_Paused;
+    static const char *sources[] = {"Laser hit", "Shield hit", "Powershield"};
+    static const char *reasons[] = {"Reflected laser", "Reflect active", "Reflect ended", "No hard press", "No shield"};
+    GXColor white = {255,255,255,255}, green = {141,255,110,255}, magenta = {255,162,186,255}, red = {255,80,80,255};
+    for (int i = 0; i < 2; ++i) if (data->text[i]) data->text[i]->hidden = paused || !Options_Main[OPT_OSDS].val;
+    if (data->text[0]) {
+        if (data->act_frame < 0) Text_SetText(data->text[0], 1, "-");
+        else Text_SetText(data->text[0], 1, "%df", data->act_frame);
+        Text_SetText(data->text[0], 2, "%s", data->ps_valid ? sources[data->act_kind] : "-");
+        Text_SetColor(data->text[0], 1, data->act_frame < 0 ? &white : data->act_frame == 1 ? &green : data->act_frame <= 3 ? &magenta : &red);
+    }
+    if (data->text[1]) {
+        if (!data->ps_valid || !data->ps_frame || data->ps_kind == TM_LASER_HIT) Text_SetText(data->text[1], 1, "-");
+        else Text_SetText(data->text[1], 1, data->ps_kind == TM_LASER_POWERSHIELD ? "Success: %df" : "Shield: %df", data->ps_frame);
+        Text_SetText(data->text[1], 2, "%s", data->ps_valid ? reasons[data->ps_reason] : "-");
+        Text_SetColor(data->text[1], 1, !data->ps_valid ? &white : data->ps_kind == TM_LASER_POWERSHIELD ? &green : &red);
+    }
+}
+static void ChangePreference(GOBJ *menu, int value) {
+    for (unsigned i = 0; i < TM_PS_PREF_COUNT; ++i)
+        TM_SetSetting(TM_SETTING_POWERSHIELD, i, Options_Main[preference_rows[i]].val);
+}
+static void ChangeOverlay(GOBJ *menu, int value) { ChangePreference(menu, value); ApplyCue(); }
 
 void Event_Think(GOBJ *menu) {
     GOBJ *player = Fighter_GetGObj(0);
@@ -185,7 +375,8 @@ void Event_Think(GOBJ *menu) {
         new_direction = DIRECTION_LEFT;
     }
     if (new_direction != -1) {
-        Options_Main[OPT_DIRECTION].val = new_direction;
+        Options_Main[OPT_DIRECTION].val = Options_Main[OPT_DIRECTION].val_prev = new_direction;
+        ChangePreference(menu, new_direction);
         Reset();
     }
 
@@ -389,11 +580,17 @@ void Event_Think(GOBJ *menu) {
 }
 
 void Exit(GOBJ *menu) {
+    event_vars->set_powershield_observer(0, 0, 0);
+    event_vars->set_osd_suppression(0);
+    GOBJ *player = Fighter_GetGObj(0);
+    if (player) event_vars->set_timing_overlay(player, 0);
+    Memcard_SaveIfChanged();
     stc_match->state = 3;
     Match_EndVS();
 }
 
 void ChangeFireSpeedOption(GOBJ *event_menu, int value) {
+    ChangePreference(event_menu, value);
     bool disable_random_bounds = value != FIRE_SPEED_RANDOM;
     Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].disable = disable_random_bounds;
     Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].disable = disable_random_bounds;
@@ -450,6 +647,7 @@ void Reset(void) {
 }
 
 void ChangeDirection(GOBJ *event_menu, int value) {
+    ChangePreference(event_menu, value);
     Reset();
 }
 
@@ -459,8 +657,9 @@ void ChangeRandomFireDelayMin(GOBJ *event_menu, int value) {
 
     // Ensure the min is never greater than the max
     if (random_fire_delay_min > random_fire_delay_max) {
-        Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val = random_fire_delay_min;
+        Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val = Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val_prev = random_fire_delay_min;
     }
+    ChangePreference(event_menu, value);
 }
 
 void ChangeRandomFireDelayMax(GOBJ *event_menu, int value) {
@@ -469,18 +668,20 @@ void ChangeRandomFireDelayMax(GOBJ *event_menu, int value) {
 
     // Ensure the max is never less than the min
     if (random_fire_delay_max < random_fire_delay_min) {
-        Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val = random_fire_delay_max;
+        Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val = Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val_prev = random_fire_delay_max;
     }
+    ChangePreference(event_menu, value);
 }
 
 int GetRandomLaserDelay(void) {
     int random_fire_delay_min = Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val;
     int random_fire_delay_max = Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val;
 
-    return HSD_Randi(random_fire_delay_max - random_fire_delay_min) + random_fire_delay_min;
+    return HSD_Randi(random_fire_delay_max - random_fire_delay_min + 1) + random_fire_delay_min;
 }
 
 void ChangeAllowNana(GOBJ *event_menu, int value) {
+    ChangePreference(event_menu, value);
     GOBJ *player = Fighter_GetGObj(0);
     if (!player) return;
     

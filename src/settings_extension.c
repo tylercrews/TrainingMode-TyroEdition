@@ -10,6 +10,11 @@ static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
 };
 static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT] = {{18,1,2,0}, {19,1,2,0}};
 static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {{20,1,2,1}, {21,1,2,0}};
+static const ExtensionPreference powershield_preferences[TM_PS_PREF_COUNT] = {
+    {0,2,4,0}, {2,6,61,0}, {8,6,61,20}, {14,3,5,0},
+    {17,1,2,0}, {18,2,4,0}, {20,1,2,1}, {21,1,2,1},
+    {22,1,2,0}, {23,1,2,1},
+};
 static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
     {0,2,4,0}, {2,1,2,0}, {3,3,7,0}, {6,3,7,0},
     {9,3,5,1}, {12,3,8,7}, {24,6,CPU_GROUND_ACTION_COUNT,0},
@@ -20,11 +25,12 @@ static int format(const uint8_t *r, unsigned version, unsigned payload_size) {
 }
 static int supported(const uint8_t *r) { return format(r,TM_EXTENSION_VERSION,TM_EXTENSION_SIZE-8); }
 static int legacy(const uint8_t *r) { return format(r,1,TM_EXTENSION_LEGACY_SIZE-8); }
-static int version2(const uint8_t *r) { return format(r,2,TM_EXTENSION_SIZE-8); }
-static int version3(const uint8_t *r) { return format(r,3,TM_EXTENSION_SIZE-8); }
-static int version4(const uint8_t *r) { return format(r,4,TM_EXTENSION_SIZE-8); }
-static int version5(const uint8_t *r) { return format(r,5,TM_EXTENSION_SIZE-8); }
-static int version6(const uint8_t *r) { return format(r,6,TM_EXTENSION_SIZE-8); }
+static int version2(const uint8_t *r) { return format(r,2,8); }
+static int version3(const uint8_t *r) { return format(r,3,8); }
+static int version4(const uint8_t *r) { return format(r,4,8); }
+static int version5(const uint8_t *r) { return format(r,5,8); }
+static int version6(const uint8_t *r) { return format(r,6,8); }
+static int version7(const uint8_t *r) { return format(r,7,8); }
 /* Old None, Spotdodge, inward Roll, Dash, Smash menu choices. */
 static unsigned migrate_ledge_action(unsigned action) {
     static const uint8_t choices[] = {0,1,13,31,11};
@@ -33,16 +39,20 @@ static unsigned migrate_ledge_action(unsigned action) {
 static unsigned preference_count(unsigned field) {
     return field==TM_SETTING_TECHCHASE ? TM_TECHCHASE_PREF_COUNT :
         field==TM_SETTING_LEDGECHASE ? TM_LEDGECHASE_PREF_COUNT :
-        field==TM_SETTING_UNDERFIRE ? TM_UNDERFIRE_PREF_COUNT : TM_LOW_LASER_PREF_COUNT;
+        field==TM_SETTING_UNDERFIRE ? TM_UNDERFIRE_PREF_COUNT :
+        field==TM_SETTING_LOW_LASER ? TM_LOW_LASER_PREF_COUNT : TM_PS_PREF_COUNT;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
     if(field==TM_SETTING_LEDGECHASE && index<TM_LEDGECHASE_PREF_COUNT) return &ledge_preferences[index];
     if(field==TM_SETTING_UNDERFIRE && index<TM_UNDERFIRE_PREF_COUNT) return &under_fire_preferences[index];
     if(field==TM_SETTING_LOW_LASER && index<TM_LOW_LASER_PREF_COUNT) return &low_laser_preferences[index];
+    if(field==TM_SETTING_POWERSHIELD && index<TM_PS_PREF_COUNT) return &powershield_preferences[index];
     return 0;
 }
-static unsigned preference_offset(unsigned field) { return field==TM_SETTING_TECHCHASE?9:12; }
+static unsigned preference_offset(unsigned field) {
+    return field==TM_SETTING_TECHCHASE?9:field==TM_SETTING_POWERSHIELD?16:12;
+}
 static unsigned read_bits(const uint8_t *r,unsigned offset) {
     return r[offset] | ((unsigned)r[offset+1]<<8) | ((unsigned)r[offset+2]<<16) | ((unsigned)r[offset+3]<<24);
 }
@@ -64,6 +74,8 @@ void TMExtension_Init(uint8_t *r) {
         set_preference(r,TM_SETTING_UNDERFIRE,i,under_fire_preferences[i].initial);
     for(unsigned i=0;i<TM_LOW_LASER_PREF_COUNT;++i)
         set_preference(r,TM_SETTING_LOW_LASER,i,low_laser_preferences[i].initial);
+    for(unsigned i=0;i<TM_PS_PREF_COUNT;++i)
+        set_preference(r,TM_SETTING_POWERSHIELD,i,powershield_preferences[i].initial);
 }
 int TMExtension_Prepare(uint8_t *r) {
     if(!signature(r)) return TM_EXTENSION_ABSENT;
@@ -76,25 +88,30 @@ int TMExtension_Prepare(uint8_t *r) {
          * to zero in byte 11, preserving its remaining high padding bit. */
         memcpy(r+8,old+8,3);
         r[11]=(old[11]&0x80)|(r[11]&7);
-    } else if(version2(r) || version3(r) || version4(r) || version5(r) || version6(r)) {
+    } else if(version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r)) {
         // Move the expanded action index to the spare final byte. Keep all
         // older choices and the intervening event preferences intact.
-        int v2=version2(r), v4=version4(r), v5=version5(r), v6=version6(r);
+        int v2=version2(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r);
         unsigned action=(read_bits(r,12)>>15)&(v2?3:7);
         r[4]=TM_EXTENSION_VERSION;
-        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_CPU_ACTION,migrate_ledge_action(action+v2));
-        if(!v4 && !v5 && !v6) {
+        r[5]=TM_EXTENSION_SIZE-8;
+        if(!v7) set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_CPU_ACTION,migrate_ledge_action(action+v2));
+        if(!v4 && !v5 && !v6 && !v7) {
             set_preference(r,TM_SETTING_TECHCHASE,TM_TECHCHASE_HEIGHT,0);
             set_preference(r,TM_SETTING_TECHCHASE,TM_TECHCHASE_DISTANCE,0);
             set_preference(r,TM_SETTING_UNDERFIRE,TM_UNDERFIRE_ATTACK_PARTICLES,0);
         }
-        if(!v5 && !v6) set_preference(r,TM_SETTING_UNDERFIRE,TM_UNDERFIRE_COUNTER_SCORE,0);
-        if(!v6) for(unsigned i=0;i<TM_LOW_LASER_PREF_COUNT;++i)
+        if(!v5 && !v6 && !v7) set_preference(r,TM_SETTING_UNDERFIRE,TM_UNDERFIRE_COUNTER_SCORE,0);
+        if(!v6 && !v7) for(unsigned i=0;i<TM_LOW_LASER_PREF_COUNT;++i)
             set_preference(r,TM_SETTING_LOW_LASER,i,low_laser_preferences[i].initial);
+        /* Claim only the four newly owned bytes, never inherited score padding. */
+        memset(r+16,0,4);
+        for(unsigned i=0;i<TM_PS_PREF_COUNT;++i)
+            set_preference(r,TM_SETTING_POWERSHIELD,i,powershield_preferences[i].initial);
         migrated=1;
     } else if(!supported(r)) return TM_EXTENSION_UNSUPPORTED;
     int changed=0;
-    for(unsigned field=TM_SETTING_TECHCHASE;field<=TM_SETTING_LOW_LASER;++field) {
+    for(unsigned field=TM_SETTING_TECHCHASE;field<=TM_SETTING_POWERSHIELD;++field) {
         unsigned count=preference_count(field);
         for(unsigned i=0;i<count;++i) {
             const ExtensionPreference *p=preference(field,i);
@@ -105,13 +122,14 @@ int TMExtension_Prepare(uint8_t *r) {
     return migrated?TM_EXTENSION_MIGRATED:changed?TM_EXTENSION_REPAIRED:TM_EXTENSION_READY;
 }
 uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
-    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r),
-        current=supported(r)||older||v4||v5||v6, old=legacy(r);
+    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r),
+        current=supported(r)||older||v4||v5||v6||v7, old=legacy(r);
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)
         return current||old?r[8]&7:0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
-    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6) return p->initial;
+    if(field==TM_SETTING_POWERSHIELD && !supported(r)) return p->initial;
+    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7) return p->initial;
     if(v4 && field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_COUNTER_SCORE) return 0;
     if(older && ((field==TM_SETTING_TECHCHASE && index>=TM_TECHCHASE_HEIGHT) || field==TM_SETTING_UNDERFIRE)) return p->initial;
     unsigned value=p->initial;
@@ -126,9 +144,9 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     const ExtensionPreference *p=preference(field,index);
     if(!color && !p) return 0;
     if(value >= (color?8:p->count)) return 0;
-    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r)) return 0;
+    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
-    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r)) TMExtension_Prepare(r);
+    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r)) TMExtension_Prepare(r);
     else if(!supported(r)) TMExtension_Init(r);
     if(color) r[8]=(r[8]&~7u)|value;
     else set_preference(r,field,index,value);
