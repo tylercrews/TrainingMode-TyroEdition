@@ -59,8 +59,11 @@ int LdshAttempt_Step(LdshAttempt *a, const LdshSample *s, unsigned criterion) {
     if (criterion == LDSH_WAVELAND && a->wavelanded) return resolve(a, LDSH_SUCCESS);
     if (!a->landing_complete) return LDSH_PENDING;
     if (criterion == LDSH_WAVELAND) return resolve(a, LDSH_FAILURE);
-    if (criterion == LDSH_GALINT)
-        return resolve(a, a->galint_at_landing > 0 ? LDSH_SUCCESS : LDSH_FAILURE);
+    if (criterion == LDSH_GALINT || criterion >= LDSH_4_GALINT) {
+        static const int minimum[] = {4, 7, 10};
+        int required = criterion == LDSH_GALINT ? 1 : minimum[criterion - LDSH_4_GALINT];
+        return resolve(a, a->galint_at_landing >= required ? LDSH_SUCCESS : LDSH_FAILURE);
+    }
     if (criterion == LDSH_POP_EGG && !s->target_ready) return resolve(a, LDSH_SETUP_UNAVAILABLE);
     if (s->grounded && s->galint > 0 &&
         ((criterion == LDSH_ACT_GALINT && s->attack_dash) || (criterion == LDSH_POP_EGG && s->egg_pop)))

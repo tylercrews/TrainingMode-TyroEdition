@@ -276,6 +276,22 @@ EventDesc Sweetspot = {
     .matchData = &Sweetspot_MatchData,
 };
 
+static EventMatchData LowLaser_MatchData = {
+    .timer = MATCH_TIMER_HIDE, .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true, .hideReady = true, .isCreateHUD = true,
+    .isCheckForZRetry = true,
+};
+EventDesc LowLaser = {
+    .eventName = "Low Laser Puff Practice\n",
+    .eventDescription = "Practice low lasers against a frozen crouching Puff.\nMeasure laser-start and fastfall timing.",
+    .eventFile = "lowlaser", .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = {.hmn = CSSID_FALCO | CSSID_FOX, .cpu = -1},
+    .playerKind = -1, .cpuKind = CKIND_JIGGLYPUFF, .stage = 32, /* External FD ID. */
+    .disable_hazards = true, .scoreType = SCORETYPE_KO, .callbackPriority = 16,
+    .matchData = &LowLaser_MatchData,
+};
+
 // Laser land training
 static EventMatchData LaserLand_MatchData = {
     .timer = MATCH_TIMER_HIDE,
@@ -780,6 +796,7 @@ static EventDesc *CharacterSpecific_Events[] = {
     &EscapeSheik,
     &EscapeDThrowKnee,
     &FloatCancel,
+    &LowLaser,
 };
 static EventPage CharacterSpecific_Page = {
     .name = "Character-specific Tech",
@@ -796,12 +813,12 @@ EventPage *EventPages[] = {
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
 typedef char event_score_map_matches[(countof(Minigames_Events) == 5 &&
-    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 7) ? 1 : -1];
+    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 8) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
     if (page == 0) return event;
     if (page == 1) return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : 5 + event;
-    return 21 + event;
+    return event < 7 ? 21 + event : UINT32_MAX; /* Low Laser is unscored free practice. */
 }
 
 ////////////////////////
@@ -844,6 +861,7 @@ EventVars stc_event_vars = {
     .is_protected = ActionCues_IsProtected,
     .set_tangibility_overlay = ActionCues_SetTangibilityOverlay,
     .set_cpu_invincibility_overlay = ActionCues_SetCPUInvincibilityOverlay,
+    .set_osd_suppression = OSD_SetEventSuppression,
 };
 
 static GOBJ *stc_msgmgr;

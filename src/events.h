@@ -291,6 +291,7 @@ typedef struct EventVars
     int (*is_protected)(GOBJ *);
     void (*set_tangibility_overlay)(const s16 *);
     void (*set_cpu_invincibility_overlay)(const s16 *);
+    void (*set_osd_suppression)(const s16 *);
 } EventVars;
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
 #define event_vars (*event_vars_ptr_loc)

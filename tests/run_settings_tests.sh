@@ -20,6 +20,8 @@ esac
     -t MexTK/evFunction.txt -o build/ledgechase-test.dat -i src/ledgechase.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgedash-trails-test.dat -i src/ledgedash.c src/ledgedash_logic.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/lowlaser-test.dat -i src/lowlaser.c
 powerpc-eabi-gcc -O2 -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
     -nostdlib -Wa,-mregnames -Wl,-Ttext=0x101000,-e,TMSettings_Init \
     src/settings.c src/settings_extension.c src/settings_game.c src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c src/ledgedash_logic.c tests/settings_support.c tests/settings_hooks.S \
@@ -40,3 +42,4 @@ python tests/test_ledgechase.py -v
 python tests/test_event_trails.py -v
 python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
+python tests/test_lowlaser.py -v

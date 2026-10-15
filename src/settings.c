@@ -73,7 +73,7 @@ typedef struct EventPreference {
 static const EventPreference ledge_preferences[TM_LEDGE_PREF_COUNT] = {
     {41, 0, 3, 5, 0}, /* Starting Position: Ledge */
     {41, 3, 3, 5, TM_LEDGE_DEFAULT_RESET}, /* Reset: Same Side */
-    {41, 6, 2, 4, 0}, /* Success Criteria: GALINT */
+    {41, 6, 2, 7, 0}, /* Success Criteria: Any GALINT; high bit in byte 37. */
     {40, 4, 2, 4, TM_LEDGE_DEFAULT_DELAY}, /* Reset Delay: Normal */
     {40, 6, 1, 2, TM_LEDGE_DEFAULT_TIPS}, /* Tips: On */
 };
@@ -90,11 +90,17 @@ static const EventPreference *event_preference(unsigned field, unsigned index) {
     return 0;
 }
 static unsigned preference_raw(const uint8_t *r, const EventPreference *p) {
-    return (r[p->byte] >> p->shift) & ((1u << p->width) - 1);
+    unsigned value = (r[p->byte] >> p->shift) & ((1u << p->width) - 1);
+    if (p == &ledge_preferences[TM_LEDGE_CRITERION])
+        value |= (r[37] & TM_SETTINGS_CRITERION_HIGH_MASK) ? 4 : 0;
+    return value;
 }
 static void preference_write(uint8_t *r, const EventPreference *p, unsigned value) {
     unsigned mask = ((1u << p->width) - 1) << p->shift;
-    r[p->byte] = (r[p->byte] & ~mask) | (value << p->shift);
+    r[p->byte] = (r[p->byte] & ~mask) | ((value << p->shift) & mask);
+    if (p == &ledge_preferences[TM_LEDGE_CRITERION])
+        r[37] = (r[37] & ~TM_SETTINGS_CRITERION_HIGH_MASK) |
+            (value & 4 ? TM_SETTINGS_CRITERION_HIGH_MASK : 0);
 }
 static void preference_defaults(uint8_t *r, unsigned field) {
     unsigned count = field == TM_SETTING_LEDGEDASH ? TM_LEDGE_PREF_COUNT : TM_EGGS_PREF_COUNT;

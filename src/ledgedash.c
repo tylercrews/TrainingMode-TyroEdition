@@ -55,7 +55,7 @@ static char *panel_labels[5] = {"Angle", "GALINT", "Success Rate", "Criterion", 
 static char angle_text[24] = "-";
 static char galint_text[24] = "-";
 static char success_rate_text[48] = "-";
-static char criterion_text[20] = "GALINT";
+static char criterion_text[20] = "Any GALINT";
 static char egg_text[24] = "Off";
 static char *panel_info[5] = {angle_text, galint_text, success_rate_text, criterion_text, egg_text};
 static void Ledgedash_ChangeLedge(GOBJ *menu, int value);
@@ -91,8 +91,8 @@ static const char *LdshOptions_Reset[] = {"None", "Same Side", "Swap", "Swap on 
 static const char *LdshOptions_ResetDelay[] = {"Slow", "Normal", "Fast", "Instant"};
 static const char *LdshOptions_Trails[] = { TM_TRAIL_OVERRIDE_LABELS };
 static const char *LdshOptions_Ledge[] = {"Left", "Right"};
-static const char *LdshOptions_Criteria[] = {"GALINT", "Waveland", "Attack/Dash in GALINT", "Pop Egg in GALINT"};
-static const char *LdshCriterionLabels[] = {"GALINT", "Waveland", "Act GALINT", "Pop Egg"};
+static const char *LdshOptions_Criteria[] = {"Any GALINT", "Waveland", "Attack/Dash in GALINT", "Pop Egg in GALINT", "4 GALINT", "7 GALINT", "10 GALINT"};
+static const char *LdshCriterionLabels[] = {"Any GALINT", "Waveland", "Act GALINT", "Pop Egg", "4 GALINT", "7 GALINT", "10 GALINT"};
 static const char *LdshOptions_Egg[] = {"Ground", "Platform", "Random"};
 enum { EGG_ENABLE, EGG_TARGET, EGG_DISTANCE, EGG_RANDOM_DISTANCE, EGG_MIN_DISTANCE,
        EGG_MAX_DISTANCE, EGG_DAMAGE };
@@ -197,7 +197,7 @@ static EventOption LdshOptions_Main[] = {
     },
     {
         .kind = OPTKIND_STRING, .value_num = LDSH_CRITERIA_COUNT, .name = "Success Criteria",
-        .desc = {"Choose what counts as a successful ledgedash.", "Changing this resets session statistics and the attempt.", "Pop Egg requires popping the target during grounded GALINT."},
+        .desc = {"Choose what counts as a successful ledgedash.", "Changing this resets session statistics and the attempt.", "4/7/10 GALINT require at least that many actionable frames.", "Pop Egg requires popping the target during grounded GALINT."},
         .values = LdshOptions_Criteria, .OnChange = Ledgedash_ChangeCriterion,
     },
     {
@@ -536,7 +536,8 @@ void Ledgedash_ResetThink(LedgedashData *event_data, GOBJ *hmn)
          * airdodge check during a Falling start. Hard criteria alone keep their
          * grounded GALINT opportunity open until the verdict is resolved. */
         int pending_hard = event_data->attempt.phase == LDSH_LANDED &&
-            LdshOptions_Main[OPT_CRITERION].val >= LDSH_ACT_GALINT && hmn_data->hurt.intang_frames.ledge > 0;
+            (LdshOptions_Main[OPT_CRITERION].val == LDSH_ACT_GALINT ||
+             LdshOptions_Main[OPT_CRITERION].val == LDSH_POP_EGG) && hmn_data->hurt.intang_frames.ledge > 0;
         if (Ldsh_LegacyResetFailure(hmn_data->state_id, hmn_data->TM.state_frame,
                 hmn_data->flags.dead, !hmn_data->phys.air_state,
                 event_data->action_state.is_release, pending_hard)) {

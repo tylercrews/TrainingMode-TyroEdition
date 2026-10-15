@@ -969,7 +969,7 @@ class EventPreferenceTests(unittest.TestCase):
     EGGS = 19
     RESET = 20
     defaults = {LEDGE: [0, 1, 0, 1, 1], EGGS: [12, 0, 1, 0, 0]}
-    counts = {LEDGE: [5, 5, 4, 4, 2], EGGS: [200, 3, 2, 2, 2]}
+    counts = {LEDGE: [5, 5, 7, 4, 2], EGGS: [200, 3, 2, 2, 2]}
 
     def setUp(self):
         self.m = Machine()
@@ -1012,7 +1012,9 @@ class EventPreferenceTests(unittest.TestCase):
                     m.write(field, index, value)
                     before[field][index] = value
                     self.assertEqual(self.values(m), before)
-                    self.assertEqual(m.record()[:40], reserve[:40])
+                    prefix = bytearray(m.record()[:40])
+                    prefix[37] &= ~0x40
+                    self.assertEqual(prefix, reserve[:40])
                     self.assertEqual(m.record()[40] & 0x87, 0x87)
                     self.assertEqual(m.record()[43] & 0x80, 0x80)
                     saved = m.record()
@@ -1027,6 +1029,21 @@ class EventPreferenceTests(unittest.TestCase):
         self.assertEqual(m.record()[40:44], b"\xbf\xe4\xc7\x9a")
         self.assertEqual(m.record()[10] >> 6, 3)
         self.assertEqual(len(m.record()), 44)
+
+    def test_galint_thresholds_reload_and_do_not_overlap_cpu_character_or_palette(self):
+        m = self.m
+        m.write(24, 1, 15)  # CPU character shares byte 37 with the new criterion bit.
+        m.write(14, 28, 7)  # Final palette slot owns byte 37 bit 0.
+        m.write(self.LEDGE, 0, 4); m.write(self.LEDGE, 1, 4)
+        for criterion in range(7):
+            m.write(self.LEDGE, 2, criterion)
+            saved = m.record()
+            fresh = Machine(); fresh.put(saved)
+            self.assertEqual(fresh.call('Settings_Get',self.LEDGE,2),criterion)
+            self.assertEqual(fresh.call('Settings_Get',24,1),15)
+            self.assertEqual(fresh.call('Settings_Get',14,28),7)
+            self.assertEqual([fresh.call('Settings_Get',self.LEDGE,i) for i in (0,1)],[4,4])
+            self.assertEqual(fresh.record(),saved)
 
     def test_reject_invalid_writes_before_initializing_the_record(self):
         m = self.m
@@ -3101,6 +3118,22 @@ class LedgedashLogicTests(unittest.TestCase):
         self.begin(2)
         self.assertEqual(self.step(2, grounded=1, actionable=1, galint=2), 0)
         self.assertEqual(self.step(2, grounded=1, galint=0, attack_dash=1), 2)
+
+    def test_minimum_galint_is_inclusive_and_uses_first_actionable_frame(self):
+        for criterion, minimum in ((0, 1), (4, 4), (5, 7), (6, 10)):
+            for galint in (0, minimum - 1, minimum, minimum + 1, 30):
+                with self.subTest(criterion=criterion, galint=galint):
+                    self.m.call("LdshAttempt_Reset", self.attempt)
+                    self.begin(criterion)
+                    self.assertEqual(self.step(criterion, airdodge=1, grounded=1, galint=30), 0)
+                    result = 1 if galint >= minimum else 2
+                    self.assertEqual(self.step(criterion, grounded=1, actionable=1, galint=galint), result)
+                    self.assertEqual(self.step(criterion, galint=99), result)
+
+    def test_minimum_galint_survives_immediate_jump_on_actionable_frame(self):
+        self.begin(6)
+        self.assertEqual(self.step(6, airdodge=1, grounded=1, galint=20), 0)
+        self.assertEqual(self.step(6, grounded=0, actionable=1, galint=10), 1)
 
     def test_egg_pop_uses_collision_eligibility_and_unavailable_setup_is_excluded(self):
         self.begin(3)

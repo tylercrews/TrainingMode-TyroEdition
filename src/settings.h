@@ -19,7 +19,9 @@
 #define TM_SETTINGS_COLORS_OFFSET 30
 /* Previously unused capacity: byte 6 bits 1-5 human ID+1, bits 6-7 marker 10;
  * byte 37 bits 1-5 CPU ID+1. Palette occupies byte 37 bit 0 only.
- * Byte 37 bits 6-7 and byte 43 bit 7 remain unused. */
+ * Byte 37 bit 6 extends Ledgedash's criterion; bit 7 remains unused.
+ * Byte 43 bit 7 remains unused. */
+#define TM_SETTINGS_CRITERION_HIGH_MASK 0x40 /* Byte 37: criterion bit 2. */
 #define TM_SETTINGS_SIGNATURE_OFFSET 38
 #define TM_SETTINGS_RESERVED_OFFSET 40
 #define TM_SETTINGS_EXTRA_FLAGS_OFFSET 40 /* Bits 0/1/2: TurnRun/protection/CPU OSD override. */
@@ -99,6 +101,7 @@ enum TMSettingsField {
     TM_SETTING_TECHCHASE, /* Separate extension; manual chances are session-only. */
     TM_SETTING_LEDGECHASE, /* Separate extension; manual ledge chances are session-only. */
     TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
+    TM_SETTING_LOW_LASER, /* Event OSDs and global suppression in the extension. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -128,6 +131,9 @@ enum TMUnderFirePreference {
     TM_UNDERFIRE_ATTACK_PARTICLES,
     TM_UNDERFIRE_COUNTER_SCORE, /* Record-format marker; old survival frames are not counts. */
     TM_UNDERFIRE_PREF_COUNT
+};
+enum TMLowLaserPreference {
+    TM_LOW_LASER_OSDS, TM_LOW_LASER_SUPPRESS_GLOBAL, TM_LOW_LASER_PREF_COUNT
 };
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1

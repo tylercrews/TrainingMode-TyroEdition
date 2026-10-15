@@ -19,6 +19,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Add **Low Laser Puff Practice** to Character-specific Tech: Fox/Falco versus a fixed startup-crouch Puff, five positions, neutral laser/fastfall OSDs, saved OSD toggles and Reset %. See [event details](docs/LOW-LASER-PUFF.md).
+- Rename Ledgedash's GALINT criterion to **Any GALINT** and add **4 GALINT**, **7 GALINT**, and **10 GALINT**, requiring at least that many frames on first becoming actionable.
 - Repair Training Lab's Stadium form selector for Hazards On/Off, including Normal, correct Rock/Water mapping, queued changes and held forms. See [transformation details](docs/STADIUM-TRANSFORMATIONS.md). tl;dr, fixed the pokemon stadium stage transformation logic in Training Lab
 - Add event-local Hitbox Trails profiles to Ledgedash and Under Fire, overriding global trails; Under Fire starts with trails Off.
 - Add Ledgechase Training as General Tech #17, with selectable fighters on Final Destination, saved ledge/punish presets and spacing, native ledge options, fastfall jumps and automatic retries.

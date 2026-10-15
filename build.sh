@@ -113,6 +113,7 @@ queue_mex_build "evFunction" "build/dthrowknee.dat" "src/dthrowknee.c"
 queue_mex_build "evFunction" "build/edgeguard.dat" "src/edgeguard.c"
 queue_mex_build "evFunction" "build/fc.dat" "src/fc.c"
 queue_mex_build "evFunction" "build/sweetspot.dat" "src/sweetspot.c"
+queue_mex_build "evFunction" "build/lowlaser.dat" "src/lowlaser.c"
 queue_mex_build "evFunction" "build/laserland.dat" "src/laserland.c"
 queue_mex_build "evFunction" "build/eggs.dat" "src/eggs.c"
 queue_mex_build "evFunction" "build/techchase.dat" "src/techchase.c"
@@ -158,6 +159,7 @@ ${gc_fst} fs "${tyro_output_iso}" \
     insert TM/edgeguard.dat build/edgeguard.dat \
     insert TM/fc.dat build/fc.dat \
     insert TM/sweetspot.dat build/sweetspot.dat \
+    insert TM/lowlaser.dat build/lowlaser.dat \
     insert TM/laserland.dat build/laserland.dat \
     insert TM/eggs.dat build/eggs.dat \
     insert TM/techchase.dat build/techchase.dat \
