@@ -79,16 +79,31 @@ static EventOption help_options[] = {
               "The frame counts from hard-shield startup.",
               "Reflect active / shield hit: check spacing or height.",
               "No hard press: no eligible click. Reflect ended: late."}},
+    {.kind = OPTKIND_INFO, .name = "After Laser Reflection",
+     .desc = {"Reflected lasers cause no shieldstun.",
+              "Green marks recovery; normal shield rules still apply.",
+              "Releasing shield still has normal shield-drop lag.",
+              "You cannot instantly drop shield into a dash."}},
+    {.kind = OPTKIND_INFO, .name = "Choose a Follow-up",
+     .desc = {"Jump into an aerial or wavedash to reposition.",
+              "Or grab, dodge, or jump-cancel into up-smash / up-B.",
+              "Wavedashing skips shield-drop lag, but has landing lag.",
+              "Choose based on spacing and your character's options."}},
+    {.kind = OPTKIND_INFO, .name = "Physical vs Projectile",
+     .desc = {"Physical powershields still have shieldstun.",
+              "Afterward, attacks can cancel their shield release.",
+              "Reflected lasers do not grant that attack cancel.",
+              "Neither gives an instant shield-drop dash."}},
     {.kind = OPTKIND_INFO, .name = "Read Act out of Laser",
      .desc = {"Frame 1 is your first unfrozen chance after laser stun.",
               "Laser hit, Shield hit, or Powershield identifies the source.",
               "Shielding and walking do not finish the count.",
               "1f Cyan, 2f Green, 3f Yellow, 4+f Red."}},
     {.kind = OPTKIND_INFO, .name = "Laser Recovery Cue",
-     .desc = {"Yellow marks the last two frames of laser hitstun.",
-              "Green marks the first two frames after hitstun ends.",
-              "This cue is independent of the global timing overlay.",
-              "Shield hits and powershields use the OSD instead."}},
+     .desc = {"Yellow: final two frames of laser hitstun / shieldstun.",
+              "Green: first two unfrozen frames after stun ends.",
+              "Reflected lasers skip shieldstun and go straight green.",
+              "Green while shielding does not mean an instant dash."}},
 };
 static EventMenu help_menu = {.name = "Powershield Help", .option_num = countof(help_options), .options = help_options};
 
@@ -157,7 +172,7 @@ static EventOption Options_Main[] = {
     {.kind = OPTKIND_TOGGLE, .name = "Suppress Global OSDs", .OnChange = ChangePreference,
      .desc = {"Hide global OSDs during this event only.", "Keeps the event's two OSDs independent.", "Defaults Off. This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .name = "Laser Recovery Cue", .val = 1, .OnChange = ChangeOverlay,
-     .desc = {"Yellow for the final two laser hitstun frames.", "Green for two frames after becoming actionable.", "Independent of global cues. This setting is saved."}},
+     .desc = {"Yellow for the final two hitstun / shieldstun frames.", "Green on recovery, including reflected lasers.", "Independent of global cues. This setting is saved."}},
     {.kind = OPTKIND_MENU, .name = "Help", .menu = &help_menu,
      .desc = {"Learn the native reflection window and read both OSDs."}},
     {
@@ -255,15 +270,23 @@ static void LaserTiming(FighterData *ft, int phase, int next) {
         int ready = data->kind == TM_LASER_HIT ? !ft->flags.hitstun : state != ASID_GUARDSETOFF;
         if (ready && !data->ready) {
             data->ready = 1;
-            if (data->kind == TM_LASER_HIT) data->cue_green = 2;
+            data->cue_green = 2;
         } else if (data->cue_green) --data->cue_green;
         data->cue_color = 0;
         if (data->kind == TM_LASER_HIT) {
             float stun;
             memcpy(&stun, &ft->state_var.state_var1, sizeof(stun));
             if (ft->flags.hitstun && stun > 0 && stun <= 2) data->cue_color = TM_CUE_YELLOW;
-            else if (data->cue_green) data->cue_color = TM_CUE_GREEN;
+        } else if (state == ASID_GUARDSETOFF && ft->state.rate > 0) {
+            /* Shieldstun is a rate-scaled animation, not a hitstun timer.
+             * Read its native boundary (including animation blending) and
+             * wait for the real state exit before showing recovery green. */
+            float end = Fighter_GetCurrentAnimLength(ft->fighter);
+            if (end > 0 && ft->state.frame >= 0 && ft->state.frame < end &&
+                ft->state.frame + 2 * ft->state.rate >= end)
+                data->cue_color = TM_CUE_YELLOW;
         }
+        if (!data->cue_color && data->cue_green) data->cue_color = TM_CUE_GREEN;
         ApplyCue();
     } else if (phase == 0 && data->armed && data->ready) {
         data->in_iasa = 1; data->input_tick = tick; data->input_state = ft->state_id;

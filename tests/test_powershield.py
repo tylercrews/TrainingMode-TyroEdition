@@ -126,7 +126,52 @@ class EventTests(unittest.TestCase):
                 self.phase(2,24)
                 self.assertEqual(self.info(0),1)
                 self.assertEqual(self.label(0,2), 'Shield hit' if kind==1 else 'Powershield')
-                self.assertEqual(self.color(),0)
+                self.assertEqual(self.color(),GREEN)
+
+    def test_shieldstun_cue_uses_scaled_animation_then_two_recovery_frames(self):
+        for yoshi in (False,True):
+            for rate in (5,10,23):
+                with self.subTest(yoshi=yoshi,rate=rate):
+                    self.m.call('TestPSRestore')
+                    if yoshi: self.m.call('TestPSYoshi')
+                    self.contact(1,5,2)
+                    colors=[]
+                    for tick,left in enumerate((4,3,2,1),1):
+                        self.m.call('TestPSAnimation',300-left*rate,rate,300)
+                        self.sample(tick,344 if yoshi else 181)
+                        colors.append(self.color()); self.phase(0)
+                        self.assertEqual(self.info(3),0)
+                    self.sample(5,342 if yoshi else 179); colors.append(self.color())
+                    self.phase(0); self.phase(2,24)  # Immediate jump retains green.
+                    self.assertEqual(self.info(0),1)
+                    self.sample(6,24); colors.append(self.color())
+                    self.sample(7,24); colors.append(self.color())
+                    self.assertEqual(colors,[0,0,YELLOW,YELLOW,GREEN,GREEN,0])
+
+    def test_shield_cue_freeze_duplicates_toggle_and_new_contact(self):
+        self.contact(1,5,2)
+        self.m.call('TestPSAnimation',290,10,300)
+        self.sample(1,181); self.assertEqual(self.color(),YELLOW)
+        self.sample(2,181,0,1); self.assertEqual(self.color(),0)
+        self.sample(3,181); self.assertEqual(self.color(),YELLOW)
+        self.sample(4,179); self.assertEqual(self.color(),GREEN)
+        for _ in range(3): self.phase(4)
+        self.sample(5,179,0,1); self.assertEqual(self.color(),0)
+        self.sample(6,179); self.assertEqual(self.color(),GREEN)
+        self.m.call('TestPSChoice',9,0); self.assertEqual(self.color(),0)
+        self.m.call('TestPSChoice',9,1); self.assertEqual(self.color(),GREEN)
+        self.contact(2,1,0); self.assertEqual(self.color(),0)
+        self.sample(7,182); self.assertEqual(self.color(),GREEN)
+        self.sample(8,182); self.assertEqual(self.color(),GREEN)
+        self.sample(9,179); self.assertEqual(self.color(),0)
+
+    def test_invalid_shield_animation_does_not_invent_a_yellow_window(self):
+        for frame,rate,end in ((290,0,300),(290,-10,300),(0,10,0),(-10,10,300)):
+            with self.subTest(frame=frame,rate=rate,end=end):
+                self.m.call('TestPSRestore'); self.contact(1)
+                self.m.call('TestPSAnimation',frame,rate,end)
+                self.sample(1,181); self.assertEqual(self.color(),0)
+                self.sample(2,179); self.assertEqual(self.color(),GREEN)
 
     def test_automatic_transitions_do_not_report_actions_and_late_action_counts(self):
         self.contact()
@@ -256,6 +301,37 @@ class NativePowershieldTests(unittest.TestCase):
         elif address!=0x8026FAC4:return
         cpu.reg_write(fixtures.reg.UC_PPC_REG_PC,cpu.reg_read(fixtures.reg.UC_PPC_REG_LR))
     def tearDown(self):self.m.cpu.hook_del(self.hook)
+    def test_native_projectile_reflection_does_not_grant_physical_shield_drop_cancels(self):
+        m=self.m
+        m.call(0x80077464,self.item,self.hit,self.ft)
+        self.assertEqual(struct.unpack('>I',m.cpu.mem_read(self.ft+0x235C,4))[0],0)
+        # Intercept only the input checks called by the real GuardOff IASA.
+        # With no inputs accepted, reflection gets just the ordinary checks.
+        checks=set()
+        for address in range(0x80092CFC,0x80092E10,4):
+            word=struct.unpack('>I',m.cpu.mem_read(address,4))[0]
+            if word & 0xFC000003 == 0x48000001:
+                offset=word & 0x03FFFFFC
+                if offset & 0x02000000: offset-=0x04000000
+                checks.add(address+offset)
+        calls=[]
+        def input_check(cpu,address,size,_):
+            if address not in checks:return
+            calls.append(address)
+            cpu.reg_write(fixtures.gpr(3),0)
+            cpu.reg_write(fixtures.reg.UC_PPC_REG_PC,cpu.reg_read(fixtures.reg.UC_PPC_REG_LR))
+        hook=m.cpu.hook_add(UC_HOOK_CODE,input_check)
+        try:
+            m.call(0x80092CFC,self.obj)
+            self.assertEqual(calls,[0x8009980C,0x800CB024])
+            # The physical powershield collision path calls this grant routine.
+            m.cpu.mem_write(0x805E1000+0x2B8,struct.pack('>I',3))
+            m.call(0x80094138,self.ft)
+            self.assertEqual(struct.unpack('>I',m.cpu.mem_read(self.ft+0x235C,4))[0],3)
+            calls.clear();m.call(0x80092CFC,self.obj)
+            self.assertGreater(len(calls),2)
+            self.assertEqual(calls[-2:],[0x8009980C,0x800CB024])
+        finally:m.cpu.hook_del(hook)
     def test_real_reflection_acceptance_reports_success_and_overdamage_and_shine_do_not(self):
         m=self.m
         # Actual native function chooses its accepted reflection block.

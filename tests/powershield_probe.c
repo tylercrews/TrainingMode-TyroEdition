@@ -10,6 +10,7 @@ static PowershieldData data;
 static MenuData menu_data;
 static Text text[2];
 static int paused, text_count, rows[2], result[2], saved, ended, rng_bound, overlay_color;
+static float animation_end;
 static u32 text_colors[2][3];
 static char labels[2][3][80];
 static unsigned preferences[TM_PS_PREF_COUNT] = {0,0,20,0,0,0,1,1,0,1};
@@ -36,6 +37,7 @@ void Fighter_EnterWait(GOBJ *object) { ((FighterData *)object->userdata)->state_
 void Fighter_SetGrounded(FighterData *data) { data->phys.air_state = 0; }
 void Fighter_SetPosition(int ply, int sub, Vec3 *position) { }
 void Fighter_UpdateCameraBox(GOBJ *object) { }
+float Fighter_GetCurrentAnimLength(GOBJ *object) { return animation_end; }
 void JOBJ_SetMtxDirtySub(JOBJ *object) { }
 void EnvironmentCollision_WaitLanding(GOBJ *object) { }
 void Match_CorrectCamera(void) { }
@@ -92,6 +94,11 @@ void TestPSChoice(unsigned row, int value) {
 void TestPSPause(int value) { paused = value ? 2 : 0; menu_data.mode = value; Event_Update(); }
 void TestPSRestore(void) { clear_cb(); Event_Update(); }
 void TestPSYoshi(void) { ft[0].kind = FTKIND_YOSHI; }
+void TestPSAnimation(int frame_tenths, int rate_tenths, int end_tenths) {
+    ft[0].state.frame = frame_tenths / 10.f;
+    ft[0].state.rate = rate_tenths / 10.f;
+    animation_end = end_tenths / 10.f;
+}
 void TestPSExit(void) { Exit(0); }
 int TestPSDelay(int low, int high) {
     Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val = low;

@@ -41,11 +41,41 @@ actions. A new laser replaces an unfinished attempt. Reset, restore, death,
 spawn changes and clock rewind clear the episode and retained results.
 
 **Laser Recovery Cue** turns the human yellow for the final two unfrozen frames
-of a Falco laser's damage hitstun, then green for two unfrozen frames after it
-ends, including immediate next actions. It works with global Actionable
-Yellow>Green Off and takes precedence over ordinary global body tints. It does
-not recolor shield hits or powershields. Rendering restores all three native
-color structures; damage, stun and action timing remain native.
+of a Falco laser's damage hitstun or shieldstun, then green for two unfrozen
+frames after it ends, including immediate next actions. Shieldstun uses the
+native animation length and playback rate; green waits for the actual exit
+from GuardSetOff (or Yoshi's GuardDamage). An accepted reflection has no
+shieldstun, so it goes directly green on the first unfrozen update. A new
+contact replaces the previous cue. It works with global Actionable Yellow>Green
+Off and takes precedence over ordinary global body tints. Rendering restores
+all three native color structures; damage, stun and action timing remain native.
+
+## What can I do after a powershield?
+
+Green means the laser's stun has ended. While you are still shielding, the
+normal restrictions on shield actions apply; it does not promise an immediate
+dash or grounded attack.
+
+| Interaction | Recovery and follow-ups |
+| --- | --- |
+| Reflected laser | No shieldstun from the reflection. Use normal out-of-shield options. Releasing shield still has normal shield-drop recovery before a dash or ordinary grounded attack. |
+| Ordinary laser shield hit | Wait through hitlag and shieldstun, then use normal out-of-shield options. |
+| Physical attack powershield | Still has shieldstun. Afterward, a separate cancel window allows attacks during shield release; it does not add a shield-release dash cancel. |
+
+For most characters, jump into an aerial, wavedash to reposition, grab, roll,
+spotdodge, or jump-cancel into up-smash/up-B. A wavedash bypasses shield-drop
+recovery, but still costs jumpsquat and airdodge landing recovery, so the best
+follow-up depends on character, spacing and your goal. It is a useful movement
+option after reflecting a laser, rather than expecting an instant shield-drop
+dash. Character-specific shield rules still apply.
+
+The [native shield routines](https://github.com/doldecomp/melee/blob/master/src/melee/ft/kinds/ftCommon/ftCo_Guard.c)
+keep these mechanics separate: GuardSetOff has no IASA actions, GuardReflect
+uses the normal shield input checks, and GuardOff only checks the expanded
+attack list when `guard.x1C` is nonzero. The physical powershield collision path
+calls `ftCo_80094138` to grant that timer; the accepted projectile-reflection
+path in [ftcoll.c](https://github.com/doldecomp/melee/blob/master/src/melee/ft/ftcoll.c)
+does not. Neither GuardOff input list includes a dash check.
 
 ## Powershield OSD investigation and repair
 
@@ -112,7 +142,9 @@ edit. Foreign identities and unknown formats preserve persisted bytes.
 Tests execute the production event, optimized relocated DAT, shared service and
 all three emitted collision hooks. They check real native reflection acceptance
 and rejection, both successful frames, source filtering, IASA action counts,
-two-yellow/two-green cues, immediate actions, hitlag/pause/duplicate callbacks,
+two-yellow/two-green hitstun and shieldstun cues at multiple animation rates,
+reflection recovery, physical versus projectile shield-release cancels,
+immediate actions, hitlag/pause/duplicate callbacks,
 cleanup, saved settings and delay bounds. Render tests check tint priority and
 native color restoration. Wider regressions cover migration, record reset and
 native checksum/serialization. Real Dolphin layout and physical memory-card
