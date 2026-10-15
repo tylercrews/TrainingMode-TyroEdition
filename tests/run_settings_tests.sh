@@ -34,6 +34,7 @@ powerpc-eabi-gcc -O2 -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
     'Custom Event Code - Rewrite.asm' -o ../../../build/under-fire-native-test.o)
 powerpc-eabi-ld -Ttext=0x80480000 -e 0 build/under-fire-native-test.o -o build/under-fire-native-test.elf
 python tests/test_settings.py -v
+python tests/test_menu_exit.py -v
 python tests/test_stick_hud.py -v
 python tests/test_settings_extension.py -v
 python tests/test_score_storage.py -v

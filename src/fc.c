@@ -25,6 +25,7 @@ static EventOption Options_Main[OPT_COUNT] = {
 };
 
 static EventMenu Menu_Main = {
+    .on_exit = Exit,
     .name = "Float Cancel Training",
     .option_num = countof(Options_Main),
     .options = Options_Main,

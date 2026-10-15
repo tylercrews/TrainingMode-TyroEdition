@@ -84,6 +84,7 @@ struct EventMenu
     u8 tab_num;
     char *purpose;
     const char *(*unavailable_reason)(EventOption *option); /* optional root context */
+    void (*on_exit)(GOBJ *menu_gobj); /* root-only: same callback as the Exit option */
 };
 typedef enum MenuMode {
     MenuMode_Normal,

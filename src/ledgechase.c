@@ -62,7 +62,7 @@ static EventOption Options_Chances[] = {
     {.kind = OPTKIND_INFO, .name = "Ledge Dash Chance", .value_string = "N/A", .disable = true,
      .desc = {"Ledgedash is not available yet."}},
 };
-static EventMenu Menu_Main = {.name = "Ledgechase Training", .options = Options_Main, .option_num = countof(Options_Main)};
+static EventMenu Menu_Main = {.name = "Ledgechase Training", .options = Options_Main, .option_num = countof(Options_Main), .on_exit = Exit};
 static EventMenu Menu_Chances = {.name = "Ledge Option Chances", .options = Options_Chances, .option_num = countof(Options_Chances)};
 EventMenu *Event_Menu = &Menu_Main;
 

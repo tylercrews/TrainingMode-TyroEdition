@@ -33,7 +33,7 @@ static EventOption options[] = {
     {.kind = OPTKIND_FUNC, .name = "Reset %", .OnSelect = ResetPercent,
      .desc = {"Reset only Jigglypuff's percent to 0."}},
 };
-static EventMenu menu = {.name = "Low Laser Puff Practice", .option_num = countof(options), .options = options};
+static EventMenu menu = {.name = "Low Laser Puff Practice", .option_num = countof(options), .options = options, .on_exit = Exit};
 EventMenu *Event_Menu = &menu;
 
 static LowLaserData *Data(void) { return event_vars->event_gobj->userdata; }

@@ -171,6 +171,7 @@ static EventOption LabOptions_Main[OPTLAB_COUNT] = {
 };
 
 static EventMenu LabMenu_Main = {
+    .on_exit = Lab_Exit,
     .name = "Main Menu",
     .option_num = sizeof(LabOptions_Main) / sizeof(EventOption),
     .options = LabOptions_Main,

@@ -147,6 +147,7 @@ static EventOption Options_Main[OPT_COUNT] = {
     },
 };
 static EventMenu Menu_Main = {
+    .on_exit = Exit,
     .name = "Eggs-ercise",
     .option_num = countof(Options_Main),
     .options = Options_Main,

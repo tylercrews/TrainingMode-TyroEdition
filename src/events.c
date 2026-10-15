@@ -945,6 +945,7 @@ static EventOption under_fire_options[] = {
      .desc = {"Return to the Event Selection Screen."}},
 };
 static EventMenu under_fire_menu = {
+    .on_exit = UnderFire_Exit,
     .name = "Under Fire", .option_num = countof(under_fire_options),
     .options = under_fire_options,
 };

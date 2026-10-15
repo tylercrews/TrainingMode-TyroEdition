@@ -26,11 +26,11 @@ def build():
 
 
 class Machine:
-    def __init__(self):
+    def __init__(self, elf_name="menu-test.elf", init_name="TestMenuInit"):
         self.cpu = Uc(UC_ARCH_PPC, UC_MODE_32 | UC_MODE_BIG_ENDIAN)
         self.cpu.mem_map(0x100000, 0x100000)
         self.cpu.mem_map(0x80000000, 0x500000)
-        elf = (ROOT / "build/menu-test.elf").read_bytes()
+        elf = (ROOT / "build" / elf_name).read_bytes()
         shoff = struct.unpack_from(">I", elf, 0x20)[0]
         stride, count = struct.unpack_from(">HH", elf, 0x2E)
         sections = [struct.unpack_from(">10I", elf, shoff + i * stride) for i in range(count)]
@@ -45,7 +45,7 @@ class Machine:
                 for at in range(0, size, entry):
                     name, value, *_ = struct.unpack_from(">IIIBBH", elf, offset + at)
                     self.symbols[names[name:].split(b"\0", 1)[0].decode()] = value
-        self.call("TestMenuInit")
+        self.call(init_name)
 
     def call(self, name, *args):
         self.cpu.reg_write(reg.UC_PPC_REG_1, 0x80400000)

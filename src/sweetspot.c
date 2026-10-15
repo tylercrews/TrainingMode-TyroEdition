@@ -180,6 +180,7 @@ static EventOption Options_Main[] = {
 };
 
 static EventMenu Menu_Main = {
+    .on_exit = Exit,
     .name = "Sweetspot Training",
     .option_num = sizeof(Options_Main) / sizeof(EventOption),
     .options = Options_Main,

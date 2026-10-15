@@ -230,6 +230,7 @@ static EventOption Options_Main[] = {
 };
 
 static EventMenu Menu_Main = {
+    .on_exit = Exit,
     .name = "Techchase Training",
     .option_num = countof(Options_Main),
     .options = Options_Main,

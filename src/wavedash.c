@@ -70,6 +70,7 @@ static EventOption WdOptions_Main[] = {
     },
 };
 static EventMenu WdMenu_Main = {
+    .on_exit = Event_Exit,
     .name = "Wavedash Training",
     .option_num = sizeof(WdOptions_Main) / sizeof(EventOption),
     .options = WdOptions_Main,

@@ -255,6 +255,7 @@ static ShortcutList Ldsh_ShortcutList = {
 };
 
 static EventMenu LdshMenu_Main = {
+    .on_exit = Event_Exit,
     .name = "Ledgedash Training",
     .option_num = sizeof(LdshOptions_Main) / sizeof(EventOption),
     .options = LdshOptions_Main,
