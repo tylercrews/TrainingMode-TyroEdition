@@ -20,20 +20,20 @@ static const char *PercentNames[] = {"0%", "25%", "50%", "75%", "100%", "125%", 
 static const char *PresetNames[] = {"Even", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting"};
 static const char *DistanceNames[] = {"At Ledge", "Close", "Mid", "Far", "Safe"};
 static const char *ColorNames[] = {TM_CPU_INVINCIBILITY_NAMES};
-static const char *FollowupNames[] = {"Spotdodge", "Roll", "Dash", "Smash"};
+static const char *FollowupNames[] = {"None", "Spotdodge", "Roll", "Dash", "Smash"};
 
-enum { OPT_SIDE, OPT_CPU_PERCENT, OPT_PLAYER_PERCENT, OPT_CHANCES, OPT_DISTANCE, OPT_COLOR, OPT_FOLLOWUP, OPT_EXIT };
+enum { OPT_CHANCES, OPT_SIDE, OPT_CPU_PERCENT, OPT_PLAYER_PERCENT, OPT_DISTANCE, OPT_COLOR, OPT_FOLLOWUP, OPT_EXIT };
 enum { CHANCE_PRESET, CHANCE_GETUP, CHANCE_JUMP, CHANCE_ROLL, CHANCE_ATTACK, CHANCE_HOP, CHANCE_DASH };
 
 static EventOption Options_Main[] = {
+    {.kind = OPTKIND_MENU, .name = "Ledge Option Chances", .menu = &Menu_Chances,
+     .desc = {"Choose a saved preset or edit chances", "for this session."}},
     {.kind = OPTKIND_STRING, .name = "Ledge Side", .values = SideNames, .value_num = LC_SIDE_COUNT,
      .desc = {"Choose a ledge. Swap changes sides only", "after you hit or grab the CPU."}, .OnChange = ChangeSide},
     {.kind = OPTKIND_TOGGLE, .name = "CPU above 100%",
      .desc = {"Off starts the CPU at 0%. On starts at 100%", "for the native slow ledge options."}, .OnChange = ChangeCPUPercent},
     {.kind = OPTKIND_STRING, .name = "Player Percent", .values = PercentNames, .value_num = countof(PercentNames),
      .desc = {"Choose your starting damage, from 0% to 150%."}, .OnChange = ChangePlayerPercent},
-    {.kind = OPTKIND_MENU, .name = "Ledge Option Chances", .menu = &Menu_Chances,
-     .desc = {"Choose a saved preset or edit chances", "for this session."}},
     {.kind = OPTKIND_STRING, .name = "Player Distance", .values = DistanceNames, .value_num = LC_DISTANCE_COUNT,
      .val = 1, .desc = {"Choose how far inside the ledge you start.", "Safe gives the largest spacing toward center."}, .OnChange = ChangeDistance},
     {.kind = OPTKIND_STRING, .name = "CPU Invincibility Overlay", .values = ColorNames, .value_num = TM_CPU_INVINCIBILITY_COUNT,
@@ -266,6 +266,7 @@ static void RunLedgeOption(GOBJ *cpu, int option, int inward) {
     else if (option == LC_ROLL) QueueInput(cpu, PAD_TRIGGER_R, 0, 0);
     else QueueInput(cpu, PAD_BUTTON_A, 0, 0);
     RunNativeIASA(cpu);
+    if (IsLedgeOption(ft->state_id)) NeutralCPU(cpu);
 }
 static int GroundReady(FighterData *ft) {
     return ft->phys.air_state == 0 && (ft->state_id == ASID_WAIT ||
@@ -283,6 +284,7 @@ static int FollowupStarted(FighterData *ft, int action) {
 }
 static int RunFollowup(GOBJ *cpu, GOBJ *human, int action, int inward) {
     FighterData *ft = cpu->userdata, *hmn = human->userdata;
+    if (action == LC_NONE) return GroundReady(ft);
     int state = ft->state_id;
     // Native landing/turn/shield IASA performs its own readiness check. Never
     // invoke an action directly or interrupt a ledge option or aerial state.
@@ -296,7 +298,11 @@ static int RunFollowup(GOBJ *cpu, GOBJ *human, int action, int inward) {
     else if (action == LC_DASH) QueueInput(cpu, 0, toward * 127, 0);
     else QueueInput(cpu, PAD_BUTTON_A, toward * 127, 0);
     RunNativeIASA(cpu);
-    return FollowupStarted(ft, action);
+    int started = FollowupStarted(ft, action);
+    // The native transition has consumed the input. Do not leave a roll's
+    // trigger/stick queued for the next CPU input pass or subsequent IASA.
+    if (started) NeutralCPU(cpu);
+    return started;
 }
 static void FastfallJump(GOBJ *cpu) {
     FighterData *ft = cpu->userdata;
@@ -317,8 +323,8 @@ void Event_Init(GOBJ *gobj) {
     memset(data, 0, sizeof(*data));
     data->desc = desc;
     data->reset_timer = data->punish_timer = -1;
-    static const unsigned fields[] = {TM_LEDGECHASE_SIDE, TM_LEDGECHASE_CPU_100, TM_LEDGECHASE_PLAYER_PERCENT,
-        TM_LEDGECHASE_PRESET, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR, TM_LEDGECHASE_CPU_ACTION};
+    static const unsigned fields[] = {TM_LEDGECHASE_PRESET, TM_LEDGECHASE_SIDE, TM_LEDGECHASE_CPU_100,
+        TM_LEDGECHASE_PLAYER_PERCENT, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR, TM_LEDGECHASE_CPU_ACTION};
     for (int i = 0; i < OPT_EXIT; ++i) {
         if (i == OPT_CHANCES) continue;
         Options_Main[i].val = TM_GetSetting(TM_SETTING_LEDGECHASE, fields[i]);

@@ -8,7 +8,7 @@ static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
 };
 static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
     {0,2,4,0}, {2,1,2,0}, {3,3,7,0}, {6,3,6,0},
-    {9,3,5,1}, {12,3,8,7}, {15,2,4,0},
+    {9,3,5,1}, {12,3,8,7}, {15,3,5,0},
 };
 static int signature(const uint8_t *r) { return r[0]=='T' && r[1]=='Y' && r[2]=='E' && r[3]=='X'; }
 static int format(const uint8_t *r, unsigned version, unsigned payload_size) {
@@ -16,6 +16,7 @@ static int format(const uint8_t *r, unsigned version, unsigned payload_size) {
 }
 static int supported(const uint8_t *r) { return format(r,TM_EXTENSION_VERSION,TM_EXTENSION_SIZE-8); }
 static int legacy(const uint8_t *r) { return format(r,1,TM_EXTENSION_LEGACY_SIZE-8); }
+static int version2(const uint8_t *r) { return format(r,2,TM_EXTENSION_SIZE-8); }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
     if(field==TM_SETTING_LEDGECHASE && index<TM_LEDGECHASE_PREF_COUNT) return &ledge_preferences[index];
@@ -50,6 +51,13 @@ int TMExtension_Prepare(uint8_t *r) {
          * bits. Byte 11 low three bits now initialize CPU protection to Gray. */
         memcpy(r+8,old+8,3);
         r[11]=(old[11]&0xF8)|(r[11]&7);
+    } else if(version2(r)) {
+        // None is the new zero/default. Preserve all four previous actions;
+        // the additional bit comes from padding in the same 16-byte record.
+        unsigned action=(read_bits(r,12)>>15)&3;
+        r[4]=TM_EXTENSION_VERSION;
+        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_CPU_ACTION,action+1);
+        migrated=1;
     } else if(!supported(r)) return TM_EXTENSION_UNSUPPORTED;
     int changed=0;
     for(unsigned field=TM_SETTING_TECHCHASE;field<=TM_SETTING_LEDGECHASE;++field) {
@@ -63,12 +71,14 @@ int TMExtension_Prepare(uint8_t *r) {
     return migrated?TM_EXTENSION_MIGRATED:changed?TM_EXTENSION_REPAIRED:TM_EXTENSION_READY;
 }
 uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
-    int current=supported(r), old=legacy(r);
+    int v2=version2(r), current=supported(r)||v2, old=legacy(r);
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)
         return current||old?r[8]&7:0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     unsigned value=p->initial;
+    if(v2 && field==TM_SETTING_LEDGECHASE && index==TM_LEDGECHASE_CPU_ACTION)
+        return ((read_bits(r,12)>>15)&3)+1;
     if(current || (old && field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_CPU_COLOR))
         value=(read_bits(r,preference_offset(field))>>p->shift)&((1u<<p->width)-1);
     return value<p->count?value:p->initial;
@@ -78,9 +88,9 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     const ExtensionPreference *p=preference(field,index);
     if(!color && !p) return 0;
     if(value >= (color?8:p->count)) return 0;
-    if(signature(r) && !supported(r) && !legacy(r)) return 0;
+    if(signature(r) && !supported(r) && !legacy(r) && !version2(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
-    if(legacy(r)) TMExtension_Prepare(r);
+    if(legacy(r) || version2(r)) TMExtension_Prepare(r);
     else if(!supported(r)) TMExtension_Init(r);
     if(color) r[8]=(r[8]&~7u)|value;
     else set_preference(r,field,index,value);

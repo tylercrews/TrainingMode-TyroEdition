@@ -203,6 +203,9 @@
     ENTRY TM_SettingsEventScoreSlot
     ENTRY TM_ASmashEnter
     ENTRY TM_ASmashInput
+    ENTRY TM_UnderFireControl
+    ENTRY TM_UnderFireRegrab
+    ENTRY TM_UnderFireSetCamera
 
     # TmDt Data Pointers
     .set TM_Data, TM_tmFunction - 0x4

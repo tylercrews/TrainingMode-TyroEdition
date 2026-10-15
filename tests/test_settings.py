@@ -266,9 +266,10 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             if getattr(self, 'dat_root', b'tmFunction') == b'evFunction':
                 if index == 2: self.m.symbols['DAT_SweetspotThink'] = self.base + offset
                 continue
-            if index in [27, 28, 38, 39, 40, 41]:
+            if index in [27, 28, 38, 39, 40, 41, 46, 47, 48]:
                 self.m.symbols[{27:"DAT_Get",28:"DAT_Set",38:"DAT_Commit",39:"DAT_Characters",
-                               40:"DAT_UnderFire",41:"DAT_UnderFireScore"}[index]] = self.base + offset
+                               40:"DAT_UnderFire",41:"DAT_UnderFireScore",
+                               46:"DAT_UnderFireControl",47:"DAT_UnderFireRegrab",48:"DAT_UnderFireCamera"}[index]] = self.base + offset
         # Native memcpy is an external SDK dependency; use the tested PPC stub.
         address = self.m.symbols["memcpy"]
         self.m.cpu.mem_write(0x800031F4, struct.pack(">4I", 0x3D800000 | (address >> 16),
@@ -327,7 +328,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             m.call('DAT_UnderFire')
             self.assertEqual(len(menus), 1)
             menu = menus[0]
-            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x03\0\0')
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x06\0\0')
             options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
             label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
@@ -350,7 +351,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
                 m.call('DAT_UnderFireScore', score)
             self.assertEqual(text_rows[-1], (4, 0, 2, 0))
             self.assertEqual(scores, [])
-            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 88 + 40, 4))[0]
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 5 * 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
             self.assertEqual(scores, [(2, 120)])
@@ -2389,6 +2390,8 @@ class UnderFireNativeTests(unittest.TestCase):
                  'Ledgestall_UpdateLavaPosition')}
         score_feed = []
         bound[0x80407C00] = 'ScoreFeed'
+        bound[0x80407C04] = 'Control'
+        m.cpu.mem_write(0x80300000 - 200 + 46 * 4, struct.pack('>I', 0x80407C04))
         bound[0x80364340] = 'fmod'
         m.cpu.mem_write(0x80300000 - 200 + 41 * 4, struct.pack('>I', 0x80407C00))
 
@@ -2403,6 +2406,7 @@ class UnderFireNativeTests(unittest.TestCase):
                 if value & 0x80000000: value -= 0x100000000
                 cpu.reg_write(reg.UC_PPC_REG_FPR1, struct.unpack('>Q', struct.pack('>d', float(value)))[0])
             elif name == 'ScoreFeed': score_feed.append(cpu.reg_read(gpr(3)))
+            elif name == 'Control': cpu.reg_write(gpr(3), 0)
             elif name == 'fmod':
                 cpu.reg_write(reg.UC_PPC_REG_FPR1, struct.unpack('>Q', struct.pack('>d', 1.0))[0])
             else:

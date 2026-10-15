@@ -660,6 +660,10 @@ LedgeStallLoad:
     bl IntToFloat
     stfs f1, 0x4C(r20)
 
+    # Keep the event camera focused on whichever ledge is selected.
+    mr r3, r20
+    rtocbl r12, TM_UnderFireSetCamera
+
     # Set Camera To Be Zoomed Out More
     load r4, 0x8049e6c8
     load r3, 0x3FE66666
@@ -743,6 +747,12 @@ LedgeStallThink:
     bl SaveState_Save
 
 LedgeStallThink_Start:
+    mr r3, REG_P1GObj
+    li r4, 0
+    rtocbl r12, TM_UnderFireControl
+    andi. r0, r3, 2
+    bne LedgeStallThink_Restore
+
     # Check if player was damaged or died
     lwz r3, 0x10(REG_P1Data)
     cmpwi r3, ASID_DamageHi1
@@ -940,9 +950,12 @@ LedgeStall_InitializePositions:
     lwz REG_P1Data, 0x2C(REG_P1GObj)
     mr REG_EventData, r4
 
-    # Place on left ledge
+    # Use the event's selected side, including D-pad/menu changes.
     mr r3, REG_P1GObj
-    li r4, 0
+    li r4, 1
+    rtocbl r12, TM_UnderFireControl
+    mr r4, r3
+    mr r3, REG_P1GObj
     bl PlaceOnLedge
 
     # Update Camera

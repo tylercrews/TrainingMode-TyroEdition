@@ -292,6 +292,11 @@ int TestLCLedgeInput(int option) { NeutralCPU(&test_fighters[2]); RunLedgeOption
 int TestLCSetPercent(int value) { test_ft[2].dmg.percent = value; return value; }
 int TestLCSetKind(int value) { test_ft[2].kind = value; return value; }
 int TestLCFollowup(int action) { return RunFollowup(&test_fighters[2], &test_fighters[0], action, 1); }
+int TestLCInputNeutral(void) {
+    FighterData *ft = &test_ft[2];
+    return !ft->cpu.held && !ft->cpu.lstickX && !ft->cpu.lstickY &&
+        !ft->input.held && !ft->input.down && !ft->input.lstick.X && !ft->input.lstick.Y && !ft->input.trigger;
+}
 int TestLCFastfall(int vertical) {
     test_ft[2].phys.air_state = 1;
     test_ft[2].phys.self_vel.Y = vertical / 1000.f;

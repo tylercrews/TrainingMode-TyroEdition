@@ -38,3 +38,4 @@ python tests/test_cpu_overlay.py -v
 python tests/test_ledgechase_catalogue.py -v
 python tests/test_ledgechase.py -v
 python tests/test_event_trails.py -v
+python tests/test_under_fire.py -v

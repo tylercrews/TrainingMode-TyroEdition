@@ -203,6 +203,43 @@ class LedgechaseTests(unittest.TestCase):
     def setUp(self):
         self.m = Machine()
 
+    def test_menu_order_and_none_default_start_normal_punish_window(self):
+        self.assertEqual(self.m.text(self.m.call('TestLCMenuName', 0)), 'Ledge Option Chances')
+        self.assertEqual(self.m.call('TestLCMenuValue', 6), 0)
+        self.m.step()
+        self.m.call('TestLCPrepared', 0, 1)
+        self.m.step()
+        self.m.call('TestLCState', 2, 14, 0, 1)
+        calls, loads = self.m.info(15), self.m.info(2)
+        self.m.step()
+        self.assertEqual(self.m.info(12), 1)
+        self.assertEqual(self.m.info(13), 29)
+        self.assertEqual(self.m.info(15), calls)
+        for _ in range(29): self.m.step()
+        self.assertEqual(self.m.info(2), loads + 1)
+
+    def test_roll_consumes_input_once_and_never_repeats_when_it_finishes(self):
+        self.m.call('TestLCPreference', 6, 2)
+        self.m.step()
+        self.m.call('TestLCPrepared', 0, 1)
+        self.m.step()
+        self.m.call('TestLCState', 2, 14, 0, 1)
+        self.m.step()  # Shield transition.
+        self.m.step()  # One roll.
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 233)
+        ft = self.m.call('TestLCFighterData', 2)
+        self.assertEqual(bytes(self.m.cpu.mem_read(ft + 0x620, 8)), bytes(8))
+        # Raw CPU held/stick fields also must be released immediately.
+        self.assertEqual(self.m.call('TestLCInputNeutral'), 1)
+        calls, loads = self.m.info(15), self.m.info(2)
+        for _ in range(20): self.m.step()
+        self.assertEqual(self.m.info(15), calls)
+        self.m.call('TestLCState', 2, 14, 0, 1)
+        for _ in range(29): self.m.step()
+        self.assertEqual((self.m.info(15), self.m.info(2)), (calls, loads))
+        self.m.step()
+        self.assertEqual(self.m.info(2), loads + 1)
+
     def test_presets_manual_chances_and_disabled_placeholders(self):
         expected = [(25, 25, 25, 25), (100, 0, 0, 0), (0, 100, 0, 0),
                     (0, 0, 100, 0), (0, 0, 0, 100), (60, 10, 15, 15)]
@@ -233,7 +270,7 @@ class LedgechaseTests(unittest.TestCase):
         self.assertEqual(self.m.call("TestLCProtection", 0), 0)
         self.assertEqual(self.m.call("TestLCProtection", 2), 1)
         self.assertEqual(self.m.info(0), 0)
-        self.m.call("TestLCMenu", 0, 2)  # Swap mode stays on current side.
+        self.m.call("TestLCMenu", 1, 2)  # Swap mode stays on current side.
         self.assertEqual(self.m.info(4), 1)
         for success, expected in [(0, 1), (1, 0), (0, 0), (1, 1)]:
             self.m.call("TestLCReset", success)
@@ -255,7 +292,7 @@ class LedgechaseTests(unittest.TestCase):
         self.assertEqual(self.m.call("TestLCFollowerLog", 1), 1)
         self.assertEqual(self.m.call("TestLCFollowerLog", 3), 1)
         for side in (0, 1):
-            self.m.call("TestLCMenu", 0, side)
+            self.m.call("TestLCMenu", 1, side)
             for option, distance in enumerate((4, 12, 24, 40, 80)):
                 self.m.call("TestLCMenu", 4, option)
                 x = self.m.call("TestLCPosition", 0, 0) / 1000
@@ -305,6 +342,7 @@ class LedgechaseTests(unittest.TestCase):
                 self.assertEqual(self.m.call("TestLCLedgeInput", option), state)
 
     def test_followups_wait_for_native_landing_and_finish_before_reset_window(self):
+        self.m.call("TestLCPreference", 6, 1)
         self.m.step()
         self.m.call("TestLCPrepared", 1, 1)
         self.m.step()
@@ -327,24 +365,24 @@ class LedgechaseTests(unittest.TestCase):
         self.assertEqual(self.m.info(2), loads + 1)
 
     def test_all_followups_and_character_specific_smashes(self):
-        for action in range(4):
+        for action in range(1,5):
             self.m.call("TestLCState", 2, 14, 0, 1)
-            self.assertEqual(self.m.call("TestLCFollowup", action), 0 if action == 1 else 1)
-            if action == 1:
+            self.assertEqual(self.m.call("TestLCFollowup", action), 0 if action == 2 else 1)
+            if action == 2:
                 self.assertEqual(self.m.call("TestLCFollowup", action), 1)  # Native shield transition precedes roll.
         for kind in (8, 9, 24):
             self.m.call("TestLCSetKind", kind)
             self.m.call("TestLCState", 2, 14, 0, 1)
-            self.assertEqual(self.m.call("TestLCFollowup", 3), 1)
+            self.assertEqual(self.m.call("TestLCFollowup", 4), 1)
 
     def test_actual_native_wait_and_guard_eligibility_for_all_four_followups(self):
         self.m.native_ground_iasa()
         self.m.step()
-        for action, expected in ((0, 235), (1, 233), (2, 20), (3, 60)):
+        for action, expected in ((1, 235), (2, 233), (3, 20), (4, 60)):
             self.m.call("TestLCState", 2, 14, 0, 1)
             self.m.call("TestLCUseNativeIASA", 0x8008A4D4)
             result = self.m.call("TestLCFollowup", action)
-            if action == 1:
+            if action == 2:
                 self.assertEqual(result, 0)  # Native shield entry occurs first.
                 self.assertEqual(self.m.call("TestLCFollowup", action), 1)
             else:
@@ -355,7 +393,7 @@ class LedgechaseTests(unittest.TestCase):
         for state, callback in ((178, 0x80092758), (179, 0x80092A78), (182, 0x80093EC0)):
             self.m.call("TestLCState", 2, state, 0, 1)
             self.m.call("TestLCUseNativeIASA", callback)
-            self.assertEqual(self.m.call("TestLCFollowup", 1), 1)
+            self.assertEqual(self.m.call("TestLCFollowup", 2), 1)
 
     def test_actual_native_fastfall_only_after_first_descending_frame(self):
         self.m.native_fastfall()
@@ -403,13 +441,13 @@ class LedgechaseTests(unittest.TestCase):
         self.assertEqual(self.m.call("TestLCAnyOptionValue", self.m.dat_option(5)), 7)
         self.m.step()
         self.assertEqual((self.m.info(1), self.m.info(2), self.m.info(3)), (1, 1, 1))
-        self.m.call("TestLCAnyOptionChange", self.m.dat_option(0), 1)
-        self.assertEqual((self.m.info(4), self.m.info(19)), (1, 2))
         self.m.call("TestLCAnyOptionChange", self.m.dat_option(1), 1)
-        self.m.call("TestLCAnyOptionChange", self.m.dat_option(2), 6)
+        self.assertEqual((self.m.info(4), self.m.info(19)), (1, 2))
+        self.m.call("TestLCAnyOptionChange", self.m.dat_option(2), 1)
+        self.m.call("TestLCAnyOptionChange", self.m.dat_option(3), 6)
         self.assertEqual((self.m.info(17), self.m.info(18)), (150, 100))
         self.assertEqual(self.m.call("TestLCProtection", 0), 0)
-        submenu = self.m.call("TestLCAnySubmenu", self.m.dat_option(3))
+        submenu = self.m.call("TestLCAnySubmenu", self.m.dat_option(0))
         preset = self.m.call("TestLCAnyOption", submenu, 0)
         self.m.call("TestLCAnyOptionChange", preset, 5)
         expected = (60, 10, 15, 15)

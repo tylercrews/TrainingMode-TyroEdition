@@ -13,7 +13,7 @@ at `0x1B38..0x1B3B`. Adding the menu row does not shift any old score. Separate
 event-played flags at `0x1A68..0x1A6F` and the native word beginning at `0x1B3C`
 are excluded.
 
-The version-2 extension owns **16 bytes at `0x1AE0..0x1AEF`**, with an eight-byte
+The version-3 extension owns **16 bytes at `0x1AE0..0x1AEF`**, with an eight-byte
 `TYEX`, version, size and marker header plus eight payload bytes. **72 bytes
 remain unallocated**. Native high scores have not moved or been removed, and
 the 44-byte OSD settings record has not been repacked. See
@@ -89,23 +89,26 @@ unknown persisted bytes are retained. Because older unknown extensions were
 allowed to own all 92 bytes, new Ledgechase score access reads zero and ignores
 writes when the core or extension format is unsupported. Erasing event records
 also preserves that complete opaque 92-byte region, including slot 50's four
-bytes. Recognized version 1, current version 2 and absent extensions permit
+bytes. Recognized versions 1, 2, current version 3 and absent extensions permit
 Ledgechase's fixed slot 50. Validation during records erasure uses private
 copies and does not migrate or otherwise rewrite preferences.
 
-The owned version-2 record is bounded to 16 bytes; unrelated preference bytes
+The owned version-3 record is bounded to 16 bytes; unrelated preference bytes
 remain untouched. An exact version-1 header (`TYEX`, version 1, payload size 4,
-markers `A5 5A`) migrates to version 2, payload size 8. A-Smash's saved color,
+markers `A5 5A`) migrates to version 3, payload size 8. A-Smash's saved color,
 all eight earlier Techchase preferences and unclaimed padding bits survive.
 The new Techchase CPU protection color defaults to Gray. Ledgechase defaults to
 Left, CPU 100% Off, player 0%, Even preset, Close distance, Gray protection color
-and Spotdodge follow-up. Manual per-option percentages remain session-only.
+and None follow-up. Version 2 also migrates to version 3: the four existing
+CPU actions retain their meaning as menu indices shift by one. The fifth
+choice uses one old padding bit without expanding the record. Manual
+per-option percentages remain session-only.
 Migration marks the existing native save dirty once; it does not change the
 44-byte core record, prior event scores, slot 50 or bytes beyond the owned
 16-byte record. Unknown versions, sizes or markers remain untouched.
 
 Unmodified older Tyro executables cannot implement all these protections.
-The version-1-aware build treats version 2 as unsupported and preserves it;
+Earlier version-aware builds treat version 3 as unsupported and preserve it;
 its original 28 score writes do not touch the preference candidate. Builds
 predating the score-region reset protection still clear preferences through
 their native **Erase Event Records** action. Fresh-save creation,

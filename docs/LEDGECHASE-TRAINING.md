@@ -9,13 +9,13 @@ The event saves these seven choices:
 
 | Setting | Choices | Default |
 | --- | --- | --- |
+| Ledge Option Chances | Six presets and session-only percentage edits | Even |
 | Ledge Side | Left, Right, Swap on Success, Random | Left |
 | CPU above 100% | Off / On; sets exactly 0% / 100% | Off |
 | Player Percent | 0%, 25%, 50%, 75%, 100%, 125%, 150% | 0% |
-| Ledge Option Chances | Six presets and session-only percentage edits | Even |
 | Player Distance | Edge, Close, Mid, Far, Safe | Close |
 | CPU Invincibility Overlay | Off, Red, Blue, Yellow, Green, Cyan, Magenta, Gray | Gray |
-| CPU Action | Spotdodge, Roll, Dash, Smash | Spotdodge |
+| CPU Action | None, Spotdodge, Roll, Dash, Smash | None |
 
 Native ledge-option selection switches to the slow variants at **100%**.
 The CPU percent toggle sets this value exactly. Player-distance steps are
@@ -45,7 +45,9 @@ does not replace ledge animations or shorten their recovery.
 
 Ledge jumps fastfall on the first native-eligible descending frame. The
 selected CPU action follows the ledge option when normal native action checks
-allow it. A 30-frame punish window follows completion of that action. Hits or
+allow it. Each followup runs once and releases its input immediately after
+the native action starts. None leaves the CPU idle after its ledge option.
+A 30-frame punish window follows completion of that action. Hits or
 grabs start a 15-frame retry delay; deaths and an attempt timeout also retry.
 Swap on Success changes sides only after a successful hit or grab. D-pad Left
 retries without counting success. Exit flushes pending preferences.

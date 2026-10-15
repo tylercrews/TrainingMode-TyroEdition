@@ -853,7 +853,12 @@ static TipMgr stc_tipmgr;
 /* Under Fire keeps its native lava/ledge logic, with an event-local C pause
  * menu so its new diagnostic and Exit behave like the other practice events. */
 static int under_fire_best, under_fire_event;
-static Text *under_fire_best_text;
+static int under_fire_active, under_fire_restart, under_fire_late, under_fire_canvas;
+static int under_fire_result_valid;
+static Text *under_fire_best_text, *under_fire_inv_text;
+static CmSubject *under_fire_camera;
+enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_INVINCIBILITY, UF_PARTICLES, UF_EXIT };
+static void UnderFire_ChangeSide(GOBJ *menu, int value) { under_fire_restart = 1; }
 static void UnderFire_UpdateBestText(void) {
     if (!under_fire_best_text) return;
     unsigned frames = under_fire_best;
@@ -867,6 +872,7 @@ void UnderFire_UpdateScore(int frames) {
     UnderFire_UpdateBestText();
 }
 static void UnderFire_Exit(GOBJ *menu) {
+    under_fire_active = 0;
     ActionCues_SetTangibilityOverlay(0);
     Trails_SetOverride(0);
     if (under_fire_best > 0 && under_fire_best > Events_GetSavedScore(under_fire_event)) {
@@ -878,6 +884,7 @@ static void UnderFire_Exit(GOBJ *menu) {
     Match_EndVS();
 }
 static const char *under_fire_trail_names[] = { TM_TRAIL_OVERRIDE_LABELS };
+static const char *under_fire_side_names[] = {"Left", "Right"};
 static EventOption under_fire_options[] = {
     {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Highlight Dropped Invincibility",
      .desc = {"Pulse red whenever invincibility/intangibility drops.",
@@ -885,6 +892,14 @@ static EventOption under_fire_options[] = {
     {.kind = OPTKIND_STRING, .name = "Hitbox Trails", .values = under_fire_trail_names,
      .value_num = TM_TRAIL_OVERRIDE_COUNT,
      .desc = {"Choose this event's trails, including Off.", "Overrides global hitbox trails during this event."}},
+    {.kind = OPTKIND_STRING, .name = "Ledge Side", .values = under_fire_side_names,
+     .value_num = 2, .OnChange = UnderFire_ChangeSide,
+     .desc = {"Choose the left or right ledge.", "D-pad Left/Right also switches and restarts."}},
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Invincibility",
+     .desc = {"Show invincibility left when you regrab ledge.",
+              "Green: frames left. Red: frames late."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Disable Move Particles",
+     .desc = {"Hide your move effects, including Fox/Falco up-B", "flames, to keep your character visible."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = UnderFire_Exit,
      .desc = {"Return to the Event Selection Screen."}},
 };
@@ -892,6 +907,80 @@ static EventMenu under_fire_menu = {
     .name = "Under Fire", .option_num = countof(under_fire_options),
     .options = under_fire_options,
 };
+static void UnderFire_UpdateCamera(void) {
+    if (!under_fire_camera) return;
+    Vec3 ledge;
+    // Brinstar's two native ledge floors, shared with the ASM ledge table.
+    int right = under_fire_options[UF_SIDE].val;
+    if (right) Stage_GetRightOfLineCoordinates(17, &ledge);
+    else Stage_GetLeftOfLineCoordinates(5, &ledge);
+    under_fire_camera->cam_pos = ledge;
+    under_fire_camera->cam_pos.X += right ? -35 : 35;
+    under_fire_camera->cam_pos.Y += 20;
+}
+void UnderFire_SetCamera(CmSubject *camera) {
+    under_fire_camera = camera;
+    UnderFire_UpdateCamera();
+}
+// Called by the native event after fighter collision, or immediately before
+// placing the player on a ledge. Bit 1 requests the existing complete restore.
+int UnderFire_Control(GOBJ *fighter, int reset) {
+    int side = under_fire_options[UF_SIDE].val;
+    if (reset) {
+        under_fire_restart = under_fire_late = 0;
+        under_fire_result_valid = 0;
+        if (under_fire_inv_text) under_fire_inv_text->hidden = 1;
+        UnderFire_UpdateCamera();
+        return side;
+    }
+    if (!under_fire_active || Pause_CheckStatus(1) == 2) return side;
+    FighterData *ft = fighter->userdata;
+    int down = ft->input.down;
+    if (down & (HSD_BUTTON_DPAD_LEFT | HSD_BUTTON_DPAD_RIGHT)) {
+        side = !(down & HSD_BUTTON_DPAD_LEFT);
+        under_fire_options[UF_SIDE].val = under_fire_options[UF_SIDE].val_prev = side;
+        under_fire_restart = 1;
+    }
+    if (!ft->flags.freeze && !ft->flags.hitlag && ft->dmg.hitlag_frames <= 0) {
+        if (ft->hurt.intang_frames.ledge > 0) under_fire_late = 0;
+        else if (under_fire_late < 32767) ++under_fire_late;
+    }
+    if (under_fire_options[UF_PARTICLES].val) {
+        Fighter_GFXRemoveAll(fighter);
+        if (ft->flags.has_follower) {
+            GOBJ *follower = Fighter_GetSubcharGObj(ft->ply, 1);
+            if (follower) Fighter_GFXRemoveAll(follower);
+        }
+    }
+    return side | (under_fire_restart ? 2 : 0);
+}
+void UnderFire_Regrab(GOBJ *fighter) {
+    if (!under_fire_active || !under_fire_options[UF_INVINCIBILITY].val) return;
+    FighterData *ft = fighter->userdata;
+    if (ft->ply != 0 || ft->flags.ms) return;
+    // CliffCatch has not yet renewed ledge protection. The event's post-
+    // collision counter covers earlier tangible frames; include this frame.
+    int remaining = ft->hurt.intang_frames.ledge;
+    int result = remaining > 0 ? remaining : -(under_fire_late + 1);
+    if (!under_fire_inv_text) {
+        Text *text = Text_CreateText(2, under_fire_canvas);
+        if (!text) return;
+        under_fire_inv_text = text;
+        text->kerning = 1;
+        text->align = 1;
+        text->trans.X = 320;
+        text->trans.Y = 100;
+        text->viewport_scale.X = text->viewport_scale.Y = 1;
+        text->scale.X = text->scale.Y = 0.45f;
+        Text_AddSubtext(text, 0, 0, "Ledge Invincibility");
+        Text_AddSubtext(text, 0, 22, "");
+    }
+    GXColor color = remaining > 0 ? (GXColor){80,255,90,255} : (GXColor){255,40,40,255};
+    Text_SetText(under_fire_inv_text, 1, "%+df", result);
+    Text_SetColor(under_fire_inv_text, 1, &color);
+    under_fire_inv_text->hidden = 0;
+    under_fire_result_valid = 1;
+}
 static void UnderFire_Update(void) {
     /* The native practice restore resets match time. The menu must also allow
      * closing while paused, which EventMenu_Update handles independently. */
@@ -899,14 +988,24 @@ static void UnderFire_Update(void) {
     EventMenu_Update(stc_event_vars.menu_gobj);
     if (under_fire_best_text)
         under_fire_best_text->hidden = ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
+    if (under_fire_inv_text)
+        under_fire_inv_text->hidden = !under_fire_result_valid || !under_fire_options[UF_INVINCIBILITY].val ||
+            ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
     Develop_UpdateMatchHotkeys();
 }
 void UnderFire_InitMenu(void) {
     under_fire_best = 0;
+    under_fire_active = 1;
+    under_fire_restart = under_fire_late = 0;
+    under_fire_result_valid = 0;
+    under_fire_camera = 0;
+    under_fire_inv_text = 0;
     under_fire_event = stc_memcard->EventBackup.event;
     under_fire_best_text = 0;
-    under_fire_options[0].val = under_fire_options[0].val_prev = 1;
-    under_fire_options[1].val = under_fire_options[1].val_prev = 0;
+    for (int row = 0; row < UF_EXIT; ++row) {
+        int value = row == UF_HIGHLIGHT || row == UF_INVINCIBILITY;
+        under_fire_options[row].val = under_fire_options[row].val_prev = value;
+    }
     under_fire_menu.scroll = under_fire_menu.cursor = 0;
     stc_event_vars.event_desc = &Ledgestall;
     stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
@@ -914,6 +1013,7 @@ void UnderFire_InitMenu(void) {
     ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
     stc_hsd_update->onFrame = UnderFire_Update;
     int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
+    under_fire_canvas = canvas;
     Text *text = Text_CreateText(2, canvas);
     if (!text) return;
     under_fire_best_text = text;
@@ -1604,6 +1704,8 @@ void OnFileLoad(HSD_Archive *archive) // this function is run right after TmDt i
 
 void OnSceneChange(void)
 {
+    under_fire_active = 0;
+    under_fire_camera = 0;
     Trails_SceneChange();
     ActionCues_SceneChange();
     // Hook exists at 801a4c94
