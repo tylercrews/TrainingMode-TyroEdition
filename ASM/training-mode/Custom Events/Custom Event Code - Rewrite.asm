@@ -549,6 +549,12 @@ LedgeStall:
     li r8, 1                                            # Use Sopo bool
     bl InitializeMatch
 
+    # Perfect-refresh counter replaces the native timer (MATCH_TIMER_HIDE=1).
+    lbz r3, 0(r26)
+    rlwinm r3, r3, 0, 0, 29
+    ori r3, r3, 1
+    stb r3, 0(r26)
+
     # 1 Player
     lwz r4, 0x0(r29)
     li r3, 0x20
@@ -705,14 +711,13 @@ LedgeStallThink:
     .set EventState_Reset, 0x2
     .set Timer, 0x1
     .set LavaTimer, 0x2
-    .set SurvivalTime, 0x4
+    .set SurvivalTime, 0x4                               # Retired timer score; keep userdata offsets stable.
     .set LavaPosition, 0x8
 
     # Constants
     .set ResetTimer, 30
     .set LavaStartY, -100
     .set LavaStartTimer, 123
-    .set SuvivalTime_CountInterval, 5
 
     backup
 
@@ -813,51 +818,8 @@ LedgeStallThink_LavaDelay:
     b LedgeStallThink_LavaRiseThink
 
 LedgeStallThink_LavaRiseThink:
-    # Ensure player is in the lava before incrementing survival time
-    lfs f1, LavaPosition(REG_EventData)
-    lfs f2, 0xB4(REG_P1Data)
-    fcmpo cr0, f2, f1
-    bge LedgeStallThink_LavaRiseThink_NotInLava
-    # Increment Score
-    lwz r3, SurvivalTime(REG_EventData)
-    addi r3, r3, 1
-    stw r3, SurvivalTime(REG_EventData)
-    # Preserve the live attempt's best before leaving lava or restarting.
-    rtocbl r12, TM_UnderFireUpdateScore
-
-LedgeStallThink_LavaRiseThink_SkipScoreIncrement:
-    # Play HRC SFX every X score
-    li r3, SuvivalTime_CountInterval
-    bl IntToFloat
-    fmr f2, f1
-    lwz r3, SurvivalTime(REG_EventData)
-    subi r3, r3, 1
-    bl IntToFloat
-    branchl r12, fmod
-    fmr f2, f1
-    li r3, 0
-    bl IntToFloat
-    fcmpo cr0, f2, f1
-    bne LedgeStallThink_LavaRiseThink_SkipSFX
-    # Play SFX
-    li r3, 0xBB
-    bl PlaySFX
-    li r3, 0xBB
-    bl PlaySFX
-
-LedgeStallThink_LavaRiseThink_SkipSFX:
-    b LedgeStallThink_LavaRiseThink_NotInLavaSkip
-
-LedgeStallThink_LavaRiseThink_NotInLava:
-    # Reset Timer back to 0
-    li r3, 0
-    load r4, 0x8046b6a0
-    stw r3, 0x28(r4)                                    # seconds
-    sth r3, 0x2C(r4)                                    # subseconds
-    # Set survival time to 0
-    stw r3, SurvivalTime(REG_EventData)
-
-LedgeStallThink_LavaRiseThink_NotInLavaSkip:
+    # Score now comes only from perfect ledge catches in UnderFire_Regrab.
+    # Keep the native lava rise/limit unchanged, including before max height.
     # Check if lava is at max height
     lfs f1, LavaPosition(REG_EventData)
     lfs f2, LavaMaxY(REG_EventConstants)
@@ -873,25 +835,7 @@ LedgeStallThink_LavaRiseThink_SkipLavaRise:
     b LedgeStallThink_CheckTimer
 
 LedgeStallThink_Reset:
-    # Effectively pause timer
-    load r4, 0x8046b6a0
-    lwz r3, 0x28(r4)                                    # seconds
-    cmpwi r3, 0
-    beq LedgeStallThink_NoSecondCarryover
-    lhz r3, 0x2C(r4)                                    # subseconds
-    cmpwi r3, 0
-    bne LedgeStallThink_NoSecondCarryover
-    li r3, 0x3B
-    sth r3, 0x2C(r4)                                    # subseconds
-    lwz r3, 0x28(r4)                                    # seconds
-    subi r3, r3, 1
-    stw r3, 0x28(r4)                                    # seconds
-    b LedgeStallThink_CheckTimer
-
-LedgeStallThink_NoSecondCarryover:
-    lhz r3, 0x2C(r4)                                    # subseconds
-    subi r3, r3, 1
-    sth r3, 0x2C(r4)                                    # subseconds
+    # Keep the hit/death feedback delay; there is no displayed timer to pause.
     b LedgeStallThink_CheckTimer
 
 LedgeStallThink_CheckTimer:

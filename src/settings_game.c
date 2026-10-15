@@ -125,6 +125,11 @@ void *Settings_EventScoreSlot(unsigned event) {
     /* Older opaque extensions were allowed to occupy all 92 spare bytes.
      * Claim slot 50 only when this build understands the owning save format. */
     if(slot==TM_EVENT_LEDGECHASE_SCORE_SLOT && extension_view()==extension_fallback) return 0;
+    /* Under Fire now records perfect-refresh counts. Keep old time records
+     * untouched and invisible until the first counter record replaces one.
+     * Never claim an opaque future/foreign record for the new score format. */
+    if(slot==TM_EVENT_UNDERFIRE_SCORE_SLOT && (extension_view()==extension_fallback ||
+        !Settings_Get(TM_SETTING_UNDERFIRE,TM_UNDERFIRE_COUNTER_SCORE))) return 0;
     return slot<TM_EVENT_LEGACY_SCORE_SLOTS || slot==TM_EVENT_LEDGECHASE_SCORE_SLOT
         ? (u8 *)stc_memcard+TM_EVENT_SCORE_OFFSET+slot*4 : 0;
 }

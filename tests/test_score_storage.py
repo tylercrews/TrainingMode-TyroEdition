@@ -221,8 +221,9 @@ class ScoreStorageAudit(unittest.TestCase):
         self.assertIn(43, functions)
         machine.install_hook(0x8015CF60, 0x80600000)
         machine.install_hook(0x8015CF74, 0x80602000)
-        canary = bytes((index * 13 + 3) & 255 for index in range(SPARE_SIZE))
-        machine.cpu.mem_write(BASE + SPARE_START, canary)
+        machine.call(functions[28],29,1,1)  # Known Under Fire count-format record.
+        machine.cpu.mem_write(BASE + SPARE_START + 16,bytes((index*13+3)&255 for index in range(SPARE_SIZE-16)))
+        canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
         for page, count, first in ((0, 5, 0), (1, 17, 5), (2, 7, 21)):
             machine.call(functions[28], 2, 0, page)
             for event in range(count):
@@ -259,6 +260,20 @@ class ScoreStorageAudit(unittest.TestCase):
             self.assertEqual(bytes(machine.cpu.mem_read(BASE + SPARE_END, 8)), bytes(8))
             self.assertEqual(bytes(machine.cpu.mem_read(BASE + 0x1B40, 4)), b"\xA5" * 4)
 
+    def test_under_fire_old_time_record_is_hidden_until_replaced_with_count(self):
+        machine=NativeMachine();functions=machine.load_services()
+        machine.install_hook(0x8015CF60,0x80600000)
+        machine.install_hook(0x8015CF74,0x80602000)
+        machine.call(functions[28],2,0,0)
+        machine.cpu.mem_write(BASE+SCORE_START+4*4,struct.pack('>I',3679))
+        self.assertEqual(machine.call(0x8015CF5C,4),0)
+        self.assertEqual(machine.call(functions[43],4),0)
+        self.assertEqual(bytes(machine.cpu.mem_read(BASE+SCORE_START+4*4,4)),struct.pack('>I',3679))
+        machine.call(functions[28],29,1,1)
+        machine.call(0x8015CF70,4,7)
+        self.assertEqual(machine.call(0x8015CF5C,4),7)
+        self.assertEqual(machine.call(functions[43],4),BASE+SCORE_START+4*4)
+
     def test_future_core_and_extension_protect_opaque_old_slot_50_from_score_and_reset(self):
         for mode in ('extension','core'):
             machine=NativeMachine(); functions=machine.load_services()
@@ -286,8 +301,8 @@ class ScoreStorageAudit(unittest.TestCase):
             self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1B3C,4)),bytes(4))
             self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1F24,44)),core)
 
-    def test_recognized_v1_through_v4_records_reset_score_50_without_migrating_saved_bytes(self):
-        for header in (b'TYEX\x01\x04\xA5\x5A', b'TYEX\x02\x08\xA5\x5A', b'TYEX\x03\x08\xA5\x5A', b'TYEX\x04\x08\xA5\x5A'):
+    def test_recognized_v1_through_v5_records_reset_score_50_without_migrating_saved_bytes(self):
+        for header in (b'TYEX\x01\x04\xA5\x5A', b'TYEX\x02\x08\xA5\x5A', b'TYEX\x03\x08\xA5\x5A', b'TYEX\x04\x08\xA5\x5A', b'TYEX\x05\x08\xA5\x5A'):
             machine=NativeMachine(); functions=machine.load_services()
             machine.call(functions[28],2,0,1)
             machine.install_hook(0x8015EF14,0x80604000)

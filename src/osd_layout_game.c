@@ -393,7 +393,7 @@ void Message_LayoutUpdate(void) {
             Text_SetPosition(text,8,325,0);Text_SetScale(text,8,.6f,2.3f);
         }
         Playerblock *owner = Fighter_GetPlayerblock(key / TM_OSD_SLOTS);
-        text->hidden = Settings_Get(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF) ||
+        text->hidden = OSD_IsSuppressed() ||
             (owner && owner->p_kind == 1 && Settings_Get(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF));
     }
     if (!layout.page_text) {
@@ -408,7 +408,7 @@ void Message_LayoutUpdate(void) {
         Text_SetText(layout.page_text, 0, "OSDs %d/%d - paused L/R: page", page + 1, pages);
         layout.shown_page = page; layout.shown_pages = pages;
     }
-    layout.page_text->hidden = pages <= 1 || Settings_Get(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
+    layout.page_text->hidden = pages <= 1 || OSD_IsSuppressed();
 }
 void Message_LayoutEndCombo(int queue) {
     int key = TMOSD_Key(queue, 22);

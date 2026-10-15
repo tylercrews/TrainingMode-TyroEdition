@@ -288,6 +288,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         m = self.m
         m.init()
         before = m.record()
+        m.call('DAT_Set',29,1,1)  # This test starts with an existing count record.
         m.cpu.mem_write(0x8045A6C0 + 0x535, b'\x02')  # Capture Under Fire's event ID.
         start = m.symbols['DAT_UnderFire']
         # The first direct call creates the C menu. Bound rendering/allocation,
@@ -331,7 +332,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             m.call('DAT_UnderFire')
             self.assertEqual(len(menus), 1)
             menu = menus[0]
-            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x08\0\0')
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x07\0\0')
             options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
             label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
@@ -343,18 +344,21 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             self.assertNotEqual(bytes(m.cpu.mem_read(0x80479D88, 4)), bytes(4))  # Menu update installed.
             self.assertEqual(ended, [])
             self.assertEqual(scores, [])  # Best attempts are kept in RAM until Exit.
-            self.assertEqual(text_rows[-1], (4, 0, 0, 0))
+            self.assertEqual(text_rows[-1][:2], (4, 0))
             self.assertEqual(m.record(), before)
             m.cpu.mem_write(options + 6, b'\0\0')
             m.cpu.mem_write(trail_row+6,b'\0\3')
             m.call('DAT_UnderFire')
             self.assertEqual(bytes(m.cpu.mem_read(options + 6, 2)), b'\0\1')  # New event defaults On.
             self.assertEqual(bytes(m.cpu.mem_read(trail_row+6,4)),bytes(4))  # Trails default Off on reentry.
-            for score in (55, 50, 120, 0, 60):
-                m.call('DAT_UnderFireScore', score)
-            self.assertEqual(text_rows[-1], (4, 0, 2, 0))
+            for _ in range(120):m.call('DAT_UnderFireScore',1)
+            m.call('DAT_UnderFireScore',0)
+            self.assertEqual(text_rows[-1][:2], (4, 120))
             self.assertEqual(scores, [])
-            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 7 * 44 + 40, 4))[0]
+            m.call('DAT_UnderFireControl',0,1)  # A later, shorter attempt cannot erase the best.
+            for _ in range(3):m.call('DAT_UnderFireScore',1)
+            self.assertEqual(text_rows[-1][:2],(4,3))
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 6 * 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
             self.assertEqual(scores, [(2, 120)])
@@ -364,15 +368,15 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             self.assertEqual(m.record(), before)
             for score in (0, 80, 120):
                 m.call('DAT_UnderFire')
-                self.assertEqual(text_rows[-1], (4, 0, 0, 0))
-                m.call('DAT_UnderFireScore', score)
+                self.assertEqual(text_rows[-1][:2], (4, 0))
+                for _ in range(score):m.call('DAT_UnderFireScore',1)
                 m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(scores, [(2, 120)])  # Empty, lower and tied sessions never lower the record.
             m.call('DAT_UnderFire')
-            m.call('DAT_UnderFireScore', 3679)
-            self.assertEqual(text_rows[-1], (4, 1, 1, 31))
+            for _ in range(121):m.call('DAT_UnderFireScore',1)
+            self.assertEqual(text_rows[-1][:2], (4, 121))
             m.call('DAT_UnderFireExit', 0x80407600)
-            self.assertEqual(scores[-1], (2, 3679))
+            self.assertEqual(scores[-1], (2, 121))
             self.assertEqual(m.record(), before)
         finally: m.cpu.hook_del(hook)
 
@@ -1250,6 +1254,17 @@ class OSDLayoutTests(unittest.TestCase):
                 m.call("Settings_Set",11,8,0)
                 self.assertEqual((hidden(human),hidden(cpu)),(0,0))
                 self.assertEqual(m.call("Settings_Get",14,30),6)
+                saved=m.record();option=0x80407000
+                m.cpu.mem_write(option,struct.pack('>h',1))
+                m.call('OSD_SetEventSuppression',option)
+                self.assertEqual((hidden(human),hidden(cpu)),(1,1))
+                m.call('TestLayoutTick',3)
+                m.cpu.mem_write(option,bytes(2))
+                self.assertEqual((hidden(human),hidden(cpu)),(0,0))
+                m.cpu.mem_write(option,struct.pack('>h',1))
+                m.call('OSD_SetEventSuppression',0)  # Event exit/scene cleanup releases it.
+                self.assertEqual((hidden(human),hidden(cpu)),(0,0))
+                self.assertEqual(m.record(),saved)
     def test_repeated_results_retain_positions_and_do_not_expire_in_both_styles(self):
         for mode in (1,2):
             self.m = Machine();self.m.init();self.start(mode)
@@ -2429,11 +2444,11 @@ class UnderFireNativeTests(unittest.TestCase):
             m.cpu.mem_write(data + 0xB4, struct.pack('>f', 0))
             m.call('UnderFireThink', event)
             m.call('UnderFireThink', event)
-            self.assertEqual(score_feed, [61, 62])
+            self.assertEqual(score_feed, [])
             m.cpu.mem_write(data + 0xB4, struct.pack('>f', 11))
             m.call('UnderFireThink', event)
-            self.assertEqual(score_feed, [61, 62])  # Leaving lava cannot erase the reported best.
-            self.assertEqual(bytes(m.cpu.mem_read(state + 4, 4)), bytes(4))
+            self.assertEqual(score_feed, [])  # Survival time no longer feeds scoring.
+            self.assertEqual(bytes(m.cpu.mem_read(state + 4, 4)), struct.pack('>I',60))
             for dead in (False, True):
                 for score in (0, 300):
                     for attempt in range(2):  # The think GOBJ survives and resets repeatedly.

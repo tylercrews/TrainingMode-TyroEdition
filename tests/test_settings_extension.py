@@ -10,7 +10,7 @@ COUNTS = (9, 2, 2, 3, 3, 3, 4, 2, 8, 4, 4)
 DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0)
 LEDGE_COUNTS = (4, 2, 7, 6, 5, 8, 5)
 LEDGE_DEFAULTS = (0, 0, 0, 0, 1, 7, 0)
-FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,), (0,)))
+FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)))
 REGION_SIZE, OWNED_SIZE = 88, 16
 
 class ExtensionTests(unittest.TestCase):
@@ -38,7 +38,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.record(), core)
         self.assertEqual(bytes(m.cpu.mem_read(EXT - 4, 4)), b'\xA5' * 4)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, 80)), b'\xA5' * 80)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), b'TYEX\x04\x08\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), b'TYEX\x05\x08\xA5\x5A')
 
     def test_every_value_and_invalid_write_preserve_neighbors_and_reloaded_preferences(self):
         m = self.m
@@ -88,7 +88,7 @@ class ExtensionTests(unittest.TestCase):
         for mode in ('foreign', 'core', 'extension'):
             with self.subTest(mode=mode):
                 m = Machine(); m.init()
-                m.cpu.mem_write(EXT, b'TYEX\x05\x08\xA5\x5A' + bytes(REGION_SIZE))
+                m.cpu.mem_write(EXT, b'TYEX\x06\x08\xA5\x5A' + bytes(REGION_SIZE))
                 if mode == 'foreign': m.cpu.mem_write(0x80000000, b'GTME01')
                 elif mode == 'core':
                     core = bytearray(m.record()); core[10] &= 0x3F; m.put(core)
@@ -132,7 +132,7 @@ class ExtensionTests(unittest.TestCase):
                          (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0))
         self.assertEqual(tuple(m.call('Settings_Get', 28, i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, OWNED_SIZE)),
-                         b'TYEX\x04\x08\xA5\x5A\xFD\x98\xFA\x87\x00\x72\x00\x00')
+                         b'TYEX\x05\x08\xA5\x5A\xFD\x98\xFA\x87\x00\x72\x00\x00')
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, REGION_SIZE - OWNED_SIZE)),
                          b'\xE5' * (REGION_SIZE - OWNED_SIZE))
         self.assertEqual(m.record(), core)
@@ -165,10 +165,10 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', 28, 6), action + 1)
             after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
             self.assertEqual(after[:4], legacy[:4])
-            self.assertEqual(after[4], 4)
+            self.assertEqual(after[4], 5)
             self.assertEqual(after[5:11], legacy[5:11])
             self.assertEqual(after[11], legacy[11] & 0x87)
-            mask = ~((7 << 15) | (1 << 18)) & 0xFFFFFF
+            mask = ~((7 << 15) | (3 << 18)) & 0xFFFFFF
             self.assertEqual(int.from_bytes(after[12:15], 'little') & mask, bits & mask)
             self.assertEqual(after[15], legacy[15])
             self.assertEqual(after[16:], b'\xE5' * (REGION_SIZE - OWNED_SIZE))
@@ -177,7 +177,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', 28, 6), 0)
 
     def test_unsupported_version_size_and_marker_remain_byte_preserving(self):
-        for version, size, marker in ((0,8,0xA5), (5,8,0xA5), (2,4,0xA5), (1,8,0xA5), (2,8,0)):
+        for version, size, marker in ((0,8,0xA5), (6,8,0xA5), (2,4,0xA5), (1,8,0xA5), (2,8,0)):
             m = Machine(); m.init()
             unknown = b'TYEX' + bytes((version,size,marker,0x5A)) + bytes(range(80))
             m.cpu.mem_write(EXT, unknown)
@@ -197,8 +197,21 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(tuple(m.call('Settings_Get',27,i) for i in (9,10)),(0,0))
             self.assertEqual(m.call('Settings_Get',29,0),0)
             after=bytes(m.cpu.mem_read(EXT,REGION_SIZE))
-            expected=bytearray(legacy);expected[4]=4;expected[11]&=0x87;expected[14]&=0xFB
+            expected=bytearray(legacy);expected[4]=5;expected[11]&=0x87;expected[14]&=0xF3
             self.assertEqual(after,bytes(expected)+b'\xE5'*(REGION_SIZE-OWNED_SIZE))
+
+    def test_v4_migration_preserves_particle_height_distance_and_clears_score_marker(self):
+        m=self.m
+        m.call('Settings_Set',29,0,1)
+        m.call('Settings_Set',27,9,3);m.call('Settings_Set',27,10,2)
+        legacy=bytearray(m.cpu.mem_read(EXT,REGION_SIZE))
+        legacy[4]=4;legacy[14]|=8  # Former padding must not identify a count record.
+        m.cpu.mem_write(EXT,bytes(legacy))
+        self.assertEqual(m.call('Settings_Get',29,1),0)
+        self.assertEqual(m.call('Settings_Get',29,0),1)
+        self.assertEqual((m.call('Settings_Get',27,9),m.call('Settings_Get',27,10)),(3,2))
+        expected=bytearray(legacy);expected[4]=5;expected[14]&=0xF7
+        self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
 
 class RelocatedExtensionTests(unittest.TestCase):
     dat_path = fixtures.RelocatedDATSettingsTests.dat_path
@@ -232,7 +245,7 @@ class RelocatedExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('DAT_Get',27,i) for i in range(len(COUNTS))),
                          (8,1,0,2,2,2,3,1,7,0,0))
         self.assertEqual(tuple(m.call('DAT_Get',28,i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), b'TYEX\x04\x08\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), b'TYEX\x05\x08\xA5\x5A')
         self.assertEqual(bytes(m.cpu.mem_read(EXT+OWNED_SIZE,REGION_SIZE-OWNED_SIZE)),
                          b'\xE5'*(REGION_SIZE-OWNED_SIZE))
         self.assertEqual(m.record(),core)

@@ -77,8 +77,8 @@ class UnderFireTests(unittest.TestCase):
 
     def test_defaults_menu_and_dpad_share_side_and_full_reset_request(self):
         m = self.m; core = m.record()
-        self.assertEqual(m.cpu.mem_read(self.menu+4,1)[0],8)
-        for row, name, value in ((2,'Ledge Side',0),(3,'Invincibility',1),(4,'Disable Attack Particles',0),(5,'Ledge Drop',1),(6,'Act/Jump',1)):
+        self.assertEqual(m.cpu.mem_read(self.menu+4,1)[0],7)
+        for row, name, value in ((2,'Ledge Side',0),(3,'Disable Attack Particles',0),(4,'Ledge Refresh OSTs',1),(5,'Suppress Global OSTs',1)):
             at = self.option(row)
             self.assertEqual(self.string(self.word(at+12)),name)
             self.assertEqual(bytes(m.cpu.mem_read(at+6,4)),struct.pack('>hh',value,value))
@@ -114,7 +114,7 @@ class UnderFireTests(unittest.TestCase):
         self.protection(7); self.control()
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][2:],('%+df',7))
-        self.assertEqual(self.colors[-1][2],bytes((80,255,90,255)))
+        self.assertEqual(self.colors[-1][2],bytes.fromhex('8DFF6EFF'))
         self.protection(0)
         # No earlier tangible frame: this regrab is the first late frame.
         m.call('DAT_UnderFireRegrab',self.fighter)
@@ -122,11 +122,11 @@ class UnderFireTests(unittest.TestCase):
         for _ in range(4): self.control()
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][3],-3)
-        self.assertEqual(self.colors[-1][2],bytes((255,40,40,255)))
-        count = len(self.rows); self.option(3,0)
+        self.assertEqual(self.colors[-1][2],bytes.fromhex('FF4646FF'))
+        count = len(self.rows); self.option(4,0)
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(len(self.rows),count)
-        self.option(3,1); self.control(1); self.protection(0)
+        self.option(4,1); self.control(1); self.protection(0)
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][3],0)  # Retry clears timing history.
 
@@ -226,7 +226,7 @@ class UnderFireTests(unittest.TestCase):
         try:
             for effect in (1163,1164,18,100):
                 self.assertEqual(m.call('NativeSpawn',effect,self.fighter,0x80408000),0x80407F00)
-            count=len(created);self.option(4,1)
+            count=len(created);self.option(3,1)
             m.cpu.mem_write(self.ft+0x2071,b'\x30')  # Native Special category.
             for _ in range(5):
                 for effect in (1163,1164,18,100):
@@ -241,13 +241,13 @@ class UnderFireTests(unittest.TestCase):
                 self.assertEqual(m.call('NativeSpawn',effect,self.fighter,0x80408000),0x80407F00)
             stage=0x80408200;m.cpu.mem_write(stage,struct.pack('>H',3))
             self.assertEqual(m.call('NativeSpawn',18,stage,0x80408000),0x80407F00)
-            self.option(4,0)
+            self.option(3,0)
             self.assertEqual(m.call('NativeSpawn',1163,self.fighter,0x80408000),0x80407F00)
             self.assertEqual(created[-1],(1163,self.fighter,0x80408000))
         finally:m.cpu.hook_del(hook)
 
     def test_native_firefox_charge_and_launch_do_not_respawn_or_clear_move_flags(self):
-        m=self.m;self.option(4,1)
+        m=self.m;self.option(3,1)
         m.cpu.mem_write(self.fighter,struct.pack('>H',4))
         m.cpu.mem_write(self.ft+0x2071,b'\x30')
         self.native_code(0x800E7100,0x138)
@@ -275,15 +275,16 @@ class UnderFireTests(unittest.TestCase):
 
     def test_invincibility_snapshot_survives_timer_clear_and_zero_boundary(self):
         m=self.m;self.grant()
-        for frame,remaining,expected in ((10,9,9),(11,1,1),(12,0,0),(13,0,-1)):
+        for frame,remaining,expected in ((10,9,9),(11,1,1),(12,0,0),(13,0,-1),(14,0,-2),(15,0,-3)):
             self.tick(frame,remaining)
             self.protection(0)  # Native catch/state cleanup no longer loses the sample.
             m.call('DAT_UnderFireRegrab',self.fighter)
             self.assertEqual(self.rows[-1][3],expected)
-            self.assertEqual(self.colors[-1][2],bytes((80,255,90,255) if expected>=0 else (255,40,40,255)))
+            self.assertEqual(self.colors[-1][2],bytes.fromhex('8DFF6EFF' if expected>=0 else
+                'FF50FFFF' if expected>=-2 else 'FF4646FF'))
             if expected==0:self.assertEqual(self.rows[-1][2],'%df')
 
-    def test_horizontal_readouts_and_white_act_counts_use_correct_origins(self):
+    def test_centered_pair_and_retired_act_is_invisible(self):
         m=self.m
         for elapsed in range(1,5):
             self.control(1);self.grant()
@@ -297,17 +298,14 @@ class UnderFireTests(unittest.TestCase):
             for i in range(elapsed):
                 self.tick(101+elapsed*20+i,28-i);self.timing(0)
                 if i!=elapsed-1:self.timing(1)
+            count=len(self.rows)
             self.timing(2,353)  # Fox aerial up-B.
-            self.assertEqual(self.rows[-2][2],'Act/Jump')
-            self.assertEqual(self.rows[-1][2:],('%df - %df',elapsed+1))
-            self.assertEqual(self.second_values[-1],elapsed)
-            self.assertEqual(self.colors[-1][2],b'\xff'*4)
-            act_text=self.rows[-1][0]
+            self.assertEqual(len(self.rows),count)
             self.timing(1)
             m.call('DAT_UnderFireRegrab',self.fighter)
             inv_text=self.rows[-1][0]
             self.assertEqual([struct.unpack('>2f',m.cpu.mem_read(t,8)) for t in
-                              (drop_text,act_text,inv_text)],[(190,100),(320,100),(450,100)])
+                              (drop_text,inv_text)],[(255,100),(385,100)])
 
     def test_first_display_uses_invincibility_depth_not_cliffwait_duration(self):
         self.grant();self.tick(5,26);self.timing(0);self.timing(2,29)
@@ -318,10 +316,11 @@ class UnderFireTests(unittest.TestCase):
         self.grant();self.tick(1,30);self.timing(0);self.timing(1)
         count=len(self.rows);self.timing(2,29)
         self.assertEqual(len(self.rows),count)  # Collision outside IASA is not an action.
-        self.control(1);self.grant();self.option(5,0)
+        self.control(1);self.grant();self.option(4,0)
+        count=len(self.rows)  # Retry updates the counter to zero.
         self.tick(2,30);self.timing(0);self.timing(2,29)
         self.assertEqual(len(self.rows),count)
-        self.timing(1);self.state(29);self.option(6,0)
+        self.timing(1);self.state(29)
         self.tick(3,29);self.timing(0);self.timing(2,27)
         self.assertEqual(len(self.rows),count)
 
@@ -353,29 +352,66 @@ class UnderFireTests(unittest.TestCase):
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][3],0)
 
-    def test_fastfall_elapsed_count_has_its_own_origin_and_white_invincibility_age(self):
+    def test_fastfall_action_has_no_retired_act_readout(self):
         m=self.m
         self.grant();self.tick(1,29);self.timing(0);self.timing(2,29);self.timing(1)
         self.state(29)
         self.tick(2,28);self.timing(0);self.timing(1)
         m.cpu.mem_write(self.ft+0x221A,b'\x08')
+        count=len(self.rows)
         self.tick(3,27);self.timing(0);self.timing(2,27)
-        self.assertEqual(self.rows[-1][2:],('%df - %df',3))
-        self.assertEqual(self.second_values[-1],1)
-        self.assertEqual(self.colors[-1][2],b'\xff'*4)
+        self.assertEqual(len(self.rows),count)
+        self.assertFalse(any('Act' == row[2] or 'Act/Jump' in row[2] for row in self.rows))
 
     def test_attack_particle_toggle_saves_and_restores_through_event_menu(self):
         m=self.m;core=m.record()
-        m.symbols['ChangeParticles']=self.word(self.option(4)+36)
-        self.option(4,1);m.call('ChangeParticles',self.menu_obj,1)
+        m.symbols['ChangeParticles']=self.word(self.option(3)+36)
+        self.option(3,1);m.call('ChangeParticles',self.menu_obj,1)
         self.assertEqual(m.call('DAT_Get',29,0),1)
         m.call('DAT_UnderFire')
-        self.assertEqual(bytes(m.cpu.mem_read(self.option(4)+6,4)),struct.pack('>hh',1,1))
-        self.option(4,0);m.call('ChangeParticles',self.menu_obj,0)
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(3)+6,4)),struct.pack('>hh',1,1))
+        self.option(3,0);m.call('ChangeParticles',self.menu_obj,0)
         m.call('DAT_UnderFire')
-        self.assertEqual(bytes(m.cpu.mem_read(self.option(4)+6,4)),bytes(4))
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(3)+6,4)),bytes(4))
         self.assertEqual(self.effects,[])  # No blanket removal of utility effects.
         self.assertEqual(m.record(),core)
+
+    def counter(self):
+        return next(row[3] for row in reversed(self.rows) if row[2]=='Perfect Refreshes: %d')
+
+    def refresh(self, base, late=0):
+        self.grant();self.tick(base,29);self.timing(0);self.timing(2,29);self.timing(1)
+        self.state(29);self.tick(base+1,1)
+        for i in range(late+1):self.tick(base+2+i,0)
+        self.m.call('DAT_UnderFireRegrab',self.fighter)
+
+    def test_counter_only_scores_perfect_refresh_once_and_survives_hidden_osds(self):
+        m=self.m
+        self.assertEqual(self.counter(),0)
+        m.call('DAT_UnderFireRegrab',self.fighter)  # Initial placement.
+        self.assertEqual(self.counter(),0)
+        self.refresh(10)
+        self.assertEqual(self.counter(),1)
+        m.call('DAT_UnderFireRegrab',self.fighter)  # Duplicate native callback.
+        self.assertEqual(self.counter(),1)
+        self.refresh(20,1);self.refresh(30,2);self.refresh(40,3)
+        self.assertEqual(self.counter(),1)
+        self.option(4,0);self.refresh(50)
+        self.assertEqual(self.counter(),2)
+        self.assertEqual(self.rows[-1][2:],('Perfect Refreshes: %d',2))
+        self.control(1)
+        self.assertEqual(self.counter(),0)
+        self.refresh(60)
+        self.assertEqual(self.counter(),1)
+        self.state(75);self.control();self.state(29);self.refresh(70)
+        self.assertEqual(self.counter(),1)  # Feedback window cannot add score.
+
+    def test_drop_near_misses_are_magenta_and_later_failures_red(self):
+        for frame,color in ((1,'8DFF6EFF'),(2,'FF50FFFF'),(3,'FF50FFFF'),(4,'FF4646FF')):
+            self.control(1);self.grant();self.tick(frame,30-frame)
+            self.timing(0);self.timing(2,29)
+            self.assertEqual(self.rows[-1][2:],('%df',frame))
+            self.assertEqual(self.colors[-1][2],bytes.fromhex(color))
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)
