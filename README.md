@@ -19,6 +19,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Keep Low Laser Puff Practice's position lock in the native physics pass and refresh model matrices only on placement, avoiding late transform invalidation during active play.
 - Add **Low Laser Puff Practice** to Character-specific Tech: Fox/Falco versus a fixed startup-crouch Puff, five positions, neutral laser/fastfall OSDs, saved OSD toggles and Reset %. See [event details](docs/LOW-LASER-PUFF.md).
 - Rename Ledgedash's GALINT criterion to **Any GALINT** and add **4 GALINT**, **7 GALINT**, and **10 GALINT**, requiring at least that many frames on first becoming actionable.
 - Repair Training Lab's Stadium form selector for Hazards On/Off, including Normal, correct Rock/Water mapping, queued changes and held forms. See [transformation details](docs/STADIUM-TRANSFORMATIONS.md). tl;dr, fixed the pokemon stadium stage transformation logic in Training Lab

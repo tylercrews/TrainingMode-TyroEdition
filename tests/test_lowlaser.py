@@ -57,6 +57,40 @@ class LowLaserTests(unittest.TestCase):
         for _ in range(180): self.step()
         self.assertEqual([self.info(k) for k in (6,7,8)], [39,200,0])
 
+    def test_placement_uses_immediate_frozen_pose(self):
+        self.assertEqual((self.info(21),self.info(22),self.info(23)),(0,0,0))
+        for _ in range(10): self.step()
+        self.assertEqual((self.info(21),self.info(22)),(0,0))
+        for position in (1,0,4,0):
+            self.m.call('TestLaserChoice',0,position)
+            self.assertEqual((self.info(21),self.info(22),self.info(23)),(0,0,0))
+
+    def test_active_ticks_do_not_invalidate_model_after_native_model_update(self):
+        self.step()
+        self.assertEqual((self.info(24),self.info(25)),(0,0))
+        self.m.call('TestLaserPause',1); self.step()
+        self.assertEqual((self.info(24),self.info(25)),(0,0))
+        self.m.call('TestLaserPause',0); self.step()
+        self.assertEqual((self.info(24),self.info(25)),(0,0))
+        self.m.call('TestLaserHit',8); self.step()
+        self.assertEqual((self.info(4),self.info(3),self.info(18)),(0,8,1))
+        self.assertEqual((self.info(24),self.info(25)),(0,0))
+
+    def test_native_action_state_blend_zero_uses_default_and_minus_one_applies_immediately(self):
+        m=NativeMachine()
+        defaults=0x80500000
+        m.cpu.mem_write(defaults,b'\x06')
+        m.cpu.reg_write(fixtures.gpr(29),defaults)
+        def floating(index,value):
+            m.cpu.reg_write(getattr(fixtures.reg,'UC_PPC_REG_FPR'+str(index)),
+                            struct.unpack('>Q',struct.pack('>d',float(value)))[0])
+        for requested,expected in ((0,6),(-1,0),(3,3)):
+            floating(3,0); floating(29,2); floating(30,0); floating(31,requested)
+            # Actual nonzero-start-frame branch immediately before ApplyAnimation.
+            m.call(0x80069D40,stop=0x80069D88)
+            result=struct.unpack('>d',struct.pack('>Q',m.cpu.reg_read(fixtures.reg.UC_PPC_REG_FPR3)))[0]
+            self.assertEqual(result,expected)
+
     def test_hits_accumulate_percent_without_moving_target_and_reset_only_percent(self):
         self.m.call('TestLaserHit', 7); self.step()
         self.m.call('TestLaserHit', 11); self.step()
@@ -156,6 +190,11 @@ class LowLaserTests(unittest.TestCase):
                     0x618C0000|(target&65535),0x7D8903A6,0x4E800420))
         event=m.call('TestLaserObject')
         m.call('DAT_Init',event); m.call('DAT_Think',event)
+        self.assertEqual(tuple(m.call('TestLaserInfo',k) for k in (21,22,23)),(0,0,0))
+        for paused in (0,1,0,0):
+            m.call('TestLaserPause',paused); m.call('TestLaserEngineTick')
+            m.call('DAT_Think',event)
+            self.assertEqual(tuple(m.call('TestLaserInfo',k) for k in (24,25)),(0,0))
         m.call('TestLaserSample',344,1,1,3,0); m.call('DAT_Think',event); m.call('DAT_Update')
         self.assertEqual((m.call('TestLaserInfo',0),m.call('TestLaserInfo',1)),(1,3))
         menu_ptr=struct.unpack('>I',m.cpu.mem_read(base+entries[3],4))[0]

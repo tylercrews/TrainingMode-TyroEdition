@@ -81,13 +81,15 @@ static void HoldPuff(GOBJ *fighter) {
 }
 static void FreezePuff(GOBJ *fighter) {
     FighterData *ft = fighter->userdata;
-    ActionStateChange(PUFF_CROUCH_FRAME, 0, 0, fighter, ASID_SQUAT, 0, 0);
+    /* Apply the frozen pose without animation interpolation. */
+    ActionStateChange(PUFF_CROUCH_FRAME, 0, -1, fighter, ASID_SQUAT, 0, 0);
     Fighter_SubactionFastForward(fighter);
     ft->cb.Anim = 0;
     ft->cb.IASA = 0;
     ft->cb.Phys = HoldPuff;
     HoldPuff(fighter);
     UpdatePosition(fighter);
+    JOBJ_SetupMtxSub(fighter->hsd_object);
 }
 static void ClearTiming(LowLaserData *data) {
     data->airborne = data->air_frame = data->fastfall = 0;
@@ -156,8 +158,9 @@ void Event_Think(GOBJ *gobj) {
     }
     if (hmn->flags.dead) { PlaceFighters(); return; }
     if (cpu->state_id != ASID_SQUAT) FreezePuff(puff);
-    HoldPuff(puff);
-    UpdatePosition(puff);
+    /* HoldPuff runs in the native physics pass, before collision and model
+     * updates. Do not rewrite/dirty its joints here after those passes: this
+     * callback runs at priority 16, and stops entirely while the menu is open. */
     if (hmn->flags.hitlag || hmn->flags.freeze) return;
     int airborne = hmn->phys.air_state != 0;
     if (airborne && !data->airborne) {

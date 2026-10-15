@@ -5,6 +5,7 @@ static EventVars vars;
 static GOBJ event, fighters[2], menu_object;
 static FighterData ft[2];
 static JOBJ joints[2];
+static JOBJ model_joints[2];
 static LowLaserData data;
 static MenuData menu_data;
 static Text texts[2];
@@ -21,7 +22,14 @@ static const TMSettingsAPI api = {Read, Write, 0};
 static unsigned Serial(void) { return serial; }
 static void Suppress(const s16 *enabled) { suppression = enabled; }
 GOBJ *Fighter_GetGObj(int player) { return &fighters[player]; }
-void JOBJ_SetMtxDirtySub(JOBJ *joint) { }
+void JOBJ_SetMtxDirtySub(JOBJ *joint) {
+    joint->flags |= JOBJ_MTX_DIRTY;
+    if (joint->child) JOBJ_SetMtxDirtySub(joint->child);
+}
+void JOBJ_SetupMtxSub(JOBJ *joint) {
+    joint->flags &= ~JOBJ_MTX_DIRTY;
+    if (joint->child) JOBJ_SetupMtxSub(joint->child);
+}
 void Fighter_SetPosition(int ply, int ms, Vec3 *pos) { }
 void Fighter_SetGrounded(FighterData *f) { f->phys.air_state = 0; }
 void Fighter_SetAllHurtboxState(GOBJ *f, int kind) { }
@@ -34,6 +42,9 @@ void Fighter_ZeroCPUInputs(FighterData *f) { memset(&f->input, 0, sizeof(f->inpu
 void ActionStateChange(float frame, float speed, float blend, GOBJ *f, int state, int flags, GOBJ *source) {
     FighterData *p = f->userdata;
     p->state_id = state; p->state.frame = frame; p->state.rate = speed;
+    /* Record the native blend choice; visual cache invalidation is separate. */
+    p->state.blend = blend == -1 ? 0 : blend == 0 ? 6 : blend;
+    if (p->state.blend == 0) ((JOBJ *)f->hsd_object)->child->trans.Y = 0;
 }
 void Fighter_SubactionFastForward(GOBJ *f) { }
 void Fighter_SetHUDDamage(int player, u16 value) { percent_hud = value; }
@@ -61,11 +72,20 @@ int TestLaserInit(void) {
     event.userdata = &data; menu_object.userdata = &menu_data;
     for (int i = 0; i < 2; ++i) {
         fighters[i].userdata = &ft[i]; fighters[i].hsd_object = &joints[i]; ft[i].ply = i;
+        joints[i].child = &model_joints[i];
     }
     Event_Init(&event);
     return (unsigned)&event;
 }
-void TestLaserThink(void) { Event_Think(&event); Event_Update(); }
+void TestLaserEngineTick(void) {
+    if (paused) return;
+    /* Real order: physics callback at priority 4, native model processing at
+     * 6..16, then this event at priority 16. A paused frame skips both. */
+    if (ft[1].cb.Phys) ft[1].cb.Phys(&fighters[1]);
+    joints[1].trans = ft[1].phys.pos;
+    JOBJ_SetupMtxSub(&joints[1]);
+}
+void TestLaserThink(void) { TestLaserEngineTick(); Event_Think(&event); Event_Update(); }
 void TestLaserSample(int state, int airborne, int fastfall, int eligible, int frozen) {
     ft[0].state_id = state; ft[0].phys.air_state = airborne;
     ft[0].flags.is_fastfall = fastfall; ft[0].TM.can_fastfall_frames = eligible;
@@ -119,6 +139,11 @@ int TestLaserInfo(int key) {
     case 18: return ft[1].phys.kb_vel.X == 0 && ft[1].phys.nudge_vel.X == 0;
     case 19: return text_result[0];
     case 20: return text_result[1];
+    case 21: return (joints[1].trans.Y + model_joints[1].trans.Y) * 100;
+    case 22: return ft[1].phys.pos.Y * 100;
+    case 23: return ft[1].state.blend * 100;
+    case 24: return !!(joints[1].flags & JOBJ_MTX_DIRTY);
+    case 25: return !!(model_joints[1].flags & JOBJ_MTX_DIRTY);
     }
     return -999;
 }
