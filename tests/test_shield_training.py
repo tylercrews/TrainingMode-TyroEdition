@@ -127,7 +127,7 @@ class ShieldTrainingTests(unittest.TestCase):
 
     def test_event_labels_use_muted_cyan_flag_and_init_bridge_selects_menu(self):
         for event, command, name in ((6,3,'Attack on Shield'),(7,4,'Reversal Training')):
-            desc=self.m.call('Desc',0,event)
+            desc=self.m.call('Desc',1,event)
             self.assertEqual(self.m.cpu.mem_read(desc+0x14,1)[0]&0x30,0x10)
             self.m.call('Control',command,0)
             self.assertEqual(self.string(self.word(self.menu)),name)

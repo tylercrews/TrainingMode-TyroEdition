@@ -1,5 +1,7 @@
 # Global OSDs, hitbox trails, and Ledgedash: investigation and implementation plan
 
+**Current save-space ledger (October 15, 2026):** see [addendum 54](#save-memory-addendum-2026-10-15). The core has one unused bit; the 24-byte version-11 extension leaves 64 contiguous bytes unallocated. Earlier reserve totals below describe historical allocations.
+
 **Running to-do list: audited October 6, 2026**
 
 - [x] Remember human/CPU character choices across unrestricted events and saved sessions inside the existing record (section 51).
@@ -1230,3 +1232,46 @@ Implemented October 8, 2026 in V1.4.1T3. The existing Invincibility Overlay now 
 The logic was checked against the [shared counter callbacks](https://github.com/doldecomp/melee/blob/master/src/melee/ft/kinds/ftMars/ftmarsspeciallw.c), [Roy's shared motion table](https://github.com/doldecomp/melee/blob/master/src/melee/ft/kinds/ftEmblem/ftemblem.c), and the local native DOL routines at `0x80138AA8`, `0x80138B64` and `0x8007B1B8`. Move scripts drive the live flag, so character-specific active durations need no hardcoded frame ranges. Existing player/CPU color selection, opacity, overlay priorities, toggle and Ledgedash shared protection detection remain effective. This draws a cue only; it changes no combat behavior.
 
 **137 PowerPC regressions pass**, including both characters, ground/air states, active/recovery flag combinations, toggle suppression, unrelated fighter/state exclusion, and execution of the native counter animation callbacks plus native shield initializer. The animation-end query is a bounded fixture; final frame-step appearance remains a Dolphin check. Persistent cost is **zero bits/bytes**, keeping the 44-byte format-3 record and four available audited bits (two palette padding plus two explicit reserves).
+
+<a id="save-memory-addendum-2026-10-15"></a>
+
+**54. Save-memory availability after Attack on Shield and Reversal changes**
+
+Audited October 15, 2026 against `src/settings.h`, `src/settings.c`, `src/settings_extension.h` and `src/settings_extension.c`. This ledger supersedes the four-free-bit core totals in sections 51–53 and the older extension sizes in the [score-storage investigation](SCORE-STORAGE-AUDIT.md).
+
+**We have 64 contiguous bytes / 512 bits still unallocated in the audited extension region.** Attack on Shield and Reversal expand `TYEX` from version 10 / 20 bytes to version 11 / 24 bytes. That consumes four more bytes of existing save storage, without increasing the memory-card file size or block count. The core remains 44 bytes / format 3.
+
+| Area | Current allocation | Available capacity |
+| --- | --- | --- |
+| Original settings, `0x1F24..0x1F4F` | 44 bytes | One unused bit: logical byte 37 bit 7 (`0x1F49`, mask `0x80`); no unused whole bytes |
+| Audited preference region, `0x1AE0..0x1B37` | 88 bytes reserved for preferences | 64 contiguous bytes at `0x1AF8..0x1B37`, about 73% of the region |
+| Current `TYEX` record, `0x1AE0..0x1AF7` | 24 bytes: eight-byte header plus sixteen-byte payload | Twenty unassigned payload bits, detailed below; these are inside the allocated record and separate from the 64-byte tail |
+| Original event scores, `0x1A70..0x1ADF` | Slots 0–27 | In use; excluded from available capacity |
+| Ledgechase score, `0x1B38..0x1B3B` | Slot 50 | In use; excluded from available capacity |
+
+The current settings records therefore occupy **68 bytes total** (44-byte core + 24-byte extension), up from 64 bytes before these event changes. This is settings ownership within existing serialized game data, not the size of the complete save file. Addresses above are game-data offsets, not raw GCI offsets.
+
+The new little-endian word at extension bytes 20–23 (`0x1AF4..0x1AF7`) uses nineteen bits:
+
+| Saved group | Bits | Contents |
+| --- | ---: | --- |
+| Reversal | 9 | Attack: 4; distance: 2; player facing: 1; CPU facing: 1; ground/platform: 1 |
+| Attack on Shield | 10 | OoS response: 4; hit count minus one: 3; infinite shields: 1; distance: 2 |
+| Remaining in the new word | 13 | Bits 19–31, unassigned |
+
+The full unused-bit ledger inside already allocated records is:
+
+| Record | Location | Unassigned bits |
+| --- | --- | ---: |
+| Core | Byte 37 bit 7 | 1 |
+| Extension | Byte 8 bits 3–7 | 5 |
+| Extension | Byte 10 bit 7 and byte 11 bit 7 | 2 |
+| Extension | Byte 22 bits 3–7 and all of byte 23 (new-word bits 19–31) | 13 |
+
+That is **20 unassigned extension payload bits plus one core bit**, in addition to the **512 bits in the contiguous tail**. These are separate pools; do not describe them as one contiguous allocation. Extension bytes 12–14 also retain six bits from the old Ledgechase preset/action encodings (word bits 6–8 and 15–17). They are preserved legacy data, **not counted as free**. The extension's 128 payload bits reconcile as 102 live preference bits + six preserved legacy bits + twenty unassigned bits. Future use of padding still needs explicit ownership and version-aware initialization; old padding cannot be interpreted as a chosen setting.
+
+The former core reserves have been consumed by later work: byte 40 bit 7 stores Sweetspot line-guides Off, byte 43 bit 7 stores its zoomed-out camera, and byte 37 bit 6 extends Ledgedash's success criterion. Only byte 37 bit 7 remains unused in the core. No core reserve was consumed by these two new event menus. Menu appearance, hit counters, retry state and manual Reversal spacing adjustments are runtime state; the muted cyan event-name flag is executable metadata and uses no save bits.
+
+Version-11 migration initializes the appended word to `00 00 01 00` (Infinite Shields On; other new preferences at choice zero). Version 10 retains its entire previous payload; versions 1–9 retain their established migrations before receiving the new defaults. Foreign/unsupported records keep their stored bytes and use private runtime preferences. Scores, native serialization/checksums and records-reset boundaries are unchanged; the 64-byte tail stays untouched. The [score-storage audit](SCORE-STORAGE-AUDIT.md#availability-addendum-2026-10-15) records the matching capacity ledger.
+
+Validation for this documentation update: recomputed all extension field masks from the production preference tables, checked for overlap, and reconciled the live/legacy/unassigned bit totals above. The preceding implementation's native save/records-reset and optimized PowerPC codec/event regressions passed. Actual Dolphin/card save/reload remains a live verification step; no new card test or audit of additional save regions is claimed here.

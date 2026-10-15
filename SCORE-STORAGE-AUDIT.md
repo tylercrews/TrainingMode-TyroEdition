@@ -1,5 +1,7 @@
 # Spare event-score storage audit
 
+**Current capacity (October 15, 2026):** `TYEX` version 11 owns 24 of the audited 88 bytes, leaving **64 contiguous bytes unallocated**. See the [availability addendum](#availability-addendum-2026-10-15) for the current bit ledger; earlier version-specific totals below are historical.
+
 Verified October 14, 2026 against the current event catalogue, `build/Start.dol`,
 the optimized shared event DAT and the compiled native hooks. The original
 44-byte settings format remains at `0x1F24..0x1F4F`.
@@ -156,3 +158,22 @@ Ownership remains 20 bytes. Byte 14 bits 6..7 now hold Get to Ledge (Spawn/Fall/
 The extension now owns **24 bytes** at `0x1AE0..0x1AF7`, leaving **64 bytes** unallocated in the same 88-byte region. The first 20 bytes retain all version-10 preferences, apart from the version/length header. Bytes 20..23 form a little-endian word: bits 0..3 Reversal attack (14 choices), 4..5 distance, 6 player facing, 7 CPU facing, 8 ground/platform, 9..12 Attack on Shield response (10 choices), 13..15 hit count minus one (0..4), 16 infinite shields (default On), 17..18 distance; bits 19..31 remain reserved. The default word is `00 00 01 00`.
 
 Versions 1..10 initialize the new word, retaining all previously supported preferences and padding. Missing records remain read-only until an edit. Unsupported and foreign records keep their bytes and use private runtime preferences. New tests cover exhaustive value/invalid-write isolation, fresh-service reload, exact version-10 migration, production DAT relocation, and native records erasure across versions 1..11. Native score boundaries, save serialization and checksums are unchanged.
+
+<a id="availability-addendum-2026-10-15"></a>
+
+## Availability addendum — October 15, 2026
+
+Attack on Shield and Reversal consume **four additional bytes**, growing the extension from 20 to 24 bytes. Current settings ownership is 44 core bytes + 24 extension bytes = **68 bytes**, without growing the native save file or allocating another card block.
+
+| Extension region | Game-data offsets | Bytes |
+| --- | --- | ---: |
+| Version/identity header | `0x1AE0..0x1AE7` | 8 |
+| Allocated preference payload | `0x1AE8..0x1AF7` | 16 |
+| Unallocated contiguous tail | `0x1AF8..0x1B37` | **64** |
+| Total audited preference region | `0x1AE0..0x1B37` | **88** |
+
+The new word uses nineteen of its thirty-two bits, leaving thirteen unassigned. Together with seven earlier padding bits, the current extension has **twenty unassigned bits inside its allocated payload**: byte 8 bits 3–7, byte 10 bit 7, byte 11 bit 7, byte 22 bits 3–7, and byte 23 bits 0–7. These twenty bits are additional to the 64-byte tail. Six preserved legacy Ledgechase encoding bits (the word at byte 12, bits 6–8 and 15–17) are excluded from free capacity.
+
+The original 44-byte record separately has **one unused bit**, byte 37 bit 7 (`0x1F49`, mask `0x80`), and no unused whole bytes. Thus the contiguous expansion budget is **64 bytes / 512 bits**, with another twenty extension padding bits and one core bit available only through explicit field allocation and compatible initialization. About 73% of the audited extension region remains unallocated. This does not establish that any other part of the save is available.
+
+Recomputed production field masks show 102 live payload bits + six preserved legacy bits + twenty unassigned bits = 128 payload bits. The header adds 64 bits, giving the current 192-bit / 24-byte record. All totals agree with `TM_EXTENSION_SIZE=24`, `TM_EXTENSION_VERSION=11` and the fixed end boundary at `0x1B38`. Existing native serialization, checksum, score-identity and records-reset protections continue to apply. For the detailed core reserve history and the new events' per-field budget, see [memory investigation addendum 54](OSD-GLOBAL-SETTINGS-INVESTIGATION.md#save-memory-addendum-2026-10-15).
