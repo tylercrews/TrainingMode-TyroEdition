@@ -1,6 +1,7 @@
 #include "events.h"
 #include "ledgechase_logic.h"
 #include "cpu_actions.h"
+#include "cpu_air_attacks.h"
 
 static EventMenu Menu_Main, Menu_Chances;
 static void Exit(GOBJ *menu);
@@ -11,6 +12,7 @@ static void ChangePreset(GOBJ *menu, int value);
 static void ChangeDistance(GOBJ *menu, int value);
 static void ChangeColor(GOBJ *menu, int value);
 static void ChangeFollowup(GOBJ *menu, int value);
+static void ChangeAirAttack(GOBJ *menu, int value);
 static void ChangeGetupChance(GOBJ *menu, int value);
 static void ChangeJumpChance(GOBJ *menu, int value);
 static void ChangeRollChance(GOBJ *menu, int value);
@@ -21,14 +23,21 @@ static bool CheckHasJump(GOBJ *cpu);
 
 static const char *SideNames[] = {"Left", "Right", "Swap on Success", "Random"};
 static const char *PercentNames[] = {"0%", "25%", "50%", "75%", "100%", "125%", "150%"};
-static const char *PresetNames[] = {"Even", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting", "Getup / Roll"};
+static const char *PresetNames[] = {"Even", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting", "Getup / Roll",
+    "Ledge Hop Only", "Ledge Dash Only", "Regular Four + Hop", "Regular Four + Dash", "All Six Even",
+    "Dash 75 / Jump 25", "Hop / Dash"};
 static const char *DistanceNames[] = {"At Ledge", "Close", "Mid", "Far", "Safe"};
 static const char *ColorNames[] = {TM_CPU_INVINCIBILITY_NAMES};
 static const char *FollowupNames[] = {CPU_GROUND_ACTIONS(CPU_GROUND_ACTION_NAME) "Random"};
 static const u8 FollowupActions[] = {CPU_GROUND_ACTIONS(CPU_GROUND_ACTION_ID) CPUACT_RANDOM};
+static const char *AirNames[] = {CPU_AIR_ATTACKS(CPU_GROUND_ACTION_NAME) "Random"};
+static const u8 AirActions[] = {CPU_AIR_ATTACKS(CPU_GROUND_ACTION_ID) CPUACT_RANDOM};
+static int custom_chances;
 typedef char followup_count_matches[(countof(FollowupActions) == CPU_GROUND_ACTION_COUNT) ? 1 : -1];
+typedef char air_count_matches[(countof(AirActions) == CPU_AIR_ATTACK_COUNT) ? 1 : -1];
+typedef char preset_count_matches[(countof(PresetNames) == LC_PRESET_COUNT) ? 1 : -1];
 
-enum { OPT_CHANCES, OPT_SIDE, OPT_CPU_PERCENT, OPT_PLAYER_PERCENT, OPT_DISTANCE, OPT_COLOR, OPT_FOLLOWUP, OPT_EXIT };
+enum { OPT_CHANCES, OPT_SIDE, OPT_CPU_PERCENT, OPT_PLAYER_PERCENT, OPT_DISTANCE, OPT_COLOR, OPT_FOLLOWUP, OPT_AIR, OPT_EXIT };
 enum { CHANCE_PRESET, CHANCE_GETUP, CHANCE_JUMP, CHANCE_ROLL, CHANCE_ATTACK, CHANCE_HOP, CHANCE_DASH };
 
 static EventOption Options_Main[] = {
@@ -46,16 +55,24 @@ static EventOption Options_Main[] = {
      .val = TM_CPU_INVINCIBILITY_DEFAULT,
      .desc = {"Choose a color for the CPU's natural", "invincibility and intangibility."}, .OnChange = ChangeColor},
     {.kind = OPTKIND_STRING, .name = "CPU Action", .values = FollowupNames, .value_num = countof(FollowupNames),
-     .desc = {"CPU acts on its first legal grounded frame", "after the ledge option. Jump always fastfalls."}, .OnChange = ChangeFollowup},
+     .desc = {"CPU acts on its first legal grounded frame", "after the ledge option and any aerial attack."}, .OnChange = ChangeFollowup},
+    {.kind = OPTKIND_STRING, .name = "Aerial Attack When Jumping", .values = AirNames, .value_num = countof(AirNames),
+     .desc = {"Attack after ledge-jump recovery or during a ledge hop.",
+              "Hop waits until rising safely over stage. Specials vary.",
+              "Neutral B repeats; Fox/Falco request two laser loops.",
+              "Grounded CPU Action still follows after landing."}, .OnChange = ChangeAirAttack},
     {.kind = OPTKIND_FUNC, .name = "Exit", .desc = {"Save settings and return to Event Select."}, .OnSelect = Exit},
 };
 static EventOption Options_Chances[] = {
     {.kind = OPTKIND_STRING, .name = "Preset", .values = PresetNames, .value_num = LC_PRESET_COUNT,
-     .desc = {"The preset is saved. Manual chance changes", "below last only for this session."}, .OnChange = ChangePreset},
+     .desc = {"The preset is saved. Manual chance changes",
+              "below last only for this session. All Six is equal;",
+              "its displayed percentages are rounded. Editing one",
+              "switches to the displayed whole-percent chances."}, .OnChange = ChangePreset},
     {.kind = OPTKIND_INT, .name = "Getup Chance", .val = 25, .value_num = 101, .format = "%d%%",
      .desc = {"Chance of a normal ledge getup."}, .OnChange = ChangeGetupChance},
     {.kind = OPTKIND_INT, .name = "Jump Chance", .val = 25, .value_num = 101, .format = "%d%%",
-     .desc = {"Chance of a ledge jump, then fastfall."}, .OnChange = ChangeJumpChance},
+     .desc = {"Chance of the native ledge jump, then aerial action", "and fastfall once the action permits."}, .OnChange = ChangeJumpChance},
     {.kind = OPTKIND_INT, .name = "Roll Chance", .val = 25, .value_num = 101, .format = "%d%%",
      .desc = {"Chance of a ledge roll."}, .OnChange = ChangeRollChance},
     {.kind = OPTKIND_INT, .name = "Attack Chance", .val = 25, .value_num = 101, .format = "%d%%",
@@ -82,6 +99,10 @@ typedef struct LedgechaseData {
     Vec3 ledge;
     int ledge_line, inward;
     int return_phase[2], return_jumps[2];
+    struct {
+        int action, started, pending, state, repeat_tick, loops, last_state;
+        float last_frame;
+    } air[2];
 } LedgechaseData;
 typedef char ledgechase_data_size[(sizeof(LedgechaseData) <= EVENT_DATASIZE) ? 1 : -1];
 
@@ -95,10 +116,12 @@ static GOBJ *FighterBody(int player, int ms) {
     return Fighter_GetSubcharGObj(player, ms);
 }
 static void ApplyPreset(int preset) {
+    custom_chances = 0;
     for (int i = 0; i < LC_OPTION_COUNT; ++i)
         Options_Chances[CHANCE_GETUP + i].val = LC_PresetChance(preset, i);
 }
 static void ReboundChances(int changed) {
+    custom_chances = 1;
     int chances[LC_OPTION_COUNT];
     for (int i = 0; i < LC_OPTION_COUNT; ++i) chances[i] = Options_Chances[CHANCE_GETUP + i].val;
     LC_Rebound(chances, changed);
@@ -226,7 +249,8 @@ static void ResetAttempt(int success) {
     }
     int chances[LC_OPTION_COUNT];
     for (int i = 0; i < LC_OPTION_COUNT; ++i) chances[i] = Options_Chances[CHANCE_GETUP + i].val;
-    data->option = LC_SelectOption(chances, HSD_Randi(100));
+    data->option = !custom_chances && Options_Chances[CHANCE_PRESET].val == LC_PRESET_ALL ?
+        HSD_Randi(LC_OPTION_COUNT) : LC_SelectOption(chances, HSD_Randi(100));
     data->act_frame = LC_ActFrame(HSD_Randi(100), HSD_Randi((*stc_ftcommon)->cliff_invuln_time + 5),
         (*stc_ftcommon)->cliff_invuln_time + 1);
     data->legal_frames = data->vulnerable_frames = data->option_started = data->elapsed = 0;
@@ -238,6 +262,10 @@ static void ResetAttempt(int success) {
         if (action == CPUACT_RANDOM)
             action = CPUCounterActionsGroundRandom[HSD_Randi(countof(CPUCounterActionsGroundRandom))];
         data->followup_action[ms] = action;
+        memset(&data->air[ms], 0, sizeof(data->air[ms]));
+        int aerial = AirActions[Options_Main[OPT_AIR].val];
+        if (aerial == CPUACT_RANDOM) aerial = AirActions[1 + HSD_Randi(countof(AirActions) - 2)];
+        data->air[ms].action = aerial;
     }
     data->punish_timer = data->reset_timer = -1;
     data->success = 0;
@@ -294,6 +322,15 @@ static void RunLedgeOption(GOBJ *cpu, int option, int inward) {
 }
 
 enum { LC_RETURN_LEDGE, LC_RETURN_DROP, LC_RETURN_JUMP, LC_RETURN_DODGE, LC_RETURN_LANDED };
+// Fox and Falco share the native blaster motion-state IDs.
+enum { LC_BLASTER_START = 344, LC_BLASTER_LOOP, LC_BLASTER_END };
+static int DelayLaserFastfall(LedgechaseData *data, FighterData *ft) {
+    int ms = ft->flags.ms;
+    return (data->option == LC_JUMP || data->option == LC_HOP) &&
+        data->air[ms].action == CPUACT_NEUTRALB && (ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO) &&
+        (!data->air[ms].started || (ft->state_id != LC_BLASTER_END && data->air[ms].loops < 2) ||
+         ft->state_id == LC_BLASTER_LOOP);
+}
 /* Observe native transitions, including ones consumed between event callbacks.
  * Never change velocity, collision, jump count, or protection to make a return
  * succeed. Each Ice Climber owns a separate sequence. */
@@ -347,7 +384,7 @@ static void RunLedgeReturn(GOBJ *cpu, LedgechaseData *data) {
         }
     } else {
         QueueInput(cpu, 0, inside < 12 ? data->inward * 127 : 0, 0);
-        if (data->option == LC_HOP && ft->phys.self_vel.Y < 0 && inside >= 3) {
+        if (data->option == LC_HOP && ft->phys.self_vel.Y < 0 && inside >= 3 && !DelayLaserFastfall(data, ft)) {
             QueueInput(cpu, 0, inside < 12 ? data->inward * 127 : 0, -127);
             Fighter_PhysAir_CheckFastfall(ft);
         }
@@ -432,6 +469,71 @@ static int RunFollowup(GOBJ *cpu, GOBJ *human, int action, int inward) {
     }
     return 0;
 }
+static int AirReady(FighterData *ft) {
+    return FollowupMatches(ft, ASID_ACTIONABLEAIR) || (ft->phys.air_state && ft->flags.is_multijump &&
+        ft->state_id >= 341 && ft->state_id <= 345);
+}
+static void RunAirAttack(GOBJ *cpu, GOBJ *human, LedgechaseData *data) {
+    FighterData *ft = cpu->userdata, *hmn = human->userdata;
+    int ms = ft->flags.ms, action = data->air[ms].action;
+    if ((data->option != LC_JUMP && data->option != LC_HOP) || !ft->phys.air_state ||
+        data->followup_active[ms] || action == CPUACT_NONE || IsLedgeOption(ft->state_id) ||
+        ft->state_id == ASID_CLIFFWAIT || ft->state_id == ASID_CLIFFCATCH) return;
+    int blaster = (ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO) && action == CPUACT_NEUTRALB;
+    if (data->air[ms].pending && ft->state_id != data->air[ms].state && !AirReady(ft)) {
+        data->air[ms].started = 1;
+        data->air[ms].pending = 0;
+    }
+    if (blaster) {
+        if (ft->state_id == LC_BLASTER_LOOP && (data->air[ms].last_state != LC_BLASTER_LOOP ||
+            ft->state.frame < data->air[ms].last_frame)) ++data->air[ms].loops;
+        data->air[ms].last_state = ft->state_id;
+        data->air[ms].last_frame = ft->state.frame;
+    }
+    if (data->air[ms].started) {
+        if (action != CPUACT_NEUTRALB) return;
+        // Native blaster IASA accepts fresh B presses during its script's loop
+        // window. Feed pulses throughout start/first loop; release in the
+        // second loop so the native animation ends after two shots.
+        if (blaster && (data->air[ms].loops >= 2 || ft->state_id == LC_BLASTER_END)) return;
+        if (!blaster || ft->state_id == LC_BLASTER_START || ft->state_id == LC_BLASTER_LOOP || AirReady(ft)) {
+            int press = !(data->air[ms].repeat_tick++ & 1);
+            QueueInput(cpu, press ? PAD_BUTTON_B : 0, data->inward * 127, 0);
+            // A fresh neutral special must keep a neutral stick for selection.
+            if (AirReady(ft)) QueueInput(cpu, press ? PAD_BUTTON_B : 0, 0, 0);
+            if (press) RunNativeIASA(cpu);
+        }
+        return;
+    }
+    if (!AirReady(ft)) return;
+    float inside = (ft->phys.pos.X - data->ledge.X) * data->inward;
+    float height = ft->phys.pos.Y - data->ledge.Y;
+    // Cancelling an animation-driven jump below the lip can kill its rise.
+    // Start hop attacks only when rising with the origin and ECB over stage.
+    if (inside < 1 || height < 0 || height + ft->coll_data.ecbCurr_bot.Y < 0) return;
+    if (data->option == LC_HOP && (data->return_phase[ms] != LC_RETURN_JUMP || height < 4 || ft->phys.self_vel.Y <= 0)) return;
+    for (CPUAction *command = Lab_CPUActions[action]; command->state != 0xFFFF; ++command) {
+        if (command->state != ASID_ACTIONABLEAIR && command->state != ASID_ACTIONABLE) continue;
+        int toward = hmn->phys.pos.X > ft->phys.pos.X ? 1 : hmn->phys.pos.X < ft->phys.pos.X ? -1 : data->inward;
+        int dir = command->stickDir == STCKDIR_TOWARD ? toward : command->stickDir == STCKDIR_AWAY ? -toward :
+            command->stickDir == STCKDIR_FRONT ? ft->facing_direction : command->stickDir == STCKDIR_BACK ? -ft->facing_direction : 1;
+        QueueInput(cpu, command->input, dir * command->stickX, command->stickY);
+        ft->cpu.cstickX = dir * command->cstickX;
+        ft->cpu.cstickY = command->cstickY;
+        ft->input.cstick = (Vec2){ft->cpu.cstickX / 127.f, ft->cpu.cstickY / 127.f};
+        int state = ft->state_id;
+        RunNativeIASA(cpu);
+        if (ft->state_id != state) {
+            data->air[ms].started = 1;
+            data->air[ms].pending = 0;
+            QueueInput(cpu, 0, data->inward * 127, 0);
+        } else {
+            data->air[ms].pending = 1;
+            data->air[ms].state = state;
+        }
+        return;
+    }
+}
 static void FastfallJump(GOBJ *cpu) {
     FighterData *ft = cpu->userdata;
     if (ft->flags.dead || ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames > 0) return;
@@ -452,7 +554,7 @@ void Event_Init(GOBJ *gobj) {
     data->desc = desc;
     data->reset_timer = data->punish_timer = -1;
     static const unsigned fields[] = {TM_LEDGECHASE_PRESET, TM_LEDGECHASE_SIDE, TM_LEDGECHASE_CPU_100,
-        TM_LEDGECHASE_PLAYER_PERCENT, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR, TM_LEDGECHASE_CPU_ACTION};
+        TM_LEDGECHASE_PLAYER_PERCENT, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR, TM_LEDGECHASE_CPU_ACTION, TM_LEDGECHASE_AIR_ATTACK};
     for (int i = 0; i < OPT_EXIT; ++i) {
         if (i == OPT_CHANCES) continue;
         Options_Main[i].val = TM_GetSetting(TM_SETTING_LEDGECHASE, fields[i]);
@@ -532,7 +634,8 @@ void Event_Think(GOBJ *gobj) {
             if ((data->option == LC_HOP || data->option == LC_DASH) && !data->followup_active[ms])
                 RunLedgeReturn(fighter, data);
             else if (sub->state_id == ASID_CLIFFWAIT) RunLedgeOption(fighter, data->option, data->inward);
-            if (data->option == LC_JUMP && !data->followup_active[ms]) FastfallJump(fighter);
+            if (data->option == LC_JUMP && !data->followup_active[ms] && !DelayLaserFastfall(data, sub)) FastfallJump(fighter);
+            RunAirAttack(fighter, human, data);
             if (!data->followup_started[ms])
                 data->followup_started[ms] = RunFollowup(fighter, human, data->followup_action[ms], data->inward);
             if (!data->followup_started[ms] || !GroundReady(sub)) all_finished = 0;
@@ -553,6 +656,7 @@ static void ChangePlayerPercent(GOBJ *menu, int value) { ChangePreference(TM_LED
 static void ChangeDistance(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_DISTANCE, value, 1); }
 static void ChangeColor(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_CPU_COLOR, value, 0); }
 static void ChangeFollowup(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_CPU_ACTION, value, 1); }
+static void ChangeAirAttack(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_AIR_ATTACK, value, 1); }
 static void ChangePreset(GOBJ *menu, int value) {
     ApplyPreset(value);
     ChangePreference(TM_LEDGECHASE_PRESET, value, 1);

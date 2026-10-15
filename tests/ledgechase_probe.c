@@ -13,6 +13,7 @@ static ftCommonData test_common;
 static unsigned preferences[TM_LEDGECHASE_PREF_COUNT] = {0, 0, 0, 0, 1, 7, 0};
 static int writes, saves, loads, native_calls, fastfalls, follower_enabled, paused, sounds;
 static int hud_percent[2], random_roll;
+static int forced_roll = -1;
 static const s16 *palette;
 
 void memset(void *dest, int value, int size) {
@@ -63,6 +64,9 @@ static int TestLCIASA(GOBJ *fighter) {
             ++ft->jump.jumps_used;
             ft->state_id = ft->flags.is_multijump ? 341 : ASID_JUMPAERIALF;
         } else if (ft->input.down & PAD_TRIGGER_R) ft->state_id = ASID_ESCAPEAIR;
+        else if (AirReady(ft) && (ft->input.down & PAD_BUTTON_B)) ft->state_id = LC_BLASTER_START;
+        else if (AirReady(ft) && (ft->input.down & PAD_BUTTON_A || ft->input.cstick.X || ft->input.cstick.Y))
+            ft->state_id = ASID_ATTACKAIRN;
         return 1;
     }
     if (ft->state_id == ASID_LANDING && ft->state.frame < ft->attr.normal_landing_lag) return 0;
@@ -125,6 +129,7 @@ int GrColl_RaycastGround(Vec3 *position, int *line, int *kind, Vec3 *slope, int 
 void Match_CorrectCamera(void) { }
 int Pause_CheckStatus(int kind) { return paused; }
 int HSD_Randi(int maximum) {
+    if (forced_roll >= 0 && (maximum == 100 || maximum == LC_OPTION_COUNT)) return forced_roll % maximum;
     random_roll = (unsigned)random_roll * 1664525u + 1013904223u;
     return ((unsigned)random_roll >> 16) % maximum;
 }
@@ -272,6 +277,11 @@ int TestLCPrepared(int option, int delay) {
     Data()->option_started = Data()->legal_frames = Data()->vulnerable_frames = Data()->elapsed = 0;
     Data()->followup_started[0] = Data()->followup_started[1] = 0;
     Data()->return_phase[0] = Data()->return_phase[1] = 0;
+    for (int ms = 0; ms < 2; ++ms) {
+        int action = Data()->air[ms].action;
+        memset(&Data()->air[ms], 0, sizeof(Data()->air[ms]));
+        Data()->air[ms].action = action;
+    }
     Data()->reset_timer = Data()->punish_timer = -1;
     for (int i = 2; i < 4; ++i) {
         test_ft[i].state_id = ASID_CLIFFWAIT;
@@ -396,3 +406,21 @@ int TestLCNativeReturnIASA(GOBJ *fighter) {
     FighterData *ft = fighter->userdata;
     return ((int (*)(GOBJ *))(ft->state_id == ASID_FALL ? 0x800CB870 : 0x80099A58))(fighter);
 }
+unsigned TestLCAirName(int row) { return (unsigned)AirNames[row]; }
+int TestLCAirCount(void) { return countof(AirNames); }
+int TestLCAirInfo(int ms, int field) {
+    int values[] = {Data()->air[ms].action, Data()->air[ms].started, Data()->air[ms].loops,
+        Data()->air[ms].pending, Data()->air[ms].repeat_tick};
+    return values[field];
+}
+int TestLCAirRun(void) { RunAirAttack(&test_fighters[2], &test_fighters[0], Data()); return Data()->air[0].started; }
+int TestLCBlasterWindow(int allowed) {
+    test_ft[2].ftcmd_var.flag0 = allowed;
+    test_ft[2].state_var.state_var1 = 0;
+    return 1;
+}
+int TestLCBlasterRepeat(void) { return test_ft[2].state_var.state_var1; }
+int TestLCCustomChances(void) { return custom_chances; }
+int TestLCPresetCount(void) { return countof(PresetNames); }
+int TestLCForceRoll(int roll) { forced_roll = roll; return roll; }
+int TestLCAirActionID(int row) { return AirActions[row]; }

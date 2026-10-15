@@ -241,11 +241,14 @@ class LedgechaseTests(unittest.TestCase):
         self.assertEqual(self.m.info(2), loads + 1)
 
     def test_presets_and_all_six_session_chances(self):
-        expected = [(25, 25, 25, 25), (100, 0, 0, 0), (0, 100, 0, 0),
+        old = [(25, 25, 25, 25), (100, 0, 0, 0), (0, 100, 0, 0),
                     (0, 0, 100, 0), (0, 0, 0, 100), (60, 10, 15, 15), (50, 0, 50, 0)]
+        expected = [row + (0, 0) for row in old] + [(0,0,0,0,100,0), (0,0,0,0,0,100),
+            (20,20,20,20,20,0), (20,20,20,20,0,20), (17,17,17,17,16,16), (0,25,0,0,0,75), (0,0,0,0,50,50)]
+        self.assertEqual(self.m.call('TestLCPresetCount'), len(expected))
         for preset, chances in enumerate(expected):
             self.assertEqual(self.m.call("TestLCChangePreset", preset), preset)
-            self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(6)), chances + (0, 0))
+            self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(6)), chances)
         writes = self.m.info(0)
         for i, value in enumerate((95, 0, 100, 17, 100, 100)):
             self.m.call("TestLCChangeChance", i, value)
@@ -261,7 +264,7 @@ class LedgechaseTests(unittest.TestCase):
             for roll in range(100):
                 self.assertEqual(self.m.call('TestLCSelect', *chances, roll), option)
         self.m.call("TestLCInit")
-        self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(4)), expected[6])
+        self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(6)), expected[-1])
         self.assertEqual(self.m.info(0), writes)  # Read/load never writes settings.
 
     def prepare_return(self, option=5, side=0, followers=0):
@@ -269,6 +272,131 @@ class LedgechaseTests(unittest.TestCase):
         self.m.call('TestLCPreference', 0, side)
         self.m.step()
         self.m.call('TestLCPrepared', option, 1)
+
+    def prepare_aerial(self, choice, option=4, side=0, kind=22):
+        self.m.call('TestLCPreference', 7, choice)
+        self.prepare_return(option=option, side=side)
+        self.m.call('TestLCJumpKind', 2, kind)
+        self.m.step(); self.m.step()
+
+    def test_all_six_preset_is_exactly_equal_until_a_manual_edit(self):
+        self.m.step()
+        self.m.call('TestLCChangePreset', 11)
+        for roll in range(6):
+            self.m.call('TestLCForceRoll', roll)
+            self.m.call('TestLCReset', 0)
+            self.assertEqual(self.m.info(5), roll)
+        self.m.call('TestLCChangeChance', 5, 100)
+        self.assertEqual(self.m.call('TestLCCustomChances'), 1)
+        for roll in range(100):
+            self.m.call('TestLCForceRoll', roll)
+            self.m.call('TestLCReset', 0)
+            self.assertEqual(self.m.info(5), 5)
+        self.m.call('TestLCChangePreset', 11)
+        self.assertEqual(self.m.call('TestLCCustomChances'), 0)
+
+    def test_aerial_catalogue_and_shared_inputs(self):
+        expected = ['None', 'Neutral Air', 'Forward Air', 'Down Air', 'Back Air', 'Up Air',
+                    'Neutral B (Repeat)', 'Up B', 'Side B Toward', 'Side B Away', 'Down B', 'Random']
+        self.assertEqual(self.m.call('TestLCAirCount'), len(expected))
+        self.assertEqual([self.m.text(self.m.call('TestLCAirName', i)) for i in range(len(expected))], expected)
+        for choice, inputs in ((1,(0,0,0,0,0x100)), (2,(0,0,127,0,0)), (3,(0,0,0,-127,0)),
+                               (4,(0,0,-127,0,0)), (5,(0,0,0,127,0)), (6,(0,0,0,0,0x200)),
+                               (7,(0,127,0,0,0x200)), (8,(-127,0,0,0,0x200)),
+                               (9,(127,0,0,0,0x200)), (10,(0,-127,0,0,0x200))):
+            self.m = Machine()
+            self.prepare_aerial(choice)
+            self.m.call('TestLCUseNativeIASA', self.m.symbols['TestLCNoIASA'])
+            self.m.call('TestLCHumanSide', -1)
+            self.m.call('TestLCReturnPosition', 0, 3, 6, 0, 1)
+            self.m.step()
+            self.assertEqual(tuple(self.m.call('TestLCStick', i) for i in range(5)), inputs, choice)
+
+    def test_hop_attack_waits_for_rising_stage_clearance_and_runs_once(self):
+        self.prepare_aerial(1)
+        for inside, height, bottom, vertical in ((-1,10,0,1), (2,3,0,1), (2,8,-10,1), (2,8,0,-1)):
+            self.m.call('TestLCReturnPosition', 0, inside, height, bottom, vertical)
+            self.m.step()
+            self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 0)
+        self.m.call('TestLCReturnPosition', 0, 3, 6, 0, 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 65)
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 1)
+        for _ in range(5): self.m.step()
+        self.m.call('TestLCState', 2, 29, 1, 0)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 29)
+        self.m.call('TestLCState', 2, 14, 0, 0)
+        self.m.step()
+        self.assertEqual(self.m.info(12), 1)  # Grounded followup still completes.
+
+    def test_native_ledge_jump_attacks_only_after_recovery_and_dash_ignores_aerial(self):
+        self.prepare_aerial(1, option=1)
+        self.m.call('TestLCReturnPosition', 0, 6, 12, 0, 1)
+        for state in (260,261,262,263):
+            self.m.call('TestLCState', 2, state, 1, 30)
+            self.m.step()
+            self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 0)
+        self.m.call('TestLCState', 2, 29, 1, 0)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 65)
+        self.m = Machine()
+        self.prepare_aerial(1, option=5)
+        self.m.call('TestLCReturnPosition', 0, 2, 6, 0, 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 236)
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 0)
+
+    def test_pending_air_attack_consumed_between_callbacks_is_not_repeated(self):
+        self.prepare_aerial(1)
+        self.m.call('TestLCUseNativeIASA', self.m.symbols['TestLCNoIASA'])
+        self.m.call('TestLCReturnPosition', 0, 2, 6, 0, 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 3), 1)
+        self.m.call('TestLCState', 2, 65, 1, 0)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 1)
+        self.assertEqual(self.m.call('TestLCStick', 4), 0)
+
+    def test_falco_repeats_native_blaster_window_then_releases_after_second_loop(self):
+        self.m.native_dol()
+        self.prepare_aerial(6)
+        self.m.call('TestLCReturnPosition', 0, 3, 8, 0, 1)
+        self.m.step()  # Enter native-special startup through the event's input.
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 344)
+        self.m.call('TestLCUseNativeIASA', 0x800E6B08)  # Actual shared Fox/Falco blaster IASA.
+        self.m.call('TestLCBlasterWindow', 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCBlasterRepeat'), 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStick', 4), 0)  # Release between presses.
+        self.m.call('TestLCUseNativeIASA', 0x800E6B30)
+        self.m.call('TestLCState', 2, 345, 1, 2)
+        self.m.call('TestLCReturnPosition', 0, 4, 12, 0, -1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 2), 1)
+        self.assertEqual(self.return_info(4), 0)  # Do not cut the repeat short with fastfall.
+        self.m.call('TestLCState', 2, 345, 1, 0)  # Native animation restarts for shot two.
+        self.m.call('TestLCBlasterWindow', 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 2), 2)
+        self.assertEqual(self.m.call('TestLCStick', 4), 0)
+        self.assertEqual(self.m.call('TestLCBlasterRepeat'), 0)  # No third-loop request.
+        self.assertEqual(self.return_info(4), 0)
+        self.m.call('TestLCState', 2, 346, 1, 0)
+        self.m.step()
+        self.assertEqual(self.return_info(4), 1)
+
+    def test_random_aerial_is_chosen_once_per_body_and_reset_clears_progress(self):
+        self.m.call('TestLCPreference', 7, 11)
+        self.prepare_return(option=4, followers=1)
+        chosen = [self.m.call('TestLCAirInfo', ms, 0) for ms in (0,1)]
+        valid = {self.m.call('TestLCAirActionID', i) for i in range(1,11)}
+        self.assertTrue(all(action in valid for action in chosen))
+        for _ in range(4): self.m.step()
+        self.assertEqual([self.m.call('TestLCAirInfo', ms, 0) for ms in (0,1)], chosen)
+        self.m.call('TestLCReset', 0)
+        self.assertEqual([self.m.call('TestLCAirInfo', ms, 1) for ms in (0,1)], [0,0])
 
     def return_info(self, field=0, ms=0):
         return self.m.call('TestLCReturnInfo', ms, field)
@@ -704,6 +832,18 @@ class LedgechaseTests(unittest.TestCase):
                     self.m.call('TestLCReturnPosition', 0, 1, 4, 0, 1)
                     self.m.step()
                     self.assertEqual(self.return_info(), 3)
+
+    def test_optimized_dat_saved_aerial_setting_executes_shared_air_command(self):
+        self.m.relocated_dat()
+        self.m.step()
+        self.m.call('TestLCAnyOptionChange', self.m.dat_option(7), 1)
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 0), self.m.call('TestLCAirActionID', 1))
+        self.m.call('TestLCPrepared', 4, 1)
+        self.m.step(); self.m.step()
+        self.m.call('TestLCReturnPosition', 0, 3, 6, 0, 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 65)
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 1)
 
 
 if __name__ == "__main__":

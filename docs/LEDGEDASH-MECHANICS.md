@@ -142,6 +142,9 @@ For in-game verification, use an isolated test card:
    profiles. Keep failed/unverified profiles experimental. Real ledge regrabs
    must be tested separately from this event's directly initialized hang.
 
-The seven existing saved presets intentionally retain their old distributions
-and assign zero to the new options. Manual percentages remain session-only;
-no settings format or existing preset identity changes.
+The seven original saved presets retain their old distributions and identities.
+Seven appended presets now cover hop/dash-only, five-/six-way mixes, 75% dash
+with 25% native ledge jump, and 50/50 hop/dash. Manual percentages remain
+session-only. The version-9 settings extension also saves an independent
+aerial attack for ledge jump/hop; see [Ledgechase Training](LEDGECHASE-TRAINING.md)
+for timing, repeated Neutral B and migration details.
