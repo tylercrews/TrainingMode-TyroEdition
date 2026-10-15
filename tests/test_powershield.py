@@ -139,6 +139,44 @@ class EventTests(unittest.TestCase):
         self.assertEqual(self.info(0),4)
         self.assertEqual(self.info(7)&0xFFFFFFFF,0xFF5050FF)
 
+    def test_shielding_and_walking_keep_counting_until_another_action(self):
+        for kind in (0,1,2):
+            with self.subTest(kind=kind):
+                self.m.call('TestPSRestore'); self.contact(kind)
+                self.sample(1,14)
+                # Shield startup, hold, release, stun, reflect, walking speeds,
+                # turnaround and stopping must all leave the attempt pending.
+                for tick, target in enumerate((178,179,180,181,182,15,16,17,18,14),1):
+                    self.phase(0); self.phase(2,target); self.phase(1)
+                    self.assertEqual(self.info(0),-1)
+                    self.sample(tick+1,target)
+                self.phase(0); self.phase(2,24)  # Jump finally completes it.
+                self.assertEqual(self.info(0),11)
+                self.assertEqual(self.info(1),kind)
+
+    def test_yoshi_shield_states_do_not_complete_an_attempt(self):
+        # Use the production enum rather than assuming Yoshi's fighter index.
+        self.m.call('TestPSYoshi')
+        self.contact(2,1,0); self.sample(1,14)
+        for tick,target in enumerate(range(341,346),1):
+            self.phase(0); self.phase(2,target); self.phase(1)
+            self.assertEqual(self.info(0),-1)
+            self.sample(tick+1,target)
+        self.phase(0); self.phase(2,24)
+        self.assertEqual(self.info(0),6)
+
+    def test_act_out_of_laser_timing_colors(self):
+        for frame,color in enumerate((0x00FFFFFF,0x8DFF6EFF,0xFFF000FF,0xFF5050FF,0xFF5050FF),1):
+            with self.subTest(frame=frame):
+                self.m.call('TestPSRestore'); self.contact()
+                self.assertEqual(self.info(7)&0xFFFFFFFF,0xFFFFFFFF)
+                for tick in range(1,frame+1):
+                    self.sample(tick,14); self.phase(0)
+                    if tick < frame: self.phase(1)
+                self.phase(2,20)
+                self.assertEqual(self.info(0),frame)
+                self.assertEqual(self.info(7)&0xFFFFFFFF,color)
+
     def test_new_contact_replaces_pending_and_cpu_or_nana_never_owns_human_result(self):
         self.contact();self.sample(1,87,1)
         self.contact(2,1,0,1);self.contact(2,1,0,2)

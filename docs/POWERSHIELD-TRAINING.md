@@ -28,11 +28,13 @@ The first readout shows **1f** when an input-driven action begins on the first
 unfrozen opportunity after the latest laser interaction. Its source line is
 **Laser hit**, **Shield hit**, or **Powershield**. Ordinary damage hitstun and
 shieldstun block the clock. A powershield starts counting after any native freeze
-ends. Holding shield or waiting continues the count until an action changes the
-fighter's state during the native input/IASA pass.
+ends. Shielding, walking and waiting continue the count until another action
+changes the fighter's state during the native input/IASA pass. Shield startup,
+hold, release and reflection, all walking speeds, walking turns and stops are
+excluded, including Yoshi's egg-shield states.
 
-Frame 1 is green, frames 2/3 magenta, and frame 4 onward red, matching Under
-Fire's first-opportunity feedback. Hitlag, pause, duplicate callbacks, automatic
+Frame 1 is cyan, frame 2 green, frame 3 yellow, and frame 4 onward red.
+Hitlag, pause, duplicate callbacks, automatic
 recovery transitions and CPU/subfighter actions do not advance or complete the
 measurement. State-preserving inputs such as shield tilt are not completed
 actions. A new laser replaces an unfinished attempt. Reset, restore, death,

@@ -82,8 +82,8 @@ static EventOption help_options[] = {
     {.kind = OPTKIND_INFO, .name = "Read Act out of Laser",
      .desc = {"Frame 1 is your first unfrozen chance after laser stun.",
               "Laser hit, Shield hit, or Powershield identifies the source.",
-              "Counts until an input-driven action changes your state.",
-              "Automatic recovery transitions and hitlag do not count."}},
+              "Shielding and walking do not finish the count.",
+              "1f Cyan, 2f Green, 3f Yellow, 4+f Red."}},
     {.kind = OPTKIND_INFO, .name = "Laser Recovery Cue",
      .desc = {"Yellow marks the last two frames of laser hitstun.",
               "Green marks the first two frames after hitstun ends.",
@@ -201,6 +201,13 @@ static const unsigned preference_rows[TM_PS_PREF_COUNT] = {
 static int CommonState(FighterData *ft, int state) {
     return ft->kind == FTKIND_YOSHI && state >= 341 && state <= 345 ? state - 341 + ASID_GUARDON : state;
 }
+static int IgnoreLaserAction(FighterData *ft, int state) {
+    state = CommonState(ft, state);
+    /* Include walking turns/stops and shield release so these cannot finish
+     * an attempt indirectly after the initial shield/walk was ignored. */
+    return (state >= ASID_WAIT && state <= ASID_TURN) ||
+           (state >= ASID_GUARDON && state <= ASID_GUARDREFLECT);
+}
 static void ApplyCue(void) {
     PowershieldData *data = Data();
     GOBJ *fighter = Fighter_GetGObj(0);
@@ -267,7 +274,7 @@ static void LaserTiming(FighterData *ft, int phase, int next) {
     } else if (phase == 2 && data->armed && data->ready && data->in_iasa &&
         data->input_tick == tick && data->input_state == ft->state_id && next != ft->state_id &&
         !(next >= ASID_DAMAGEHI1 && next <= ASID_DAMAGEFLYROLL) &&
-        next > ASID_REBIRTHWAIT && CommonState(ft, next) != ASID_GUARDSETOFF) {
+        next > ASID_REBIRTHWAIT && !IgnoreLaserAction(ft, next)) {
         data->act_frame = data->opportunities; data->act_kind = data->kind;
         data->armed = data->in_iasa = 0;
     }
@@ -308,13 +315,14 @@ void Event_Update(void) {
     int paused = ((MenuData *)event_vars->menu_gobj->userdata)->mode == MenuMode_Paused;
     static const char *sources[] = {"Laser hit", "Shield hit", "Powershield"};
     static const char *reasons[] = {"Reflected laser", "Reflect active", "Reflect ended", "No hard press", "No shield"};
-    GXColor white = {255,255,255,255}, green = {141,255,110,255}, magenta = {255,162,186,255}, red = {255,80,80,255};
+    GXColor white = {255,255,255,255}, cyan = {0,255,255,255}, green = {141,255,110,255}, yellow = {255,240,0,255}, red = {255,80,80,255};
     for (int i = 0; i < 2; ++i) if (data->text[i]) data->text[i]->hidden = paused || !Options_Main[OPT_OSDS].val;
     if (data->text[0]) {
         if (data->act_frame < 0) Text_SetText(data->text[0], 1, "-");
         else Text_SetText(data->text[0], 1, "%df", data->act_frame);
         Text_SetText(data->text[0], 2, "%s", data->ps_valid ? sources[data->act_kind] : "-");
-        Text_SetColor(data->text[0], 1, data->act_frame < 0 ? &white : data->act_frame == 1 ? &green : data->act_frame <= 3 ? &magenta : &red);
+        Text_SetColor(data->text[0], 1, data->act_frame < 0 ? &white : data->act_frame == 1 ? &cyan :
+            data->act_frame == 2 ? &green : data->act_frame == 3 ? &yellow : &red);
     }
     if (data->text[1]) {
         if (!data->ps_valid || !data->ps_frame || data->ps_kind == TM_LASER_HIT) Text_SetText(data->text[1], 1, "-");

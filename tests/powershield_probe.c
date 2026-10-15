@@ -91,6 +91,7 @@ void TestPSChoice(unsigned row, int value) {
 }
 void TestPSPause(int value) { paused = value ? 2 : 0; menu_data.mode = value; Event_Update(); }
 void TestPSRestore(void) { clear_cb(); Event_Update(); }
+void TestPSYoshi(void) { ft[0].kind = FTKIND_YOSHI; }
 void TestPSExit(void) { Exit(0); }
 int TestPSDelay(int low, int high) {
     Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val = low;
