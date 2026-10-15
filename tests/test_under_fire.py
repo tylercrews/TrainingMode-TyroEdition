@@ -64,6 +64,7 @@ class UnderFireTests(unittest.TestCase):
             self.second_values.append(r(7))
         elif address == 0x803A74F0:
             self.colors.append((r(3), r(4), bytes(cpu.mem_read(r(5),4))))
+        elif address == 0x803A7548: pass  # Native per-subtext scale; no renderer in this fixture.
         elif address == 0x8005B880: self.effects.append(r(3))
         elif address in (0x80053ECC, 0x80053DA4):
             self.stage_calls.append((address,r(3)))
@@ -379,6 +380,9 @@ class UnderFireTests(unittest.TestCase):
     def counter(self):
         return next(row[3] for row in reversed(self.rows) if row[2]=='Perfect Refreshes: %d')
 
+    def session_best(self):
+        return next(row[3] for row in reversed(self.rows) if row[2]=='Session Best: %d')
+
     def refresh(self, base, late=0):
         self.grant();self.tick(base,29);self.timing(0);self.timing(2,29);self.timing(1)
         self.state(29);self.tick(base+1,1)
@@ -388,6 +392,7 @@ class UnderFireTests(unittest.TestCase):
     def test_counter_only_scores_perfect_refresh_once_and_survives_hidden_osds(self):
         m=self.m
         self.assertEqual(self.counter(),0)
+        self.assertEqual(self.session_best(),0)
         m.call('DAT_UnderFireRegrab',self.fighter)  # Initial placement.
         self.assertEqual(self.counter(),0)
         self.refresh(10)
@@ -398,13 +403,19 @@ class UnderFireTests(unittest.TestCase):
         self.assertEqual(self.counter(),1)
         self.option(4,0);self.refresh(50)
         self.assertEqual(self.counter(),2)
-        self.assertEqual(self.rows[-1][2:],('Perfect Refreshes: %d',2))
+        self.assertEqual(self.session_best(),2)
+        self.assertEqual(self.rows[-1][2:],('Session Best: %d',2))
         self.control(1)
         self.assertEqual(self.counter(),0)
+        self.assertEqual(self.session_best(),2)
         self.refresh(60)
         self.assertEqual(self.counter(),1)
+        self.assertEqual(self.session_best(),2)
         self.state(75);self.control();self.state(29);self.refresh(70)
         self.assertEqual(self.counter(),1)  # Feedback window cannot add score.
+        self.assertEqual(self.session_best(),2)
+        m.call('DAT_UnderFire')
+        self.assertEqual((self.counter(),self.session_best()),(0,0))  # New session.
 
     def test_drop_near_misses_are_magenta_and_later_failures_red(self):
         for frame,color in ((1,'8DFF6EFF'),(2,'FF50FFFF'),(3,'FF50FFFF'),(4,'FF4646FF')):

@@ -873,6 +873,8 @@ static void UnderFire_UpdateCounterText(void) {
     if (!under_fire_count_text) return;
     for (int row = 0; row < 5; ++row)
         Text_SetText(under_fire_count_text, row, "Perfect Refreshes: %d", under_fire_count);
+    for (int row = 5; row < 10; ++row)
+        Text_SetText(under_fire_count_text, row, "Session Best: %d", under_fire_best);
 }
 void UnderFire_UpdateScore(int perfect_refresh) {
     if (!under_fire_active || under_fire_failed || perfect_refresh != 1) return;
@@ -1200,6 +1202,15 @@ void UnderFire_InitMenu(void) {
     int foreground = Text_AddSubtext(text, 0, 0, "");
     GXColor gold = {255, 225, 65, 255};
     Text_SetColor(text, foreground, &gold);
+    // Keep the current attempt large, with the session's best count below.
+    // Both rows share pause visibility and the existing outlined gold style.
+    for (int row = 0; row < 5; ++row) {
+        float x = row < 4 ? offsets[row].X : 0;
+        float y = 34 + (row < 4 ? offsets[row].Y : 0);
+        int subtext = Text_AddSubtext(text, x, y, "");
+        Text_SetColor(text, subtext, row < 4 ? &shadow : &gold);
+        Text_SetScale(text, subtext, 0.5625f, 0.5625f); // .8 * .5625 = original .45 scale.
+    }
     UnderFire_UpdateCounterText();
 }
 

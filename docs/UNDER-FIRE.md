@@ -1,11 +1,13 @@
 # Under Fire
 
 The event keeps its native Brinstar lava challenge and automatically retries
-after a hit or death. A large **Perfect Refreshes** counter replaces the timer
-and Session Best display. Each perfect ledge refresh (Invincibility = 0) adds
+after a hit or death. A large **Perfect Refreshes** counter replaces the timer,
+with a smaller **Session Best: N** count directly beneath it. Each perfect
+ledge refresh (Invincibility = 0) adds
 one, including before the lava reaches the ledge. Close misses do not score.
-Retries and side changes reset the displayed count; the best attempt stays
-in session memory. Use the pause menu's Exit to save that best count.
+Retries and side changes reset the current count; Session Best keeps the
+highest count across those attempts. Both start at zero on entering the event
+and hide while paused. Use the pause menu's Exit to save that best count.
 
 Event Select displays an integer count. Old survival-time records are hidden
 until the first positive count replaces them, rather than treating a frame

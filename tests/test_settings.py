@@ -325,7 +325,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
                 rows[0] += 1
             elif address == 0x803A70A0:
                 text_rows.append(tuple(cpu.reg_read(gpr(n)) for n in (4, 6, 7, 8)))
-            elif address != 0x803A74F0: return
+            elif address not in (0x803A74F0,0x803A7548): return
             cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
         hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
         try:
@@ -344,7 +344,8 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             self.assertNotEqual(bytes(m.cpu.mem_read(0x80479D88, 4)), bytes(4))  # Menu update installed.
             self.assertEqual(ended, [])
             self.assertEqual(scores, [])  # Best attempts are kept in RAM until Exit.
-            self.assertEqual(text_rows[-1][:2], (4, 0))
+            self.assertEqual(text_rows[-6][:2], (4, 0))
+            self.assertEqual(text_rows[-1][:2], (9, 0))
             self.assertEqual(m.record(), before)
             m.cpu.mem_write(options + 6, b'\0\0')
             m.cpu.mem_write(trail_row+6,b'\0\3')
@@ -353,11 +354,13 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             self.assertEqual(bytes(m.cpu.mem_read(trail_row+6,4)),bytes(4))  # Trails default Off on reentry.
             for _ in range(120):m.call('DAT_UnderFireScore',1)
             m.call('DAT_UnderFireScore',0)
-            self.assertEqual(text_rows[-1][:2], (4, 120))
+            self.assertEqual(text_rows[-6][:2], (4, 120))
+            self.assertEqual(text_rows[-1][:2], (9, 120))
             self.assertEqual(scores, [])
             m.call('DAT_UnderFireControl',0,1)  # A later, shorter attempt cannot erase the best.
             for _ in range(3):m.call('DAT_UnderFireScore',1)
-            self.assertEqual(text_rows[-1][:2],(4,3))
+            self.assertEqual(text_rows[-6][:2],(4,3))
+            self.assertEqual(text_rows[-1][:2],(9,120))
             m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 6 * 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
@@ -368,13 +371,15 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             self.assertEqual(m.record(), before)
             for score in (0, 80, 120):
                 m.call('DAT_UnderFire')
-                self.assertEqual(text_rows[-1][:2], (4, 0))
+                self.assertEqual(text_rows[-6][:2], (4, 0))
+                self.assertEqual(text_rows[-1][:2], (9, 0))
                 for _ in range(score):m.call('DAT_UnderFireScore',1)
                 m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(scores, [(2, 120)])  # Empty, lower and tied sessions never lower the record.
             m.call('DAT_UnderFire')
             for _ in range(121):m.call('DAT_UnderFireScore',1)
-            self.assertEqual(text_rows[-1][:2], (4, 121))
+            self.assertEqual(text_rows[-6][:2], (4, 121))
+            self.assertEqual(text_rows[-1][:2], (9, 121))
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(scores[-1], (2, 121))
             self.assertEqual(m.record(), before)
