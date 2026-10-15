@@ -101,8 +101,8 @@ static EventOption help_options[] = {
               "1f Cyan, 2f Green, 3f Yellow, 4+f Red."}},
     {.kind = OPTKIND_INFO, .name = "Laser Recovery Cue",
      .desc = {"Yellow: final two frames of laser hitstun / shieldstun.",
-              "Green: first two unfrozen frames after stun ends.",
-              "Reflected lasers skip shieldstun and go straight green.",
+              "Green: first 2 recovery frames; 4 for reflected lasers.",
+              "Both your character and shield receive the cue.",
               "Green while shielding does not mean an instant dash."}},
 };
 static EventMenu help_menu = {.name = "Powershield Help", .option_num = countof(help_options), .options = help_options};
@@ -270,7 +270,7 @@ static void LaserTiming(FighterData *ft, int phase, int next) {
         int ready = data->kind == TM_LASER_HIT ? !ft->flags.hitstun : state != ASID_GUARDSETOFF;
         if (ready && !data->ready) {
             data->ready = 1;
-            data->cue_green = 2;
+            data->cue_green = data->kind == TM_LASER_POWERSHIELD ? 4 : 2;
         } else if (data->cue_green) --data->cue_green;
         data->cue_color = 0;
         if (data->kind == TM_LASER_HIT) {

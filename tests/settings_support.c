@@ -224,7 +224,8 @@ void Text_SetColor(Text *text, int subtext, GXColor *color) {
         style_colors[subtext] = ((uint32_t)color->r << 24) | ((uint32_t)color->g << 16) |
                                 ((uint32_t)color->b << 8) | color->a;
 }
-void GXLink_Common(GOBJ *gobj, int pass) { backgrounds++; }
+static void TestShieldNativeDraw(GOBJ *gobj, int pass);
+void GXLink_Common(GOBJ *gobj, int pass) { backgrounds++; TestShieldNativeDraw(gobj, pass); }
 void TestStyleInit(int id, int frame, int line, int best) {
     memset(&style_text, 0, sizeof(style_text));
     memset(&style_message, 0, sizeof(style_message));
@@ -278,6 +279,64 @@ static void (*cue_early)(GOBJ *), (*cue_late)(GOBJ *);
 static void (*trail_think)(GOBJ *), (*trail_draw)(GOBJ *, int);
 static int trail_spheres;
 static GOBJ *trail_lookup[64];
+static GOBJ shield_objects[4];
+static Effect shield_effects[4];
+static JOBJ shield_joints[4][8];
+static DOBJ shield_dobjs[4][7];
+static MOBJ shield_mobjs[4][7];
+static TOBJ shield_tobjs[4][7][2];
+static struct _HSD_TObjTev shield_tevs[4][7][2];
+static u32 shield_draw_colors[4][7][2][2];
+static unsigned shield_draw_count[4];
+static void TestShieldNativeDraw(GOBJ *object, int pass) {
+    unsigned which = object - shield_objects;
+    if (which >= 4) return;
+    ++shield_draw_count[which];
+    for (unsigned node = 0; node < 7; ++node)
+        for (unsigned texture = 0; texture < 2; ++texture) {
+            struct _HSD_TObjTev *tev = shield_tobjs[which][node][texture].tev;
+            shield_draw_colors[which][node][texture][0] = tev ? *(u32 *)&tev->constant : 0;
+            shield_draw_colors[which][node][texture][1] = tev ? *(u32 *)&tev->tev0 : 0;
+        }
+}
+void TestShieldInit(unsigned which, unsigned owner, int shield) {
+    GOBJ *object = &shield_objects[which];
+    object->next = trail_lookup[MATCHPLINK_EFFECT1];
+    trail_lookup[MATCHPLINK_EFFECT1] = object;
+    object->gx_cb = GXLink_Common;
+    object->userdata = &shield_effects[which];
+    object->hsd_object = &shield_joints[which][0];
+    shield_effects[which].gobj = object;
+    shield_effects[which].parent = &cue_objects[owner];
+    shield_effects[which].callback = (void *)(shield ? 0x8005FAB8 : 0x8005FCD8);
+    shield_joints[which][0].child = &shield_joints[which][1];
+    for (unsigned node = 0; node < 7; ++node) {
+        shield_joints[which][node+1].dobj = &shield_dobjs[which][node];
+        if (node < 6) shield_joints[which][node+1].sibling = &shield_joints[which][node+2];
+        shield_dobjs[which][node].mobj = &shield_mobjs[which][node];
+        shield_mobjs[which][node].tobj = &shield_tobjs[which][node][0];
+        shield_tobjs[which][node][0].next = &shield_tobjs[which][node][1];
+        for (unsigned texture = 0; texture < 2; ++texture) {
+            shield_tobjs[which][node][texture].tev = &shield_tevs[which][node][texture];
+            shield_tevs[which][node][texture].constant = (GXColor){255,255,255,90+node};
+            shield_tevs[which][node][texture].tev0 = (GXColor){255,80,80,40+texture};
+        }
+    }
+}
+void TestShieldSharedMaterial(unsigned which) {
+    shield_tobjs[which][1][0].tev = shield_tobjs[which][0][0].tev;
+}
+void TestShieldMissingMaterial(unsigned which) {
+    shield_dobjs[which][1].mobj = 0;
+    shield_tobjs[which][2][0].tev = 0;
+}
+uintptr_t TestShieldMaterials(unsigned which) { return (uintptr_t)&shield_tevs[which]; }
+void TestShieldDraw(unsigned which) { shield_objects[which].gx_cb(&shield_objects[which],2); }
+u32 TestShieldColor(unsigned which, unsigned node, unsigned texture, unsigned reg) {
+    return shield_draw_colors[which][node][texture][reg];
+}
+unsigned TestShieldWrapped(unsigned which) { return shield_objects[which].gx_cb != GXLink_Common; }
+unsigned TestShieldDrawCount(unsigned which) { return shield_draw_count[which]; }
 static uint32_t cue_draw_colors[12];
 static unsigned cue_draw_flags[12];
 static unsigned cue_draw_count[12];
@@ -323,6 +382,16 @@ void TestCueInit(void) {
     memset(cue_active, 0, sizeof(cue_active));
     memset(cue_draw_count, 0, sizeof(cue_draw_count));
     memset(cue_players, 0, sizeof(cue_players));
+    memset(trail_lookup, 0, sizeof(trail_lookup));
+    *stc_gobj_lookup = trail_lookup;
+    memset(shield_objects, 0, sizeof(shield_objects));
+    memset(shield_effects, 0, sizeof(shield_effects));
+    memset(shield_joints, 0, sizeof(shield_joints));
+    memset(shield_dobjs, 0, sizeof(shield_dobjs));
+    memset(shield_mobjs, 0, sizeof(shield_mobjs));
+    memset(shield_tobjs, 0, sizeof(shield_tobjs));
+    memset(shield_tevs, 0, sizeof(shield_tevs));
+    memset(shield_draw_count, 0, sizeof(shield_draw_count));
     *stc_ftcommon = &cue_common;
     cue_common.lcancel_input_window = 7; cue_common.x260 = 60;
     for (unsigned slot = 0; slot < 12; ++slot) {

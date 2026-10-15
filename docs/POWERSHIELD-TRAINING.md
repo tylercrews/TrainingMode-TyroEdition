@@ -45,10 +45,17 @@ of a Falco laser's damage hitstun or shieldstun, then green for two unfrozen
 frames after it ends, including immediate next actions. Shieldstun uses the
 native animation length and playback rate; green waits for the actual exit
 from GuardSetOff (or Yoshi's GuardDamage). An accepted reflection has no
-shieldstun, so it goes directly green on the first unfrozen update. A new
+shieldstun, so it goes directly green on the first unfrozen update and stays
+green for **four unfrozen frames** to make the confirmation easier to see. A new
 contact replaces the previous cue. It works with global Actionable Yellow>Green
 Off and takes precedence over ordinary global body tints. Rendering restores
-all three native color structures; damage, stun and action timing remain native.
+all three native color structures. The same cue also colors the player's
+shield, including the white reflection flash: a draw wrapper on the owning
+fighter's four native shield effects temporarily colors their texture TEV
+registers, preserving animated alpha and restoring every changed register
+after drawing. Opponent shields and unrelated effects keep their native
+colors. Cue Off, restore, death and respawn discard the tint; scene changes
+detach the shield draw wrappers. Damage, stun and action timing remain native.
 
 ## What can I do after a powershield?
 
@@ -143,9 +150,11 @@ Tests execute the production event, optimized relocated DAT, shared service and
 all three emitted collision hooks. They check real native reflection acceptance
 and rejection, both successful frames, source filtering, IASA action counts,
 two-yellow/two-green hitstun and shieldstun cues at multiple animation rates,
-reflection recovery, physical versus projectile shield-release cancels,
+four-frame reflection recovery, physical versus projectile shield-release cancels,
 immediate actions, hitlag/pause/duplicate callbacks,
 cleanup, saved settings and delay bounds. Render tests check tint priority and
-native color restoration. Wider regressions cover migration, record reset and
+native color restoration. Shield tests cover the native setup paths for all
+four effects, white-flash replacement, multipart and shared materials,
+alpha preservation, owner filtering and cleanup. Wider regressions cover migration, record reset and
 native checksum/serialization. Real Dolphin layout and physical memory-card
 save/reload remain manual checks.

@@ -32,6 +32,71 @@ static int cpu_fighter(FighterData *data) {
     return player && player->p_kind == 1;
 }
 static void Cue_Draw(GOBJ *gobj, int pass);
+static void Shield_Draw(GOBJ *gobj, int pass);
+/* All four native shield models (startup, hold, hit and reflection) use
+ * efLib_Cb_ApplyStoredAlpha, and carry their owning fighter in Effect.parent. */
+#define SHIELD_ALPHA_CALLBACK ((void *)0x8005FAB8)
+typedef char shield_effect_layout[(offsetof(Effect, parent) == 8 && offsetof(Effect, callback) == 0x10) ? 1 : -1];
+static CueFighter *TimingOwner(GOBJ *owner) {
+    if (!live || !owner) return 0;
+    for (unsigned i = 0; i < countof(fighters); ++i) {
+        CueFighter *entry = &fighters[i];
+        if (entry->object != owner || !entry->timing_active) continue;
+        FighterData *data = owner->userdata;
+        if (data && !data->flags.dead && data->spawn_num == entry->spawn) return entry;
+    }
+    return 0;
+}
+static void BindTimingShields(int detach) {
+    if (!*stc_gobj_lookup) return;
+    for (GOBJ *object = (*stc_gobj_lookup)[MATCHPLINK_EFFECT1]; object; object = object->next) {
+        if (detach) {
+            if (object->gx_cb == Shield_Draw) object->gx_cb = GXLink_Common;
+            continue;
+        }
+        Effect *effect = object->userdata;
+        if (effect && effect->gobj == object && effect->callback == SHIELD_ALPHA_CALLBACK &&
+            object->gx_cb == GXLink_Common && TimingOwner(effect->parent)) object->gx_cb = Shield_Draw;
+    }
+}
+typedef struct ShieldTint {
+    struct _HSD_TObjTev *tev;
+    GXColor constant, tev0;
+} ShieldTint;
+static void TintShield(JOBJ *joint, GXColor color, ShieldTint *saved, unsigned *count) {
+    for (; joint; joint = joint->sibling) {
+        for (DOBJ *dobj = joint->dobj; dobj; dobj = dobj->next) {
+            for (TOBJ *tobj = dobj->mobj ? dobj->mobj->tobj : 0; tobj; tobj = tobj->next) {
+                struct _HSD_TObjTev *tev = tobj->tev;
+                if (!tev || *count >= 16) continue;
+                /* Some models share a material between joints. Save it once. */
+                unsigned i = 0;
+                for (; i < *count && saved[i].tev != tev; ++i) {}
+                if (i < *count) continue;
+                saved[(*count)++] = (ShieldTint){tev, tev->constant, tev->tev0};
+                tev->constant.r = tev->tev0.r = color.r;
+                tev->constant.g = tev->tev0.g = color.g;
+                tev->constant.b = tev->tev0.b = color.b;
+            }
+        }
+        TintShield(joint->child, color, saved, count);
+    }
+}
+static void Shield_Draw(GOBJ *gobj, int pass) {
+    Effect *effect = gobj->userdata;
+    CueFighter *entry = effect && effect->gobj == gobj && effect->callback == SHIELD_ALPHA_CALLBACK ?
+        TimingOwner(effect->parent) : 0;
+    ShieldTint saved[16];
+    unsigned count = 0;
+    if (entry) TintShield(gobj->hsd_object, entry->timing_color, saved, &count);
+    GXLink_Common(gobj, pass);
+    /* Preserve animated alpha, player colors and the powershield white flash
+     * outside this draw. No effect or collision state is changed. */
+    for (unsigned i = 0; i < count; ++i) {
+        saved[i].tev->constant = saved[i].constant;
+        saved[i].tev->tev0 = saved[i].tev0;
+    }
+}
 int ActionCues_IsProtected(GOBJ *gobj) {
     if (!gobj || !gobj->userdata) return 0;
     FighterData *data = gobj->userdata;
@@ -93,6 +158,7 @@ void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color) {
     entry->timing_active = color != 0;
     if (color) entry->timing_color = *color;
     get_fighter(gobj);
+    if (color) BindTimingShields(0); /* Also cover toggling the cue while paused. */
 }
 void ActionCues_SetTangibilityOverlay(const s16 *enabled) {
     tangibility_option = enabled;
@@ -218,6 +284,7 @@ static void Cue_Think(GOBJ *gobj) {
             entry->color = TMCue_Update(&entry->cue, data->state_id, data->state.frame, data->atk_instance,
                 timing ? ActionCues_Remaining(ft) : -1, frozen, timing, red);
         }
+    BindTimingShields(0); /* Include shield/flash effects spawned earlier this update. */
 }
 static void Cue_Draw(GOBJ *gobj, int pass) {
     FighterData *data = gobj->userdata;
@@ -288,6 +355,7 @@ void ActionCues_Clear(void) {
     seen_frame = 0; /* Retain original draw callbacks while clearing tracking. */
 }
 void ActionCues_SceneChange(void) {
+    BindTimingShields(1);
     live = 0; manager = 0;
     tangibility_option = 0;
     cpu_invincibility_option = 0; /* Event modules may unload after this callback. */

@@ -163,7 +163,20 @@ class EventTests(unittest.TestCase):
         self.contact(2,1,0); self.assertEqual(self.color(),0)
         self.sample(7,182); self.assertEqual(self.color(),GREEN)
         self.sample(8,182); self.assertEqual(self.color(),GREEN)
-        self.sample(9,179); self.assertEqual(self.color(),0)
+        self.sample(9,179); self.assertEqual(self.color(),GREEN)
+        self.sample(10,179); self.assertEqual(self.color(),GREEN)
+        self.sample(11,179); self.assertEqual(self.color(),0)
+
+    def test_reflection_green_lasts_four_unfrozen_frames_after_immediate_action(self):
+        self.contact(2,1,0)
+        self.sample(1,182); self.assertEqual(self.color(),GREEN)
+        self.phase(0); self.phase(2,24); self.assertEqual(self.info(0),1)
+        self.sample(2,24); self.assertEqual(self.color(),GREEN)
+        self.sample(3,24,0,1); self.assertEqual(self.color(),0)
+        self.sample(4,24); self.assertEqual(self.color(),GREEN)
+        for _ in range(3): self.phase(4)
+        self.sample(5,24); self.assertEqual(self.color(),GREEN)
+        self.sample(6,24); self.assertEqual(self.color(),0)
 
     def test_invalid_shield_animation_does_not_invent_a_yellow_window(self):
         for frame,rate,end in ((290,0,300),(290,-10,300),(0,10,0),(-10,10,300)):
@@ -301,6 +314,43 @@ class NativePowershieldTests(unittest.TestCase):
         elif address!=0x8026FAC4:return
         cpu.reg_write(fixtures.reg.UC_PPC_REG_PC,cpu.reg_read(fixtures.reg.UC_PPC_REG_LR))
     def tearDown(self):self.m.cpu.hook_del(self.hook)
+    def test_all_four_native_shield_spawns_use_the_renderer_owner_and_material_layout(self):
+        m=self.m
+        effect,obj,root=0x805E2000,0x805E3000,0x805E4000
+        def write(address,value):m.cpu.mem_write(address,struct.pack('>I',value))
+        write(effect+4,obj);write(effect+8,self.obj);write(obj+0x28,root)
+        write(obj+0x2C,effect);write(root+0x10,root+0x100)
+        tevs=[]
+        for node in range(7):
+            joint=root+0x100+node*0x100
+            dobj,mobj,tobj,tev=0x805E6000+node*0x100,0x805E7000+node*0x100,0x805E8000+node*0x200,0x805EA000+node*0x100
+            if node<6:write(joint+8,joint+0x100)
+            write(joint+0x18,dobj);write(dobj+8,mobj);write(mobj+8,tobj)
+            write(tobj+8,tobj+0x100)
+            for texture in range(2):
+                write(tobj+texture*0x100+0xA8,tev+texture*0x40)
+                tevs.append(tev+texture*0x40)
+        models=[]
+        def allocate(cpu,address,size,_):
+            if address!=0x8005C1B4:return
+            models.append(cpu.reg_read(fixtures.gpr(3)))
+            cpu.reg_write(fixtures.gpr(3),effect)
+            cpu.reg_write(fixtures.reg.UC_PPC_REG_PC,cpu.reg_read(fixtures.reg.UC_PPC_REG_LR))
+        hook=m.cpu.hook_add(UC_HOOK_CODE,allocate)
+        try:
+            for gfx,model in ((1047,11),(1048,12),(1049,13),(1050,14)):
+                with self.subTest(gfx=gfx):
+                    for tev in tevs:m.cpu.mem_write(tev,bytes(32))
+                    write(effect+0x10,0)
+                    m.call(0x8005FDDC,gfx,self.obj,root,0xFF5050)
+                    self.assertEqual(models[-1],model)
+                    self.assertEqual(struct.unpack('>I',m.cpu.mem_read(effect+0x10,4))[0],0x8005FAB8)
+                    self.assertEqual(struct.unpack('>I',m.cpu.mem_read(effect+8,4))[0],self.obj)
+                    colored=tevs[1:2] if gfx==1047 else tevs[::2] if gfx==1049 else tevs[:1]
+                    for tev in colored:
+                        self.assertEqual(bytes(m.cpu.mem_read(tev+0x10,3)),b'\xff\xff\xff')
+                        self.assertEqual(bytes(m.cpu.mem_read(tev+0x14,3)),b'\xff\x50\x50')
+        finally:m.cpu.hook_del(hook)
     def test_native_projectile_reflection_does_not_grant_physical_shield_drop_cancels(self):
         m=self.m
         m.call(0x80077464,self.item,self.hit,self.ft)
@@ -424,6 +474,72 @@ class NativePowershieldTests(unittest.TestCase):
 
 
 class TimingRenderTests(unittest.TestCase):
+    def setUp(self):
+        self.m=fixtures.Machine();self.m.init();self.m.call('TestCueInit')
+    def tint(self, color):
+        m=self.m
+        obj=m.call('TestCueObject',0)
+        address=0x80403F00;m.cpu.mem_write(address,struct.pack('>I',color))
+        m.call('ActionCues_SetTimingOverlay',obj,address if color else 0)
+    def materials(self, which=0):
+        m=self.m
+        address=m.call('TestShieldMaterials',which)
+        return bytes(m.cpu.mem_read(address,7*2*32))
+    def test_shield_tint_covers_every_piece_and_white_flash_and_preserves_alpha(self):
+        m=self.m
+        m.call('TestCueState',0,182,0,40,100)
+        m.call('TestShieldInit',0,0,1)
+        original=self.materials()
+        for color in (YELLOW,GREEN):
+            with self.subTest(color=color):
+                self.tint(color)
+                self.assertEqual(m.call('TestShieldWrapped',0),1)
+                m.call('TestShieldDraw',0)
+                for node in range(7):
+                    for texture in range(2):
+                        self.assertEqual(m.call('TestShieldColor',0,node,texture,0),(color&0xFFFFFF00)|(90+node))
+                        self.assertEqual(m.call('TestShieldColor',0,node,texture,1),(color&0xFFFFFF00)|(40+texture))
+                self.assertEqual(self.materials(),original)
+        self.tint(0);m.call('TestShieldDraw',0)
+        self.assertEqual(m.call('TestShieldColor',0,0,0,0),0xFFFFFF5A)
+        self.assertEqual(m.call('TestShieldColor',0,0,0,1),0xFF505028)
+    def test_shield_owner_filtering_new_effects_and_scene_cleanup(self):
+        m=self.m
+        m.call('TestCueState',0,182,0,40,100)
+        m.call('TestCueState',2,179,0,40,100)
+        m.call('TestShieldInit',0,0,1)
+        m.call('TestShieldInit',1,2,1)  # Opponent shield stays native.
+        m.call('TestShieldInit',2,0,0)  # Other effects on the human stay native.
+        self.tint(GREEN)
+        self.assertEqual([m.call('TestShieldWrapped',i) for i in range(3)],[1,0,0])
+        m.call('TestShieldInit',3,0,1)  # Effect born after the timing update.
+        m.call('TestCueTick',1)
+        self.assertEqual(m.call('TestShieldWrapped',3),1)
+        for i in range(4):m.call('TestShieldDraw',i)
+        self.assertEqual(m.call('TestShieldColor',0,0,0,1),0x50FF5A28)
+        self.assertEqual(m.call('TestShieldColor',1,0,0,1),0xFF505028)
+        self.assertEqual(m.call('TestShieldColor',2,0,0,1),0xFF505028)
+        m.call('ActionCues_SceneChange')
+        self.assertEqual([m.call('TestShieldWrapped',i) for i in range(4)],[0,0,0,0])
+    def test_shield_shared_material_restore_missing_parts_and_spawn_reset(self):
+        m=self.m
+        m.call('TestCueState',0,182,0,40,100)
+        m.call('TestShieldInit',0,0,1);m.call('TestShieldSharedMaterial',0)
+        original=self.materials();self.tint(GREEN);m.call('TestShieldDraw',0)
+        self.assertEqual(self.materials(),original)
+        m.call('TestShieldMissingMaterial',0);m.call('TestShieldDraw',0)
+        self.assertEqual(self.materials(),original)
+        m.call('TestCueSpawn',0,2,0);m.call('TestShieldDraw',0)
+        self.assertEqual(m.call('TestShieldColor',0,0,0,1),0xFF505028)
+        self.assertEqual(self.materials(),original)
+        self.assertEqual(m.call('TestShieldDrawCount',0),3)
+    def test_shield_tint_clears_on_restore_and_death(self):
+        m=self.m
+        m.call('TestCueState',0,182,0,40,100);m.call('TestShieldInit',0,0,1)
+        self.tint(GREEN);m.call('ActionCues_Clear');m.call('TestShieldDraw',0)
+        self.assertEqual(m.call('TestShieldColor',0,0,0,1),0xFF505028)
+        self.tint(YELLOW);m.call('TestCueSpawn',0,0,1);m.call('TestShieldDraw',0)
+        self.assertEqual(m.call('TestShieldColor',0,0,0,1),0xFF505028)
     def test_event_timing_wins_over_global_cues_and_restores_native_colors(self):
         m=fixtures.Machine();m.init();m.call('TestCueInit')
         m.call('Settings_Set',11,4,1)
