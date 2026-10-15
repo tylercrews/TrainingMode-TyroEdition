@@ -143,8 +143,22 @@ For in-game verification, use an isolated test card:
    must be tested separately from this event's directly initialized hang.
 
 The seven original saved presets retain their old distributions and identities.
-Seven appended presets now cover hop/dash-only, five-/six-way mixes, 75% dash
-with 25% native ledge jump, and 50/50 hop/dash. Manual percentages remain
-session-only. The version-9 settings extension also saves an independent
-aerial attack for ledge jump/hop; see [Ledgechase Training](LEDGECHASE-TRAINING.md)
-for timing, repeated Neutral B and migration details.
+Eight appended presets cover hop/dash-only, five-/six-way mixes, 75% dash
+with 25% native ledge jump, 50/50 hop/dash, and 50% dash with 10% each other
+option. Manual percentages remain session-only. Version 10 also saves the
+entry method and hop-height profile. See [Ledgechase Training](LEDGECHASE-TRAINING.md)
+for fastfall drops, move-specific low-height targets, earlier blaster startup,
+entry timing, repeated Neutral B and migration details.
+
+The low-hop investigation read native fighter attributes from the local
+NTSC 1.02 DATs. Falco's aerial launch speed is 4.1 * 0.94 = 3.854, with gravity
+0.17 and fastfall speed 3.5. A discrete gravity-first ascent predicts about
+41.8 units of rise. Thus a target origin apex of 10 units requests the jump
+near 31.8 units below the lip, rather than immediately after release. Native
+frame stepping and fastfall can overshoot that depth, so this is a starting
+profile, not a certified laser height. Fox's corresponding prediction is
+about 40.2 units; Marth's is about 25.2. Animation-driven jumps use separate
+conservative depth profiles instead of this formula. Native motion-state
+entry clears fastfall unless its flags preserve it; ordinary aerial-jump entry
+does not preserve it. This was checked in
+[Fighter_ChangeMotionState](https://github.com/doldecomp/melee/blob/master/src/melee/ft/fighter.c).

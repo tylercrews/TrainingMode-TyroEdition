@@ -10,7 +10,9 @@ static union { LedgechaseData data; unsigned char bytes[EVENT_DATASIZE]; } event
 static unsigned char saved_event[EVENT_DATASIZE];
 static Savestate_v1 test_savestate;
 static ftCommonData test_common;
-static unsigned preferences[TM_LEDGECHASE_PREF_COUNT] = {0, 0, 0, 0, 1, 7, 0};
+// Existing action tests use direct ledge placement and the original hop height.
+// New entry/height tests explicitly select the production defaults.
+static unsigned preferences[TM_LEDGECHASE_PREF_COUNT] = {0, 0, 0, 0, 1, 7, 0, 0, 0, 2};
 static int writes, saves, loads, native_calls, fastfalls, follower_enabled, paused, sounds;
 static int hud_percent[2], random_roll;
 static int forced_roll = -1;
@@ -62,6 +64,7 @@ static int TestLCIASA(GOBJ *fighter) {
     if (ft->phys.air_state) {
         if (ft->state_id == ASID_FALL && (ft->input.down & PAD_BUTTON_X) && CheckHasJump(fighter)) {
             ++ft->jump.jumps_used;
+            ft->flags.is_fastfall = 0; // Native ChangeMotionState clears this on aerial jump.
             ft->state_id = ft->flags.is_multijump ? 341 : ASID_JUMPAERIALF;
         } else if (ft->input.down & PAD_TRIGGER_R) ft->state_id = ASID_ESCAPEAIR;
         else if (AirReady(ft) && (ft->input.down & PAD_BUTTON_B)) ft->state_id = LC_BLASTER_START;
@@ -96,6 +99,12 @@ void EnvironmentCollision_WaitLanding(GOBJ *fighter) { }
 void Fighter_EnterWait(GOBJ *fighter) {
     FighterData *ft = fighter->userdata;
     ft->state_id = ASID_WAIT;
+    ft->cb.IASA = TestLCIASA;
+}
+void Fighter_EnterFall(GOBJ *fighter) {
+    FighterData *ft = fighter->userdata;
+    ft->state_id = ASID_FALL;
+    ft->phys.air_state = 1;
     ft->cb.IASA = TestLCIASA;
 }
 void Fighter_EnterSleep(GOBJ *fighter, int ms) { ((FighterData *)fighter->userdata)->flags.sleep = 1; }
@@ -273,6 +282,7 @@ int TestLCProtection(int index) { return TestLCProtected(&test_fighters[index]);
 int TestLCReset(int success) { ResetAttempt(success); return loads; }
 int TestLCPrepared(int option, int delay) {
     Data()->option = option;
+    Data()->entry_complete = 1;
     Data()->act_frame = delay;
     Data()->option_started = Data()->legal_frames = Data()->vulnerable_frames = Data()->elapsed = 0;
     Data()->followup_started[0] = Data()->followup_started[1] = 0;
@@ -399,6 +409,7 @@ int TestLCNativeFallEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, ASI
 int TestLCNativeJumpEnter(GOBJ *fighter) {
     FighterData *ft = fighter->userdata;
     ++ft->jump.jumps_used;
+    ft->flags.is_fastfall = 0;
     return TestLCNativeEntry(fighter, ft->flags.is_multijump ? 341 : ASID_JUMPAERIALF);
 }
 int TestLCNativeAirDodgeEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, ASID_ESCAPEAIR); }
@@ -424,3 +435,22 @@ int TestLCCustomChances(void) { return custom_chances; }
 int TestLCPresetCount(void) { return countof(PresetNames); }
 int TestLCForceRoll(int roll) { forced_roll = roll; return roll; }
 int TestLCAirActionID(int row) { return AirActions[row]; }
+int TestLCSetup(int row, int value) {
+    Options_Setup[row].val = value;
+    Options_Setup[row].OnChange((GOBJ *)1, value);
+    return writes;
+}
+int TestLCEntryInfo(int field) {
+    int values[] = {Data()->entry_complete, Data()->entry_elapsed, Data()->entry_jump[0], Data()->entry_jump[1], Data()->elapsed};
+    return values[field];
+}
+int TestLCDropInfo(int ms, int field) {
+    return field ? Data()->drop_frames[ms] : (int)(Data()->drop_target[ms]*1000);
+}
+int TestLCJumpAttributes(int velocity, int gravity, int terminal) {
+    test_ft[2].attr.jump_v_initial_velocity = velocity/1000.f;
+    test_ft[2].attr.air_jump_v_multiplier = 1;
+    test_ft[2].attr.gravity = gravity/1000.f;
+    test_ft[2].attr.terminal_velocity = terminal/1000.f;
+    return 1;
+}

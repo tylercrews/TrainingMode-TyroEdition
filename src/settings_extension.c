@@ -21,6 +21,7 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
     {0,2,4,0}, {2,1,2,0}, {3,3,7,0}, {24,4,LC_PRESET_COUNT,0},
     {9,3,5,1}, {12,3,8,7}, {24,6,CPU_GROUND_ACTION_COUNT,0},
     {28,4,CPU_AIR_ATTACK_COUNT,0},
+    {22,2,LC_ENTRY_COUNT,LC_ENTRY_FALL}, {30,2,LC_HOP_HEIGHT_COUNT,LC_HOP_LOW},
 };
 static int signature(const uint8_t *r) { return r[0]=='T' && r[1]=='Y' && r[2]=='E' && r[3]=='X'; }
 static int format(const uint8_t *r, unsigned version, unsigned payload_size) {
@@ -35,6 +36,7 @@ static int version5(const uint8_t *r) { return format(r,5,8); }
 static int version6(const uint8_t *r) { return format(r,6,8); }
 static int version7(const uint8_t *r) { return format(r,7,8); }
 static int version8(const uint8_t *r) { return format(r,8,12); }
+static int version9(const uint8_t *r) { return format(r,9,12); }
 /* Old None, Spotdodge, inward Roll, Dash, Smash menu choices. */
 static unsigned migrate_ledge_action(unsigned action) {
     static const uint8_t choices[] = {0,1,13,31,11};
@@ -93,31 +95,33 @@ int TMExtension_Prepare(uint8_t *r) {
          * to zero in byte 11, preserving its remaining high padding bit. */
         memcpy(r+8,old+8,3);
         r[11]=(old[11]&0x80)|(r[11]&7);
-    } else if(version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r)) {
+    } else if(version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r)) {
         // Move the expanded action index to the spare final byte. Keep all
         // older choices and the intervening event preferences intact.
-        int v2=version2(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r);
+        int v2=version2(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r);
         unsigned action=(read_bits(r,12)>>15)&(v2?3:7);
-        unsigned preset=(read_bits(r,12)>>6)&7;
+        unsigned preset=v9?r[19]&15:(read_bits(r,12)>>6)&7;
         r[4]=TM_EXTENSION_VERSION;
         r[5]=TM_EXTENSION_SIZE-8;
-        if(!v7 && !v8) set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_CPU_ACTION,migrate_ledge_action(action+v2));
-        if(!v4 && !v5 && !v6 && !v7 && !v8) {
+        if(!v7 && !v8 && !v9) set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_CPU_ACTION,migrate_ledge_action(action+v2));
+        if(!v4 && !v5 && !v6 && !v7 && !v8 && !v9) {
             set_preference(r,TM_SETTING_TECHCHASE,TM_TECHCHASE_HEIGHT,0);
             set_preference(r,TM_SETTING_TECHCHASE,TM_TECHCHASE_DISTANCE,0);
             set_preference(r,TM_SETTING_UNDERFIRE,TM_UNDERFIRE_ATTACK_PARTICLES,0);
         }
-        if(!v5 && !v6 && !v7 && !v8) set_preference(r,TM_SETTING_UNDERFIRE,TM_UNDERFIRE_COUNTER_SCORE,0);
-        if(!v6 && !v7 && !v8) for(unsigned i=0;i<TM_LOW_LASER_PREF_COUNT;++i)
+        if(!v5 && !v6 && !v7 && !v8 && !v9) set_preference(r,TM_SETTING_UNDERFIRE,TM_UNDERFIRE_COUNTER_SCORE,0);
+        if(!v6 && !v7 && !v8 && !v9) for(unsigned i=0;i<TM_LOW_LASER_PREF_COUNT;++i)
             set_preference(r,TM_SETTING_LOW_LASER,i,low_laser_preferences[i].initial);
         /* Claim only the four newly owned bytes, never inherited score padding. */
-        if(!v8) {
+        if(!v8 && !v9) {
             memset(r+16,0,4);
             for(unsigned i=0;i<TM_PS_PREF_COUNT;++i)
                 set_preference(r,TM_SETTING_POWERSHIELD,i,powershield_preferences[i].initial);
         }
-        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_PRESET,preset<7?preset:0);
-        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_AIR_ATTACK,0);
+        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_PRESET,preset<(v9?14:7)?preset:0);
+        if(!v9) set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_AIR_ATTACK,0);
+        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_ENTRY,LC_ENTRY_FALL);
+        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_HOP_HEIGHT,LC_HOP_LOW);
         migrated=1;
     } else if(!supported(r)) return TM_EXTENSION_UNSUPPORTED;
     int changed=0;
@@ -132,15 +136,19 @@ int TMExtension_Prepare(uint8_t *r) {
     return migrated?TM_EXTENSION_MIGRATED:changed?TM_EXTENSION_REPAIRED:TM_EXTENSION_READY;
 }
 uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
-    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r),
-        current=supported(r)||older||v4||v5||v6||v7||v8, old=legacy(r);
+    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r),
+        current=supported(r)||older||v4||v5||v6||v7||v8||v9, old=legacy(r);
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)
         return current||old?r[8]&7:0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
-    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8) return p->initial;
-    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8) return p->initial;
+    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9) return p->initial;
+    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9) return p->initial;
     if(field==TM_SETTING_LEDGECHASE && !supported(r)) {
+        if(index==TM_LEDGECHASE_ENTRY || index==TM_LEDGECHASE_HOP_HEIGHT) return p->initial;
+        if(v9 && index==TM_LEDGECHASE_PRESET) return (r[19]&15)<14?r[19]&15:0;
+    }
+    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v9) {
         if(index==TM_LEDGECHASE_AIR_ATTACK) return p->initial;
         if(index==TM_LEDGECHASE_PRESET) {
             unsigned preset=current?(read_bits(r,12)>>6)&7:0;
@@ -161,9 +169,9 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     const ExtensionPreference *p=preference(field,index);
     if(!color && !p) return 0;
     if(value >= (color?8:p->count)) return 0;
-    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r)) return 0;
+    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
-    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r)) TMExtension_Prepare(r);
+    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r)) TMExtension_Prepare(r);
     else if(!supported(r)) TMExtension_Init(r);
     if(color) r[8]=(r[8]&~7u)|value;
     else set_preference(r,field,index,value);

@@ -142,6 +142,10 @@ The current extension owns **20 bytes** at 0x1AE0..0x1AF3, leaving **68 bytes** 
 
 Migration from the exact version-7 header (payload length 8) changes only version/length and the four newly owned bytes, preserving all earlier settings and their padding. Versions 1..6 retain their established migrations. The core remains 44 bytes / format 3, and the file manifest, checksums, score identities, slot-50 protections and 88-byte records-reset preservation are unchanged. Tests include version-7 migration canaries and recognized version-8 records reset through native code. Unknown future extensions and foreign identities cannot be claimed by Powershield settings. See [event documentation](docs/POWERSHIELD-TRAINING.md).
 
-## Version 9: Ledgechase presets and aerial attacks
+## Version 9: Ledgechase presets and aerial attacks (historical allocation)
 
 The extension still owns 20 bytes, with 68 bytes unallocated in the audited region. The formerly reserved byte 19 now holds a four-bit Ledgechase preset (14 choices) and a four-bit aerial selector (12 choices, default None). Powershield's lower 24 bits remain unchanged. Versions 2..8 copy their old three-bit preset into the new slot, retaining its original bytes, and clear the new aerial selector. Version 1 initializes both to defaults. Version-8 migration changes only the version header and byte 19, preserving every Powershield choice and surrounding canary. Unknown future formats retain private defaults and their original bytes. Core settings, native card checksums, score identities, and records-reset boundaries are unchanged.
+
+## Version 10: Ledge entry and hop height
+
+Ownership remains 20 bytes. Byte 14 bits 6..7 now hold Get to Ledge (Spawn/Fall/Jump, default Fall), and byte 15 bits 6..7 hold Ledge Hop Height (Low/Medium/Original, default Low). Versions 1..9 initialize these formerly reserved bits rather than interpreting their old padding. Version 9 keeps all fourteen valid preset IDs and its aerial selection; invalid old preset 14 does not become the new 50%-dash preset. The preset slot now accepts fifteen choices. Powershield, all previous owned preferences, core settings and the surrounding score region remain intact. Hop Drop Adjustment is session-only. Migration and native records-reset tests cover the exact version-10 header as well as earlier formats.

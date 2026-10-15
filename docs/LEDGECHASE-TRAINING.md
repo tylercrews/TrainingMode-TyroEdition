@@ -1,15 +1,15 @@
 # Ledgechase Training
 
 General Tech #17 uses selectable human and CPU fighters on Final Destination,
-skipping stage selection. Each attempt starts the CPU holding the selected
-ledge with fresh native ledge invulnerability. The player starts grounded on
+skipping stage selection. Each attempt brings the CPU to the selected ledge
+using the chosen entry method. The player starts grounded on
 stage, facing the CPU. Both damage values use the native percent HUD.
 
-The event saves these eight choices:
+The event saves these ten choices:
 
 | Setting | Choices | Default |
 | --- | --- | --- |
-| Ledge Option Chances | Fourteen presets and session-only percentage edits | Even |
+| Ledge Option Chances | Fifteen presets and session-only percentage edits | Even |
 | Ledge Side | Left, Right, Swap on Success, Random | Left |
 | CPU 100% | Off / On; sets exactly 0% / 100% | Off |
 | Player Percent | 0%, 25%, 50%, 75%, 100%, 125%, 150% | 0% |
@@ -17,6 +17,21 @@ The event saves these eight choices:
 | CPU Invincibility Overlay | Off, Red, Blue, Yellow, Green, Cyan, Magenta, Gray | Gray |
 | CPU Action | Training Lab ground counter actions, without Play Slots or Random Advanced | None |
 | Aerial Attack When Jumping | Five aerials, Neutral B (Repeat), Up B, Side B Toward/Away, Down B, Random | None |
+| Ledge Setup / Get to Ledge | Spawn on Ledge, Fall to Ledge, Jump to Ledge | Fall to Ledge |
+| Ledge Setup / Ledge Hop Height | Low (Auto), Medium (Auto), Original | Low (Auto) |
+
+Ledge Setup also has a session-only **Hop Drop Adjustment**, from -12 to +12
+stage units. Positive drops deeper; negative raises the attack arc.
+
+Fall to Ledge starts 70 units above the lip, outside the stage, and uses
+native falling/collision to grab it. Jump to Ledge starts below the lip at a
+character-dependent depth and requests one native aerial jump. Both steer
+gently toward an outside holding position and wait for the actual catch and
+hang states. The ledge-option clock begins only after every active CPU body
+finishes grabbing; approach time does not consume the punish window. A failed
+approach retries after a landing/death or a 240-frame timeout. Spawn on Ledge
+retains the original direct placement. Recovery-move entry is a future-work
+comment in the source, with no menu placeholder or special-move script.
 
 Native ledge-option selection switches to the slow variants at **100%**.
 The CPU percent toggle sets this value exactly. Player-distance steps are
@@ -40,6 +55,7 @@ and hurtbox coverage still need live roster verification.
 | All Six Even | 1/6 | 1/6 | 1/6 | 1/6 | 1/6 | 1/6 |
 | Dash 75 / Jump 25 | 0 | 25 | 0 | 0 | 0 | 75 |
 | Hop / Dash | 0 | 0 | 0 | 0 | 50 | 50 |
+| Dash 50 / Others 10 | 10 | 10 | 10 | 10 | 10 | 50 |
 
 Changing an individual percentage rebalances the remaining choices to 100%.
 Only the selected preset is saved. Ledge Hop Chance and Ledge Dash Chance now
@@ -49,8 +65,9 @@ exactly 1/6 probability; its integer rows display 17/17/17/17/16/16. Editing
 any chance switches to the displayed whole-percent distribution for this
 session. Reselect the preset to restore exact equality.
 
-Ledge Hop releases with an outward input, double jumps inward on a later
-frame, then drifts and fastfalls onto stage. It uses each character's native
+Ledge Hop releases with an outward input, fastfalls to its selected low-hop
+depth, double jumps inward, then drifts and fastfalls onto stage. Original
+height or None aerial action keeps the immediate double jump. It uses each character's native
 aerial jump, including animation-driven and multijump characters. It is
 separate from Jump Chance, which still selects the built-in ledge jump.
 
@@ -92,16 +109,40 @@ avoids deliberately cancelling a rising animation-driven jump below the lip;
 it is a conservative heuristic rather than a guarantee for every move.
 Ordinary aerials and directional specials are requested once per attempt.
 Random chooses one attack per active CPU body at reset. Ledge Dash and the
-other ledge options ignore this setting.
+other ledge options ignore this setting. Low Fox/Falco lasers have a separate
+below-lip startup gate described below.
+
+Low/Medium attack hops fastfall **before** the aerial jump. For ordinary jumps,
+the controller predicts vertical rise from native jump velocity and gravity;
+multijump fighters use their first aerial-jump velocity. The low target apex,
+measured at the fighter origin above ledge height, is 10 units for Fox/Falco
+Neutral B, 22 for Down Air, 16 for Forward Air, 10 for Up Air, and 14 for other
+choices. Medium adds 12 units. Hop Drop Adjustment subtracts from that target,
+bounded to 8..40 units. Jump depth is bounded at 70 units below the lip.
+
+Ness/Yoshi/Peach/Mewtwo have animation-driven jumps rather than that ballistic
+trajectory. Their initial extra drops are conservatively 4/6/2/4 units,
+halved for Medium and bounded to 0..12 after manual adjustment. These are
+starting tuning profiles, not measured optimal attack heights. The input
+waits until the target depth, requests the native jump, and lets native jump
+entry clear fastfall. No position or velocity is edited during the drop.
 
 Neutral B pulses repeatedly while airborne. For Fox/Falco, the controller
 feeds their native blaster repeat window, watches the first loop restart into
 the second, then releases B to avoid requesting a third loop. Fastfall is
-delayed through the second loop and resumes in blaster endlag. For Falco
+delayed through the second loop and resumes in blaster endlag. This delay
+applies after the jump; the setup drop still fastfalls. In Low/Medium mode,
+Fox/Falco may begin blaster startup up to 14 units below the lip and within
+eight units outside it, while rising, if a six-frame gravity projection clears
+the lip by two units. Their jump continues during blaster, allowing the first
+laser to start lower without cancelling the rise. The six-frame gate is a
+clearance heuristic, not an exact shot/hitbox simulator. For Falco
 double-laser practice, choose **Ledge Hop Only** and **Neutral B (Repeat)**.
 The tests verify native repeat acceptance, input release and fastfall timing;
 full projectile counts and survival for each character/setup need in-game
-verification. Other characters' repeated Neutral B follows their own native
+verification. Eye-level contact varies with opponent height, move startup,
+hitboxes, ECB and the ledge grab; use the manual adjustment to tune a matchup.
+Other characters' repeated Neutral B follows their own native
 charge/loop/cancel rules. Specials can alter drift or recovery substantially.
 
 The CPU overlay shares the global invincibility detector and render-time
@@ -116,11 +157,14 @@ General Tech #17 entry, selectable CPU, fixed stage and native HUD contract.
 The score-storage and extension tests cover all original scores, the new
 fixed score slot and migration from the earlier T4 settings extension.
 
-The 20-byte settings extension is version 9. Byte 19 stores the expanded preset
+The 20-byte settings extension is version 10. Byte 19 stores the expanded preset
 in bits 0..3 and the aerial selector in bits 4..7. The earlier preset bits remain
 untouched. Versions 2..8 migrate their original seven preset choices and start
 aerial attacks at None; version 8's Powershield settings are preserved. The
 ground action selector still uses six bits in byte 15, retaining the earlier
-action migrations. Resetting damage clears pending
+action migrations. Byte 14 bits 6..7 save entry; byte 15 bits 6..7 save hop
+height. Versions 1..9 default these newly claimed fields to Fall to Ledge and
+Low (Auto), preserving version 9's fourteen presets and aerial selection.
+Resetting damage clears pending
 damage rather than copying the starting percent into it, preventing a second
 application of damage on the next native update.

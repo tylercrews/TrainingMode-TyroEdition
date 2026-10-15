@@ -3,7 +3,7 @@
 #include "cpu_actions.h"
 #include "cpu_air_attacks.h"
 
-static EventMenu Menu_Main, Menu_Chances;
+static EventMenu Menu_Main, Menu_Chances, Menu_Setup;
 static void Exit(GOBJ *menu);
 static void ChangeSide(GOBJ *menu, int value);
 static void ChangeCPUPercent(GOBJ *menu, int value);
@@ -13,6 +13,9 @@ static void ChangeDistance(GOBJ *menu, int value);
 static void ChangeColor(GOBJ *menu, int value);
 static void ChangeFollowup(GOBJ *menu, int value);
 static void ChangeAirAttack(GOBJ *menu, int value);
+static void ChangeEntry(GOBJ *menu, int value);
+static void ChangeHopHeight(GOBJ *menu, int value);
+static void ChangeDropAdjust(GOBJ *menu, int value);
 static void ChangeGetupChance(GOBJ *menu, int value);
 static void ChangeJumpChance(GOBJ *menu, int value);
 static void ChangeRollChance(GOBJ *menu, int value);
@@ -25,7 +28,9 @@ static const char *SideNames[] = {"Left", "Right", "Swap on Success", "Random"};
 static const char *PercentNames[] = {"0%", "25%", "50%", "75%", "100%", "125%", "150%"};
 static const char *PresetNames[] = {"Even", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting", "Getup / Roll",
     "Ledge Hop Only", "Ledge Dash Only", "Regular Four + Hop", "Regular Four + Dash", "All Six Even",
-    "Dash 75 / Jump 25", "Hop / Dash"};
+    "Dash 75 / Jump 25", "Hop / Dash", "Dash 50 / Others 10"};
+static const char *EntryNames[] = {"Spawn on Ledge", "Fall to Ledge", "Jump to Ledge"};
+static const char *HopHeightNames[] = {"Low (Auto)", "Medium (Auto)", "Original"};
 static const char *DistanceNames[] = {"At Ledge", "Close", "Mid", "Far", "Safe"};
 static const char *ColorNames[] = {TM_CPU_INVINCIBILITY_NAMES};
 static const char *FollowupNames[] = {CPU_GROUND_ACTIONS(CPU_GROUND_ACTION_NAME) "Random"};
@@ -37,8 +42,29 @@ typedef char followup_count_matches[(countof(FollowupActions) == CPU_GROUND_ACTI
 typedef char air_count_matches[(countof(AirActions) == CPU_AIR_ATTACK_COUNT) ? 1 : -1];
 typedef char preset_count_matches[(countof(PresetNames) == LC_PRESET_COUNT) ? 1 : -1];
 
-enum { OPT_CHANCES, OPT_SIDE, OPT_CPU_PERCENT, OPT_PLAYER_PERCENT, OPT_DISTANCE, OPT_COLOR, OPT_FOLLOWUP, OPT_AIR, OPT_EXIT };
+enum { OPT_CHANCES, OPT_SIDE, OPT_CPU_PERCENT, OPT_PLAYER_PERCENT, OPT_DISTANCE, OPT_COLOR, OPT_FOLLOWUP, OPT_AIR, OPT_SETUP, OPT_EXIT };
 enum { CHANCE_PRESET, CHANCE_GETUP, CHANCE_JUMP, CHANCE_ROLL, CHANCE_ATTACK, CHANCE_HOP, CHANCE_DASH };
+enum { SETUP_ENTRY, SETUP_HEIGHT, SETUP_ADJUST };
+
+static EventOption Options_Setup[] = {
+    {.kind = OPTKIND_STRING, .name = "Get to Ledge", .values = EntryNames, .value_num = LC_ENTRY_COUNT, .val = LC_ENTRY_FALL,
+     .desc = {"Spawn holding ledge, fall from above, or jump from below.",
+              "Fall/Jump use a real grab before the ledge option.",
+              "The approach gives you time to prepare."}, .OnChange = ChangeEntry},
+    // TODO: Recovery-move entry (up-B/side-B) needs character-specific routes.
+    // Keep it out of the menu until those routes and their grabs are reliable.
+    {.kind = OPTKIND_STRING, .name = "Ledge Hop Height", .values = HopHeightNames, .value_num = LC_HOP_HEIGHT_COUNT,
+     .desc = {"Low/Medium fastfall before the double jump to lower",
+              "the attack arc using character and move profiles.",
+              "Original keeps the immediate jump. Ledge hop only.",
+              "Some matchups and specials need manual adjustment."}, .OnChange = ChangeHopHeight},
+    {.kind = OPTKIND_INT, .name = "Hop Drop Adjustment", .value_min = -12, .value_num = 25, .format = "%+d",
+     .desc = {"Extra drop depth in stage units for this session.",
+              "Positive lowers the hop; negative raises it.",
+              "Applies to Low/Medium attack hops; depth is bounded.",
+              "Tune for the selected character and aerial move."}, .OnChange = ChangeDropAdjust},
+};
+static EventMenu Menu_Setup = {.name = "Ledge Setup", .options = Options_Setup, .option_num = countof(Options_Setup)};
 
 static EventOption Options_Main[] = {
     {.kind = OPTKIND_MENU, .name = "Ledge Option Chances", .menu = &Menu_Chances,
@@ -58,9 +84,11 @@ static EventOption Options_Main[] = {
      .desc = {"CPU acts on its first legal grounded frame", "after the ledge option and any aerial attack."}, .OnChange = ChangeFollowup},
     {.kind = OPTKIND_STRING, .name = "Aerial Attack When Jumping", .values = AirNames, .value_num = countof(AirNames),
      .desc = {"Attack after ledge-jump recovery or during a ledge hop.",
-              "Hop waits until rising safely over stage. Specials vary.",
+              "Ledge Setup adjusts hop height. Specials vary.",
               "Neutral B repeats; Fox/Falco request two laser loops.",
               "Grounded CPU Action still follows after landing."}, .OnChange = ChangeAirAttack},
+    {.kind = OPTKIND_MENU, .name = "Ledge Setup", .menu = &Menu_Setup,
+     .desc = {"Choose how the CPU reaches ledge and tune low hops."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .desc = {"Save settings and return to Event Select."}, .OnSelect = Exit},
 };
 static EventOption Options_Chances[] = {
@@ -103,6 +131,8 @@ typedef struct LedgechaseData {
         int action, started, pending, state, repeat_tick, loops, last_state;
         float last_frame;
     } air[2];
+    float drop_target[2];
+    int drop_frames[2], entry_complete, entry_elapsed, entry_jump[2];
 } LedgechaseData;
 typedef char ledgechase_data_size[(sizeof(LedgechaseData) <= EVENT_DATASIZE) ? 1 : -1];
 
@@ -199,6 +229,17 @@ static void PlaceHuman(GOBJ *fighter, LedgechaseData *data, int follower) {
     SetPercent(fighter, Options_Main[OPT_PLAYER_PERCENT].val * 25);
     Fighter_UpdateCameraBox(fighter);
 }
+static float JumpRise(FighterData *ft) {
+    if (ft->kind == FTKIND_NESS || ft->kind == FTKIND_YOSHI ||
+        ft->kind == FTKIND_PEACH || ft->kind == FTKIND_MEWTWO) return 0;
+    float velocity = ft->attr.jump_v_initial_velocity * ft->attr.air_jump_v_multiplier;
+    if (ft->flags.is_multijump && ft->multi_jump_desc) velocity = ft->multi_jump_desc->jump_vel_y[0];
+    return LC_JumpRise(velocity, ft->attr.gravity);
+}
+static float EntryOutside(FighterData *ft) {
+    float distance = ft->coll_data.cliffgrab_width * 0.5f;
+    return distance < 3 ? 3 : distance > 6 ? 6 : distance;
+}
 static void PlaceCPU(GOBJ *fighter, LedgechaseData *data) {
     FighterData *ft = fighter->userdata;
     Fighter_EnterSleep(fighter, ft->flags.ms);
@@ -208,6 +249,23 @@ static void PlaceCPU(GOBJ *fighter, LedgechaseData *data) {
     ClearVelocity(ft);
     ClearProtection(fighter);
     SetPercent(fighter, Options_Main[OPT_CPU_PERCENT].val ? 100 : 0);
+    if (Options_Setup[SETUP_ENTRY].val != LC_ENTRY_SPAWN) {
+        Fighter_SetAirborne(ft);
+        Fighter_EnterFall(fighter);
+        ClearVelocity(ft);
+        ft->ledge_cooldown = 0;
+        ft->phys.pos = data->ledge;
+        ft->phys.pos.X -= data->inward * EntryOutside(ft);
+        float rise = JumpRise(ft);
+        float depth = rise > 24 ? rise - 12 : 12;
+        if (depth > 70) depth = 70;
+        ft->phys.pos.Y += Options_Setup[SETUP_ENTRY].val == LC_ENTRY_FALL ? 70 : -depth;
+        Fighter_EnableCollUpdate(ft);
+        UpdatePosition(fighter);
+        ft->cpu.ai = 15;
+        Fighter_UpdateCameraBox(fighter);
+        return; // Let native Fall/Jump collision perform the actual grab.
+    }
     ft->state_var.state_var1 = data->ledge_line;
     Fighter_EnterCliffWait(fighter);
     ft->state_var.state_var3 = 0;
@@ -269,6 +327,9 @@ static void ResetAttempt(int success) {
     }
     data->punish_timer = data->reset_timer = -1;
     data->success = 0;
+    data->entry_complete = Options_Setup[SETUP_ENTRY].val == LC_ENTRY_SPAWN;
+    data->entry_elapsed = data->entry_jump[0] = data->entry_jump[1] = 0;
+    data->drop_frames[0] = data->drop_frames[1] = 0;
     Match_CorrectCamera();
 }
 
@@ -331,6 +392,62 @@ static int DelayLaserFastfall(LedgechaseData *data, FighterData *ft) {
         (!data->air[ms].started || (ft->state_id != LC_BLASTER_END && data->air[ms].loops < 2) ||
          ft->state_id == LC_BLASTER_LOOP);
 }
+static float HopDropTarget(FighterData *ft, LedgechaseData *data) {
+    float hang = ft->phys.pos.Y - data->ledge.Y;
+    int action = data->air[ft->flags.ms].action;
+    if (data->option != LC_HOP || action == CPUACT_NONE || Options_Setup[SETUP_HEIGHT].val == LC_HOP_ORIGINAL)
+        return hang;
+    float adjust = Options_Setup[SETUP_ADJUST].val;
+    float rise = JumpRise(ft);
+    if (!rise) {
+        // Animation-driven jumps are not described by the ballistic attrs.
+        // Small initial depth profiles retain their native rise; tune in game.
+        float extra = ft->kind == FTKIND_PEACH ? 2 : ft->kind == FTKIND_YOSHI ? 6 : 4;
+        if (Options_Setup[SETUP_HEIGHT].val == LC_HOP_MEDIUM) extra *= 0.5f;
+        extra += adjust;
+        if (extra < 0) extra = 0;
+        if (extra > 12) extra = 12;
+        return hang - extra;
+    }
+    float peak = action == CPUACT_NEUTRALB && (ft->kind == FTKIND_FALCO || ft->kind == FTKIND_FOX) ? 10 :
+        action == CPUACT_DAIR ? 22 : action == CPUACT_FAIR ? 16 : action == CPUACT_UAIR ? 10 : 14;
+    if (Options_Setup[SETUP_HEIGHT].val == LC_HOP_MEDIUM) peak += 12;
+    peak -= adjust;
+    if (peak < 8) peak = 8;
+    if (peak > 40) peak = 40;
+    return LC_LowDropTarget(hang, rise, peak);
+}
+static int RunEntry(LedgechaseData *data) {
+    int ready = 1;
+    for (int ms = 0; ms < 2; ++ms) {
+        GOBJ *cpu = FighterBody(1, ms);
+        if (!cpu) continue;
+        FighterData *ft = cpu->userdata;
+        if (ft->state_id == ASID_CLIFFWAIT) {
+            ft->state_var.state_var2 = 0x40000000;
+            continue;
+        }
+        ready = 0;
+        if (ft->state_id == ASID_CLIFFCATCH) continue;
+        if (!ft->phys.air_state) { ResetAttempt(0); return 0; }
+        if (Options_Setup[SETUP_ENTRY].val == LC_ENTRY_JUMP && !data->entry_jump[ms]) {
+            if (ft->jump.jumps_used > 1) data->entry_jump[ms] = 1;
+            else if (ft->state_id == ASID_FALL && CheckHasJump(cpu)) {
+                int jumps = ft->jump.jumps_used;
+                QueueInput(cpu, PAD_BUTTON_X, 0, 0);
+                RunNativeIASA(cpu);
+                if (ft->jump.jumps_used > jumps) data->entry_jump[ms] = 1;
+                else continue;
+            }
+        }
+        float inside = (ft->phys.pos.X - data->ledge.X) * data->inward;
+        float error = inside + EntryOutside(ft);
+        QueueInput(cpu, 0, error < -1 ? data->inward * 60 : error > 1 ? -data->inward * 60 : 0, 0);
+    }
+    if (ready) { data->entry_complete = 1; return 1; }
+    if (++data->entry_elapsed >= 240) ResetAttempt(0);
+    return 0;
+}
 /* Observe native transitions, including ones consumed between event callbacks.
  * Never change velocity, collision, jump count, or protection to make a return
  * succeed. Each Ice Climber owns a separate sequence. */
@@ -342,6 +459,8 @@ static void RunLedgeReturn(GOBJ *cpu, LedgechaseData *data) {
         if (ft->state_id == ASID_FALL) {
             *phase = LC_RETURN_DROP;
             data->return_jumps[ft->flags.ms] = ft->jump.jumps_used;
+            data->drop_target[ft->flags.ms] = HopDropTarget(ft, data);
+            data->drop_frames[ft->flags.ms] = 0;
             NeutralCPU(cpu); // Do not keep the outward release input for physics.
         }
         return; // Drop and jump must be separate simulation frames.
@@ -351,6 +470,15 @@ static void RunLedgeReturn(GOBJ *cpu, LedgechaseData *data) {
         return;
     }
     if (*phase == LC_RETURN_DROP) {
+        if (ft->jump.jumps_used <= data->return_jumps[ft->flags.ms] && ft->state_id == ASID_FALL &&
+            ft->phys.pos.Y - data->ledge.Y > data->drop_target[ft->flags.ms] &&
+            ++data->drop_frames[ft->flags.ms] < 60) {
+            // Fastfall to the chosen depth. Holding down also prevents an
+            // accidental regrab if the native ledge cooldown expires.
+            QueueInput(cpu, 0, 0, -127);
+            Fighter_PhysAir_CheckFastfall(ft);
+            return;
+        }
         if (ft->jump.jumps_used <= data->return_jumps[ft->flags.ms] &&
             ft->state_id == ASID_FALL && CheckHasJump(cpu)) {
             QueueInput(cpu, PAD_BUTTON_X, data->inward * 127, 0);
@@ -510,8 +638,17 @@ static void RunAirAttack(GOBJ *cpu, GOBJ *human, LedgechaseData *data) {
     float height = ft->phys.pos.Y - data->ledge.Y;
     // Cancelling an animation-driven jump below the lip can kill its rise.
     // Start hop attacks only when rising with the origin and ECB over stage.
-    if (inside < 1 || height < 0 || height + ft->coll_data.ecbCurr_bot.Y < 0) return;
-    if (data->option == LC_HOP && (data->return_phase[ms] != LC_RETURN_JUMP || height < 4 || ft->phys.self_vel.Y <= 0)) return;
+    int low_laser = blaster && data->option == LC_HOP && Options_Setup[SETUP_HEIGHT].val != LC_HOP_ORIGINAL;
+    if (low_laser) {
+        // Ordinary Fox/Falco jumps keep their ballistic rise during blaster.
+        // Begin just below the lip so startup does not put both shots overhead.
+        float vy = ft->phys.self_vel.Y, gravity = ft->attr.gravity;
+        if (inside < -8 || height < -14 || vy <= 0 ||
+            height + 6 * vy - 21 * gravity < 2 || data->return_phase[ms] != LC_RETURN_JUMP) return;
+    } else {
+        if (inside < 1 || height < 0 || height + ft->coll_data.ecbCurr_bot.Y < 0) return;
+        if (data->option == LC_HOP && (data->return_phase[ms] != LC_RETURN_JUMP || height < 4 || ft->phys.self_vel.Y <= 0)) return;
+    }
     for (CPUAction *command = Lab_CPUActions[action]; command->state != 0xFFFF; ++command) {
         if (command->state != ASID_ACTIONABLEAIR && command->state != ASID_ACTIONABLE) continue;
         int toward = hmn->phys.pos.X > ft->phys.pos.X ? 1 : hmn->phys.pos.X < ft->phys.pos.X ? -1 : data->inward;
@@ -555,11 +692,17 @@ void Event_Init(GOBJ *gobj) {
     data->reset_timer = data->punish_timer = -1;
     static const unsigned fields[] = {TM_LEDGECHASE_PRESET, TM_LEDGECHASE_SIDE, TM_LEDGECHASE_CPU_100,
         TM_LEDGECHASE_PLAYER_PERCENT, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR, TM_LEDGECHASE_CPU_ACTION, TM_LEDGECHASE_AIR_ATTACK};
-    for (int i = 0; i < OPT_EXIT; ++i) {
+    for (int i = 0; i < OPT_SETUP; ++i) {
         if (i == OPT_CHANCES) continue;
         Options_Main[i].val = TM_GetSetting(TM_SETTING_LEDGECHASE, fields[i]);
         Options_Main[i].val_prev = Options_Main[i].val;
     }
+    static const unsigned setup_fields[] = {TM_LEDGECHASE_ENTRY, TM_LEDGECHASE_HOP_HEIGHT};
+    for (int i = 0; i < SETUP_ADJUST; ++i) {
+        Options_Setup[i].val = TM_GetSetting(TM_SETTING_LEDGECHASE, setup_fields[i]);
+        Options_Setup[i].val_prev = Options_Setup[i].val;
+    }
+    Options_Setup[SETUP_ADJUST].val = Options_Setup[SETUP_ADJUST].val_prev = 0;
     Options_Chances[CHANCE_PRESET].val = TM_GetSetting(TM_SETTING_LEDGECHASE, TM_LEDGECHASE_PRESET);
     ApplyPreset(Options_Chances[CHANCE_PRESET].val);
     for (unsigned i = 0; i < countof(Options_Chances); ++i) Options_Chances[i].val_prev = Options_Chances[i].val;
@@ -608,6 +751,7 @@ void Event_Think(GOBJ *gobj) {
             if (fighter && ((FighterData *)fighter->userdata)->flags.dead) { ResetAttempt(0); return; }
         }
     }
+    if (!data->entry_complete) { RunEntry(data); return; }
     if (!data->option_started) {
         if (ft->state_id == ASID_CLIFFWAIT) {
             ft->state_var.state_var2 = 0x40000000; // Native float hang timeout = 2.0f.
@@ -657,6 +801,9 @@ static void ChangeDistance(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHA
 static void ChangeColor(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_CPU_COLOR, value, 0); }
 static void ChangeFollowup(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_CPU_ACTION, value, 1); }
 static void ChangeAirAttack(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_AIR_ATTACK, value, 1); }
+static void ChangeEntry(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_ENTRY, value, 1); }
+static void ChangeHopHeight(GOBJ *menu, int value) { ChangePreference(TM_LEDGECHASE_HOP_HEIGHT, value, 1); }
+static void ChangeDropAdjust(GOBJ *menu, int value) { ResetAttempt(0); }
 static void ChangePreset(GOBJ *menu, int value) {
     ApplyPreset(value);
     ChangePreference(TM_LEDGECHASE_PRESET, value, 1);

@@ -244,7 +244,8 @@ class LedgechaseTests(unittest.TestCase):
         old = [(25, 25, 25, 25), (100, 0, 0, 0), (0, 100, 0, 0),
                     (0, 0, 100, 0), (0, 0, 0, 100), (60, 10, 15, 15), (50, 0, 50, 0)]
         expected = [row + (0, 0) for row in old] + [(0,0,0,0,100,0), (0,0,0,0,0,100),
-            (20,20,20,20,20,0), (20,20,20,20,0,20), (17,17,17,17,16,16), (0,25,0,0,0,75), (0,0,0,0,50,50)]
+            (20,20,20,20,20,0), (20,20,20,20,0,20), (17,17,17,17,16,16), (0,25,0,0,0,75), (0,0,0,0,50,50),
+            (10,10,10,10,10,50)]
         self.assertEqual(self.m.call('TestLCPresetCount'), len(expected))
         for preset, chances in enumerate(expected):
             self.assertEqual(self.m.call("TestLCChangePreset", preset), preset)
@@ -294,6 +295,130 @@ class LedgechaseTests(unittest.TestCase):
             self.assertEqual(self.m.info(5), 5)
         self.m.call('TestLCChangePreset', 11)
         self.assertEqual(self.m.call('TestLCCustomChances'), 0)
+
+    def prepare_low_hop(self, choice=6, kind=22, mode=0, velocity=3854, gravity=170):
+        self.m.call('TestLCPreference', 7, choice)
+        self.m.call('TestLCPreference', 9, mode)
+        self.prepare_return(option=4)
+        self.m.call('TestLCJumpKind', 2, kind)
+        self.m.call('TestLCJumpAttributes', velocity, gravity, 3100)
+        self.m.call('TestLCReturnPosition', 0, -3, -7, 0, 0)
+        self.m.step()
+
+    def test_low_hop_fastfalls_to_target_then_native_jump_clears_fastfall(self):
+        self.m.native_fastfall()
+        self.prepare_low_hop()
+        target = self.m.call('TestLCDropInfo', 0, 0) / 1000
+        self.assertTrue(-35 < target < -30)  # Falco's real v=3.854, g=.17.
+        self.m.call('TestLCReturnPosition', 0, -3, -10, 0, -1)
+        self.m.step()
+        self.assertEqual((self.return_info(), self.return_info(1), self.return_info(4)), (1,1,1))
+        self.assertEqual(self.m.call('TestLCStick', 1), -127)
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 0)
+        self.m.call('TestLCReturnPosition', 0, -3, -35, 0, -3)
+        before = self.m.call('TestLCPosition', 2, 1)
+        self.m.step()
+        self.assertEqual((self.return_info(), self.return_info(1), self.return_info(4)), (2,2,0))
+        self.assertEqual(self.m.call('TestLCPosition', 2, 1), before)  # No position shortcut.
+
+    def test_drop_targets_vary_by_character_move_height_mode_and_manual_adjustment(self):
+        targets = {}
+        for name, args in [('falco_laser', (6,22,0,3854,170)), ('marth_nair', (1,18,0,2112,85)),
+                           ('falco_dair', (3,22,0,3854,170)), ('medium', (6,22,1,3854,170)),
+                           ('original', (6,22,2,3854,170))]:
+            self.m = Machine()
+            self.prepare_low_hop(*args)
+            targets[name] = self.m.call('TestLCDropInfo', 0, 0) / 1000
+        self.assertLess(targets['falco_laser'], targets['marth_nair'] - 10)
+        self.assertAlmostEqual(targets['falco_dair'] - targets['falco_laser'], 12, places=2)
+        self.assertAlmostEqual(targets['medium'] - targets['falco_laser'], 12, places=2)
+        self.assertAlmostEqual(targets['original'], -7, places=2)
+        self.m = Machine(); self.prepare_low_hop()
+        writes = self.m.info(0)
+        self.m.call('TestLCSetup', 2, 2)
+        self.assertEqual(self.m.info(0), writes)  # Session-only tuning.
+        self.m.call('TestLCPrepared', 4, 1)
+        self.m.call('TestLCJumpKind', 2, 22)
+        self.m.call('TestLCJumpAttributes', 3854, 170, 3100)
+        self.m.call('TestLCReturnPosition', 0, -3, -7, 0, 0)
+        self.m.step()
+        self.assertAlmostEqual(self.m.call('TestLCDropInfo', 0, 0)/1000, targets['falco_laser']-2, places=2)
+
+    def test_low_laser_starts_below_lip_only_when_rise_can_clear_it(self):
+        self.prepare_low_hop()
+        self.m.call('TestLCReturnPosition', 0, -3, -35, 0, -3)
+        self.m.step()
+        for inside, height, velocity in ((-10,-8,3), (-3,-16,3), (-3,-12,1)):
+            self.m.call('TestLCReturnPosition', 0, inside, height, 0, velocity)
+            self.m.step()
+            self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 0)
+        self.m.call('TestLCReturnPosition', 0, -3, -12, 0, 3)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 344)
+        self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 1)
+
+    def test_animation_driven_hops_have_bounded_drop_profiles(self):
+        for kind, extra in ((8,4), (14,6), (9,2), (16,4)):
+            self.m = Machine()
+            self.prepare_low_hop(choice=1, kind=kind)
+            self.assertEqual(self.m.call('TestLCDropInfo', 0, 0), (-7-extra)*1000)
+
+    def test_fall_entry_uses_real_catch_and_wait_before_attempt_clocks(self):
+        self.m.call('TestLCPreference', 8, 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 29)
+        self.assertEqual(self.m.call('TestLCPosition', 2, 1), 70000)
+        self.assertEqual((self.m.call('TestLCEntryInfo', 0), self.m.info(8), self.m.call('TestLCEntryInfo', 4)), (0,0,0))
+        self.m.call('TestLCState', 2, 252, 1, 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCStateValue', 2), 252)  # Never force CliffWait.
+        self.m.call('TestLCState', 2, 253, 1, 0)
+        self.m.step()
+        self.assertEqual((self.m.call('TestLCEntryInfo', 0), self.m.info(8)), (1,0))
+        self.m.step()
+        self.assertEqual(self.m.info(8), 1)
+
+    def test_jump_entry_requests_one_native_jump_and_mirrors_sides(self):
+        for side in (0,1):
+            self.m = Machine()
+            self.m.call('TestLCPreference', 0, side)
+            self.m.call('TestLCPreference', 8, 2)
+            self.m.step()
+            self.assertEqual(self.m.call('TestLCEntryInfo', 2), 1)
+            self.assertEqual(self.return_info(1), 2)
+            self.assertLess(self.m.call('TestLCPosition', 2, 1), 0)
+            x = self.m.call('TestLCPosition', 2, 0)
+            self.assertEqual(x > 0, bool(side))
+            for _ in range(5): self.m.step()
+            self.assertEqual(self.return_info(1), 2)
+            self.assertEqual(self.m.call('TestLCStick', 4), 0)
+            self.assertEqual(self.m.info(7), 0)
+
+    def test_approach_waits_for_both_climbers_and_freeze_does_not_age_it(self):
+        self.m.call('TestLCFollowers', 1)
+        self.m.call('TestLCPreference', 8, 1)
+        self.m.step()
+        self.m.call('TestLCState', 2, 253, 1, 0)
+        self.m.call('TestLCState', 3, 252, 1, 1)
+        elapsed = self.m.call('TestLCEntryInfo', 1)
+        self.m.call('TestLCNativeFreeze', 3, 1)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCEntryInfo', 1), elapsed)
+        self.m.call('TestLCNativeFreeze', 3, 0)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCEntryInfo', 0), 0)
+        self.m.call('TestLCState', 3, 253, 1, 0)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCEntryInfo', 0), 1)
+
+    def test_entry_failure_timeout_retries_without_success_or_clock_leak(self):
+        self.m.call('TestLCPreference', 8, 1)
+        self.m.step()
+        loads = self.m.info(2)
+        for _ in range(239): self.m.step()
+        self.assertEqual(self.m.info(2), loads+1)
+        self.assertEqual(self.m.info(11), 0)
+        self.assertEqual(self.m.call('TestLCEntryInfo', 4), 0)
 
     def test_aerial_catalogue_and_shared_inputs(self):
         expected = ['None', 'Neutral Air', 'Forward Air', 'Down Air', 'Back Air', 'Up Air',
@@ -844,6 +969,23 @@ class LedgechaseTests(unittest.TestCase):
         self.m.step()
         self.assertEqual(self.m.call('TestLCStateValue', 2), 65)
         self.assertEqual(self.m.call('TestLCAirInfo', 0, 1), 1)
+
+    def test_optimized_dat_setup_menu_drives_approach_and_saved_low_height(self):
+        self.m.relocated_dat()
+        self.m.step()
+        submenu = self.m.call('TestLCAnySubmenu', self.m.dat_option(8))
+        entry = self.m.call('TestLCAnyOption', submenu, 0)
+        height = self.m.call('TestLCAnyOption', submenu, 1)
+        self.m.call('TestLCAnyOptionChange', entry, 1)
+        self.assertEqual((self.m.call('TestLCStateValue', 2),self.m.call('TestLCEntryInfo',0)), (29,0))
+        self.assertEqual(self.m.call('TestLCPosition', 2, 1), 70000)
+        self.m.call('TestLCAnyOptionChange', entry, 2)
+        self.m.step()
+        self.assertEqual(self.m.call('TestLCEntryInfo', 2), 1)
+        self.m.call('TestLCAnyOptionChange', height, 0)
+        self.assertEqual(self.m.call('TestLCAnyOptionValue', height), 0)
+        self.m.call('TestLCAnyOptionChange', entry, 0)
+        self.assertEqual((self.m.call('TestLCStateValue', 2),self.m.call('TestLCEntryInfo',0)), (253,1))
 
 
 if __name__ == "__main__":
