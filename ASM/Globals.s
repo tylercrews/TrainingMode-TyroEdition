@@ -206,6 +206,7 @@
     ENTRY TM_UnderFireControl
     ENTRY TM_UnderFireRegrab
     ENTRY TM_UnderFireSetCamera
+    ENTRY TM_UnderFireTiming
 
     # TmDt Data Pointers
     .set TM_Data, TM_tmFunction - 0x4

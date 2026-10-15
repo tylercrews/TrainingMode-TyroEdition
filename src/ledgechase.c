@@ -285,6 +285,10 @@ static int FollowupStarted(FighterData *ft, int action) {
 static int RunFollowup(GOBJ *cpu, GOBJ *human, int action, int inward) {
     FighterData *ft = cpu->userdata, *hmn = human->userdata;
     if (action == LC_NONE) return GroundReady(ft);
+    // Queued shield inputs can enter the action in Melee's next native IASA
+    // pass, between event ticks. Observe that entry before checking readiness,
+    // or a roll that started outside this call is retried after every recovery.
+    if (FollowupStarted(ft, action)) { NeutralCPU(cpu); return 1; }
     int state = ft->state_id;
     // Native landing/turn/shield IASA performs its own readiness check. Never
     // invoke an action directly or interrupt a ledge option or aerial state.

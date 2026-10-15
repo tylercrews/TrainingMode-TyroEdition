@@ -6,5 +6,8 @@
     SettingsBackup
     mr r3, r30
     rtocbl r12, TM_ShineAfterIASA
+    lwz r3, 0x2c(r30)
+    li r4, 1
+    rtocbl r12, TM_UnderFireTiming
     SettingsRestore
     lwz r0, 0x7c(r1)              # Original epilogue instruction.

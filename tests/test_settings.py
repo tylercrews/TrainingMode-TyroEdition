@@ -72,6 +72,9 @@ class Machine:
         # Function slots appended after the original 27 exports.
         for slot, name in [(27, "Settings_Get"), (28, "Settings_Set")]:
             self.cpu.mem_write(0x80300000 - 200 + slot * 4, struct.pack(">I", self.symbols[name]))
+        # Inactive event diagnostics are a no-op in isolated global-OSD tests.
+        self.cpu.mem_write(0x80407D00, struct.pack('>I', 0x4E800020))
+        self.cpu.mem_write(0x80300000 - 200 + 49 * 4, struct.pack('>I', 0x80407D00))
         self.cpu.mem_write(0x80000000, b"TYRE01")
         self.cpu.mem_write(RECORD - 8, b"\xA5" * 60)
 
@@ -266,10 +269,10 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             if getattr(self, 'dat_root', b'tmFunction') == b'evFunction':
                 if index == 2: self.m.symbols['DAT_SweetspotThink'] = self.base + offset
                 continue
-            if index in [27, 28, 38, 39, 40, 41, 46, 47, 48]:
+            if index in [27, 28, 38, 39, 40, 41, 46, 47, 48, 49]:
                 self.m.symbols[{27:"DAT_Get",28:"DAT_Set",38:"DAT_Commit",39:"DAT_Characters",
                                40:"DAT_UnderFire",41:"DAT_UnderFireScore",
-                               46:"DAT_UnderFireControl",47:"DAT_UnderFireRegrab",48:"DAT_UnderFireCamera"}[index]] = self.base + offset
+                               46:"DAT_UnderFireControl",47:"DAT_UnderFireRegrab",48:"DAT_UnderFireCamera",49:"DAT_UnderFireTiming"}[index]] = self.base + offset
         # Native memcpy is an external SDK dependency; use the tested PPC stub.
         address = self.m.symbols["memcpy"]
         self.m.cpu.mem_write(0x800031F4, struct.pack(">4I", 0x3D800000 | (address >> 16),
@@ -289,7 +292,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         start = m.symbols['DAT_UnderFire']
         # The first direct call creates the C menu. Bound rendering/allocation,
         # while executing the real relocated initialization and Exit callback.
-        for pc in range(start, start + 256, 4):
+        for pc in range(start, start + 1024, 4):
             word = struct.unpack('>I', m.cpu.mem_read(pc, 4))[0]
             if word & 0xFC000003 == 0x48000001:
                 delta = word & 0x03FFFFFC
@@ -328,7 +331,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             m.call('DAT_UnderFire')
             self.assertEqual(len(menus), 1)
             menu = menus[0]
-            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x06\0\0')
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x08\0\0')
             options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
             label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
@@ -351,7 +354,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
                 m.call('DAT_UnderFireScore', score)
             self.assertEqual(text_rows[-1], (4, 0, 2, 0))
             self.assertEqual(scores, [])
-            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 5 * 44 + 40, 4))[0]
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 7 * 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
             self.assertEqual(scores, [(2, 120)])

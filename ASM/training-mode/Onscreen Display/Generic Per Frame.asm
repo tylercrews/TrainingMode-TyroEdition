@@ -11,6 +11,9 @@
     SettingsBackup
     mr r3, player
     rtocbl r12, TM_ShineBeforeIASA
+    mr r3, playerdata
+    li r4, 0
+    rtocbl r12, TM_UnderFireTiming
     SettingsRestore
     
 OSD_ActOoWait:

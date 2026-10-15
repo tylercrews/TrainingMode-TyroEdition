@@ -94,6 +94,22 @@ int TestTCChooseLocation(int location) {
     ApplyStartingLocation();
     return Options_Main[OPT_LOCATION].val;
 }
+int TestTCChangePlacement(int height, int distance) {
+    Options_Main[OPT_HEIGHT].val = height;
+    Options_Main[OPT_HEIGHT].OnChange((GOBJ *)1, height);
+    Options_Main[OPT_DISTANCE].val = distance;
+    Options_Main[OPT_DISTANCE].OnChange((GOBJ *)1, distance);
+    ApplyStartingLocation();
+    return writes;
+}
+int TestTCReloadPlacement(void) {
+    Options_Main[OPT_HEIGHT].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT);
+    Options_Main[OPT_DISTANCE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE);
+    ApplyStartingLocation();
+    return automatic_position;
+}
+int TestTCPlacementSaved(int index) { return saved_preferences[index]; }
+unsigned TestTCResetAddress(void) { return (unsigned)Reset; }
 int TestTCLocationAvailable(int location) { return location_available[location]; }
 int TestTCLocationDisabled(void) { return Options_Main[OPT_LOCATION].disable; }
 int TestTCPosition(int actor, int component) {

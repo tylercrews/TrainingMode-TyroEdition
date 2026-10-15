@@ -18,6 +18,8 @@ static void FinishMoveCam(GOBJ *menu);
 static void ChangeCam(GOBJ *menu_gobj, int _new_val);
 static void ChangePreset(GOBJ *menu_gobj, int value);
 static void ChangeLocation(GOBJ *menu_gobj, int value);
+static void ChangeHeight(GOBJ *menu_gobj, int value);
+static void ChangeDistance(GOBJ *menu_gobj, int value);
 static void ChangeReactionOSD(GOBJ *menu_gobj, int value);
 static void ChangeTimingOSD(GOBJ *menu_gobj, int value);
 static void ChangeReset(GOBJ *menu_gobj, int value);
@@ -100,6 +102,8 @@ static const char *Options_Preset[] = {
     "In Place / Toward", "Away / Toward", "Tyro setting"
 };
 static const char *Options_Location[] = {"Center Stage", "Left Plat", "Right Plat", "Top Plat"};
+static const char *Options_Height[] = {"Normal", "Short", "Tall", "Double"};
+static const char *Options_Distance[] = {"Right Next To", "Close", "Medium", "Past Tech Roll"};
 static const char *Options_LocationDisplay[TC_LOCATION_COUNT];
 static const char *Options_CPUColor[] = {TM_CPU_INVINCIBILITY_NAMES};
 
@@ -110,6 +114,8 @@ enum {
     OPT_RESET,
     OPT_INVIS,
     OPT_LOCATION,
+    OPT_HEIGHT,
+    OPT_DISTANCE,
     OPT_SPOTDODGE,
     OPT_CPU_COLOR,
     OPT_SPEED,
@@ -161,10 +167,26 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_STRING,
         .name = "Starting Location",
-        .desc = {"CPU falls onto the selected platform.", "HMN starts on the ground, 10 units away.", "Unavailable platforms are skipped."},
+        .desc = {"CPU falls onto the selected platform.", "HMN starts on the ground nearby.", "Unavailable platforms are skipped."},
         .values = Options_LocationDisplay,
         .value_num = TC_LOCATION_COUNT,
         .OnChange = ChangeLocation,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "CPU Drop Height",
+        .desc = {"Choose how far above the target CPU starts.", "Double gives slow characters more time to climb.", "This setting is saved."},
+        .values = Options_Height,
+        .value_num = TC_HEIGHT_COUNT,
+        .OnChange = ChangeHeight,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Player Distance",
+        .desc = {"Choose horizontal spacing from the CPU.", "HMN stays on the ground, facing the target.", "This setting is saved."},
+        .values = Options_Distance,
+        .value_num = TC_DISTANCE_COUNT,
+        .OnChange = ChangeDistance,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -460,7 +482,8 @@ static int FindLocationSurface(int location, Vec3 *position) {
         Vec2 a = verts[line->vert_prev].pos_curr, b = verts[line->vert_next].pos_curr;
         float x, y;
         if (!TC_SurfaceTarget(a.X, a.Y, b.X, b.Y, IsPlatformLine(line), location, &x, &y)) continue;
-        float hmn_x = x < 0 ? x + 10 : x - 10;
+        float distance = TC_PlayerDistance(Options_Main[OPT_DISTANCE].val);
+        float hmn_x = x < 0 ? x + distance : x - distance;
         Vec3 ground;
         if (!FindSolidGround(hmn_x, &ground, &line_index) || y <= ground.Y + 4) continue;
         float score = location == TC_TOP_PLATFORM ? y : -fabs(x);
@@ -493,10 +516,11 @@ static void ApplyStartingLocation(void) {
         if (!FindLocationSurface(location, &surface)) surface = (Vec3){5, 0, 0};
     }
     previous_location = location;
-    float hmn_x = surface.X < 0 ? surface.X + 10 : surface.X - 10;
+    float distance = TC_PlayerDistance(Options_Main[OPT_DISTANCE].val);
+    float hmn_x = surface.X < 0 ? surface.X + distance : surface.X - distance;
     if (!FindSolidGround(hmn_x, &ground, &line_index)) ground = (Vec3){hmn_x, 0, 0};
     hmn_pos = ground;
-    cpu_pos = (Vec3){surface.X, surface.Y + 27, 0};
+    cpu_pos = (Vec3){surface.X, surface.Y + TC_DropHeight(Options_Main[OPT_HEIGHT].val), 0};
     hmn_facing_direction = surface.X > hmn_x ? 1 : -1;
     cpu_facing_direction = -hmn_facing_direction;
 }
@@ -905,6 +929,8 @@ void Event_Init(GOBJ *gobj) {
     Options_Main[OPT_RESET].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_RESET);
     Options_Main[OPT_INVIS].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_INVISIBILITY);
     Options_Main[OPT_LOCATION].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_LOCATION);
+    Options_Main[OPT_HEIGHT].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT);
+    Options_Main[OPT_DISTANCE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE);
     Options_Main[OPT_SPOTDODGE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE);
     Options_Main[OPT_CPU_COLOR].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR);
     event_vars->set_cpu_invincibility_overlay(&Options_Main[OPT_CPU_COLOR].val);
@@ -931,6 +957,16 @@ static void ChangeTimingOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TE
 static void ChangeReset(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_RESET, value); }
 static void ChangeInvisibility(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_INVISIBILITY, value); }
 static void ChangeCPUColor(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR, value); }
+static void ChangeHeight(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT, value);
+    automatic_position = true;
+    Reset();
+}
+static void ChangeDistance(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE, value);
+    automatic_position = true;
+    Reset();
+}
 static void ChangeSpotdodge(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE, value);
     Reset();

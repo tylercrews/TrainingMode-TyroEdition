@@ -288,6 +288,7 @@ int TestLCFreeze(int index, int value) { test_ft[index].flags.hitlag = value; re
 int TestLCNativeFreeze(int index, int value) { test_ft[index].flags.freeze = value; return value; }
 int TestLCPause(int value) { paused = value; return value; }
 int TestLCUseNativeIASA(unsigned address) { test_ft[2].cb.IASA = (void *)address; return address; }
+int TestLCEngineIASA(void) { RunNativeIASA(&test_fighters[2]); return test_ft[2].state_id; }
 int TestLCLedgeInput(int option) { NeutralCPU(&test_fighters[2]); RunLedgeOption(&test_fighters[2], option, 1); return test_ft[2].state_id; }
 int TestLCSetPercent(int value) { test_ft[2].dmg.percent = value; return value; }
 int TestLCSetKind(int value) { test_ft[2].kind = value; return value; }

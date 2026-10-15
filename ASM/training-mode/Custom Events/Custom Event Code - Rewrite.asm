@@ -574,7 +574,7 @@ LedgeStallLoad:
     # Schedule Think
     bl LedgeStallThink
     mflr r3
-    li r4, 3                                            # Priority (After EnvCOllision)
+    li r4, 3                                            # Native practice callback priority.
     li r5, 0
     bl CreateEventThinkFunction
     rtocbl r12, TM_UnderFireInitMenu

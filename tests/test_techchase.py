@@ -228,6 +228,48 @@ class TechchaseTests(unittest.TestCase):
         self.m.line(-49, 20, -21, 20, 0x400)
         self.assertEqual(self.m.call("TestTCChooseLocation", 1), 0)
 
+    def test_saved_height_and_distance_on_every_available_legal_stage_target(self):
+        m=self.m
+        # Bound savestate/engine reset work; execute the real menu callbacks,
+        # settings API writes and production live-geometry placement.
+        reset=m.call('TestTCResetAddress')
+        reset_calls=[]
+        def reset_body(cpu,address,size,user):
+            reset_calls.append(True)
+            cpu.reg_write(reg.UC_PPC_REG_PC,cpu.reg_read(reg.UC_PPC_REG_LR))
+        hook=m.cpu.hook_add(UC_HOOK_CODE,reset_body,begin=reset,end=reset)
+        try:
+            for filename,stage,normal in [('GrSt.dat',8,{1,2,3,4,5,6}),('GrNBa.dat',31,None),
+                                        ('GrOp.dat',28,None),('GrPs.dat',3,{34,35,36,51,52,53,54}),
+                                        ('GrNLa.dat',32,None),('GrIz.dat',2,None)]:
+                m.call('TestTCStage',stage)
+                if filename=='GrIz.dat':
+                    m.line(-65,0,65,0)
+                    for ax,ay,bx,by in [(-49,11,-21,11),(21,35,49,35),(-14,43,14,43)]:m.line(ax,ay,bx,by,0x100)
+                else:
+                    for index,ax,ay,bx,by,flags in native_floors(filename):
+                        m.line(ax,ay,bx,by,flags,normal is None or index in normal)
+                for location in range(4):
+                    m.call('TestTCChangePlacement',0,0)
+                    selected=m.call('TestTCChooseLocation',location)
+                    base=m.position(1)
+                    for height,units in enumerate((27,15,40,54)):
+                        for distance,spacing in enumerate((10,20,30,45)):
+                            m.call('TestTCChangePlacement',height,distance)
+                            cpu,hmn=m.position(1),m.position(0)
+                            self.assertEqual(m.call('TestTCPlacementSaved',9),height)
+                            self.assertEqual(m.call('TestTCPlacementSaved',10),distance)
+                            self.assertEqual(m.call('TestTCLastWriteField'),27)
+                            self.assertEqual(m.call('TestTCLastWriteIndex'),10)
+                            self.assertAlmostEqual(cpu[1]-base[1],units-27,delta=.002)
+                            self.assertAlmostEqual(abs(cpu[0]-hmn[0]),spacing,delta=.002)
+                            self.assertLess(hmn[1],1)
+                            before=(cpu,hmn)
+                            self.assertEqual(m.call('TestTCReloadPlacement'),1)
+                            self.assertEqual((m.position(1),m.position(0)),before)
+            self.assertGreater(len(reset_calls),0)
+        finally:m.cpu.hook_del(hook)
+
     def test_spotdodge_first_wait_frame_and_reset_only_after_completion(self):
         self.m.call("TestTCDodgeReset")
         self.assertEqual(self.m.call("TestTCDodgeStep", 1, 0), 0)  # damage fall

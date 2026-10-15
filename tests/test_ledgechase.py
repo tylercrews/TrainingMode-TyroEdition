@@ -403,6 +403,31 @@ class LedgechaseTests(unittest.TestCase):
         self.m.call("TestLCNativeFreeze", 2, 1)
         self.assertEqual(self.m.call("TestLCFastfall", -1000), 0)
 
+    def test_roll_started_between_callbacks_is_latched_and_never_requested_again(self):
+        self.m.native_ground_iasa()
+        self.m.call("TestLCPreference", 6, 2)
+        self.m.step()
+        self.m.call("TestLCPrepared", 0, 1)
+        self.m.step()
+        self.m.call("TestLCState", 2, 14, 0, 1)
+        self.m.call("TestLCUseNativeIASA", 0x8008A4D4)
+        self.m.step()  # Wait -> shield. Roll input remains queued.
+        self.assertEqual(self.m.info(12),0)
+        self.assertEqual(self.m.call("TestLCEngineIASA"),233)
+        self.m.step()  # Observe native roll before eligibility filtering.
+        self.assertEqual(self.m.info(12),1)
+        self.assertEqual(self.m.call("TestLCInputNeutral"),1)
+        for _ in range(20):self.m.step()
+        self.m.call("TestLCState",2,14,0,1)
+        loads=self.m.info(2)
+        for _ in range(29):
+            self.m.step()
+            self.assertEqual(self.m.call("TestLCStateValue",2),14)
+            self.assertEqual(self.m.call("TestLCInputNeutral"),1)
+        self.assertEqual(self.m.info(2),loads)
+        self.m.step()
+        self.assertEqual(self.m.info(2),loads+1)
+
     def test_pause_native_freeze_and_follower_hit_feedback_do_not_age_attempt(self):
         self.m.call("TestLCFollowers", 1)
         self.m.step()

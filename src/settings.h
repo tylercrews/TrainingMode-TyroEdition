@@ -98,6 +98,7 @@ enum TMSettingsField {
     TM_SETTING_EVENT_SELECTION, /* Byte 5 high six bits; page remains in low two. */
     TM_SETTING_TECHCHASE, /* Separate extension; manual chances are session-only. */
     TM_SETTING_LEDGECHASE, /* Separate extension; manual ledge chances are session-only. */
+    TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -115,6 +116,7 @@ enum TMTechchasePreference {
     TM_TECHCHASE_PRESET, TM_TECHCHASE_REACTION_OSD, TM_TECHCHASE_TIMING_OSD,
     TM_TECHCHASE_RESET, TM_TECHCHASE_INVISIBILITY, TM_TECHCHASE_CAMERA,
     TM_TECHCHASE_LOCATION, TM_TECHCHASE_SPOTDODGE, TM_TECHCHASE_CPU_COLOR,
+    TM_TECHCHASE_HEIGHT, TM_TECHCHASE_DISTANCE,
     TM_TECHCHASE_PREF_COUNT,
 };
 enum TMLedgechasePreference {
@@ -122,6 +124,7 @@ enum TMLedgechasePreference {
     TM_LEDGECHASE_PRESET, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR,
     TM_LEDGECHASE_CPU_ACTION, TM_LEDGECHASE_PREF_COUNT,
 };
+enum TMUnderFirePreference { TM_UNDERFIRE_ATTACK_PARTICLES, TM_UNDERFIRE_PREF_COUNT };
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1
 #define TM_LEDGE_DEFAULT_TIPS 1

@@ -856,9 +856,20 @@ static int under_fire_best, under_fire_event;
 static int under_fire_active, under_fire_restart, under_fire_late, under_fire_canvas;
 static int under_fire_result_valid;
 static Text *under_fire_best_text, *under_fire_inv_text;
+static Text *under_fire_action_text[2];
+static int under_fire_action_valid;
+static int under_fire_input_tick, under_fire_input_state;
+static int under_fire_in_iasa;
+static int under_fire_fall_frames, under_fire_fastfall_frames;
+static int under_fire_inv_total, under_fire_inv_frame, under_fire_inv_tick, under_fire_inv_remaining;
 static CmSubject *under_fire_camera;
-enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_INVINCIBILITY, UF_PARTICLES, UF_EXIT };
+enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_INVINCIBILITY, UF_PARTICLES, UF_CLIFF_TIMING, UF_FALL_TIMING, UF_EXIT };
 static void UnderFire_ChangeSide(GOBJ *menu, int value) { under_fire_restart = 1; }
+static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
+    Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES, value);
+    // Do not destroy all owned effects: that also erases the ledge-grab cue
+    // and double-jump rings. New attack effects are filtered at their spawn.
+}
 static void UnderFire_UpdateBestText(void) {
     if (!under_fire_best_text) return;
     unsigned frames = under_fire_best;
@@ -895,11 +906,17 @@ static EventOption under_fire_options[] = {
     {.kind = OPTKIND_STRING, .name = "Ledge Side", .values = under_fire_side_names,
      .value_num = 2, .OnChange = UnderFire_ChangeSide,
      .desc = {"Choose the left or right ledge.", "D-pad Left/Right also switches and restarts."}},
-    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Invincibility",
-     .desc = {"Show invincibility left when you regrab ledge.",
-              "Green: frames left. Red: frames late."}},
-    {.kind = OPTKIND_TOGGLE, .name = "Disable Move Particles",
-     .desc = {"Hide your move effects, including Fox/Falco up-B", "flames, to keep your character visible."}},
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Invincibility",
+     .desc = {"Perfect stall: 29f protection / 29f lockout.",
+              "Regrab at expiry renews it: 100% protection.",
+              "Perfect refresh = green 0; earlier = +frames.",
+              "Extra late frames are red -1, -2, and so on."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Disable Attack Particles", .OnChange = UnderFire_ChangeParticles,
+     .desc = {"Hide attack effects, including Fox/Falco up-B.", "Keep ledge-grab circles and double-jump rings.", "This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Drop",
+     .desc = {"Show when you drop, starting at the first legal frame.", "Frame 1 is green; anything later is red."}},
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Act/Jump",
+     .desc = {"Invincibility frame - frames after drop/fastfall.", "Both counts are white; timing varies by character."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = UnderFire_Exit,
      .desc = {"Return to the Event Selection Screen."}},
 };
@@ -922,14 +939,32 @@ void UnderFire_SetCamera(CmSubject *camera) {
     under_fire_camera = camera;
     UnderFire_UpdateCamera();
 }
-// Called by the native event after fighter collision, or immediately before
+// Called by the native practice callback, or immediately before
 // placing the player on a ledge. Bit 1 requests the existing complete restore.
-int UnderFire_Control(GOBJ *fighter, int reset) {
+int UnderFire_Control(GOBJ *fighter, int reset, int effect_id) {
+    // Effect_SpawnSync supplies the owner for models AND loose particles.
+    // This pure query is called before spawning, including late accessory GFX.
+    if (reset == 2) {
+        if (!under_fire_active || !under_fire_options[UF_PARTICLES].val ||
+            !fighter || fighter->entity_class != 4 || !fighter->userdata) return 0;
+        FighterData *ft = fighter->userdata;
+        if (ft->ply != 0 || effect_id == 1052) return 0; // Native ledge-grab circle.
+        return ft->state_kind == FTSTATEKIND_ATTACK || ft->state_kind == FTSTATEKIND_SPECIAL ||
+            (ft->state_id >= ASID_CLIFFATTACKSLOW && ft->state_id <= ASID_CLIFFATTACKQUICK);
+    }
     int side = under_fire_options[UF_SIDE].val;
     if (reset) {
         under_fire_restart = under_fire_late = 0;
         under_fire_result_valid = 0;
+        under_fire_action_valid = 0;
+        under_fire_input_tick = under_fire_input_state = -1;
+        under_fire_in_iasa = 0;
+        under_fire_fall_frames = under_fire_fastfall_frames = 0;
+        under_fire_inv_total = under_fire_inv_frame = under_fire_inv_remaining = 0;
+        under_fire_inv_tick = -1;
         if (under_fire_inv_text) under_fire_inv_text->hidden = 1;
+        for (int i = 0; i < 2; ++i)
+            if (under_fire_action_text[i]) under_fire_action_text[i]->hidden = 1;
         UnderFire_UpdateCamera();
         return side;
     }
@@ -945,38 +980,137 @@ int UnderFire_Control(GOBJ *fighter, int reset) {
         if (ft->hurt.intang_frames.ledge > 0) under_fire_late = 0;
         else if (under_fire_late < 32767) ++under_fire_late;
     }
-    if (under_fire_options[UF_PARTICLES].val) {
-        Fighter_GFXRemoveAll(fighter);
-        if (ft->flags.has_follower) {
-            GOBJ *follower = Fighter_GetSubcharGObj(ft->ply, 1);
-            if (follower) Fighter_GFXRemoveAll(follower);
-        }
-    }
     return side | (under_fire_restart ? 2 : 0);
+}
+static int UnderFire_IsFall(int state) {
+    return state >= ASID_FALL && state <= ASID_FALLAERIALB;
+}
+static int UnderFire_IsAirAction(int next) {
+    return next == ASID_JUMPAERIALF || next == ASID_JUMPAERIALB || next == ASID_ESCAPEAIR ||
+        (next >= ASID_ATTACKAIRN && next <= ASID_ATTACKAIRLW) ||
+        (next >= ASID_LIGHTTHROWAIRF && next <= ASID_LIGHTTHROWAIRLW) ||
+        (next >= ASID_LIGHTTHROWAIRF4 && next <= ASID_LIGHTTHROWAIRLW4) || next >= 341;
+}
+static void UnderFire_ShowAction(int index, const char *title, int frame, int elapsed) {
+    if (!under_fire_options[index ? UF_FALL_TIMING : UF_CLIFF_TIMING].val) return;
+    if (!under_fire_action_text[index]) {
+        Text *text = Text_CreateText(2, under_fire_canvas);
+        if (!text) return;
+        under_fire_action_text[index] = text;
+        text->kerning = 1;
+        text->align = 1;
+        text->trans.X = index ? 320 : 190;
+        text->trans.Y = 100;
+        text->viewport_scale.X = text->viewport_scale.Y = 1;
+        text->scale.X = text->scale.Y = 0.45f;
+        Text_AddSubtext(text, 0, 0, "");
+        Text_AddSubtext(text, 0, 22, "");
+    }
+    Text *text = under_fire_action_text[index];
+    Text_SetText(text, 0, title);
+    u32 color = frame == 1 ? OSD_PaletteColor(TM_COLOR_GREEN) : OSD_PaletteColor(TM_COLOR_RED);
+    if (index) {
+        Text_SetText(text, 1, "%df - %df", frame, elapsed);
+        color = 0xFFFFFFFF;
+    } else Text_SetText(text, 1, "%df", frame);
+    Text_SetColor(text, 1, (GXColor *)&color);
+    text->hidden = 0;
+    under_fire_action_valid |= 1 << index;
+}
+static void UnderFire_CaptureInvincibility(FighterData *ft) {
+    int tick = stc_match->time_frames;
+    if (under_fire_inv_tick == tick) return;
+    under_fire_inv_tick = tick;
+    under_fire_inv_remaining = ft->hurt.intang_frames.ledge;
+    if (under_fire_inv_total > 0) {
+        if (under_fire_inv_remaining > 0) {
+            // CliffWait first requires a neutral stick-release latch. The
+            // grant frame cannot drop; the next (first legal) frame is 1.
+            under_fire_inv_frame = under_fire_inv_total - under_fire_inv_remaining;
+        } else if (under_fire_inv_frame < 32767) ++under_fire_inv_frame;
+    }
+}
+// phase: 0/1 bracket IASA; 2 samples a state change; 3 observes a native
+// protection grant; 4 samples every animation update, even with no IASA.
+void UnderFire_Timing(FighterData *ft, int phase, int next) {
+    if (!under_fire_active || ft->ply != 0 || ft->flags.ms) return;
+    if (phase == 1) { under_fire_in_iasa = 0; return; }
+    if (phase == 3) {
+        if (ft->state_id == ASID_CLIFFWAIT && next > 0) {
+            under_fire_inv_total = next > ft->hurt.intang_frames.ledge ? next : ft->hurt.intang_frames.ledge;
+            under_fire_inv_frame = under_fire_inv_remaining = 0;
+            under_fire_inv_tick = -1;
+        }
+        return;
+    }
+    if (ft->flags.dead || ft->flags.sleep || ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames > 0) return;
+    int state = ft->state_id;
+    if (phase == 4) { UnderFire_CaptureInvincibility(ft); return; }
+    if (phase == 0) {
+        UnderFire_CaptureInvincibility(ft);
+        int tick = stc_match->time_frames;
+        under_fire_in_iasa = 1;
+        if (under_fire_input_tick == tick) return;
+        under_fire_input_tick = tick;
+        under_fire_input_state = state;
+        if (UnderFire_IsFall(state)) {
+            if (under_fire_fall_frames < 32767) ++under_fire_fall_frames;
+            if (ft->flags.is_fastfall) {
+                if (under_fire_fastfall_frames < 32767) ++under_fire_fastfall_frames;
+            } else under_fire_fastfall_frames = 0;
+        }
+        return;
+    }
+    int from_input = under_fire_in_iasa && under_fire_input_tick == stc_match->time_frames && under_fire_input_state == state;
+    // The SDK exposes state variables as integers; read the native float
+    // without aliasing that storage through a different struct type.
+    float cliff_fall_timer;
+    memcpy(&cliff_fall_timer, &ft->state_var.state_var2, sizeof(cliff_fall_timer));
+    if (from_input && state == ASID_CLIFFWAIT && next == ASID_FALL &&
+        cliff_fall_timer > 0)
+        UnderFire_ShowAction(0, "Ledge Drop", under_fire_inv_frame, 0);
+    if (from_input && UnderFire_IsFall(state) && !UnderFire_IsFall(next) && UnderFire_IsAirAction(next)) {
+        int fastfall = ft->flags.is_fastfall && under_fire_fastfall_frames > 0;
+        UnderFire_ShowAction(1, "Act/Jump", under_fire_inv_frame,
+            fastfall ? under_fire_fastfall_frames : under_fire_fall_frames);
+    }
+    if (!UnderFire_IsFall(state) || !UnderFire_IsFall(next))
+        under_fire_fall_frames = under_fire_fastfall_frames = 0;
 }
 void UnderFire_Regrab(GOBJ *fighter) {
     if (!under_fire_active || !under_fire_options[UF_INVINCIBILITY].val) return;
     FighterData *ft = fighter->userdata;
     if (ft->ply != 0 || ft->flags.ms) return;
-    // CliffCatch has not yet renewed ledge protection. The event's post-
-    // collision counter covers earlier tangible frames; include this frame.
+    // Keep this frame's pre-transition sample: catch/state cleanup can already
+    // have cleared the live timer. Do not confuse that with expired protection.
     int remaining = ft->hurt.intang_frames.ledge;
-    int result = remaining > 0 ? remaining : -(under_fire_late + 1);
+    if (under_fire_inv_tick == stc_match->time_frames && under_fire_inv_remaining > remaining)
+        remaining = under_fire_inv_remaining;
+    int late = under_fire_inv_total > 0 && under_fire_inv_frame >= under_fire_inv_total
+        ? under_fire_inv_frame - under_fire_inv_total + 1 : under_fire_late > 0 ? under_fire_late : 1;
+    /* Because the remaining intangibility and the ledgegrab lockout are both
+     * exactly 29 frames, a perfectly executed stall regrabs the ledge on the
+     * exact frame your invincibility ends, offering 100% total intangibility.
+     * https://smashboards.com/threads/question-about-firefox-ledgestall.357655/
+     * That refresh boundary is green 0; additional tangible frames are -1,
+     * -2, etc. Earlier catches retain +frames. This is a diagnostic convention,
+     * not a change to the engine's protection or ledge-grab eligibility. */
+    int result = remaining > 0 ? remaining : 1 - late;
     if (!under_fire_inv_text) {
         Text *text = Text_CreateText(2, under_fire_canvas);
         if (!text) return;
         under_fire_inv_text = text;
         text->kerning = 1;
         text->align = 1;
-        text->trans.X = 320;
+        text->trans.X = 450;
         text->trans.Y = 100;
         text->viewport_scale.X = text->viewport_scale.Y = 1;
         text->scale.X = text->scale.Y = 0.45f;
-        Text_AddSubtext(text, 0, 0, "Ledge Invincibility");
+        Text_AddSubtext(text, 0, 0, "Invincibility");
         Text_AddSubtext(text, 0, 22, "");
     }
-    GXColor color = remaining > 0 ? (GXColor){80,255,90,255} : (GXColor){255,40,40,255};
-    Text_SetText(under_fire_inv_text, 1, "%+df", result);
+    GXColor color = result >= 0 ? (GXColor){80,255,90,255} : (GXColor){255,40,40,255};
+    Text_SetText(under_fire_inv_text, 1, result ? "%+df" : "%df", result);
     Text_SetColor(under_fire_inv_text, 1, &color);
     under_fire_inv_text->hidden = 0;
     under_fire_result_valid = 1;
@@ -991,6 +1125,11 @@ static void UnderFire_Update(void) {
     if (under_fire_inv_text)
         under_fire_inv_text->hidden = !under_fire_result_valid || !under_fire_options[UF_INVINCIBILITY].val ||
             ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
+    for (int i = 0; i < 2; ++i)
+        if (under_fire_action_text[i])
+            under_fire_action_text[i]->hidden = !(under_fire_action_valid & (1 << i)) ||
+                !under_fire_options[i ? UF_FALL_TIMING : UF_CLIFF_TIMING].val ||
+                ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
     Develop_UpdateMatchHotkeys();
 }
 void UnderFire_InitMenu(void) {
@@ -1000,15 +1139,24 @@ void UnderFire_InitMenu(void) {
     under_fire_result_valid = 0;
     under_fire_camera = 0;
     under_fire_inv_text = 0;
+    under_fire_action_text[0] = under_fire_action_text[1] = 0;
+    under_fire_action_valid = 0;
+    under_fire_input_tick = under_fire_input_state = -1;
+    under_fire_in_iasa = 0;
+    under_fire_fall_frames = under_fire_fastfall_frames = 0;
+    under_fire_inv_total = under_fire_inv_frame = under_fire_inv_remaining = 0;
+    under_fire_inv_tick = -1;
     under_fire_event = stc_memcard->EventBackup.event;
     under_fire_best_text = 0;
     for (int row = 0; row < UF_EXIT; ++row) {
-        int value = row == UF_HIGHLIGHT || row == UF_INVINCIBILITY;
+        int value = row == UF_HIGHLIGHT || row == UF_INVINCIBILITY || row == UF_CLIFF_TIMING || row == UF_FALL_TIMING;
         under_fire_options[row].val = under_fire_options[row].val_prev = value;
     }
     under_fire_menu.scroll = under_fire_menu.cursor = 0;
     stc_event_vars.event_desc = &Ledgestall;
     stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
+    under_fire_options[UF_PARTICLES].val = under_fire_options[UF_PARTICLES].val_prev =
+        Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES);
     Trails_SetOverride(&under_fire_options[1].val);
     ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
     stc_hsd_update->onFrame = UnderFire_Update;

@@ -7,6 +7,17 @@ enum TCTechPreset {
     TC_PRESET_AWAY_TOWARD, TC_PRESET_TYRO, TC_PRESET_COUNT
 };
 enum TCLocation { TC_CENTER, TC_LEFT_PLATFORM, TC_RIGHT_PLATFORM, TC_TOP_PLATFORM, TC_LOCATION_COUNT };
+enum { TC_HEIGHT_COUNT = 4, TC_DISTANCE_COUNT = 4 };
+
+static float TC_DropHeight(int option) {
+    static const float heights[TC_HEIGHT_COUNT] = {27, 15, 40, 54};
+    return heights[option >= 0 && option < TC_HEIGHT_COUNT ? option : 0];
+}
+
+static float TC_PlayerDistance(int option) {
+    static const float distances[TC_DISTANCE_COUNT] = {10, 20, 30, 45};
+    return distances[option >= 0 && option < TC_DISTANCE_COUNT ? option : 0];
+}
 enum TCPunishPhase { TC_PUNISH_START, TC_PUNISH_TECH, TC_PUNISH_DODGING, TC_PUNISH_FINISHED };
 enum TCPunishState { TC_STATE_OTHER, TC_STATE_OPTION, TC_STATE_WAIT, TC_STATE_DODGE };
 enum TCPunishAction { TC_ACTION_NONE, TC_ACTION_DODGE, TC_ACTION_RESET };

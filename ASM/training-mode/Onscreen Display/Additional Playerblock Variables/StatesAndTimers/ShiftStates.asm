@@ -8,6 +8,10 @@
     mr r3, r26
     mr r4, r24
     rtocbl r12, TM_ASmashEnter
+    mr r3, r26
+    li r4, 2
+    mr r5, r24
+    rtocbl r12, TM_UnderFireTiming
     SettingsRestore
 
 # Store Previous AS + Reset AS Frame Count Timer
