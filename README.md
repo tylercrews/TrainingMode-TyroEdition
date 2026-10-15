@@ -19,7 +19,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
-- Highlight events with Tyro-specific additions or changes in cyan on the event select screen: Training Lab, Ledgedash, Wavedash, Techchase, Ledgechase, Powershield, Side-B Sweetspot, Low Laser Puff Practice, Eggs-ercise and Under Fire. Shared global features alone do not change an event's label color.
+- Highlight events with Tyro-specific additions or changes in cyan on the event select screen: Training Lab, Ledgedash, Techchase, Ledgechase, Powershield, Side-B Sweetspot, Low Laser Puff Practice, Eggs-ercise and Under Fire. Shared global features alone do not change an event's label color.
 - Add L + R + A + Start to exit every event directly during gameplay or from any menu, retaining each event's Exit cleanup and score saving; analog trigger presses are supported.
 - Replace the Angle label with an octagonal stick-direction diagram beside the existing number in the global Wavedash OSD and the Wavedash/Ledgedash training HUDs, preserving font size and the actual left/right direction.
 - Improve Powershield Training with Yellow>Green cues for laser hitstun, shieldstun and reflection recovery, confirmed powershield successes, paired Act out of Laser / Powershield OSDs, in-game help and saved event options. See [event details](docs/POWERSHIELD-TRAINING.md).

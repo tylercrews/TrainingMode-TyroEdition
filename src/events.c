@@ -135,7 +135,6 @@ static EventMatchData Wavedash_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Wavedash = {
-    .tyro_edited = true,
     .eventName = "Wavedash Training\n",
     .eventDescription = "Practice timing your wavedash,\na fundamental movement technique.\n",
     .eventFile = "wavedash",
