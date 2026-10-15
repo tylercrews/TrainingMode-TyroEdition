@@ -1004,6 +1004,9 @@
 801C9808:Stage_SpawnEffectJointPos2
 801C96F8:Stage_SpawnEffectPos
 801C2FE0:Stage_UpdateMovingColl
+801D4548:Stage_StadiumUpdate
+801C65B0:Stage_UnloadSecondaryArchive
+80016580:File_ReadAsync
 80224E64:Stage_GetSpawnPosition
 80325878:strchr
 803258E8:strcmp

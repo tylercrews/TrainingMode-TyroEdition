@@ -1546,9 +1546,6 @@ static const CharacterRngOptions character_rng_options[FTKIND_SANDBAG] = {
 
 // STAGE MENU STADIUM --------------------------------------------------------
 
-#define TRANSFORMATION_TIMER_PTR ((s32**)(R13 - 0x4D28))
-#define TRANSFORMATION_ID_PTR ((int*)(R13 + 14200))
-
 enum stage_stadium_option
 {
     OPTSTAGE_STADIUM_TRANSFORMATION,
@@ -1562,9 +1559,9 @@ static EventOption LabOptions_Stage_Stadium[OPTSTAGE_STADIUM_COUNT] = {{
     .value_num = sizeof(LabValues_StadiumTransformation) /
                  sizeof(*LabValues_StadiumTransformation),
     .name = "Transformation",
-    .desc = {"Set the current Pokemon Stadium transformation.",
-             "Requires Stage Hazards to be on.",
-             "THIS OPTION IS EXPERMIMENTAL AND HAS ISSUES."},
+    .desc = {"Choose and hold a Pokemon Stadium form.",
+             "Resume play to transform; works with Hazards Off.",
+             "Changing forms returns through Normal first."},
     .values = LabValues_StadiumTransformation,
     .OnChange = Lab_ChangeStadiumTransformation,
 }};

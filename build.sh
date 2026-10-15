@@ -104,7 +104,7 @@ queue_mex_build() {
 # compile code in parallel
 queue_mex_build "tmFunction" "build/eventMenu.dat" "src/events.c src/menu.c src/osds.c src/savestate_v1.c src/settings.c src/settings_extension.c src/settings_game.c src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c" "dats/eventMenu.dat"
 queue_mex_build "cssFunction" "build/labCSS.dat" "src/lab_css.c" "dats/labCSS.dat"
-queue_mex_build "evFunction" "build/lab.dat" "src/lab.c" "dats/lab.dat"
+queue_mex_build "evFunction" "build/lab.dat" "src/lab.c src/stadium.c" "dats/lab.dat"
 queue_mex_build "evFunction" "build/lcancel.dat" "src/lcancel.c"
 queue_mex_build "evFunction" "build/ledgedash.dat" "src/ledgedash.c src/ledgedash_logic.c"
 queue_mex_build "evFunction" "build/wavedash.dat" "src/wavedash.c" "dats/wavedash.dat"

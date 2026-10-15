@@ -1,6 +1,7 @@
 #include "lab.h"
 #include "recovery.c"
 #include "lab_menu.h"
+#include "stadium.h"
 
 #include <stddef.h>
 
@@ -263,28 +264,7 @@ void Lab_CustomOSDsThink(void) {
 }
 
 void Lab_ChangeStadiumTransformation(GOBJ *menu_gobj, int value) {
-    // Transformation decision making is entirely located in one HUGE function (PokemonStadium_TransformationDecide),
-    // so instead of just having a simple "SetTransformation(Fire)" function call,
-    // we need to directly set the timers and overwrite the randomness call to set the transformation.
-    // Incredibly hacky, but no better way I can think of.
-
-    if (value == 0) return; // TODO
-
-    GOBJ *gobj = Stage_GetMapGObj(2);
-
-    u8 *tform_data = gobj->userdata;
-    *(u32*)(tform_data + 0xD8) = -1; // set transformation timer
-
-    s32 *timers = *TRANSFORMATION_TIMER_PTR;
-    timers[2] = 0x1000001; // max transformation length
-    timers[3] = 0x1000000; // default transformation length
-    timers[4] = 0;         // screen flash length
-
-    // We overwrite the HSD_Randi call in Event_Init before PokemonStadium_TransformationDecide is run
-    // to prevent dolphin from jitting before we run the modified asm. It's overwritten to instead read
-    // from the global address modified here.
-    int transformation_id = value - 1;
-    *TRANSFORMATION_ID_PTR = transformation_id;
+    Stadium_Select(value);
 }
 
 void Lab_ChangeInputDisplay(GOBJ *menu_gobj, int value) {
@@ -6195,12 +6175,7 @@ void Event_Init(GOBJ *gobj)
         LabOptions_Main[OPTLAB_STAGE].menu = stage_menu;
     }
 
-    // Aitch: replace HSD_Randi call in stadium transformation code with lwz r3, TRANSFORMATION_ID_PTR
-    // No way around this hack really, we can't fake the transformation well because loading is done immediately after
-    // the randi call, so we would have to decompile the entire 50k asm line function and reverse engineer the state machine.
-    // Directly overwriting the asm is the best call for now imo.
-    // This needs to be done here in init, as dolphin will jit the function when it runs and overwriting won't do anything.
-    *(u32*)(0x801d463c) = 0x806d3778;
+    Stadium_Init(event_vars->event_desc->disable_hazards);
 
     event_vars->savestate_saved_while_mirrored = false;
     event_vars->loaded_mirrored = false;
