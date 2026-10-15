@@ -1,6 +1,6 @@
 # Spare event-score storage audit
 
-**Current capacity (October 15, 2026):** `TYEX` version 11 owns 24 of the audited 88 bytes, leaving **64 contiguous bytes unallocated**. See the [availability addendum](#availability-addendum-2026-10-15) for the current bit ledger; earlier version-specific totals below are historical.
+**Current capacity (October 15, 2026):** `TYEX` version 12 owns 24 of the audited 88 bytes, leaving **64 contiguous bytes unallocated**, plus eighteen unused bits within its allocated payload. See the [version-12 addendum](#version-12-shield-di-and-expanded-reversal-actions); earlier version-specific totals below are historical.
 
 Verified October 14, 2026 against the current event catalogue, `build/Start.dol`,
 the optimized shared event DAT and the compiled native hooks. The original
@@ -163,6 +163,8 @@ Versions 1..10 initialize the new word, retaining all previously supported prefe
 
 ## Availability addendum — October 15, 2026
 
+Version-11 snapshot; the [version-12 addendum](#version-12-shield-di-and-expanded-reversal-actions) below accounts for two subsequently allocated padding bits.
+
 Attack on Shield and Reversal consume **four additional bytes**, growing the extension from 20 to 24 bytes. Current settings ownership is 44 core bytes + 24 extension bytes = **68 bytes**, without growing the native save file or allocating another card block.
 
 | Extension region | Game-data offsets | Bytes |
@@ -177,3 +179,11 @@ The new word uses nineteen of its thirty-two bits, leaving thirteen unassigned. 
 The original 44-byte record separately has **one unused bit**, byte 37 bit 7 (`0x1F49`, mask `0x80`), and no unused whole bytes. Thus the contiguous expansion budget is **64 bytes / 512 bits**, with another twenty extension padding bits and one core bit available only through explicit field allocation and compatible initialization. About 73% of the audited extension region remains unallocated. This does not establish that any other part of the save is available.
 
 Recomputed production field masks show 102 live payload bits + six preserved legacy bits + twenty unassigned bits = 128 payload bits. The header adds 64 bits, giving the current 192-bit / 24-byte record. All totals agree with `TM_EXTENSION_SIZE=24`, `TM_EXTENSION_VERSION=11` and the fixed end boundary at `0x1B38`. Existing native serialization, checksum, score-identity and records-reset protections continue to apply. For the detailed core reserve history and the new events' per-field budget, see [memory investigation addendum 54](OSD-GLOBAL-SETTINGS-INVESTIGATION.md#save-memory-addendum-2026-10-15).
+
+## Version 12: Shield DI and expanded Reversal actions
+
+Ownership stays **24 bytes at `0x1AE0..0x1AF7`**, leaving **64 contiguous bytes at `0x1AF8..0x1B37`** unallocated. Shield DI consumes bit 19 of the word at extension bytes 20..23 (In=0, Out=1). Bit 20 supplies Reversal's fifth attack bit, while its original four bits remain at 0..3. Attack on Shield's fifteen actions fit the existing four-bit slot at 9..12, so that expansion costs no new bits. Reversal's seventeen choices include Grab, Run Up JC Grab and Spotdodge Shine.
+
+The event word now uses 21 bits, leaving bits 21..31 unused. Total unused payload capacity is **18 bits**: extension byte 8 bits 3..7, byte 10 bit 7, byte 11 bit 7, byte 22 bits 5..7, and byte 23. The sixteen-byte payload reconciles as **104 live preference bits + six preserved legacy bits + eighteen unused bits = 128 bits**. The original core separately retains one unused bit at byte 37 bit 7. Total settings ownership remains 68 bytes; native save-file size, card block count and score boundaries do not change.
+
+Version-11 migration preserves valid old choices and existing unrelated padding, clears the newly owned bits 19/20, and repairs formerly invalid action values to zero. It does not reinterpret invalid old Reversal 14/15 or Attack on Shield 10..15 as newly supported choices. Version-12 reads/writes reconstruct and mask Reversal's split five-bit index explicitly, preserving adjacent distance/facing fields. Prior migrations and foreign/unknown-format protections remain. Tests cover all legal/invalid action writes, split-bit round trips, version-11 migration with padding canaries and native records erasure for versions 1..12. Runtime input/approach state and pause-screen suppression consume no save bits. See [memory investigation addendum 55](OSD-GLOBAL-SETTINGS-INVESTIGATION.md#save-memory-shield-actions-v12).

@@ -222,7 +222,10 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.install_hook(0x8015CF60, 0x80600000)
         machine.install_hook(0x8015CF74, 0x80602000)
         machine.call(functions[28],29,1,1)  # Known Under Fire count-format record.
-        machine.cpu.mem_write(BASE + SPARE_START + 16,bytes((index*13+3)&255 for index in range(SPARE_SIZE-16)))
+        machine.call(functions[28],33,0,16)  # Split-bit Reversal action is a live preference.
+        machine.call(functions[28],34,0,14)
+        machine.call(functions[28],34,4,1)
+        machine.cpu.mem_write(BASE + SPARE_START + 24,bytes((index*13+3)&255 for index in range(SPARE_SIZE-24)))
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
         for page, count, first in ((0, 5, 0), (1, 17, 5), (2, 7, 21)):
             machine.call(functions[28], 2, 0, page)
@@ -301,8 +304,8 @@ class ScoreStorageAudit(unittest.TestCase):
             self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1B3C,4)),bytes(4))
             self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1F24,44)),core)
 
-    def test_recognized_v1_through_v11_records_reset_score_50_without_migrating_saved_bytes(self):
-        for header in (b'TYEX\x01\x04\xA5\x5A', b'TYEX\x02\x08\xA5\x5A', b'TYEX\x03\x08\xA5\x5A', b'TYEX\x04\x08\xA5\x5A', b'TYEX\x05\x08\xA5\x5A', b'TYEX\x06\x08\xA5\x5A', b'TYEX\x07\x08\xA5\x5A', b'TYEX\x08\x0C\xA5\x5A', b'TYEX\x09\x0C\xA5\x5A', b'TYEX\x0A\x0C\xA5\x5A', b'TYEX\x0B\x10\xA5\x5A'):
+    def test_recognized_v1_through_v12_records_reset_score_50_without_migrating_saved_bytes(self):
+        for header in (b'TYEX\x01\x04\xA5\x5A', b'TYEX\x02\x08\xA5\x5A', b'TYEX\x03\x08\xA5\x5A', b'TYEX\x04\x08\xA5\x5A', b'TYEX\x05\x08\xA5\x5A', b'TYEX\x06\x08\xA5\x5A', b'TYEX\x07\x08\xA5\x5A', b'TYEX\x08\x0C\xA5\x5A', b'TYEX\x09\x0C\xA5\x5A', b'TYEX\x0A\x0C\xA5\x5A', b'TYEX\x0B\x10\xA5\x5A', b'TYEX\x0C\x10\xA5\x5A'):
             machine=NativeMachine(); functions=machine.load_services()
             machine.call(functions[28],2,0,1)
             machine.install_hook(0x8015EF14,0x80604000)

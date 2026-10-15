@@ -1487,6 +1487,9 @@ Reversal:
     li r7, 0                                            # OSD
     li r8, 0                                            # Use Sopo bool
     bl InitializeMatch
+    # The C menu owns pausing: suppress the native pause screen/camera.
+    mr r3, r26
+    bl ShieldTrainingMatchMenu
 
     # STORE THINK FUNCTION
     bl ReversalLoad
@@ -1511,7 +1514,7 @@ ReversalLoad:
     bl ReversalThink
     mflr r3
     li r4, 3                                            # Priority (After Interrupt)
-    li r5, 0 # Modern menu is initialized by StartOSDs
+    li r5, 0 # C menu owns pause/navigation
     li r6, 0
     bl CreateEventThinkFunction
 
@@ -1630,6 +1633,14 @@ ReversalCheckToAttack:
     bne ReversalCheckToReset
 
 ReversalDecideSmashAttack:
+    lbz r3, CPUAttack(MenuData)
+    cmpwi r3, 14
+    blt ReversalLegacyAttack
+    li r3, 6 # SHIELD_REV_INPUT: grab / run-up JC grab / spotdodge shine.
+    mr r4, P2Data
+    bl ShieldTrainingBridge
+    b ReversalCheckToReset
+ReversalLegacyAttack:
     lbz r3, CPUAttack(MenuData)
     cmpwi r3, 0x0
     beq ReversalRandomSmashAttack
@@ -1965,6 +1976,10 @@ ReversalAdjustCPUDirection_Skip:
 ReversalLoadState:
     addi r3, EventData, EventData_SaveStateStruct
     bl SaveState_Load
+    # Legacy restores bypass Savestate_v1's observer cleanup.
+    li r3, 7 # SHIELD_RESET: clear hit counts and action phases on every retry.
+    li r4, 0
+    bl ShieldTrainingBridge
     # Reset Timer
     li r3, 30
     branchl r12, HSD_Randi
@@ -2095,154 +2110,6 @@ Reversal_Blacklist:
     # Roy
     .long 0x00010000                                    # FSmash USmash DSmash
 
-####################################################
-
-ReversalWindowInfo:
-    blrl
-# amount of options, amount of options in each window
-
-    .long 0x030D0101                                    # 3 window, Smash Attack has 13 options, Facing Direction Has 2
-    .long 0x01000000                                    # Position has 2
-
-####################################################
-
-ReversalWindowText:
-    blrl
-
-########
-## DI ##
-########
-
-    # Window Title = CPU Attack
-    .long 0x43505520
-    .long 0x41747461
-    .long 0x636b0000
-
-    # Option 1 = Random Smash Attack
-    .long 0x52616e64
-    .long 0x6f6d2053
-    .long 0x6d617368
-    .long 0x20417474
-    .long 0x61636b00
-
-    # Option 2 = Forward Smash
-    .long 0x466f7277
-    .long 0x61726420
-    .long 0x536d6173
-    .long 0x68000000
-
-    # Option 3 = Down Smash
-    .long 0x446f776e
-    .long 0x20536d61
-    .long 0x73680000
-
-    # Option 4 = Up Smash
-    .long 0x55702053
-    .long 0x6d617368
-    .long 0x00000000
-
-    # Option 5 = Random Aerial
-    .long 0x52616e64
-    .long 0x6f6d2041
-    .long 0x65726961
-    .long 0x6c000000
-
-    # Option 6 = Fair
-    .long 0x46616972
-    .long 0x00000000
-
-    # Option 7 = Nair
-    .long 0x4e616972
-    .long 0x00000000
-
-    # Option 8 = Dair
-    .long 0x44616972
-    .long 0x00000000
-
-    # Option 9 = FTilt
-    .long 0x4654696c
-    .long 0x74000000
-
-    # Option 10 = DTilt
-    .long 0x4454696c
-    .long 0x74000000
-
-    # Option 11 = UTilt
-    .long 0x5554696c
-    .long 0x74000000
-    
-    # Option 12 - Dash Attack
-    .string "Dash Attack"
-
-    # Option 13 - Getup Attack (Stomach)
-    .string "Getup Attack (Stomach)"
-
-    # Option 14 - Getup Attack (Back)
-    .string "Getup Attack (Back)"
-
-#########$$$#############
-## P1 Facing Direction ##
-##########$$$############
-
-    # Window Title = Facing Direction
-    .long 0x50312046
-    .long 0x6163696e
-    .long 0x67204469
-    .long 0x72656374
-    .long 0x696f6e00
-
-    # Option 1 = Towards
-    .long 0x546f7761
-    .long 0x72647300
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-    # Option 2 = Away
-    .long 0x41776179
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-#########$$$##############
-## CPU Facing Direction ##
-##########$$$#############
-
-    # Window Title = CP Facing Direction
-    .long 0x43502046
-    .long 0x6163696e
-    .long 0x67204469
-    .long 0x72656374
-    .long 0x696f6e00
-
-    # Option 1 = Towards
-    .long 0x546f7761
-    .long 0x72647300
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-    # Option 2 = Away
-    .long 0x41776179
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-##############
-## Position ##
-##############
-
-    # Window Title
-    .string "Position"
-
-    # Options
-    .string "Ground"
-    .string "Platform"
-
-
-    .align 2
 ####################################################
 
 ReversalLoadExit:
@@ -2517,6 +2384,9 @@ AttackOnShield:
     li r7, 0                                            # OSD
     li r8, 0                                            # Use Sopo bool
     bl InitializeMatch
+    # The C menu owns pausing: suppress the native pause screen/camera.
+    mr r3, r26
+    bl ShieldTrainingMatchMenu
 
     # STORE THINK FUNCTION
     bl AttackOnShieldLoad
@@ -2541,7 +2411,7 @@ AttackOnShieldLoad:
     bl AttackOnShieldThink
     mflr r3
     li r4, 3                                            # Priority (After Interrupt)
-    li r5, 0 # Modern menu is initialized by StartOSDs
+    li r5, 0 # C menu owns pause/navigation
     li r6, 0
     bl CreateEventThinkFunction
 
@@ -2625,228 +2495,15 @@ AttackOnShieldThinkSequence:
     b AttackOnShieldRestoreState
 
 AttackOnShieldNoOptionToggled:
-    # Get Floats
-    bl AttackOnShield_Floats
-    mflr r21
-    # Get Frames as Int
-    lfs f1, 0x894(r29)
-    fctiwz f1, f1
-    stfd f1, 0xF0(sp)
-    lwz r22, 0xF4(sp)
-
-    # Check If Perfroming OoS Option
-    lwz r3, 0x4(r31)
-    cmpwi r3, 0x0
-    ble AttackOnShieldShieldWait
-    # Branch To OoSThink
-    lbz r3, OoSOption(MenuData)
-    cmpwi r3, 0x1
-    beq AttackOnShieldNairThink
-    cmpwi r3, 0x2
-    beq AttackOnShieldUpBThink
-    cmpwi r3, 0x3
-    beq AttackOnShieldUpSmashThink
-    cmpwi r3, 0x4
-    beq AttackOnShieldShineThink
-    cmpwi r3, 0x8
-    beq AttackOnShieldWavedashThink
-    b AttackOnShieldShieldWait
-
-AttackOnShieldNairThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x19
-    bne AttackOnShieldCheckToReset
-    # Input Nair
-    li r3, 0x100
-    stw r3, 0x1A88(r29)
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldUpBThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x18
-    bne AttackOnShieldCheckToReset
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 0x200
-    stw r3, 0x1A88(r29)                                 # Press B
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldUpSmashThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x18
-    bne AttackOnShieldCheckToReset
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 0x100
-    stw r3, 0x1A88(r29)                                 # Press A
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldShineThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x19
-    bne AttackOnShieldCheckToReset
-    # Input Shine
-    li r3, -127
-    stb r3, 0x1A8D(r29)
-    li r3, 0x200
-    stw r3, 0x1A88(r29)
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldWavedashThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x19
-    bne AttackOnShieldCheckToReset
-    # Get Random Airdodge Angle
-    li r3, 30                                           # 30 Different Angles
-    branchl r12, HSD_Randi
-    addi r3, r3, 310                                    # Start at 310°
-    bl ComboTrainingDecideStickAngle_ConvertAngle
-    mr r20, r3
-    # Joystick X = X Component * (OpponentDirection)
-    bl GetDirectionInRelationToP1
-    mullw r3, r3, r20
-    stb r3, 0x1A8C(r29)
-    # Joystick Y = Y Component
-    stb r4, 0x1A8D(r29)
-    # Press L To Wavedash
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldShieldWait:
-    # Always Hold L
-    li r3, 0xC0                                         # Hit L
-    stw r3, 0x1A88(r29)                                 # Held Buttons
-
-    # Check If Got Shield Poked
-    # Hitlag
-    lbz r3, 0x221A(r29)                                 # Check If in Hitlag
-    rlwinm. r3, r3, 0, 26, 26
-    beq AttackOnShieldCheckForShieldHit
-    # Damage State
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x4B
-    blt AttackOnShieldCheckForShieldHit
-    cmpwi r3, 0x5B
-    bgt AttackOnShieldCheckForShieldHit
-    # Was Hit, Start Reset Timer
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldCheckForShieldHit:
-    # Check If In ShieldWait (0xb3)
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0xB3
-    bne AttackOnShieldCheckToReset
-    # Check If Was Just in ShieldStun
-    lhz r3, TM_OneASAgo(r29)
-    cmpwi r3, 0xB5
-    bne AttackOnShieldCheckToReset
-    li r3, 2 # SHIELD_REACT: consume only after the selected hit count.
-    li r4, 0
+    li r3, 5 # SHIELD_AOS_INPUT
+    mr r4, P2Data
     bl ShieldTrainingBridge
-    cmpwi r3, 0
-    beq AttackOnShieldCheckToReset
-    # Input OoS Option
-    lbz r3, OoSOption(MenuData)
-    cmpwi r3, 0x0
-    beq AttackOnShieldInputGrab
-    cmpwi r3, 0x1
-    beq AttackOnShieldNair
-    cmpwi r3, 0x2
-    beq AttackOnShieldUpB
-    cmpwi r3, 0x3
-    beq AttackOnShieldUpSmash
-    cmpwi r3, 0x4
-    beq AttackOnShieldShine
-    cmpwi r3, 0x5
-    beq AttackOnShieldSpotdodge
-    cmpwi r3, 0x6
-    beq AttackOnShieldRollAway
-    cmpwi r3, 0x7
-    beq AttackOnShieldRollTowards
-    cmpwi r3, 0x8
-    beq AttackOnShieldWavedash
-    cmpwi r3, 0x9
-    beq AttackOnShieldNone
-
-AttackOnShieldInputGrab:
-    li r3, 0x1C0
-    stw r3, 0x1A88(r29)                                 # Press R+A
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldNair:
-    li r3, 0xCC0
-    stw r3, 0x1A88(r29)                                 # Press X/Y
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldUpB:
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldUpSmash:
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldShine:
-    li r3, 0xCC0
-    stw r3, 0x1A88(r29)                                 # Press X/Y
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldSpotdodge:
-    li r3, -127
-    stb r3, 0x1A8D(r29)                                 # Press Down
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)                                 # Press R
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldRollAway:
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)                                 # Press R
-    # Push Towards Opponent's Direction
-    bl GetDirectionInRelationToP1
-    li r4, 127
-    mullw r3, r3, r4
-    stb r3, 0x1A8C(r29)                                 # Press Away
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-    
-AttackOnShieldRollTowards:
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)                                 # Press R
-    # Push Towards Opponent's Direction
-    bl GetDirectionInRelationToP1
-    li r4, -127
-    mullw r3, r3, r4
-    stb r3, 0x1A8C(r29)                                 # Press Away
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldWavedash:
-    li r3, 0xCC0
-    stw r3, 0x1A88(r29)                                 # Press X/Y
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldNone:
+    cmpwi r3, 2 # Do not age the reset timer during hitlag/freeze.
+    beq AttackOnShieldThinkExit
+    cmpwi r3, 1 # Start the existing post-response / shield-poke reset delay.
+    bne AttackOnShieldCheckToReset
+    li r3, 48
+    stw r3, 0x4(EventData)
     b AttackOnShieldThinkExit
 
 # Check To Reset
@@ -2872,6 +2529,10 @@ AttackOnShieldRestoreState:
     # Restore State
     addi r3, EventData, EventData_SaveStateStruct
     bl SaveState_Load
+    # Legacy restores bypass Savestate_v1's observer cleanup.
+    li r3, 7 # SHIELD_RESET: clear hit counts and action phases on every retry.
+    li r4, 0
+    bl ShieldTrainingBridge
     b AttackOnShieldThinkExit
 
 AttackOnShieldThinkExit:
@@ -2892,36 +2553,6 @@ AttackOnShield_Floats:
 
 #################################
 
-AttackOnShieldWindowInfo:
-    blrl
-# amount of options, amount of options in each window
-
-    .long 0x0009FFFF                                    # 1 window, OoS Option has 11 options
-
-####################################################
-
-AttackOnShieldWindowText:
-    blrl
-
-################
-## OoS Option ##
-################
-
-    .string "OoS Option"
-    
-    .string "Grab"
-    .string "Nair"
-    .string "Up B"
-    .string "Up Smash"
-    .string "Shine"
-    .string "Spotdodge"
-    .string "Roll Away"
-    .string "Roll Towards"
-    .string "Wavedash Away"
-    .string "None"
-
-    .align 2
-    
 AttackOnShieldLoadExit:
     restore
     blr
@@ -8543,6 +8174,17 @@ P2Struct:
 ###########################
 ## Create Think Function ##
 ###########################
+# MatchInit byte 2 bit 3 disables native pausing; byte 3 bit 1 hides
+# the native pause HUD. Match_FreezeGame(1) still serves the C menu.
+ShieldTrainingMatchMenu:
+    lbz r4, 2(r3)
+    ori r4, r4, 0x08
+    stb r4, 2(r3)
+    lbz r4, 3(r3)
+    ori r4, r4, 0x02
+    stb r4, 3(r3)
+    blr
+
 ShieldTrainingBridge:
     mflr r0
     stw r0, 4(sp)

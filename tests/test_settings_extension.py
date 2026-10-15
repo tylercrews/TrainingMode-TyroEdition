@@ -13,12 +13,12 @@ LEDGE_DEFAULTS = (0, 0, 0, 0, 1, 7, 0, 0, 2, 0)
 PS_COUNTS = (4,61,61,5,2,4,2,2,2,2)
 PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
-SHIELD_FIELDS = ((33,(14,4,2,2,2),(0,0,0,0,0)), (34,(10,5,2,4),(0,0,1,0)))
+SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
 
 def upgraded(raw):
     value = bytearray(raw)
-    value[4:6] = bytes((11,16))
+    value[4:6] = bytes((12,16))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
@@ -55,7 +55,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.record(), core)
         self.assertEqual(bytes(m.cpu.mem_read(EXT - 4, 4)), b'\xA5' * 4)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, 72)), b'\xA5' * 72)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), b'TYEX\x0B\x10\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), b'TYEX\x0C\x10\xA5\x5A')
 
     def test_every_value_and_invalid_write_preserve_neighbors_and_reloaded_preferences(self):
         m = self.m
@@ -149,7 +149,7 @@ class ExtensionTests(unittest.TestCase):
                          (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0))
         self.assertEqual(tuple(m.call('Settings_Get', 28, i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, OWNED_SIZE)),
-                         b'TYEX\x0B\x10\xA5\x5A\xFD\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES)
+                         b'TYEX\x0C\x10\xA5\x5A\xFD\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, REGION_SIZE - OWNED_SIZE)),
                          b'\xE5' * (REGION_SIZE - OWNED_SIZE))
         self.assertEqual(m.record(), core)
@@ -182,7 +182,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', 28, 6), (1,13,31,11)[action])
             after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
             self.assertEqual(after[:4], legacy[:4])
-            self.assertEqual(after[4:6], bytes((11,16)))
+            self.assertEqual(after[4:6], bytes((12,16)))
             self.assertEqual(after[6:11], legacy[6:11])
             self.assertEqual(after[11], legacy[11] & 0x87)
             mask = ~((15 << 18) | (3 << 22)) & 0xFFFFFF
@@ -314,7 +314,7 @@ class ExtensionTests(unittest.TestCase):
                              tuple(n-1 for n in PS_COUNTS))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
-            expected = bytearray(old); expected[4:6] = bytes((11,16)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[19] = preset
+            expected = bytearray(old); expected[4:6] = bytes((12,16)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[19] = preset
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 0)
@@ -345,7 +345,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual((m.call('TMExtension_Read', EXT, 28, 8),m.call('TMExtension_Read', EXT, 28, 9)), (2,0))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
-            expected = bytearray(old); expected[4:6] = bytes((11,16)); expected[20:24] = SHIELD_DEFAULT_BYTES
+            expected = bytearray(old); expected[4:6] = bytes((12,16)); expected[20:24] = SHIELD_DEFAULT_BYTES
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 11)
@@ -370,12 +370,51 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(tuple(m.call('TMExtension_Read',EXT,field,i) for i in range(len(counts))),defaults)
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
         self.assertEqual(m.call('Settings_Get',28,8),2)
-        expected=bytearray(old);expected[4:6]=bytes((11,16));expected[20:24]=SHIELD_DEFAULT_BYTES
+        expected=bytearray(old);expected[4:6]=bytes((12,16));expected[20:24]=SHIELD_DEFAULT_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
         for field, counts, _ in FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(n-1 for n in counts))
         for field, counts, defaults in SHIELD_FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),defaults)
+
+    def test_v11_migration_keeps_actions_and_other_preferences_and_claims_only_two_padding_bits(self):
+        for action in range(16):
+            m=Machine();m.init()
+            for field,counts,_ in FIELDS+SHIELD_FIELDS:
+                for index,count in enumerate(counts):m.call('Settings_Set',field,index,count-1)
+            old=bytearray(m.cpu.mem_read(EXT,REGION_SIZE))
+            old[4:6]=bytes((11,16))
+            word=int.from_bytes(old[20:24],'little')
+            old[20:24]=((word&~(15<<9))|(action<<9)|0xFFF80000).to_bytes(4,'little')
+            m.cpu.mem_write(EXT,bytes(old))
+            self.assertEqual(m.call('TMExtension_Read',EXT,34,0),action if action<10 else 0)
+            self.assertEqual(m.call('TMExtension_Read',EXT,34,4),0)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
+            self.assertEqual(m.call('Settings_Get',34,0),action if action<10 else 0)
+            expected=bytearray(old);expected[4]=12
+            expected[20]=(expected[20]&0xF0) # Version-11 invalid attack padding repairs to choice zero.
+            word=int.from_bytes(expected[20:24],'little')&~((1<<19)|(1<<20))
+            if action>=10:word&=~(15<<9)
+            expected[20:24]=word.to_bytes(4,'little')
+            self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
+            self.assertEqual(tuple(m.call('Settings_Get',33,i) for i in range(5)),(0,3,1,1,1))
+            self.assertEqual(tuple(m.call('Settings_Get',34,i) for i in range(1,5)),(4,1,3,0))
+
+    def test_v11_reversal_migration_keeps_fourteen_choices_and_rejects_old_invalid_values(self):
+        for attack in range(16):
+            m=Machine();m.init();m.call('Settings_Set',33,1,3)
+            old=bytearray(m.cpu.mem_read(EXT,REGION_SIZE));old[4]=11
+            old[20]=(old[20]&0xF0)|attack
+            old[22]|=0xF8;old[23]=0xA5
+            m.cpu.mem_write(EXT,bytes(old))
+            expected=attack if attack<14 else 0
+            self.assertEqual(m.call('TMExtension_Read',EXT,33,0),expected)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
+            self.assertEqual(m.call('Settings_Get',33,0),expected)
+            after=bytes(m.cpu.mem_read(EXT,REGION_SIZE))
+            self.assertEqual(after[22],old[22]&~0x18)
+            self.assertEqual(after[23:],bytes(old[23:]))
+            self.assertEqual(m.call('Settings_Get',33,1),3)
 
 
 class RelocatedExtensionTests(unittest.TestCase):
@@ -410,7 +449,7 @@ class RelocatedExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('DAT_Get',27,i) for i in range(len(COUNTS))),
                          (8,1,0,2,2,2,3,1,7,0,0))
         self.assertEqual(tuple(m.call('DAT_Get',28,i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), b'TYEX\x0B\x10\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), b'TYEX\x0C\x10\xA5\x5A')
         self.assertEqual(bytes(m.cpu.mem_read(EXT+OWNED_SIZE,REGION_SIZE-OWNED_SIZE)),
                          b'\xE5'*(REGION_SIZE-OWNED_SIZE))
         self.assertEqual(m.record(),core)

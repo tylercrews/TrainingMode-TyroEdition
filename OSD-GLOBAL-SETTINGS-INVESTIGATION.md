@@ -1,6 +1,6 @@
 # Global OSDs, hitbox trails, and Ledgedash: investigation and implementation plan
 
-**Current save-space ledger (October 15, 2026):** see [addendum 54](#save-memory-addendum-2026-10-15). The core has one unused bit; the 24-byte version-11 extension leaves 64 contiguous bytes unallocated. Earlier reserve totals below describe historical allocations.
+**Current save-space ledger (October 15, 2026):** see [addendum 55](#save-memory-shield-actions-v12). The core has one unused bit; the 24-byte version-12 extension leaves 64 contiguous bytes unallocated and eighteen unused payload bits. Earlier reserve totals below describe historical allocations.
 
 **Running to-do list: audited October 6, 2026**
 
@@ -1237,6 +1237,8 @@ The logic was checked against the [shared counter callbacks](https://github.com/
 
 **54. Save-memory availability after Attack on Shield and Reversal changes**
 
+Historical version-11 snapshot; [addendum 55](#save-memory-shield-actions-v12) accounts for the later Shield DI and expanded Reversal actions.
+
 Audited October 15, 2026 against `src/settings.h`, `src/settings.c`, `src/settings_extension.h` and `src/settings_extension.c`. This ledger supersedes the four-free-bit core totals in sections 51–53 and the older extension sizes in the [score-storage investigation](SCORE-STORAGE-AUDIT.md).
 
 **We have 64 contiguous bytes / 512 bits still unallocated in the audited extension region.** Attack on Shield and Reversal expand `TYEX` from version 10 / 20 bytes to version 11 / 24 bytes. That consumes four more bytes of existing save storage, without increasing the memory-card file size or block count. The core remains 44 bytes / format 3.
@@ -1275,3 +1277,21 @@ The former core reserves have been consumed by later work: byte 40 bit 7 stores 
 Version-11 migration initializes the appended word to `00 00 01 00` (Infinite Shields On; other new preferences at choice zero). Version 10 retains its entire previous payload; versions 1–9 retain their established migrations before receiving the new defaults. Foreign/unsupported records keep their stored bytes and use private runtime preferences. Scores, native serialization/checksums and records-reset boundaries are unchanged; the 64-byte tail stays untouched. The [score-storage audit](SCORE-STORAGE-AUDIT.md#availability-addendum-2026-10-15) records the matching capacity ledger.
 
 Validation for this documentation update: recomputed all extension field masks from the production preference tables, checked for overlap, and reconciled the live/legacy/unassigned bit totals above. The preceding implementation's native save/records-reset and optimized PowerPC codec/event regressions passed. Actual Dolphin/card save/reload remains a live verification step; no new card test or audit of additional save regions is claimed here.
+
+<a id="save-memory-shield-actions-v12"></a>
+
+**55. Shield DI and expanded actions: version 12, no additional bytes**
+
+Updated October 15, 2026. Attack on Shield adds saved Shield DI In/Out and expands CPU Action to fifteen choices. Reversal expands to seventeen choices with Grab, Run Up JC Grab and Spotdodge Shine. Two formerly unused bits in the existing event word cover both changes; **the extension remains 24 bytes, with 64 contiguous bytes unallocated**. The 44-byte core, its one spare bit, the save file size and card block count are unchanged.
+
+| New allocation | Location in the word at extension bytes 20–23 | Cost |
+| --- | --- | ---: |
+| Shield DI: In=0 / Out=1 | Bit 19 (extension byte 22 bit 3) | 1 bit |
+| Reversal attack bit 4 | Bit 20 (extension byte 22 bit 4); original bits 0–3 stay in place | 1 bit |
+| Attack on Shield's expanded action list | Existing bits 9–12; fifteen choices still fit four bits | 0 additional bits |
+
+Reversal now uses ten bits in this word and Attack on Shield eleven: **21 live bits**, leaving **eleven unused bits at 21–31** (extension byte 22 bits 5–7 plus byte 23). The earlier seven extension padding bits remain free, giving **eighteen unused payload bits total**, separate from the 64-byte tail. The complete sixteen-byte payload now reconciles as **104 live bits + six preserved legacy encoding bits + eighteen unused bits = 128 bits**. Total settings ownership remains **68 bytes** (44 core + 24 extension).
+
+Version 12 retains the original action IDs. Migration from version 11 clears only the two newly claimed padding bits and repairs action codes that were invalid in that older format, preventing old padding/corruption from selecting a new action. Existing valid attack, spacing, facing, hit-count and shield-policy preferences retain their meaning. Older versions retain their established migrations. Defaults still serialize as `00 00 01 00` for the event word. Unknown/foreign records, native scores and reset/checksum boundaries keep their protections. See the matching [storage addendum](SCORE-STORAGE-AUDIT.md#version-12-shield-di-and-expanded-reversal-actions).
+
+Approach targets, action phases, shield-hit counts and native pause-menu suppression use runtime state or executable flags, not further save bits. Run-up grabs use normal inputs and native jumpsquat grab checks; no per-character table or target-position snapshot is persisted.
