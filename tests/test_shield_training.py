@@ -14,7 +14,7 @@ def build():
     # shipped 50-slot ABI. Use exactly the shared module's production sources.
     table = ROOT / 'build/shield-training-exports.txt'
     table.write_text((ROOT / 'MexTK/tmFunction.txt').read_text().rstrip() +
-        '\nShieldTraining_Init\nShieldTraining_Control\nActionCues_Clear\nActionCues_MatchStart\nActionCues_SceneChange\n')
+        '\nShieldTraining_Init\nShieldTraining_Control\nActionCues_Clear\nActionCues_MatchStart\nActionCues_SceneChange\nEventMenu_UpdateText\n')
     sources = re.search(r'queue_mex_build "tmFunction" "build/eventMenu.dat" "([^"]+)"',
         (ROOT / 'build.sh').read_text())[1].split()
     hmex='hmex.exe' if sys.platform=='win32' else 'hmex_macos_arm64' if sys.platform=='darwin' else 'hmex'
@@ -39,7 +39,7 @@ class ShieldTrainingTests(unittest.TestCase):
             if dat[strings+name:].split(b'\0',1)[0] == b'tmFunction':
                 _, _, _, exports, count, _ = struct.unpack_from('>6I', dat, 32+at)
                 break
-        names = {1:'Desc', 20:'FileLoad', 50:'Init', 51:'Control', 52:'Clear', 53:'MatchStart', 54:'SceneChange'}
+        names = {1:'Desc', 20:'FileLoad', 50:'Init', 51:'Control', 52:'Clear', 53:'MatchStart', 54:'SceneChange', 55:'MenuText'}
         for i in range(count):
             slot, offset = struct.unpack_from('>II', dat, 32+exports+i*8)
             if slot in names: m.symbols[names[slot]] = self.base+offset
@@ -59,6 +59,7 @@ class ShieldTrainingTests(unittest.TestCase):
         self.native_calls = []
         self.native_bound = {}
         self.native_stop=None
+        self.exit_calls=[]
         self.dead=0
         self.first_frame=0
         self.platform=88
@@ -90,6 +91,11 @@ class ShieldTrainingTests(unittest.TestCase):
         if address == self.create_menu:
             self.menu = r(3); cpu.reg_write(gpr(3),0x80407600)
             self.put(0x80407600+0x2C,0x80407800)
+            self.put(0x80407800,self.menu)
+            self.put(0x80407800+0x5C,self.menu)
+        elif address==self.m.symbols['MenuText']: pass # Rendering only; run real menu input/callbacks.
+        elif address in (0x8016C7F0,0x801A4674,0x802F33CC,0x80024E84,0x8001CC84,0x80024030):
+            self.exit_calls.append((address,bytes(cpu.mem_read(0x8046B6A0,1))[0]))
         elif address==self.menu_update: self.menu_updates+=1
         elif address==0x80225754: self.develop_updates+=1
         elif address == 0x80380358: cpu.reg_write(gpr(3),0) # Archive lookup
@@ -119,6 +125,14 @@ class ShieldTrainingTests(unittest.TestCase):
     def contact(self, tick, ft=None, state=181):
         self.m.call('TestCueTick',tick)
         self.m.call('DAT_UnderFireTiming',self.cpu_ft if ft is None else ft,2,state)
+
+    def load_dol_range(self,address,size):
+        dol=(ROOT/'build/Start.dol').read_bytes()
+        for i in range(18):
+            offset,base,length=[struct.unpack_from('>I',dol,at+i*4)[0] for at in (0,0x48,0x90)]
+            if base<=address and address+size<=base+length:
+                self.m.cpu.mem_write(address,dol[offset+address-base:offset+address-base+size]);return
+        self.fail('Native code range missing')
 
     def test_saved_attack_menu_mapping_and_combined_changes(self):
         m=self.m
@@ -211,6 +225,62 @@ class ShieldTrainingTests(unittest.TestCase):
                 self.input(179)
                 self.assertEqual(self.packet(),(0x60,0,0,0,0))
             self.assertEqual(self.m.call('DAT_Get',34,4),choice)
+
+    def test_shield_di_native_displacement_does_not_grow_with_hitlag(self):
+        m=self.m;ft=self.cpu_ft
+        self.load_dol_range(0x80093240,0x9C) # Native shield SDI callback.
+        self.load_dol_range(0x800932DC,0x78) # Native end-of-hitlag ASDI callback.
+        m.symbols.update(NativeSDI=0x80093240,NativeASDI=0x800932DC)
+        m.cpu.reg_write(gpr(13),0x804DB6A0)
+        common=self.word(m.cpu.reg_read(gpr(13))-0x514C)
+        m.cpu.mem_write(common+0x4B0,struct.pack('>fI3f',.7,4,6,2,.5))
+        self.put(m.cpu.reg_read(gpr(2))-0x74A8,0)
+        self.put(ft+0xE0,0) # Grounded, with a flat floor.
+        m.cpu.mem_write(ft+0x844,struct.pack('>2f',0,1))
+        self.put(self.cpu_obj+0x2C,ft)
+        m.cpu.mem_write(ft+0x221A,b'\x20') # Native SDI-enabled hitlag.
+        for choice,sign in ((0,1),(1,-1)):
+            for frames in (1,5,20):
+                self.init();self.edit(4,choice);self.position(1)
+                self.contact(frames)
+                m.cpu.mem_write(ft+0x670,b'\0') # One fresh native tilt window.
+                for _ in range(frames):
+                    self.input(181)
+                    m.call('NativeSDI',self.cpu_obj)
+                    self.assertEqual(m.cpu.mem_read(ft+0x670,1)[0],254)
+                    self.assertAlmostEqual(struct.unpack('>f',m.cpu.mem_read(ft+0xB0,4))[0],sign*3)
+                    self.assertEqual(self.word(ft+0x61C),0) # No manufactured button presses.
+                m.call('NativeASDI',self.cpu_obj)
+                self.assertAlmostEqual(struct.unpack('>f',m.cpu.mem_read(ft+0xB0,4))[0],sign*4)
+                # First displacement crossed the player; the held direction
+                # remains fixed until the next hit instead of oscillating.
+                self.assertEqual(self.packet()[1],sign*127)
+
+    def test_exit_option_and_lras_end_both_events_once_and_unpause(self):
+        m=self.m
+        for reversal in (0,1):
+            for route,paused in (('option',1),('shortcut',0),('shortcut',1)):
+                with self.subTest(reversal=reversal,route=route,paused=paused):
+                    m.cpu.mem_write(0x8046B6A0,b'\0')
+                    m.cpu.mem_write(0x80407800,bytes(0xA0))
+                    m.cpu.mem_write(0x804C1FAC,bytes(4*68))
+                    self.init(reversal)
+                    self.exit_calls=[];self.develop_updates=0
+                    m.cpu.mem_write(0x80407800+9,bytes((paused,)))
+                    if route=='option':
+                        m.cpu.mem_write(self.menu+6,b'\x05')
+                        self.put(0x804C1FAC+12,0x100) # A on the selected Exit row.
+                    else:
+                        self.put(0x804C1FAC+3*68,0x1160) # Held LRAS, controller port 4.
+                    m.symbols['Update']=self.word(0x80479D58+0x30)
+                    m.call('Update')
+                    self.assertEqual([state for address,state in self.exit_calls if address==0x8016C7F0],[3])
+                    self.assertEqual(sum(address==0x801A4674 for address,_ in self.exit_calls),paused)
+                    self.assertEqual(m.cpu.mem_read(0x80407800+9,1)[0],0)
+                    self.assertEqual(self.develop_updates,0)
+                    calls=list(self.exit_calls)
+                    m.call('Update')
+                    self.assertEqual(self.exit_calls,calls)
 
     def test_all_short_hop_aerials_release_jump_and_use_facing(self):
         for action,expected in ((1,(0x100,0,0,0,0)),(10,(0,0,0,127,0)),

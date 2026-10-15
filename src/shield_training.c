@@ -10,7 +10,7 @@ typedef char shield_bridge_offset[(offsetof(EventVars, shield_training) == 0xAC)
 extern EventDesc Reversal, AttackOnShield;
 static u8 native_menu[0x50];
 static const u8 native_info[] = {3, 0, 0, 0};
-static int reversal, pending, hits, hit_tick;
+static int reversal, pending, hits, hit_tick, shield_di_direction;
 enum { AOS_IDLE, AOS_JUMP, AOS_AIR_ATTACK, AOS_JUMP_CANCEL, AOS_DODGE_START, AOS_DODGE_END, AOS_FINISHED };
 static int action_phase;
 enum { REV_IDLE, REV_JUMP, REV_DODGE_START, REV_DODGE_END, REV_FINISHED };
@@ -32,9 +32,13 @@ static const char *facings[] = {"Towards", "Away"};
 static const char *positions[] = {"Ground", "Platform"};
 static void Change(GOBJ *menu, int value);
 static void Exit(GOBJ *menu) {
+    if(stc_match->state==3) return;
     Powershield_SetObserver(0, 0, 0);
     ActionCues_SetInfiniteShields(0);
+    if(menu && menu->userdata && ((MenuData *)menu->userdata)->mode==MenuMode_Paused)
+        EventMenu_ExitMenu(menu);
     Memcard_SaveIfChanged();
+    stc_match->state=3;
     Match_EndVS();
 }
 static EventOption rev_options[] = {
@@ -68,7 +72,7 @@ static EventMenu rev_menu = {.name="Reversal Training", .options=rev_options,
 static EventMenu aos_menu = {.name="Attack on Shield", .options=aos_options,
     .option_num=countof(aos_options), .on_exit=Exit};
 static void ClearHits(void) { hits=0; hit_tick=-1; }
-static void ClearAttempt(void) { ClearHits(); action_phase=AOS_IDLE; reversal_phase=REV_IDLE; }
+static void ClearAttempt(void) { ClearHits(); action_phase=AOS_IDLE; reversal_phase=REV_IDLE; shield_di_direction=0; }
 static int TowardPlayer(FighterData *ft) {
     GOBJ *human=Fighter_GetSubcharGObj(0,0);
     if(human && human->userdata) {
@@ -76,6 +80,20 @@ static int TowardPlayer(FighterData *ft) {
         if(delta) return delta>0?1:-1;
     }
     return ft->facing_direction<0?-1:1;
+}
+static void HoldShieldDI(FighterData *ft) {
+    if(!shield_di_direction)
+        shield_di_direction=TowardPlayer(ft)*(aos_options[TM_AOS_SHIELD_DI].val?-1:1);
+    ft->cpu.held=PAD_TRIGGER_L|PAD_TRIGGER_R;
+    ft->cpu.lstickX=shield_di_direction*127;
+    ft->cpu.lstickY=ft->cpu.cstickX=ft->cpu.cstickY=0;
+    ft->input.held=PAD_TRIGGER_L|PAD_TRIGGER_R|0x80000000u;
+    ft->input.down=0;
+    ft->input.lstick=(Vec2){shield_di_direction,0};
+    ft->input.cstick=(Vec2){0,0};
+    ft->input.trigger=1;
+    /* A held direction is not a new tilt. In particular, retain the native
+     * 254 "SDI consumed" marker instead of reopening its window every frame. */
 }
 static void QueueInput(FighterData *ft, int buttons, int x, int y, int cx, int cy) {
     ft->cpu.held=buttons;
@@ -112,13 +130,15 @@ static int TickCPU(FighterData *ft) {
     if(!ft || reversal || ft->flags.dead || ft->flags.sleep) return SHIELD_INPUT_CONTINUE;
     int state=Powershield_CommonState(ft,ft->state_id);
     int action=aos_options[TM_AOS_ACTION].val;
+    if(state==ASID_GUARDSETOFF) {
+        HoldShieldDI(ft);
+        return ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames>0?
+            SHIELD_INPUT_FROZEN:SHIELD_INPUT_CONTINUE;
+    }
+    shield_di_direction=0;
     /* Neutralize the old direction before selecting a response. A horizontal
      * shield-DI input must never leak into GuardWait and trigger a roll. */
     QueueInput(ft,action_phase==AOS_IDLE?PAD_TRIGGER_L|PAD_TRIGGER_R:0,0,0,0,0);
-    if(state==ASID_GUARDSETOFF) {
-        int direction=TowardPlayer(ft)*(aos_options[TM_AOS_SHIELD_DI].val?-1:1);
-        QueueInput(ft,PAD_TRIGGER_L|PAD_TRIGGER_R,direction*127,0,0,0);
-    }
     if(ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames>0) return SHIELD_INPUT_FROZEN;
     if(ft->flags.hitstun || (state>=ASID_DAMAGEHI1 && state<=ASID_DAMAGEFLYROLL)) {
         if(action_phase==AOS_IDLE) { ClearHits(); action_phase=AOS_FINISHED; return SHIELD_INPUT_START; }
@@ -244,6 +264,7 @@ static void Timing(FighterData *ft, int phase, int next) {
     int tick=stc_match->time_frames;
     if (tick==hit_tick) return;
     hit_tick=tick;
+    shield_di_direction=TowardPlayer(ft)*(aos_options[TM_AOS_SHIELD_DI].val?-1:1);
     if(hits<5) ++hits;
 }
 static void Change(GOBJ *menu, int value) {
@@ -259,8 +280,10 @@ static void Change(GOBJ *menu, int value) {
     ClearAttempt();
 }
 static void Update(void) {
+    if(stc_match->state==3) return;
     event_vars->game_timer=stc_match->time_frames;
     EventMenu_Update(event_vars->menu_gobj);
+    if(stc_match->state==3) return;
     /* Menu navigation must not also drive native debug/pause camera controls. */
     if(((MenuData *)event_vars->menu_gobj->userdata)->mode!=MenuMode_Paused)
         Develop_UpdateMatchHotkeys();

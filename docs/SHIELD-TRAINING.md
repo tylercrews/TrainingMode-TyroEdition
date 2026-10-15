@@ -24,7 +24,10 @@ follow CPU facing. Spotdodge Shine observes a real spotdodge before sending
 down-B after recovery. Shine choices are intended for Fox/Falco; other fighters
 receive their native down-B input. Shield DI defaults In and holds toward the
 player during shieldstun/hitlag; Out holds away. Direction follows current
-positions on either side. The stick returns to neutral before shield-wait
+positions on either side at each shield hit and stays fixed through that hit.
+Holding the direction preserves native SDI timing and its consumed-input marker;
+it does not generate a fresh SDI input on every hitlag frame. Native ASDI still
+applies when hitlag ends. The stick returns to neutral before shield-wait
 responses, preventing the DI setting from causing an unintended roll.
 
 Reversal saves CPU Attack (the original fourteen plus Grab, Run Up JC Grab and
@@ -77,6 +80,10 @@ the assembled Attack on Shield reaction gate and Reversal dispatch. Tests cover 
 one to five hits, duplicate/multihit entries, reset clearing, distances and
 followers, the local/global shield combinations, saved platform entry, native
 pause flags and suppressed camera hotkeys, every aerial/response input, dynamic
-chase direction and actual native jumpsquat/standing-grab acceptance.
+chase direction and actual native jumpsquat/standing-grab acceptance. Native
+shield SDI/ASDI callbacks verify that 1, 5 and 20 hitlag updates produce the same
+displacement for a held direction. Both events' actual Exit callbacks run through
+menu A-selection and gameplay/paused LRAS paths, checking unpause, match-ending
+state and suppression of repeated exits from a held chord.
 Dolphin validation remains necessary for visual layout, live controller feel,
 roster attack trajectories and an actual memory-card save/reload.
