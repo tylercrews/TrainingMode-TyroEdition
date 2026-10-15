@@ -159,6 +159,7 @@ int TestLCInit(void) {
     test_common.jumpaerial_lsticky = 0.7f;
     test_common.jumpaerial_lsticktimer = 4;
     test_common.ledge_drop_thresh = 0.3f;
+    test_common.x218 = test_common.x21c = 0.6f;
     test_common.x88 = 0.7f;
     *(int *)((u8 *)&test_common + 0x8C) = 4;
     ((float *)&test_common)[8] = 0.785398f; // Native x20_radians.
@@ -194,6 +195,7 @@ unsigned TestLCNativeEntry(GOBJ *fighter, int state) { ((FighterData *)fighter->
 unsigned TestLCNativeSpotEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, ASID_ESCAPE); }
 unsigned TestLCNativeDashEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, ASID_DASH); }
 unsigned TestLCNativeSmashEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, ASID_ATTACKS4S); }
+unsigned TestLCNativeDownBEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, 360); }
 unsigned TestLCNativeGuardEnter(GOBJ *fighter) {
     FighterData *ft = fighter->userdata;
     ft->cb.IASA = (void *)0x80092758;

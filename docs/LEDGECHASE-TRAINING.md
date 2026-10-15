@@ -15,17 +15,19 @@ The event saves these ten choices:
 | Player Percent | 0%, 25%, 50%, 75%, 100%, 125%, 150% | 0% |
 | Player Distance | Edge, Close, Mid, Far, Safe | Close |
 | CPU Invincibility Overlay | Off, Red, Blue, Yellow, Green, Cyan, Magenta, Gray | Gray |
-| CPU Action | Training Lab ground counter actions, without Play Slots or Random Advanced | None |
-| Aerial Attack When Jumping | Five aerials, Neutral B (Repeat), Up B, Side B Toward/Away, Down B, Random | None |
-| Ledge Setup / Get to Ledge | Spawn on Ledge, Fall to Ledge, Jump to Ledge | Fall to Ledge |
+| CPU Action (Grounded) | Training Lab ground counter actions, without Play Slots or Random Advanced | None |
+| CPU Action (Jumping) | Five aerials, Neutral B (Repeat), Up B, Side B Toward/Away, Down B, Random | None |
+| Ledge Setup / Get to Ledge | Spawn on Ledge, Fall to Ledge, Jump to Ledge | Jump to Ledge |
 | Ledge Setup / Ledge Hop Height | Low (Auto), Medium (Auto), Original | Low (Auto) |
 
 Ledge Setup also has a session-only **Hop Drop Adjustment**, from -12 to +12
 stage units. Positive drops deeper; negative raises the attack arc.
 
-Fall to Ledge starts 70 units above the lip, outside the stage, and uses
+Fall to Ledge starts 24 units above the lip, outside the stage, and uses
 native falling/collision to grab it. Jump to Ledge starts below the lip at a
-character-dependent depth and requests one native aerial jump. Both steer
+character-dependent depth and requests one native aerial jump. Standard jumps
+aim about 5 units above the lip; animation-driven jumps use a 16-unit starting
+depth. Jump depth remains bounded to 12..70 units. Both steer
 gently toward an outside holding position and wait for the actual catch and
 hang states. The ledge-option clock begins only after every active CPU body
 finishes grabbing; approach time does not consume the punish window. A failed
@@ -86,8 +88,11 @@ and at most five vulnerable frames. Normal getup respects the native neutral
 stick-release latch, so its first legal input can be later than the other
 button-driven options. Manual release also respects that latch. The event supplies processed CPU inputs to native IASA; it
 does not replace ledge animations or shorten their recovery.
+The supplied inputs also refresh Melee's cached special-move classifications,
+so grounded Down B reaches the native special check instead of only crouching.
+See the native [input counter update](https://github.com/doldecomp/melee/blob/master/src/melee/ft/fighter.c).
 
-With Aerial Attack When Jumping set to None, ledge jumps fastfall on the first native-eligible descending frame. The
+With CPU Action (Jumping) set to None, ledge jumps fastfall on the first native-eligible descending frame. The
 selected CPU action follows the ledge option when normal native action checks
 allow it. The action catalogue and input sequences are shared with Training Lab, including
 specials, tilts, aerials, hops, wavedashes, directional rolls and dashes. Random
@@ -100,7 +105,7 @@ grabs start a 15-frame retry delay; deaths and an attempt timeout also retry.
 Swap on Success changes sides only after a successful hit or grab. D-pad Left
 retries without counting success. Exit flushes pending preferences.
 
-Aerial Attack When Jumping is independent of the grounded CPU Action. It
+CPU Action (Jumping) is independent of CPU Action (Grounded). It
 borrows the aerial/special input commands from Training Lab without issuing
 another jump. The native ledge jump must finish both uninterruptible stages
 before attacking. A ledge hop waits until rising, at least one unit inside
@@ -163,8 +168,9 @@ untouched. Versions 2..8 migrate their original seven preset choices and start
 aerial attacks at None; version 8's Powershield settings are preserved. The
 ground action selector still uses six bits in byte 15, retaining the earlier
 action migrations. Byte 14 bits 6..7 save entry; byte 15 bits 6..7 save hop
-height. Versions 1..9 default these newly claimed fields to Fall to Ledge and
+height. Versions 1..9 default these newly claimed fields to Jump to Ledge and
 Low (Auto), preserving version 9's fourteen presets and aerial selection.
+Existing version 10 saves retain their selected entry method.
 Resetting damage clears pending
 damage rather than copying the starting percent into it, preventing a second
 application of damage on the next native update.

@@ -47,7 +47,7 @@ enum { CHANCE_PRESET, CHANCE_GETUP, CHANCE_JUMP, CHANCE_ROLL, CHANCE_ATTACK, CHA
 enum { SETUP_ENTRY, SETUP_HEIGHT, SETUP_ADJUST };
 
 static EventOption Options_Setup[] = {
-    {.kind = OPTKIND_STRING, .name = "Get to Ledge", .values = EntryNames, .value_num = LC_ENTRY_COUNT, .val = LC_ENTRY_FALL,
+    {.kind = OPTKIND_STRING, .name = "Get to Ledge", .values = EntryNames, .value_num = LC_ENTRY_COUNT, .val = LC_ENTRY_JUMP,
      .desc = {"Spawn holding ledge, fall from above, or jump from below.",
               "Fall/Jump use a real grab before the ledge option.",
               "The approach gives you time to prepare."}, .OnChange = ChangeEntry},
@@ -80,9 +80,9 @@ static EventOption Options_Main[] = {
     {.kind = OPTKIND_STRING, .name = "CPU Invincibility Overlay", .values = ColorNames, .value_num = TM_CPU_INVINCIBILITY_COUNT,
      .val = TM_CPU_INVINCIBILITY_DEFAULT,
      .desc = {"Choose a color for the CPU's natural", "invincibility and intangibility."}, .OnChange = ChangeColor},
-    {.kind = OPTKIND_STRING, .name = "CPU Action", .values = FollowupNames, .value_num = countof(FollowupNames),
+    {.kind = OPTKIND_STRING, .name = "CPU Action (Grounded)", .values = FollowupNames, .value_num = countof(FollowupNames),
      .desc = {"CPU acts on its first legal grounded frame", "after the ledge option and any aerial attack."}, .OnChange = ChangeFollowup},
-    {.kind = OPTKIND_STRING, .name = "Aerial Attack When Jumping", .values = AirNames, .value_num = countof(AirNames),
+    {.kind = OPTKIND_STRING, .name = "CPU Action (Jumping)", .values = AirNames, .value_num = countof(AirNames),
      .desc = {"Attack after ledge-jump recovery or during a ledge hop.",
               "Ledge Setup adjusts hop height. Specials vary.",
               "Neutral B repeats; Fox/Falco request two laser loops.",
@@ -257,9 +257,12 @@ static void PlaceCPU(GOBJ *fighter, LedgechaseData *data) {
         ft->phys.pos = data->ledge;
         ft->phys.pos.X -= data->inward * EntryOutside(ft);
         float rise = JumpRise(ft);
-        float depth = rise > 24 ? rise - 12 : 12;
+        // Aim just above the lip instead of jumping well over the stage.
+        // Animation-driven jumps use a slightly deeper conservative fallback.
+        float depth = rise > 0 ? rise - 5 : 16;
+        if (depth < 12) depth = 12;
         if (depth > 70) depth = 70;
-        ft->phys.pos.Y += Options_Setup[SETUP_ENTRY].val == LC_ENTRY_FALL ? 70 : -depth;
+        ft->phys.pos.Y += Options_Setup[SETUP_ENTRY].val == LC_ENTRY_FALL ? 24 : -depth;
         Fighter_EnableCollUpdate(ft);
         UpdatePosition(fighter);
         ft->cpu.ai = 15;
@@ -335,6 +338,20 @@ static void ResetAttempt(int success) {
 
 /* AI is disabled and both raw and processed inputs are controlled. The event
  * runs after CPU input decoding; changing only the raw input would add a frame. */
+static void SyncSpecialInput(FighterData *ft) {
+    // Grounded special checks read these cached classifications, not down.
+    // Replace the earlier decoded input so Down B cannot become a crouch or
+    // inherit a stale neutral/side special. Keep the native stick thresholds.
+    ft->input.timer_specialhi = ft->input.timer_speciallw =
+        ft->input.timer_specials = ft->input.timer_specialn = 255;
+    if (!(ft->input.down & PAD_BUTTON_B)) return;
+    float x = fabs(ft->input.lstick.X), y = ft->input.lstick.Y;
+    ftCommonData *common = *stc_ftcommon;
+    if (y >= common->x21c) ft->input.timer_specialhi = 0;
+    if (y < -common->x21c) ft->input.timer_speciallw = 0;
+    if (x >= common->x218) ft->input.timer_specials = 0;
+    if (x < common->x218 && fabs(y) < common->x21c) ft->input.timer_specialn = 0;
+}
 static void NeutralCPU(GOBJ *cpu) {
     FighterData *ft = cpu->userdata;
     ft->cpu.ai = 15;
@@ -343,6 +360,7 @@ static void NeutralCPU(GOBJ *cpu) {
     ft->input.held = ft->input.down = 0;
     ft->input.lstick = ft->input.cstick = (Vec2){0, 0};
     ft->input.trigger = 0;
+    SyncSpecialInput(ft);
 }
 static void QueueInput(GOBJ *cpu, unsigned held, int x, int y) {
     FighterData *ft = cpu->userdata;
@@ -353,6 +371,7 @@ static void QueueInput(GOBJ *cpu, unsigned held, int x, int y) {
     if (held & (PAD_TRIGGER_R | PAD_TRIGGER_L)) processed |= 0x80000000u; // HSD_PAD_LR
     ft->input.held = ft->input.down = processed;
     ft->input.lstick = (Vec2){x / 127.f, y / 127.f};
+    SyncSpecialInput(ft);
     ft->input.timer_lstick_tilt_x = ft->input.timer_lstick_tilt_y = 0;
     if (processed & 0x80000000u) {
         ft->input.trigger = 1;

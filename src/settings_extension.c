@@ -21,7 +21,7 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
     {0,2,4,0}, {2,1,2,0}, {3,3,7,0}, {24,4,LC_PRESET_COUNT,0},
     {9,3,5,1}, {12,3,8,7}, {24,6,CPU_GROUND_ACTION_COUNT,0},
     {28,4,CPU_AIR_ATTACK_COUNT,0},
-    {22,2,LC_ENTRY_COUNT,LC_ENTRY_FALL}, {30,2,LC_HOP_HEIGHT_COUNT,LC_HOP_LOW},
+    {22,2,LC_ENTRY_COUNT,LC_ENTRY_JUMP}, {30,2,LC_HOP_HEIGHT_COUNT,LC_HOP_LOW},
 };
 static int signature(const uint8_t *r) { return r[0]=='T' && r[1]=='Y' && r[2]=='E' && r[3]=='X'; }
 static int format(const uint8_t *r, unsigned version, unsigned payload_size) {
@@ -120,7 +120,7 @@ int TMExtension_Prepare(uint8_t *r) {
         }
         set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_PRESET,preset<(v9?14:7)?preset:0);
         if(!v9) set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_AIR_ATTACK,0);
-        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_ENTRY,LC_ENTRY_FALL);
+        set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_ENTRY,LC_ENTRY_JUMP);
         set_preference(r,TM_SETTING_LEDGECHASE,TM_LEDGECHASE_HOP_HEIGHT,LC_HOP_LOW);
         migrated=1;
     } else if(!supported(r)) return TM_EXTENSION_UNSUPPORTED;

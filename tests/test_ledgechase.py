@@ -367,7 +367,7 @@ class LedgechaseTests(unittest.TestCase):
         self.m.call('TestLCPreference', 8, 1)
         self.m.step()
         self.assertEqual(self.m.call('TestLCStateValue', 2), 29)
-        self.assertEqual(self.m.call('TestLCPosition', 2, 1), 70000)
+        self.assertEqual(self.m.call('TestLCPosition', 2, 1), 24000)
         self.assertEqual((self.m.call('TestLCEntryInfo', 0), self.m.info(8), self.m.call('TestLCEntryInfo', 4)), (0,0,0))
         self.m.call('TestLCState', 2, 252, 1, 1)
         self.m.step()
@@ -801,6 +801,31 @@ class LedgechaseTests(unittest.TestCase):
         self.m.step()
         self.assertEqual(self.m.info(2), loads + 1)
 
+    def test_ground_down_b_refreshes_native_special_classification(self):
+        self.m.native_ground_iasa()
+        # Restore the actual Down B eligibility code that the other grounded
+        # tests stub, keeping just its character-specific animation entry fake.
+        dol = (ROOT / 'build/Start.dol').read_bytes()
+        for i in range(18):
+            offset, base, size = [struct.unpack_from('>I', dol, at + i * 4)[0] for at in (0, 0x48, 0x90)]
+            if base <= 0x800D68C0 < base + size:
+                start = offset + 0x800D68C0 - base
+                self.m.cpu.mem_write(0x800D68C0, dol[start:start + 0x68])
+        # The native table still selects a separate entry for each character.
+        for kind in range(27):
+            with self.subTest(kind=kind):
+                self.m.call('TestLCSetKind', kind)
+                self.m.cpu.mem_write(0x803C1700 + 4 * kind,
+                    struct.pack('>I', self.m.symbols['TestLCNativeDownBEnter']))
+                self.m.call('TestLCFollowupReset')
+                self.m.call('TestLCState', 2, 14, 0, 1)
+                ft = self.m.call('TestLCFighterData', 2)
+                # A real decoded neutral frame leaves no fresh special input.
+                self.m.cpu.mem_write(ft + 0x686, b'\xff' * 4)
+                self.m.call('TestLCUseNativeIASA', 0x8008A4D4)
+                self.assertEqual(self.m.call('TestLCFollowup', 7), 1)
+                self.assertEqual(self.m.call('TestLCStateValue', 2), 360)
+
     def test_all_followups_and_character_specific_smashes(self):
         for action in (1,13,31,11):
             self.m.call("TestLCFollowupReset")
@@ -978,7 +1003,7 @@ class LedgechaseTests(unittest.TestCase):
         height = self.m.call('TestLCAnyOption', submenu, 1)
         self.m.call('TestLCAnyOptionChange', entry, 1)
         self.assertEqual((self.m.call('TestLCStateValue', 2),self.m.call('TestLCEntryInfo',0)), (29,0))
-        self.assertEqual(self.m.call('TestLCPosition', 2, 1), 70000)
+        self.assertEqual(self.m.call('TestLCPosition', 2, 1), 24000)
         self.m.call('TestLCAnyOptionChange', entry, 2)
         self.m.step()
         self.assertEqual(self.m.call('TestLCEntryInfo', 2), 1)
