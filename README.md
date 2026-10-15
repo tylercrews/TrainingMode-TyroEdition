@@ -24,6 +24,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - Rename Ledgedash's GALINT criterion to **Any GALINT** and add **4 GALINT**, **7 GALINT**, and **10 GALINT**, requiring at least that many frames on first becoming actionable.
 - Repair Training Lab's Stadium form selector for Hazards On/Off, including Normal, correct Rock/Water mapping, queued changes and held forms. See [transformation details](docs/STADIUM-TRANSFORMATIONS.md). tl;dr, fixed the pokemon stadium stage transformation logic in Training Lab
 - Add event-local Hitbox Trails profiles to Ledgedash and Under Fire, overriding global trails; Under Fire starts with trails Off.
+- Fix Ledgechase's CPU 100% toggle applying damage twice, add a 50/50 Getup / Roll preset, and share Training Lab's ground CPU actions (excluding Play Slots and Random Advanced).
 - Add Ledgechase Training as General Tech #17, with selectable fighters on Final Destination, saved ledge/punish presets and spacing, native ledge options, fastfall jumps and automatic retries.
 - Add event-local CPU Invincibility Overlay colors to Ledgechase and Techchase, overriding the global CPU tint; make both Techchase chance-menu titles read Tech Chances.
 - Add nine saved Techchase chance presets, ground/platform starting locations and Spotdodge Punish; remember its OSD, reset, invisibility and camera-mode choices while keeping manual percentages and camera coordinates session-only.

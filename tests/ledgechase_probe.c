@@ -59,9 +59,9 @@ static int TestLCIASA(GOBJ *fighter) {
     if (ft->state_id == ASID_LANDING && ft->state.frame < ft->attr.normal_landing_lag) return 0;
     if (ft->input.held & 0x80000000u) {
         if (ft->input.lstick.Y < -0.7f) ft->state_id = ASID_ESCAPE;
-        else if (ft->state_id == ASID_GUARDON) ft->state_id = ASID_ESCAPEF;
+        else if (ft->state_id == ASID_GUARDON || ft->state_id == ASID_GUARD || ft->state_id == ASID_GUARDREFLECT) ft->state_id = ASID_ESCAPEF;
         else ft->state_id = ASID_GUARDON;
-    } else if (ft->input.down & PAD_BUTTON_A && fabs(ft->input.lstick.X) > 0.7f) {
+    } else if (fabs(ft->input.cstick.X) > 0.7f || (ft->input.down & PAD_BUTTON_A && fabs(ft->input.lstick.X) > 0.7f)) {
         ft->state_id = ft->kind == FTKIND_NESS ? 341 : ft->kind == FTKIND_GAW ? 346 :
             ft->kind == FTKIND_PEACH ? 349 : ASID_ATTACKS4S;
     } else if (fabs(ft->input.lstick.X) > 0.7f) ft->state_id = ASID_DASH;
@@ -292,7 +292,7 @@ int TestLCEngineIASA(void) { RunNativeIASA(&test_fighters[2]); return test_ft[2]
 int TestLCLedgeInput(int option) { NeutralCPU(&test_fighters[2]); RunLedgeOption(&test_fighters[2], option, 1); return test_ft[2].state_id; }
 int TestLCSetPercent(int value) { test_ft[2].dmg.percent = value; return value; }
 int TestLCSetKind(int value) { test_ft[2].kind = value; return value; }
-int TestLCFollowup(int action) { return RunFollowup(&test_fighters[2], &test_fighters[0], action, 1); }
+int TestLCFollowup(int action) { return RunFollowup(&test_fighters[2], &test_fighters[0], FollowupActions[action], 1); }
 int TestLCInputNeutral(void) {
     FighterData *ft = &test_ft[2];
     return !ft->cpu.held && !ft->cpu.lstickX && !ft->cpu.lstickY &&
@@ -324,3 +324,27 @@ int TestLCAnyOptionChange(EventOption *option, int value) {
 }
 unsigned TestLCAnySubmenu(EventOption *option) { return (unsigned)option->menu; }
 int TestLCStateValue(int index) { return test_ft[index].state_id; }
+
+int TestLCActionCount(void) { return countof(FollowupNames); }
+unsigned TestLCActionName(int index) { return (unsigned)FollowupNames[index]; }
+int TestLCActionID(int index) { return FollowupActions[index]; }
+int TestLCPendingDamage(int index) { return test_ft[index].dmg.percent_temp; }
+int TestLCApplyPendingDamage(int index) {
+    test_ft[index].dmg.percent += test_ft[index].dmg.percent_temp;
+    test_ft[index].dmg.percent_temp = 0;
+    return test_ft[index].dmg.percent;
+}
+int TestLCNoIASA(GOBJ *fighter) { return 0; }
+int TestLCFollowupReset(void) {
+    Data()->followup_active[0] = Data()->followup_pending[0] = 0;
+    return 0;
+}
+int TestLCStick(int component) {
+    FighterData *ft = &test_ft[2];
+    int values[] = {ft->cpu.lstickX,ft->cpu.lstickY,ft->cpu.cstickX,ft->cpu.cstickY,ft->cpu.held};
+    return values[component];
+}
+
+int TestLCChosenAction(int ms) { return Data()->followup_action[ms]; }
+
+int TestLCHumanSide(int dir) { test_ft[0].phys.pos.X = test_ft[2].phys.pos.X + dir * 20; return dir; }

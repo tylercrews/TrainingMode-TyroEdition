@@ -9,13 +9,13 @@ The event saves these seven choices:
 
 | Setting | Choices | Default |
 | --- | --- | --- |
-| Ledge Option Chances | Six presets and session-only percentage edits | Even |
+| Ledge Option Chances | Seven presets and session-only percentage edits | Even |
 | Ledge Side | Left, Right, Swap on Success, Random | Left |
-| CPU above 100% | Off / On; sets exactly 0% / 100% | Off |
+| CPU 100% | Off / On; sets exactly 0% / 100% | Off |
 | Player Percent | 0%, 25%, 50%, 75%, 100%, 125%, 150% | 0% |
 | Player Distance | Edge, Close, Mid, Far, Safe | Close |
 | CPU Invincibility Overlay | Off, Red, Blue, Yellow, Green, Cyan, Magenta, Gray | Gray |
-| CPU Action | None, Spotdodge, Roll, Dash, Smash | None |
+| CPU Action | Training Lab ground counter actions, without Play Slots or Random Advanced | None |
 
 Native ledge-option selection switches to the slow variants at **100%**.
 The CPU percent toggle sets this value exactly. Player-distance steps are
@@ -31,6 +31,7 @@ and hurtbox coverage still need live roster verification.
 | Roll Only | 0 | 0 | 100 | 0 |
 | Attack Only | 0 | 0 | 0 | 100 |
 | Tyro setting | 60 | 10 | 15 | 15 |
+| Getup / Roll | 50 | 0 | 50 | 0 |
 
 Changing an individual percentage rebalances the remaining choices to 100%.
 Only the selected preset is saved. Ledge Hop Chance and Ledge Dash Chance are
@@ -45,8 +46,12 @@ does not replace ledge animations or shorten their recovery.
 
 Ledge jumps fastfall on the first native-eligible descending frame. The
 selected CPU action follows the ledge option when normal native action checks
-allow it. Each followup runs once and releases its input immediately after
-the native action starts. None leaves the CPU idle after its ledge option.
+allow it. The action catalogue and input sequences are shared with Training Lab, including
+specials, tilts, aerials, hops, wavedashes, directional rolls and dashes. Random
+uses Training Lab's ground random-action pool and chooses once per attempt.
+Each followup runs once, finishing its complete input sequence before releasing
+its inputs. Ledge-jump fastfall ends when the grounded followup begins, so it
+does not interfere with a subsequent hop, aerial or wavedash. None leaves the CPU idle after its ledge option.
 A 30-frame punish window follows completion of that action. Hits or
 grabs start a 15-frame retry delay; deaths and an attempt timeout also retry.
 Swap on Success changes sides only after a successful hit or grab. D-pad Left
@@ -63,3 +68,10 @@ option pointer before the event module unloads.
 General Tech #17 entry, selectable CPU, fixed stage and native HUD contract.
 The score-storage and extension tests cover all original scores, the new
 fixed score slot and migration from the earlier T4 settings extension.
+
+The 16-byte settings extension is version 7. The action selector uses six bits
+in byte 15; its former three bits remain untouched. Versions 2 through 6 migrate
+the old actions to their corresponding new choices. The 50/50 preset is appended
+so existing preset identities remain stable. Resetting damage clears pending
+damage rather than copying the starting percent into it, preventing a second
+application of damage on the next native update.

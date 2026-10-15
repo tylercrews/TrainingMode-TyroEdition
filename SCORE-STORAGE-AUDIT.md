@@ -13,12 +13,16 @@ at `0x1B38..0x1B3B`. Adding the menu row does not shift any old score. Separate
 event-played flags at `0x1A68..0x1A6F` and the native word beginning at `0x1B3C`
 are excluded.
 
-The version-3 extension owns **16 bytes at `0x1AE0..0x1AEF`**, with an eight-byte
+The current version-7 extension owns **16 bytes at `0x1AE0..0x1AEF`**, with an eight-byte
 `TYEX`, version, size and marker header plus eight payload bytes. **72 bytes
 remain unallocated**. Native high scores have not moved or been removed, and
 the 44-byte OSD settings record has not been repacked. See
 `src/settings_extension.h` and `src/settings_extension.c` for the current
 payload; the audit establishes the boundary independently of that payload.
+Version 7 uses byte 15 bits 0..5 for the expanded Ledgechase CPU action; the
+record stays at 16 bytes, preserving 72 unallocated bytes. Versions 2..6 map
+the old action choices into the new catalogue without changing neighboring
+event settings. Version 7 also accepts the appended 50/50 Getup / Roll preset.
 
 ## Native save and checksum coverage
 

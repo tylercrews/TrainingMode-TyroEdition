@@ -3,14 +3,13 @@
 
 enum LCSide { LC_SIDE_LEFT, LC_SIDE_RIGHT, LC_SIDE_SWAP, LC_SIDE_RANDOM, LC_SIDE_COUNT };
 enum LCOption { LC_GETUP, LC_JUMP, LC_ROLL, LC_ATTACK, LC_OPTION_COUNT };
-enum LCPreset { LC_PRESET_EVEN, LC_PRESET_GETUP, LC_PRESET_JUMP, LC_PRESET_ROLL, LC_PRESET_ATTACK, LC_PRESET_TYRO, LC_PRESET_COUNT };
-enum LCFollowup { LC_NONE, LC_SPOTDODGE, LC_FOLLOWUP_ROLL, LC_DASH, LC_SMASH, LC_FOLLOWUP_COUNT };
+enum LCPreset { LC_PRESET_EVEN, LC_PRESET_GETUP, LC_PRESET_JUMP, LC_PRESET_ROLL, LC_PRESET_ATTACK, LC_PRESET_TYRO, LC_PRESET_GETUP_ROLL, LC_PRESET_COUNT };
 enum { LC_DISTANCE_COUNT = 5, LC_PUNISH_WINDOW = 30, LC_HIT_RESET_DELAY = 15, LC_ATTEMPT_LIMIT = 300 };
 
 static int LC_PresetChance(int preset, int option) {
     static const unsigned char chances[LC_PRESET_COUNT][LC_OPTION_COUNT] = {
         {25, 25, 25, 25}, {100, 0, 0, 0}, {0, 100, 0, 0},
-        {0, 0, 100, 0}, {0, 0, 0, 100}, {60, 10, 15, 15}
+        {0, 0, 100, 0}, {0, 0, 0, 100}, {60, 10, 15, 15}, {50, 0, 50, 0}
     };
     if (preset < 0 || preset >= LC_PRESET_COUNT) preset = LC_PRESET_EVEN;
     return option >= 0 && option < LC_OPTION_COUNT ? chances[preset][option] : 0;

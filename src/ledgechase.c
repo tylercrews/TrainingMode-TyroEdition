@@ -1,5 +1,6 @@
 #include "events.h"
 #include "ledgechase_logic.h"
+#include "cpu_actions.h"
 
 static EventMenu Menu_Main, Menu_Chances;
 static void Exit(GOBJ *menu);
@@ -17,10 +18,12 @@ static void ChangeAttackChance(GOBJ *menu, int value);
 
 static const char *SideNames[] = {"Left", "Right", "Swap on Success", "Random"};
 static const char *PercentNames[] = {"0%", "25%", "50%", "75%", "100%", "125%", "150%"};
-static const char *PresetNames[] = {"Even", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting"};
+static const char *PresetNames[] = {"Even", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting", "Getup / Roll"};
 static const char *DistanceNames[] = {"At Ledge", "Close", "Mid", "Far", "Safe"};
 static const char *ColorNames[] = {TM_CPU_INVINCIBILITY_NAMES};
-static const char *FollowupNames[] = {"None", "Spotdodge", "Roll", "Dash", "Smash"};
+static const char *FollowupNames[] = {CPU_GROUND_ACTIONS(CPU_GROUND_ACTION_NAME) "Random"};
+static const u8 FollowupActions[] = {CPU_GROUND_ACTIONS(CPU_GROUND_ACTION_ID) CPUACT_RANDOM};
+typedef char followup_count_matches[(countof(FollowupActions) == CPU_GROUND_ACTION_COUNT) ? 1 : -1];
 
 enum { OPT_CHANCES, OPT_SIDE, OPT_CPU_PERCENT, OPT_PLAYER_PERCENT, OPT_DISTANCE, OPT_COLOR, OPT_FOLLOWUP, OPT_EXIT };
 enum { CHANCE_PRESET, CHANCE_GETUP, CHANCE_JUMP, CHANCE_ROLL, CHANCE_ATTACK, CHANCE_HOP, CHANCE_DASH };
@@ -30,7 +33,7 @@ static EventOption Options_Main[] = {
      .desc = {"Choose a saved preset or edit chances", "for this session."}},
     {.kind = OPTKIND_STRING, .name = "Ledge Side", .values = SideNames, .value_num = LC_SIDE_COUNT,
      .desc = {"Choose a ledge. Swap changes sides only", "after you hit or grab the CPU."}, .OnChange = ChangeSide},
-    {.kind = OPTKIND_TOGGLE, .name = "CPU above 100%",
+    {.kind = OPTKIND_TOGGLE, .name = "CPU 100%",
      .desc = {"Off starts the CPU at 0%. On starts at 100%", "for the native slow ledge options."}, .OnChange = ChangeCPUPercent},
     {.kind = OPTKIND_STRING, .name = "Player Percent", .values = PercentNames, .value_num = countof(PercentNames),
      .desc = {"Choose your starting damage, from 0% to 150%."}, .OnChange = ChangePlayerPercent},
@@ -39,7 +42,7 @@ static EventOption Options_Main[] = {
     {.kind = OPTKIND_STRING, .name = "CPU Invincibility Overlay", .values = ColorNames, .value_num = TM_CPU_INVINCIBILITY_COUNT,
      .val = TM_CPU_INVINCIBILITY_DEFAULT,
      .desc = {"Choose a color for the CPU's natural", "invincibility and intangibility."}, .OnChange = ChangeColor},
-    {.kind = OPTKIND_STRING, .name = "CPU Action", .values = FollowupNames, .value_num = LC_FOLLOWUP_COUNT,
+    {.kind = OPTKIND_STRING, .name = "CPU Action", .values = FollowupNames, .value_num = countof(FollowupNames),
      .desc = {"CPU acts on its first legal grounded frame", "after the ledge option. Jump always fastfalls."}, .OnChange = ChangeFollowup},
     {.kind = OPTKIND_FUNC, .name = "Exit", .desc = {"Save settings and return to Event Select."}, .OnSelect = Exit},
 };
@@ -68,6 +71,7 @@ typedef struct LedgechaseData {
     int initialized, side, option, act_frame, legal_frames, vulnerable_frames;
     int option_started, elapsed, followup_started[2], punish_timer;
     int reset_timer, success;
+    int followup_active[2], followup_pending[2], followup_state[2], followup_action[2];
     Vec3 ledge;
     int ledge_line, inward;
 } LedgechaseData;
@@ -128,7 +132,8 @@ static void ClearVelocity(FighterData *ft) {
 static void SetPercent(GOBJ *fighter, int percent) {
     FighterData *ft = fighter->userdata;
     ft->dmg.percent = percent;
-    ft->dmg.percent_temp = percent;
+    // This field is pending damage to add, not a copy of the current percent.
+    ft->dmg.percent_temp = 0;
     Fighter_SetHUDDamage(ft->ply, percent);
 }
 static void SeedFollower(GOBJ *sub, GOBJ *leader) {
@@ -216,6 +221,13 @@ static void ResetAttempt(int success) {
         (*stc_ftcommon)->cliff_invuln_time + 1);
     data->legal_frames = data->vulnerable_frames = data->option_started = data->elapsed = 0;
     data->followup_started[0] = data->followup_started[1] = 0;
+    for (int ms = 0; ms < 2; ++ms) {
+        data->followup_active[ms] = data->followup_pending[ms] = 0;
+        int action = FollowupActions[Options_Main[OPT_FOLLOWUP].val];
+        if (action == CPUACT_RANDOM)
+            action = CPUCounterActionsGroundRandom[HSD_Randi(countof(CPUCounterActionsGroundRandom))];
+        data->followup_action[ms] = action;
+    }
     data->punish_timer = data->reset_timer = -1;
     data->success = 0;
     Match_CorrectCamera();
@@ -272,41 +284,80 @@ static int GroundReady(FighterData *ft) {
     return ft->phys.air_state == 0 && (ft->state_id == ASID_WAIT ||
         (ft->state_id == ASID_LANDING && ft->state.frame >= ft->attr.normal_landing_lag));
 }
-static int FollowupStarted(FighterData *ft, int action) {
-    int state = ft->state_id;
-    if (action == LC_SPOTDODGE) return state == ASID_ESCAPE;
-    if (action == LC_FOLLOWUP_ROLL) return state == ASID_ESCAPEF || state == ASID_ESCAPEB;
-    if (action == LC_DASH) return state == ASID_DASH || state == ASID_RUN;
-    return (state >= ASID_ATTACKS4HI && state <= ASID_ATTACKS4LW) ||
-        (ft->kind == FTKIND_NESS && state == 341) ||
-        (ft->kind == FTKIND_GAW && state == 346) ||
-        (ft->kind == FTKIND_PEACH && state >= 349 && state <= 351);
+static bool CheckHasJump(GOBJ *cpu) {
+    FighterData *ft = cpu->userdata;
+    return ft->jump.jumps_used < ft->attr.max_jumps;
+}
+static int FollowupMatches(FighterData *ft, int state) {
+    int current = ft->state_id;
+    if (state == ASID_ACTIONABLEGROUND || (state == ASID_ACTIONABLE && !ft->phys.air_state))
+        return !ft->phys.air_state && (GroundReady(ft) || current == ASID_WALKSLOW ||
+            current == ASID_WALKMIDDLE || current == ASID_WALKFAST || current == ASID_RUN ||
+            current == ASID_SQUATWAIT || current == ASID_OTTOTTOWAIT ||
+            current == ASID_GUARD || current == ASID_GUARDREFLECT);
+    if (state == ASID_ACTIONABLEAIR || state == ASID_ACTIONABLE)
+        return ft->phys.air_state && (current == ASID_JUMPF || current == ASID_JUMPB ||
+            current == ASID_JUMPAERIALF || current == ASID_JUMPAERIALB ||
+            current == ASID_FALL || current == ASID_FALLAERIALF || current == ASID_FALLAERIALB);
+    if (state == ASID_ACTIONABLESHIELD)
+        return current == ASID_GUARDON || current == ASID_GUARD || current == ASID_GUARDREFLECT ||
+            (ft->kind == FTKIND_YOSHI && ft->flags.shield_enable);
+    return current == state;
 }
 static int RunFollowup(GOBJ *cpu, GOBJ *human, int action, int inward) {
+    LedgechaseData *data = Data();
     FighterData *ft = cpu->userdata, *hmn = human->userdata;
-    if (action == LC_NONE) return GroundReady(ft);
-    // Queued shield inputs can enter the action in Melee's next native IASA
-    // pass, between event ticks. Observe that entry before checking readiness,
-    // or a roll that started outside this call is retried after every recovery.
-    if (FollowupStarted(ft, action)) { NeutralCPU(cpu); return 1; }
-    int state = ft->state_id;
-    // Native landing/turn/shield IASA performs its own readiness check. Never
-    // invoke an action directly or interrupt a ledge option or aerial state.
-    int eligible = state == ASID_WAIT || state == ASID_LANDING || state == ASID_TURN ||
-        state == ASID_GUARDON || state == ASID_GUARD || state == ASID_GUARDREFLECT ||
-        (ft->kind == FTKIND_YOSHI && ft->flags.shield_enable);
-    if (!eligible || ft->phys.air_state) return 0;
-    int toward = hmn->phys.pos.X > ft->phys.pos.X ? 1 : hmn->phys.pos.X < ft->phys.pos.X ? -1 : inward;
-    if (action == LC_SPOTDODGE) QueueInput(cpu, PAD_TRIGGER_R, 0, -127);
-    else if (action == LC_FOLLOWUP_ROLL) QueueInput(cpu, PAD_TRIGGER_R, inward * 127, 0);
-    else if (action == LC_DASH) QueueInput(cpu, 0, toward * 127, 0);
-    else QueueInput(cpu, PAD_BUTTON_A, toward * 127, 0);
-    RunNativeIASA(cpu);
-    int started = FollowupStarted(ft, action);
-    // The native transition has consumed the input. Do not leave a roll's
-    // trigger/stick queued for the next CPU input pass or subsequent IASA.
-    if (started) NeutralCPU(cpu);
-    return started;
+    int ms = ft->flags.ms;
+    // A terminal input can be consumed by the native IASA between event ticks.
+    if (data->followup_pending[ms] && ft->state_id != data->followup_state[ms]) {
+        NeutralCPU(cpu);
+        return 1;
+    }
+    if (!data->followup_active[ms]) {
+        if (!FollowupMatches(ft, ASID_ACTIONABLEGROUND) && ft->state_id != ASID_GUARDON) return 0;
+        data->followup_active[ms] = 1;
+    }
+    if (action == CPUACT_NONE) return 1;
+    CPUAction *commands = Lab_CPUActions[action];
+    for (CPUAction *command = commands; command->state != 0xFFFF; ++command) {
+        if (!FollowupMatches(ft, command->state) || ft->state.frame < command->frameLow ||
+            (command->custom_check && !command->custom_check(cpu))) continue;
+        int toward = hmn->phys.pos.X > ft->phys.pos.X ? 1 : hmn->phys.pos.X < ft->phys.pos.X ? -1 : inward;
+        int dir = 1;
+        switch (command->stickDir) {
+            case STCKDIR_TOWARD: dir = toward; break;
+            case STCKDIR_AWAY: dir = -toward; break;
+            case STCKDIR_FRONT: dir = ft->facing_direction; break;
+            case STCKDIR_BACK: dir = -ft->facing_direction; break;
+            case STICKDIR_RDM: dir = HSD_Randi(2) ? -1 : 1; break;
+        }
+        QueueInput(cpu, command->input, dir * command->stickX, command->stickY);
+        ft->cpu.cstickX = dir * command->cstickX;
+        ft->cpu.cstickY = command->cstickY;
+        ft->input.cstick = (Vec2){ft->cpu.cstickX / 127.f, ft->cpu.cstickY / 127.f};
+        int state = ft->state_id;
+        RunNativeIASA(cpu);
+        // Some sequences finish by observing a state (for example Spotdodge).
+        for (CPUAction *end = commands; end->state != 0xFFFF; ++end)
+            if (end->isLast && !end->input && !end->stickX && !end->stickY &&
+                !end->cstickX && !end->cstickY && FollowupMatches(ft, end->state) &&
+                ft->state.frame >= end->frameLow) {
+                NeutralCPU(cpu);
+                return 1;
+            }
+        if (command->isLast) {
+            if (ft->state_id != state || (!command->input && !command->stickX &&
+                !command->stickY && !command->cstickX && !command->cstickY) ||
+                (state == ASID_DASH && !command->input && !command->cstickX && !command->cstickY)) {
+                NeutralCPU(cpu);
+                return 1;
+            }
+            data->followup_pending[ms] = 1;
+            data->followup_state[ms] = state;
+        }
+        return 0;
+    }
+    return 0;
 }
 static void FastfallJump(GOBJ *cpu) {
     FighterData *ft = cpu->userdata;
@@ -402,9 +453,9 @@ void Event_Think(GOBJ *gobj) {
             if (!fighter) continue;
             FighterData *sub = fighter->userdata;
             if (sub->state_id == ASID_CLIFFWAIT) RunLedgeOption(fighter, data->option, data->inward);
-            if (data->option == LC_JUMP && !data->followup_started[ms]) FastfallJump(fighter);
+            if (data->option == LC_JUMP && !data->followup_active[ms]) FastfallJump(fighter);
             if (!data->followup_started[ms])
-                data->followup_started[ms] = RunFollowup(fighter, human, Options_Main[OPT_FOLLOWUP].val, data->inward);
+                data->followup_started[ms] = RunFollowup(fighter, human, data->followup_action[ms], data->inward);
             if (!data->followup_started[ms] || !GroundReady(sub)) all_finished = 0;
         }
         if (all_finished && data->punish_timer < 0) data->punish_timer = LC_PUNISH_WINDOW;

@@ -136,9 +136,9 @@ class Machine:
                                 (0x800923B4, "TestLCNativeGuardEnter"),
                                 (0x800939B4, "TestLCNativeReflectEnter")):
             self.jump(address, self.symbols[symbol])
-        # Unused C-stick alternatives are inactive; the production event uses
-        # digital shoulder/A and a fresh left-stick tilt for these actions.
-        for address in (0x800DF1C8, 0x800DF8E8, 0x800DF8B0):
+        # Keep the native C-stick smash check; unused aerial C-stick paths
+        # are inactive in this grounded IASA fixture.
+        for address in (0x800DF8E8, 0x800DF8B0):
             self.cpu.mem_write(address, bytes.fromhex("386000004e800020"))
         self.cpu.mem_write(0x80403FF0, struct.pack(">f", 0))
         self.cpu.mem_write(0x8007D964, bytes.fromhex("3d808040c02c3ff04e800020"))
@@ -219,7 +219,7 @@ class LedgechaseTests(unittest.TestCase):
         self.assertEqual(self.m.info(2), loads + 1)
 
     def test_roll_consumes_input_once_and_never_repeats_when_it_finishes(self):
-        self.m.call('TestLCPreference', 6, 2)
+        self.m.call('TestLCPreference', 6, 13)
         self.m.step()
         self.m.call('TestLCPrepared', 0, 1)
         self.m.step()
@@ -242,7 +242,7 @@ class LedgechaseTests(unittest.TestCase):
 
     def test_presets_manual_chances_and_disabled_placeholders(self):
         expected = [(25, 25, 25, 25), (100, 0, 0, 0), (0, 100, 0, 0),
-                    (0, 0, 100, 0), (0, 0, 0, 100), (60, 10, 15, 15)]
+                    (0, 0, 100, 0), (0, 0, 0, 100), (60, 10, 15, 15), (50, 0, 50, 0)]
         for preset, chances in enumerate(expected):
             self.assertEqual(self.m.call("TestLCChangePreset", preset), preset)
             self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(4)), chances)
@@ -257,8 +257,74 @@ class LedgechaseTests(unittest.TestCase):
             self.assertEqual(self.m.call("TestLCChanceDisabled", row), 1)
             self.assertEqual(self.m.text(self.m.call("TestLCChanceValueString", row)), "N/A")
         self.m.call("TestLCInit")
-        self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(4)), expected[5])
+        self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(4)), expected[6])
         self.assertEqual(self.m.info(0), writes)  # Read/load never writes settings.
+
+    def test_cpu_action_catalogue_matches_ground_choices_without_slots_or_advanced(self):
+        expected = ["None", "Spotdodge", "Shield", "Grab", "Up B", "Side B Toward",
+                    "Side B Away", "Down B", "Neutral B", "Up Smash", "Down Smash",
+                    "Forward Smash", "Roll Away", "Roll Towards", "Roll Random",
+                    "Neutral Air", "Forward Air", "Down Air", "Back Air", "Up Air",
+                    "Jab", "Forward Tilt", "Up Tilt", "Down Tilt", "Dash Attack",
+                    "Short Hop", "Full Hop", "Wavedash Away", "Wavedash Towards",
+                    "Wavedash Down", "Dash Back", "Dash Through", "Random"]
+        self.assertEqual(self.m.call("TestLCActionCount"), len(expected))
+        self.assertEqual([self.m.text(self.m.call("TestLCActionName", i)) for i in range(len(expected))], expected)
+        self.assertEqual(self.m.text(self.m.call("TestLCMenuName", 2)), "CPU 100%")
+
+    def test_shared_ground_actions_supply_buttons_sticks_and_multiframe_sequences(self):
+        self.m.step()
+        self.m.call("TestLCHumanSide", -1)
+        # Leave native IASA deferred so the actual production table inputs can
+        # be inspected before Melee consumes them on its next callback.
+        self.m.call("TestLCUseNativeIASA", self.m.symbols["TestLCNoIASA"])
+        def command(action, state=14, air=0, frame=1):
+            self.m.call("TestLCState", 2, state, air, frame)
+            result = self.m.call("TestLCFollowup", action)
+            return result, tuple(self.m.call("TestLCStick", i) for i in range(5))
+        for action, expected in ((2,(0,0,0,0,0x20)), (4,(0,127,0,0,0x200)),
+                (5,(-127,0,0,0,0x200)), (6,(127,0,0,0,0x200)),
+                (7,(0,-127,0,0,0x200)), (8,(0,0,0,0,0x200)),
+                (9,(0,0,0,127,0)), (10,(0,0,0,-127,0)), (11,(0,0,-127,0,0)),
+                (20,(0,0,0,0,0x100)), (21,(-80,0,0,0,0x100)),
+                (22,(0,80,0,0,0x100)), (23,(0,-80,0,0,0x100))):
+            with self.subTest(action=action):
+                self.m.call("TestLCFollowupReset")
+                self.assertEqual(command(action), (0,expected))
+                self.assertEqual(command(action, 60)[0], 1)  # Native entry observed once.
+                self.assertEqual(self.m.call("TestLCInputNeutral"), 1)
+        for action, final in ((15,(0,0,0,0,0x100)), (16,(0,0,127,0,0)),
+                             (17,(0,0,0,-127,0)), (18,(0,0,-127,0,0)),
+                             (19,(0,0,0,127,0)), (27,(65,-45,0,0,0x40)),
+                             (28,(-64,-45,0,0,0x40)), (29,(0,-80,0,0,0x40))):
+            with self.subTest(action=action):
+                self.m.call("TestLCFollowupReset")
+                self.assertEqual(command(action), (0,(0,0,0,0,0x400)))
+                self.assertEqual(command(action, 24)[0], 0)  # Jumpsquat waits for takeoff.
+                self.assertEqual(command(action, 25, 1), (0,final))
+                self.assertEqual(command(action, 65, 1)[0], 1)
+        self.m.call("TestLCFollowupReset")
+        self.assertEqual(command(3)[1], (-127,0,0,0,0))
+        self.assertEqual(command(3,20)[1], (-127,0,0,0,0x800))
+        self.assertEqual(command(3,24)[1], (0,0,0,0,0x10))
+        self.m.call("TestLCFollowupReset")
+        command(24)
+        self.assertEqual(command(24,20,0,4)[1][-1], 0)
+        self.assertEqual(command(24,20,0,5)[1][-1], 0x100)
+        self.m.call("TestLCFollowupReset")
+        self.assertEqual(command(26)[1][-1], 0x400)
+        self.assertEqual(command(26,24)[1][-1], 0x400)  # Full hop keeps jump held.
+        self.assertEqual(command(26,25,1)[0], 1)
+
+    def test_random_resolves_to_one_supported_action_for_each_body_per_attempt(self):
+        self.m.call("TestLCFollowers", 1)
+        self.m.call("TestLCPreference", 6, 32)
+        self.m.step()
+        for _ in range(30):
+            self.m.call("TestLCReset", 0)
+            for body in (0,1):
+                self.assertIn(self.m.call("TestLCChosenAction", body),
+                              [9,3,33,12,13,14,26,27,29,30,38,39])
 
     def test_reset_restores_userdata_without_losing_initialization_or_side(self):
         self.m.call("TestLCPreference", 0, 1)
@@ -285,6 +351,9 @@ class LedgechaseTests(unittest.TestCase):
         self.m.call("TestLCPreference", 2, 6)
         self.m.step()
         self.assertEqual((self.m.info(17), self.m.info(18)), (150, 100))
+        for index, percent in ((0,150),(1,150),(2,100),(3,100)):
+            self.assertEqual(self.m.call("TestLCPendingDamage", index), 0)
+            self.assertEqual(self.m.call("TestLCApplyPendingDamage", index), percent)
         for index in (0, 1):
             self.assertEqual(self.m.call("TestLCProtection", index), 0)
         for index in (2, 3):
@@ -365,25 +434,28 @@ class LedgechaseTests(unittest.TestCase):
         self.assertEqual(self.m.info(2), loads + 1)
 
     def test_all_followups_and_character_specific_smashes(self):
-        for action in range(1,5):
+        for action in (1,13,31,11):
+            self.m.call("TestLCFollowupReset")
             self.m.call("TestLCState", 2, 14, 0, 1)
-            self.assertEqual(self.m.call("TestLCFollowup", action), 0 if action == 2 else 1)
-            if action == 2:
-                self.assertEqual(self.m.call("TestLCFollowup", action), 1)  # Native shield transition precedes roll.
+            self.assertEqual(self.m.call("TestLCFollowup", action), 0 if action in (13,31) else 1)
+            if action in (13,31):
+                self.assertEqual(self.m.call("TestLCFollowup", action), 1)  # Observe the roll/dash sequence finishing.
         for kind in (8, 9, 24):
+            self.m.call("TestLCFollowupReset")
             self.m.call("TestLCSetKind", kind)
             self.m.call("TestLCState", 2, 14, 0, 1)
-            self.assertEqual(self.m.call("TestLCFollowup", 4), 1)
+            self.assertEqual(self.m.call("TestLCFollowup", 11), 1)
 
     def test_actual_native_wait_and_guard_eligibility_for_all_four_followups(self):
         self.m.native_ground_iasa()
         self.m.step()
-        for action, expected in ((1, 235), (2, 233), (3, 20), (4, 60)):
+        for action, expected in ((1, 235), (13, 233), (31, 20), (11, 60)):
+            self.m.call("TestLCFollowupReset")
             self.m.call("TestLCState", 2, 14, 0, 1)
             self.m.call("TestLCUseNativeIASA", 0x8008A4D4)
             result = self.m.call("TestLCFollowup", action)
-            if action == 2:
-                self.assertEqual(result, 0)  # Native shield entry occurs first.
+            if action in (13,31):
+                self.assertEqual(result, 0)  # Shared roll/dash sequences use a second command.
                 self.assertEqual(self.m.call("TestLCFollowup", action), 1)
             else:
                 self.assertEqual(result, 1)
@@ -393,7 +465,7 @@ class LedgechaseTests(unittest.TestCase):
         for state, callback in ((178, 0x80092758), (179, 0x80092A78), (182, 0x80093EC0)):
             self.m.call("TestLCState", 2, state, 0, 1)
             self.m.call("TestLCUseNativeIASA", callback)
-            self.assertEqual(self.m.call("TestLCFollowup", 2), 1)
+            self.assertEqual(self.m.call("TestLCFollowup", 13), 1)
 
     def test_actual_native_fastfall_only_after_first_descending_frame(self):
         self.m.native_fastfall()
@@ -405,13 +477,16 @@ class LedgechaseTests(unittest.TestCase):
 
     def test_roll_started_between_callbacks_is_latched_and_never_requested_again(self):
         self.m.native_ground_iasa()
-        self.m.call("TestLCPreference", 6, 2)
+        self.m.call("TestLCPreference", 6, 13)
         self.m.step()
         self.m.call("TestLCPrepared", 0, 1)
         self.m.step()
         self.m.call("TestLCState", 2, 14, 0, 1)
         self.m.call("TestLCUseNativeIASA", 0x8008A4D4)
-        self.m.step()  # Wait -> shield. Roll input remains queued.
+        self.m.step()  # Wait -> shield.
+        self.m.call("TestLCUseNativeIASA", self.m.symbols["TestLCNoIASA"])
+        self.m.step()  # Queue the shared table's terminal roll command.
+        self.m.call("TestLCUseNativeIASA", 0x80092758)
         self.assertEqual(self.m.info(12),0)
         self.assertEqual(self.m.call("TestLCEngineIASA"),233)
         self.m.step()  # Observe native roll before eligibility filtering.
@@ -479,6 +554,17 @@ class LedgechaseTests(unittest.TestCase):
         for row, chance in enumerate(expected, 1):
             option = self.m.call("TestLCAnyOption", submenu, row)
             self.assertEqual(self.m.call("TestLCAnyOptionValue", option), chance)
+        self.m.call("TestLCAnyOptionChange", preset, 6)
+        for row, chance in enumerate((50,0,50,0), 1):
+            option = self.m.call("TestLCAnyOption", submenu, row)
+            self.assertEqual(self.m.call("TestLCAnyOptionValue", option), chance)
+        self.m.call("TestLCAnyOptionChange", self.m.dat_option(6), 11)
+        self.m.call("TestLCPrepared", 0, 1)
+        self.m.step()
+        self.m.call("TestLCState", 2, 14, 0, 1)
+        self.m.step()
+        self.assertEqual(self.m.call("TestLCStateValue", 2), 60)
+        self.assertEqual(self.m.info(12), 1)
         saves = self.m.info(1)
         for _ in range(4): self.m.step()
         self.assertEqual(self.m.info(1), saves)  # Full userdata restores cannot trigger a fresh save loop.

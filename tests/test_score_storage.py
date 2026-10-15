@@ -302,7 +302,7 @@ class ScoreStorageAudit(unittest.TestCase):
             self.assertEqual(bytes(machine.cpu.mem_read(BASE+0x1F24,44)),core)
 
     def test_recognized_v1_through_v6_records_reset_score_50_without_migrating_saved_bytes(self):
-        for header in (b'TYEX\x01\x04\xA5\x5A', b'TYEX\x02\x08\xA5\x5A', b'TYEX\x03\x08\xA5\x5A', b'TYEX\x04\x08\xA5\x5A', b'TYEX\x05\x08\xA5\x5A', b'TYEX\x06\x08\xA5\x5A'):
+        for header in (b'TYEX\x01\x04\xA5\x5A', b'TYEX\x02\x08\xA5\x5A', b'TYEX\x03\x08\xA5\x5A', b'TYEX\x04\x08\xA5\x5A', b'TYEX\x05\x08\xA5\x5A', b'TYEX\x06\x08\xA5\x5A', b'TYEX\x07\x08\xA5\x5A'):
             machine=NativeMachine(); functions=machine.load_services()
             machine.call(functions[28],2,0,1)
             machine.install_hook(0x8015EF14,0x80604000)
