@@ -2,7 +2,7 @@
 #define TM_LEDGECHASE_LOGIC_H
 
 enum LCSide { LC_SIDE_LEFT, LC_SIDE_RIGHT, LC_SIDE_SWAP, LC_SIDE_RANDOM, LC_SIDE_COUNT };
-enum LCOption { LC_GETUP, LC_JUMP, LC_ROLL, LC_ATTACK, LC_OPTION_COUNT };
+enum LCOption { LC_GETUP, LC_JUMP, LC_ROLL, LC_ATTACK, LC_HOP, LC_DASH, LC_OPTION_COUNT };
 enum LCPreset { LC_PRESET_EVEN, LC_PRESET_GETUP, LC_PRESET_JUMP, LC_PRESET_ROLL, LC_PRESET_ATTACK, LC_PRESET_TYRO, LC_PRESET_GETUP_ROLL, LC_PRESET_COUNT };
 enum { LC_DISTANCE_COUNT = 5, LC_PUNISH_WINDOW = 30, LC_HIT_RESET_DELAY = 15, LC_ATTEMPT_LIMIT = 300 };
 
@@ -21,7 +21,16 @@ static int LC_SelectOption(const int chances[LC_OPTION_COUNT], unsigned roll) {
         value -= chances[i];
         if (value < 0) return i;
     }
-    return LC_ATTACK;
+    return LC_OPTION_COUNT - 1;
+}
+
+/* A conservative 45-degree waveland: clear the stage with both the current
+ * collision bottom and the origin (the bottom can reset on air-dodge entry).
+ * Leave two units of inward travel before crossing floor height. This is a
+ * safe-height heuristic, not an optimal-GALINT character timing table. */
+static int LC_CanWaveland(float inside, float origin_height, float bottom_height) {
+    float height = origin_height < bottom_height ? origin_height : bottom_height;
+    return inside >= -10 && height >= 2 + (inside < 0 ? -inside : 0);
 }
 
 static void LC_Rebound(int chances[LC_OPTION_COUNT], int changed) {

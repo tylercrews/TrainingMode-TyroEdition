@@ -53,7 +53,16 @@ static int TestLCIASA(GOBJ *fighter) {
         else if (ft->input.down & PAD_BUTTON_X) ft->state_id = slow ? ASID_CLIFFJUMPSLOW1 : ASID_CLIFFJUMPQUICK1;
         else if (ft->input.lstick.X * ft->facing_direction > 0.5f && ((FtCliffCatch *)&ft->state_var)->timer)
             ft->state_id = slow ? ASID_CLIFFCLIMBSLOW : ASID_CLIFFCLIMBQUICK;
+        else if (ft->input.lstick.X * ft->facing_direction < -0.5f && ((FtCliffCatch *)&ft->state_var)->timer)
+            ft->state_id = ASID_FALL;
         else if (ft->input.lstick.X == 0 && ft->input.lstick.Y == 0) ((FtCliffCatch *)&ft->state_var)->timer = 1;
+        return 1;
+    }
+    if (ft->phys.air_state) {
+        if (ft->state_id == ASID_FALL && (ft->input.down & PAD_BUTTON_X) && CheckHasJump(fighter)) {
+            ++ft->jump.jumps_used;
+            ft->state_id = ft->flags.is_multijump ? 341 : ASID_JUMPAERIALF;
+        } else if (ft->input.down & PAD_TRIGGER_R) ft->state_id = ASID_ESCAPEAIR;
         return 1;
     }
     if (ft->state_id == ASID_LANDING && ft->state.frame < ft->attr.normal_landing_lag) return 0;
@@ -77,7 +86,7 @@ void Fighter_SetAllHurtboxState(GOBJ *fighter, int state) {
 }
 void Fighter_SetHUDDamage(int player, u16 percent) { hud_percent[player] = percent; }
 void Fighter_SetGrounded(FighterData *ft) { ft->phys.air_state = 0; }
-void Fighter_SetAirborne(FighterData *ft) { ft->phys.air_state = 1; }
+void Fighter_SetAirborne(FighterData *ft) { ft->phys.air_state = 1; ft->jump.jumps_used = 1; }
 void Fighter_UpdateCameraBox(GOBJ *fighter) { }
 void EnvironmentCollision_WaitLanding(GOBJ *fighter) { }
 void Fighter_EnterWait(GOBJ *fighter) {
@@ -155,6 +164,7 @@ int TestLCInit(void) {
         test_ft[i].kind = i % 2 ? FTKIND_NANA : FTKIND_POPO;
         test_ft[i].pad_index = 0;
         test_ft[i].attr.normal_landing_lag = 4;
+        test_ft[i].attr.max_jumps = 2;
         test_ft[i].cb.IASA = TestLCIASA;
         test_ft[i].hurt.intang_frames.respawn = 120;
         test_ft[i].hurt.kind_game = 2;
@@ -261,10 +271,12 @@ int TestLCPrepared(int option, int delay) {
     Data()->act_frame = delay;
     Data()->option_started = Data()->legal_frames = Data()->vulnerable_frames = Data()->elapsed = 0;
     Data()->followup_started[0] = Data()->followup_started[1] = 0;
+    Data()->return_phase[0] = Data()->return_phase[1] = 0;
     Data()->reset_timer = Data()->punish_timer = -1;
     for (int i = 2; i < 4; ++i) {
         test_ft[i].state_id = ASID_CLIFFWAIT;
         test_ft[i].phys.air_state = 1;
+        test_ft[i].jump.jumps_used = 1;
         ((FtCliffCatch *)&test_ft[i].state_var)->timer = 1;
     }
     return 1;
@@ -348,3 +360,39 @@ int TestLCStick(int component) {
 int TestLCChosenAction(int ms) { return Data()->followup_action[ms]; }
 
 int TestLCHumanSide(int dir) { test_ft[0].phys.pos.X = test_ft[2].phys.pos.X + dir * 20; return dir; }
+
+int TestLCReturnInfo(int ms, int field) {
+    FighterData *ft = &test_ft[2 + ms];
+    int values[] = {Data()->return_phase[ms], ft->jump.jumps_used, ft->input.down,
+        ft->input.held, ft->flags.is_fastfall};
+    return values[field];
+}
+int TestLCReturnPosition(int ms, int inside, int height, int bottom, int vertical) {
+    FighterData *ft = &test_ft[2 + ms];
+    ft->phys.pos.X = Data()->ledge.X + Data()->inward * inside;
+    ft->phys.pos.Y = Data()->ledge.Y + height;
+    ft->coll_data.ecbCurr_bot.Y = bottom;
+    ft->phys.self_vel.Y = vertical;
+    return 1;
+}
+int TestLCJumpKind(int index, int kind) {
+    test_ft[index].kind = kind;
+    test_ft[index].flags.is_multijump = kind == FTKIND_KIRBY || kind == FTKIND_JIGGLYPUFF;
+    test_ft[index].attr.max_jumps = test_ft[index].flags.is_multijump ? 6 : 2;
+    return kind;
+}
+int TestLCSelect(int a, int b, int c, int d, int e, int f, int roll) {
+    int chances[] = {a,b,c,d,e,f};
+    return LC_SelectOption(chances, roll);
+}
+int TestLCNativeFallEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, ASID_FALL); }
+int TestLCNativeJumpEnter(GOBJ *fighter) {
+    FighterData *ft = fighter->userdata;
+    ++ft->jump.jumps_used;
+    return TestLCNativeEntry(fighter, ft->flags.is_multijump ? 341 : ASID_JUMPAERIALF);
+}
+int TestLCNativeAirDodgeEnter(GOBJ *fighter) { return TestLCNativeEntry(fighter, ASID_ESCAPEAIR); }
+int TestLCNativeReturnIASA(GOBJ *fighter) {
+    FighterData *ft = fighter->userdata;
+    return ((int (*)(GOBJ *))(ft->state_id == ASID_FALL ? 0x800CB870 : 0x80099A58))(fighter);
+}

@@ -117,6 +117,56 @@ static EventMenu LdshMenu_Eggs = {.name = "Egg Targets", .option_num = countof(L
 static int LdshOptions_ResetDelaySuccess[] = { 120, 60, 30, 1 };
 static int LdshOptions_ResetDelayFailure[] = { 60, 20, 1, 1 };
 
+static EventOption LdshOptions_Help[] = {
+    {.kind = OPTKIND_INFO, .name = "Drop, Jump, Air Dodge",
+     .desc = {"Release ledge, double jump toward stage, then",
+              "air dodge diagonally into the floor to waveland.",
+              "Jump after releasing, not while still hanging.",
+              "The built-in ledge jump is a different option."}},
+    {.kind = OPTKIND_INFO, .name = "Watch the Hand Circle",
+     .desc = {"Watch the circle at ledge around your grabbing hand.",
+              "Use its expansion to learn the ledge-release rhythm.",
+              "It starts on grab, before you can drop: do not",
+              "release on its first appearance. Practice slowly."}},
+    {.kind = OPTKIND_INFO, .name = "Reset Sticks, Then Drop",
+     .desc = {"Return both sticks to neutral before releasing.",
+              "Then tap away or down to let go of the ledge.",
+              "An early held input can fail; reset and tap again.",
+              "Away avoids a down input carrying into fastfall."}},
+    {.kind = OPTKIND_INFO, .name = "Jump Before Air Dodge",
+     .desc = {"Double jump as soon as possible after the drop.",
+              "Drift inward and let your collision box clear stage.",
+              "Air dodge too early and you can hit the wall / fall.",
+              "Air dodge too late and you spend ledge protection."}},
+    {.kind = OPTKIND_INFO, .name = "Characters and Collision",
+     .desc = {"Jump height, timing and air drift vary by character.",
+              "Your environment collision box (ECB) matters too.",
+              "How you grab ledge can change the ECB and timing.",
+              "Regrab from a real recovery to practice that setup."}},
+    {.kind = OPTKIND_INFO, .name = "What GALINT Measures",
+     .desc = {"GALINT: grounded actionable ledge intangibility.",
+              "These are protected frames after landing lag ends.",
+              "Landing alone does not mean you are actionable.",
+              "A waveland can succeed with zero GALINT."}},
+    {.kind = OPTKIND_INFO, .name = "Protection Is Limited",
+     .desc = {"Hanging, dropping, jumping and landing spend time.",
+              "Ledge intangibility keeps counting during the return.",
+              "Air-dodge intangibility is a separate protection.",
+              "Peach needs special setups for useful GALINT."}},
+    {.kind = OPTKIND_INFO, .name = "Build a Consistent Rhythm",
+     .desc = {"Start at reduced speed; learn drop, jump, then dodge.",
+              "Use Tips to catch early drops and stick-reset errors.",
+              "Keep Ledge Invincibility helps learn the sequence;",
+              "turn it Off to practice normal protection timing."}},
+    {.kind = OPTKIND_INFO, .name = "Use the Practice Feedback",
+     .desc = {"Highlight Dropped Invincibility pulses red in gaps.",
+              "Read Angle beside the stick diagram and GALINT.",
+              "Start with Waveland, then Any GALINT or 4/7/10.",
+              "Try Attack/Dash or Pop Egg to practice a follow-up."}},
+};
+static EventMenu LdshMenu_Help = {.name = "Ledgedash Help", .options = LdshOptions_Help,
+    .option_num = countof(LdshOptions_Help)};
+
 static EventOption LdshOptions_Main[] = {
     {
         .kind = OPTKIND_STRING,
@@ -214,13 +264,8 @@ static EventOption LdshOptions_Main[] = {
         .desc = {"Enable eggs and choose target, distance, randomization and damage."},
     },
     {
-        .kind = OPTKIND_INFO,
-        .name = "HELP",
-        .desc =
-            {"Ledgedashing is the act of wavedashing onto stage from ledge.",
-             "This is most commonly done by dropping off ledge, double jumping ",
-             "immediately, and quickly airdodging onto stage. Each input",
-             "is performed quickly after the last, making it difficult and risky."},
+        .kind = OPTKIND_MENU, .name = "Help", .menu = &LdshMenu_Help,
+        .desc = {"Learn the release cue, inputs, collision timing and GALINT."},
     },
     {
         .kind = OPTKIND_FUNC, .name = "Reset Event Settings",

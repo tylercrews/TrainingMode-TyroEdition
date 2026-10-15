@@ -83,6 +83,8 @@ Runtime OSD category count is separate from the original saved palette count. Ca
 
 Ledgechase is an independent event module; its fixed-FD, selectable-CPU and native percent-HUD contracts live in `src/events.c`. EventVars appends `set_cpu_invincibility_overlay`, which borrows a menu option pointer until scene cleanup. It uses the shared protection detector and render-time color composition, including paused edits and CPU subfighters. Local Off suppresses only the CPU protection tint, while the human keeps its global setting. The binding survives restore clears and detaches before event modules unload. See [Ledgechase Training](docs/LEDGECHASE-TRAINING.md).
 
+Ledgechase's six session chances include native ledge jump, drop/double-jump hop, and experimental drop/jump/waveland. The seven saved presets keep their original IDs and zero chances for the two new options. Return phases and consumed jump counts belong to each active CPU body and reset with the attempt. Inputs invoke native IASA, with jump released immediately after acceptance to avoid Peach float and repeated multijumps. The dash checks origin and ECB clearance on FD; it does not synthesize velocity, collision or intangibility. Native input and relocated DAT tests do not certify animated roster trajectories or maximum GALINT. See [Ledgedash mechanics and the verification procedure](docs/LEDGEDASH-MECHANICS.md), which also sources the Ledgedash Help submenu's hand-circle cue.
+
 Run the actual PowerPC codec, runtime bridge and native-hook tests from the repository root:
 
 ```sh

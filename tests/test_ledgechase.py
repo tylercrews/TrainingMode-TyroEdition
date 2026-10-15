@@ -240,25 +240,140 @@ class LedgechaseTests(unittest.TestCase):
         self.m.step()
         self.assertEqual(self.m.info(2), loads + 1)
 
-    def test_presets_manual_chances_and_disabled_placeholders(self):
+    def test_presets_and_all_six_session_chances(self):
         expected = [(25, 25, 25, 25), (100, 0, 0, 0), (0, 100, 0, 0),
                     (0, 0, 100, 0), (0, 0, 0, 100), (60, 10, 15, 15), (50, 0, 50, 0)]
         for preset, chances in enumerate(expected):
             self.assertEqual(self.m.call("TestLCChangePreset", preset), preset)
-            self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(4)), chances)
+            self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(6)), chances + (0, 0))
         writes = self.m.info(0)
-        for i, value in enumerate((95, 0, 100, 17)):
+        for i, value in enumerate((95, 0, 100, 17, 100, 100)):
             self.m.call("TestLCChangeChance", i, value)
-            chances = tuple(self.m.call("TestLCChance", j) for j in range(4))
+            chances = tuple(self.m.call("TestLCChance", j) for j in range(6))
             self.assertEqual(sum(chances), 100)
             self.assertTrue(all(0 <= chance <= 100 for chance in chances))
         self.assertEqual(self.m.info(0), writes)
         for row in (5, 6):
-            self.assertEqual(self.m.call("TestLCChanceDisabled", row), 1)
-            self.assertEqual(self.m.text(self.m.call("TestLCChanceValueString", row)), "N/A")
+            self.assertEqual(self.m.call("TestLCChanceDisabled", row), 0)
+        for option in range(6):
+            chances = [0] * 6
+            chances[option] = 100
+            for roll in range(100):
+                self.assertEqual(self.m.call('TestLCSelect', *chances, roll), option)
         self.m.call("TestLCInit")
         self.assertEqual(tuple(self.m.call("TestLCChance", i) for i in range(4)), expected[6])
         self.assertEqual(self.m.info(0), writes)  # Read/load never writes settings.
+
+    def prepare_return(self, option=5, side=0, followers=0):
+        self.m.call('TestLCFollowers', followers)
+        self.m.call('TestLCPreference', 0, side)
+        self.m.step()
+        self.m.call('TestLCPrepared', option, 1)
+
+    def return_info(self, field=0, ms=0):
+        return self.m.call('TestLCReturnInfo', ms, field)
+
+    def test_hop_and_dash_drop_then_jump_on_separate_frames_on_both_ledges(self):
+        for option in (4, 5):
+            for side in (0, 1):
+                self.m = Machine()
+                self.prepare_return(option, side)
+                self.m.step()
+                self.assertEqual(self.m.call('TestLCStateValue', 2), 29)  # Fall, not native ledge jump.
+                self.assertEqual((self.return_info(), self.return_info(1)), (1, 1))
+                self.m.step()
+                self.assertEqual((self.return_info(), self.return_info(1)), (2, 2))
+                self.assertEqual(self.m.call('TestLCStick', 0), 127 if side == 0 else -127)
+
+    def test_return_observes_jump_consumed_between_callbacks(self):
+        self.prepare_return()
+        self.m.step()
+        # Native IASA can consume the queued jump before the next event tick.
+        self.m.call('TestLCNativeJumpEnter', self.m.call('TestLCFighter', 2))
+        self.m.step()
+        self.assertEqual((self.return_info(), self.return_info(1)), (2, 2))
+
+    def test_native_release_and_aerial_jump_dispatch_for_entire_selectable_roster(self):
+        # Native release eligibility, jump-count check, per-character jump
+        # dispatch, and R-button air-dodge check; entries/physics are fixtures.
+        for kind in range(27):
+            self.m = Machine()
+            self.m.native_ledge_iasa()
+            self.m.jump(0x800CC730, self.m.symbols['TestLCNativeFallEnter'])
+            for address in (0x800C5240, 0x800D2D0C):
+                self.m.cpu.mem_write(address, bytes.fromhex('386000004e800020'))
+            for address in (0x800CBBC0, 0x800CBD18, 0x800CBE98, 0x800CC0E8, 0x800CC238, 0x800D74A4):
+                self.m.jump(address, self.m.symbols['TestLCNativeJumpEnter'])
+            self.m.jump(0x80099A9C, self.m.symbols['TestLCNativeAirDodgeEnter'])
+            self.prepare_return()
+            self.m.call('TestLCJumpKind', 2, kind)
+            self.m.call('TestLCUseNativeIASA', 0x8009A8FC)
+            self.m.step()
+            self.assertEqual(self.return_info(), 1, kind)
+            self.m.call('TestLCUseNativeIASA', self.m.symbols['TestLCNativeReturnIASA'])
+            self.m.step()
+            self.assertEqual((self.return_info(), self.return_info(1)), (2, 2), kind)
+            self.m.call('TestLCReturnPosition', 0, 1, 4, 0, 1)
+            self.m.step()
+            self.assertEqual((self.return_info(), self.m.call('TestLCStateValue', 2)), (3, 236), kind)
+
+    def test_clearance_uses_both_origin_and_collision_bottom_and_mirrors_dodge(self):
+        for side in (0, 1):
+            self.m = Machine()
+            self.prepare_return(side=side)
+            self.m.step(); self.m.step()
+            for inside, height, bottom in ((-11, 20, 0), (-4, 5, 0), (1, -2, 20), (1, 4, -4)):
+                self.m.call('TestLCReturnPosition', 0, inside, height, bottom, 1)
+                self.m.step()
+                self.assertEqual(self.return_info(), 2)
+            self.m.call('TestLCReturnPosition', 0, -4, 6, 0, 1)
+            self.m.call('TestLCUseNativeIASA', self.m.symbols['TestLCNoIASA'])
+            self.m.step()
+            self.assertEqual([self.m.call('TestLCStick', c) for c in (0, 1)],
+                             [90 if side == 0 else -90, -90])
+            # Observe an air dodge started by native IASA between ticks.
+            self.m.call('TestLCState', 2, 236, 1, 0)
+            self.m.step()
+            self.assertEqual(self.return_info(), 3)
+            self.assertEqual(self.m.call('TestLCInputNeutral'), 1)
+            self.m.call('TestLCState', 2, 43, 0, 9)  # Special landing lag, not actionable.
+            self.m.step()
+            self.assertEqual(self.m.info(12), 0)
+            self.m.call('TestLCState', 2, 14, 0, 0)
+            self.m.step()
+            self.assertEqual(self.m.info(12), 1)
+
+    def test_jump_is_released_for_float_and_multijumps_and_hop_fastfall_waits_for_stage(self):
+        for kind in (4, 15, 8, 14, 16, 9):  # Kirby/Puff; Ness/Yoshi/Mewtwo/Peach.
+            self.m = Machine()
+            self.prepare_return(option=4)
+            self.m.call('TestLCJumpKind', 2, kind)
+            self.m.step(); self.m.step()
+            self.assertEqual(self.return_info(3), 0)  # Release even before the next native tick.
+            self.m.step()
+            self.assertEqual(self.return_info(3), 0)
+            self.assertEqual(self.return_info(2), 0)
+            self.m.call('TestLCReturnPosition', 0, -1, 10, 0, -1)
+            self.m.step()
+            self.assertEqual(self.return_info(4), 0)
+            self.m.call('TestLCReturnPosition', 0, 4, 10, 0, -1)
+            self.m.step()
+            self.assertEqual(self.return_info(4), 1)
+            self.assertEqual(self.return_info(1), 2)
+
+    def test_ice_climbers_keep_independent_returns_and_freeze_together(self):
+        self.prepare_return(followers=1)
+        self.m.step(); self.m.step()
+        self.m.call('TestLCReturnPosition', 0, 1, 4, 0, 1)
+        self.m.call('TestLCReturnPosition', 1, -5, -4, 0, 1)
+        self.m.call('TestLCNativeFreeze', 3, 1)
+        self.m.step()
+        self.assertEqual((self.return_info(ms=0), self.return_info(ms=1)), (2, 2))
+        self.m.call('TestLCNativeFreeze', 3, 0)
+        self.m.step()
+        self.assertEqual((self.return_info(ms=0), self.return_info(ms=1)), (3, 2))
+        self.m.call('TestLCReset', 0)
+        self.assertEqual((self.return_info(ms=0), self.return_info(ms=1)), (0, 0))
 
     def test_cpu_action_catalogue_matches_ground_choices_without_slots_or_advanced(self):
         expected = ["None", "Spotdodge", "Shield", "Grab", "Up B", "Side B Toward",
@@ -568,6 +683,27 @@ class LedgechaseTests(unittest.TestCase):
         saves = self.m.info(1)
         for _ in range(4): self.m.step()
         self.assertEqual(self.m.info(1), saves)  # Full userdata restores cannot trigger a fresh save loop.
+
+    def test_optimized_dat_six_chances_and_new_return_sequences(self):
+        self.m.relocated_dat()
+        self.m.step()
+        submenu = self.m.call('TestLCAnySubmenu', self.m.dat_option(0))
+        for option in (4, 5):
+            row = self.m.call('TestLCAnyOption', submenu, option + 1)
+            self.m.call('TestLCAnyOptionChange', row, 100)
+            for i in range(6):
+                row = self.m.call('TestLCAnyOption', submenu, i + 1)
+                self.assertEqual(self.m.call('TestLCAnyOptionValue', row), 100 if i == option else 0)
+            for side in (0, 1):
+                self.m.call('TestLCAnyOptionChange', self.m.dat_option(1), side)
+                self.assertEqual(self.m.info(5), option)
+                self.m.call('TestLCPrepared', option, 1)
+                self.m.step(); self.m.step()
+                self.assertEqual((self.return_info(), self.return_info(1)), (2, 2))
+                if option == 5:
+                    self.m.call('TestLCReturnPosition', 0, 1, 4, 0, 1)
+                    self.m.step()
+                    self.assertEqual(self.return_info(), 3)
 
 
 if __name__ == "__main__":

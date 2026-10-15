@@ -34,14 +34,30 @@ and hurtbox coverage still need live roster verification.
 | Getup / Roll | 50 | 0 | 50 | 0 |
 
 Changing an individual percentage rebalances the remaining choices to 100%.
-Only the selected preset is saved. Ledge Hop Chance and Ledge Dash Chance are
-disabled placeholders with N/A values.
+Only the selected preset is saved. Ledge Hop Chance and Ledge Dash Chance now
+participate in the same six-way rebalance. The existing presets give both new
+options 0%; set either chance to 100% to isolate it for testing. Both manual
+chances remain session-only.
+
+Ledge Hop releases with an outward input, double jumps inward on a later
+frame, then drifts and fastfalls onto stage. It uses each character's native
+aerial jump, including animation-driven and multijump characters. It is
+separate from Jump Chance, which still selects the built-in ledge jump.
+
+Ledge Dash is **experimental**: it uses the same release/jump, then requests
+an inward/down air dodge after a conservative origin/ECB clearance check.
+This is not an optimized GALINT script or a verified roster success matrix.
+Characters can return without useful GALINT, land before dodging, or miss;
+the existing retry rules still apply. Native input/sequence tests cover all
+playable internal kinds, but full animated collision behavior needs in-game
+verification. See [the mechanics investigation](LEDGEDASH-MECHANICS.md) for
+character handling, sources, limitations and a roster verification procedure.
 
 Seventy percent of attempts choose the first legal ledge-action frame. The
 remaining attempts spread their delay through the available ledge protection
 and at most five vulnerable frames. Normal getup respects the native neutral
 stick-release latch, so its first legal input can be later than the other
-three options. The event supplies processed CPU inputs to native IASA; it
+button-driven options. Manual release also respects that latch. The event supplies processed CPU inputs to native IASA; it
 does not replace ledge animations or shorten their recovery.
 
 Ledge jumps fastfall on the first native-eligible descending frame. The

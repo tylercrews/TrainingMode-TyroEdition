@@ -100,6 +100,27 @@ class LedgedashTrailMenuTests(unittest.TestCase):
             self.assertEqual(m.call('TestTrailDraw'),int(choice!=0))
         self.assertEqual(m.record(),before)
 
+    def test_ledgedash_help_is_a_submenu_with_release_cue_and_actionable_guidance(self):
+        options = self.word(self.menu + 8)
+        rows = [options + 44*i for i in range(self.m.cpu.mem_read(self.menu+4, 1)[0])]
+        help_row = next(row for row in rows if self.text(self.word(row+12)) == 'Help')
+        self.assertEqual(self.m.cpu.mem_read(help_row, 1)[0], 0)  # OPTKIND_MENU.
+        submenu = self.word(help_row+32)
+        self.assertEqual(self.text(self.word(submenu)), 'Ledgedash Help')
+        count = self.m.cpu.mem_read(submenu+4, 1)[0]
+        self.assertEqual(count, 9)
+        help_options = self.word(submenu+8)
+        descriptions = []
+        for i in range(count):
+            row = help_options+44*i
+            lines = [self.text(self.word(row+16+4*j)) for j in range(4)]
+            self.assertTrue(all(0 < len(line) <= 60 for line in lines))
+            descriptions.extend(lines)
+        text = ' '.join(descriptions)
+        for guidance in ('grabbing hand', 'before you can drop', 'both sticks to neutral',
+                         'collision box', 'landing lag', 'zero GALINT', 'Peach', 'Tips'):
+            self.assertIn(guidance, text)
+
     def test_init_binds_event_override_before_gameplay_dependencies(self):
         m=self.m;m.call('Settings_Set',11,1,1)
         # Event_Init loads its existing preferences, installs overrides, then

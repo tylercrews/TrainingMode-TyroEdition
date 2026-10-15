@@ -15,6 +15,9 @@ static void ChangeGetupChance(GOBJ *menu, int value);
 static void ChangeJumpChance(GOBJ *menu, int value);
 static void ChangeRollChance(GOBJ *menu, int value);
 static void ChangeAttackChance(GOBJ *menu, int value);
+static void ChangeHopChance(GOBJ *menu, int value);
+static void ChangeDashChance(GOBJ *menu, int value);
+static bool CheckHasJump(GOBJ *cpu);
 
 static const char *SideNames[] = {"Left", "Right", "Swap on Success", "Random"};
 static const char *PercentNames[] = {"0%", "25%", "50%", "75%", "100%", "125%", "150%"};
@@ -57,10 +60,14 @@ static EventOption Options_Chances[] = {
      .desc = {"Chance of a ledge roll."}, .OnChange = ChangeRollChance},
     {.kind = OPTKIND_INT, .name = "Attack Chance", .val = 25, .value_num = 101, .format = "%d%%",
      .desc = {"Chance of a ledge getup attack."}, .OnChange = ChangeAttackChance},
-    {.kind = OPTKIND_INFO, .name = "Ledge Hop Chance", .value_string = "N/A", .disable = true,
-     .desc = {"Ledgehop is not available yet."}},
-    {.kind = OPTKIND_INFO, .name = "Ledge Dash Chance", .value_string = "N/A", .disable = true,
-     .desc = {"Ledgedash is not available yet."}},
+    {.kind = OPTKIND_INT, .name = "Ledge Hop Chance", .value_num = 101, .format = "%d%%",
+     .desc = {"Drop, double jump inward, then fastfall to stage.",
+              "Uses the character's native aerial jump."}, .OnChange = ChangeHopChance},
+    {.kind = OPTKIND_INT, .name = "Ledge Dash Chance", .value_num = 101, .format = "%d%%",
+     .desc = {"Experimental: drop, double jump, then waveland.",
+              "Waits for clearance; does not optimize GALINT.",
+              "Needs in-game roster testing. Misses retry normally.",
+              "Set to 100% to test the selected character."}, .OnChange = ChangeDashChance},
 };
 static EventMenu Menu_Main = {.name = "Ledgechase Training", .options = Options_Main, .option_num = countof(Options_Main), .on_exit = Exit};
 static EventMenu Menu_Chances = {.name = "Ledge Option Chances", .options = Options_Chances, .option_num = countof(Options_Chances)};
@@ -74,6 +81,7 @@ typedef struct LedgechaseData {
     int followup_active[2], followup_pending[2], followup_state[2], followup_action[2];
     Vec3 ledge;
     int ledge_line, inward;
+    int return_phase[2], return_jumps[2];
 } LedgechaseData;
 typedef char ledgechase_data_size[(sizeof(LedgechaseData) <= EVENT_DATASIZE) ? 1 : -1];
 
@@ -100,6 +108,8 @@ static void ChangeGetupChance(GOBJ *menu, int value) { ReboundChances(LC_GETUP);
 static void ChangeJumpChance(GOBJ *menu, int value) { ReboundChances(LC_JUMP); }
 static void ChangeRollChance(GOBJ *menu, int value) { ReboundChances(LC_ROLL); }
 static void ChangeAttackChance(GOBJ *menu, int value) { ReboundChances(LC_ATTACK); }
+static void ChangeHopChance(GOBJ *menu, int value) { ReboundChances(LC_HOP); }
+static void ChangeDashChance(GOBJ *menu, int value) { ReboundChances(LC_DASH); }
 
 static void UpdatePosition(GOBJ *fighter) {
     FighterData *ft = fighter->userdata;
@@ -223,6 +233,7 @@ static void ResetAttempt(int success) {
     data->followup_started[0] = data->followup_started[1] = 0;
     for (int ms = 0; ms < 2; ++ms) {
         data->followup_active[ms] = data->followup_pending[ms] = 0;
+        data->return_phase[ms] = 0;
         int action = FollowupActions[Options_Main[OPT_FOLLOWUP].val];
         if (action == CPUACT_RANDOM)
             action = CPUCounterActionsGroundRandom[HSD_Randi(countof(CPUCounterActionsGroundRandom))];
@@ -272,13 +283,75 @@ static void RunLedgeOption(GOBJ *cpu, int option, int inward) {
     if (ft->state_id != ASID_CLIFFWAIT) return;
     // Normal getup requires the native stick-release latch. A neutral first
     // frame arms it; never force an option before that native requirement.
-    if (option == LC_GETUP && !ft->state_var.state_var3) return;
+    if ((option == LC_GETUP || option == LC_HOP || option == LC_DASH) && !ft->state_var.state_var3) return;
     if (option == LC_GETUP) QueueInput(cpu, 0, inward * 127, 0);
     else if (option == LC_JUMP) QueueInput(cpu, PAD_BUTTON_X, 0, 0);
     else if (option == LC_ROLL) QueueInput(cpu, PAD_TRIGGER_R, 0, 0);
+    else if (option == LC_HOP || option == LC_DASH) QueueInput(cpu, 0, -inward * 127, 0);
     else QueueInput(cpu, PAD_BUTTON_A, 0, 0);
     RunNativeIASA(cpu);
     if (IsLedgeOption(ft->state_id)) NeutralCPU(cpu);
+}
+
+enum { LC_RETURN_LEDGE, LC_RETURN_DROP, LC_RETURN_JUMP, LC_RETURN_DODGE, LC_RETURN_LANDED };
+/* Observe native transitions, including ones consumed between event callbacks.
+ * Never change velocity, collision, jump count, or protection to make a return
+ * succeed. Each Ice Climber owns a separate sequence. */
+static void RunLedgeReturn(GOBJ *cpu, LedgechaseData *data) {
+    FighterData *ft = cpu->userdata;
+    int *phase = &data->return_phase[ft->flags.ms];
+    if (ft->state_id == ASID_CLIFFWAIT && *phase == LC_RETURN_LEDGE) {
+        RunLedgeOption(cpu, data->option, data->inward);
+        if (ft->state_id == ASID_FALL) {
+            *phase = LC_RETURN_DROP;
+            data->return_jumps[ft->flags.ms] = ft->jump.jumps_used;
+            NeutralCPU(cpu); // Do not keep the outward release input for physics.
+        }
+        return; // Drop and jump must be separate simulation frames.
+    }
+    if (!ft->phys.air_state) {
+        *phase = LC_RETURN_LANDED;
+        return;
+    }
+    if (*phase == LC_RETURN_DROP) {
+        if (ft->jump.jumps_used <= data->return_jumps[ft->flags.ms] &&
+            ft->state_id == ASID_FALL && CheckHasJump(cpu)) {
+            QueueInput(cpu, PAD_BUTTON_X, data->inward * 127, 0);
+            RunNativeIASA(cpu);
+        }
+        // Multijump characters use character-specific action states. Observe
+        // the consumed jump count instead of assuming JumpAerialF/B IDs.
+        if (ft->jump.jumps_used > data->return_jumps[ft->flags.ms]) {
+            *phase = LC_RETURN_JUMP;
+            // Release immediately after acceptance. Held jump can float with
+            // Peach or request another Kirby/Puff jump; animation-driven
+            // double jumps do not need the button held to keep their rise.
+            QueueInput(cpu, 0, data->inward * 127, 0);
+        }
+        return;
+    }
+    if (*phase != LC_RETURN_JUMP) return;
+    if (ft->state_id == ASID_CLIFFCATCH || ft->state_id == ASID_CLIFFWAIT) return;
+    if (ft->state_id == ASID_ESCAPEAIR) {
+        *phase = LC_RETURN_DODGE;
+        return;
+    }
+    float inside = (ft->phys.pos.X - data->ledge.X) * data->inward;
+    float height = ft->phys.pos.Y - data->ledge.Y;
+    if (data->option == LC_DASH && LC_CanWaveland(inside, height, height + ft->coll_data.ecbCurr_bot.Y)) {
+        QueueInput(cpu, PAD_TRIGGER_R, data->inward * 90, -90);
+        RunNativeIASA(cpu);
+        if (ft->state_id == ASID_ESCAPEAIR) {
+            *phase = LC_RETURN_DODGE;
+            NeutralCPU(cpu);
+        }
+    } else {
+        QueueInput(cpu, 0, inside < 12 ? data->inward * 127 : 0, 0);
+        if (data->option == LC_HOP && ft->phys.self_vel.Y < 0 && inside >= 3) {
+            QueueInput(cpu, 0, inside < 12 ? data->inward * 127 : 0, -127);
+            Fighter_PhysAir_CheckFastfall(ft);
+        }
+    }
 }
 static int GroundReady(FighterData *ft) {
     return ft->phys.air_state == 0 && (ft->state_id == ASID_WAIT ||
@@ -436,23 +509,29 @@ void Event_Think(GOBJ *gobj) {
     if (!data->option_started) {
         if (ft->state_id == ASID_CLIFFWAIT) {
             ft->state_var.state_var2 = 0x40000000; // Native float hang timeout = 2.0f.
-            int legal = data->option != LC_GETUP || ft->state_var.state_var3;
+            int manual_return = data->option == LC_HOP || data->option == LC_DASH;
+            int legal = (data->option != LC_GETUP && !manual_return) || ft->state_var.state_var3;
             if (legal && LC_ReadyToAct(&data->legal_frames, &data->vulnerable_frames,
                                      event_vars->is_protected(cpu), data->act_frame)) {
                 for (int ms = 0; ms < 2; ++ms) {
                     GOBJ *fighter = FighterBody(1, ms);
-                    if (fighter) RunLedgeOption(fighter, data->option, data->inward);
+                    if (fighter) {
+                        if (manual_return) RunLedgeReturn(fighter, data);
+                        else RunLedgeOption(fighter, data->option, data->inward);
+                    }
                 }
             }
         }
-        if (IsLedgeOption(ft->state_id)) data->option_started = 1;
+        if (IsLedgeOption(ft->state_id) || data->return_phase[0] != LC_RETURN_LEDGE) data->option_started = 1;
     } else {
         int all_finished = 1;
         for (int ms = 0; ms < 2; ++ms) {
             GOBJ *fighter = FighterBody(1, ms);
             if (!fighter) continue;
             FighterData *sub = fighter->userdata;
-            if (sub->state_id == ASID_CLIFFWAIT) RunLedgeOption(fighter, data->option, data->inward);
+            if ((data->option == LC_HOP || data->option == LC_DASH) && !data->followup_active[ms])
+                RunLedgeReturn(fighter, data);
+            else if (sub->state_id == ASID_CLIFFWAIT) RunLedgeOption(fighter, data->option, data->inward);
             if (data->option == LC_JUMP && !data->followup_active[ms]) FastfallJump(fighter);
             if (!data->followup_started[ms])
                 data->followup_started[ms] = RunFollowup(fighter, human, data->followup_action[ms], data->inward);
