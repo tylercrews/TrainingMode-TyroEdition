@@ -19,6 +19,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Replace the Angle label with an octagonal stick-direction diagram beside the existing number in the global Wavedash OSD and the Wavedash/Ledgedash training HUDs, preserving font size and the actual left/right direction.
 - Improve Powershield Training with laser-hitstun Yellow>Green cues, confirmed powershield successes, paired Act out of Laser / Powershield OSDs, in-game help and saved event options. See [event details](docs/POWERSHIELD-TRAINING.md).
 - Keep Low Laser Puff Practice's position lock in the native physics pass and refresh model matrices only on placement, avoiding late transform invalidation during active play.
 - Add **Low Laser Puff Practice** to Character-specific Tech: Fox/Falco versus a fixed startup-crouch Puff, five positions, neutral laser/fastfall OSDs, saved OSD toggles and Reset %. See [event details](docs/LOW-LASER-PUFF.md).

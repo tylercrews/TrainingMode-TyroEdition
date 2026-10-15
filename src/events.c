@@ -865,6 +865,7 @@ EventVars stc_event_vars = {
     .set_osd_suppression = OSD_SetEventSuppression,
     .set_powershield_observer = Powershield_SetObserver,
     .set_timing_overlay = ActionCues_SetTimingOverlay,
+    .HUD_DrawInfoPanelWithStick = HUD_DrawInfoPanelWithStick,
 };
 
 static GOBJ *stc_msgmgr;
@@ -1304,6 +1305,36 @@ void GFX_Start(u16 vtx_count, GFX_Params params)
     GXBegin(params.shape, GX_VTXFMT0, vtx_count);
 }
 
+static void DrawStickDiagram(float cx, float cy, float rx, float ry, Vec2 direction)
+{
+    static const Vec2 gate[8] = {
+        {1, 0}, {.70710678f, .70710678f}, {0, 1}, {-.70710678f, .70710678f},
+        {-1, 0}, {-.70710678f, -.70710678f}, {0, -1}, {.70710678f, -.70710678f},
+    };
+    if (rx <= 0 || ry <= 0) return;
+    GXColor outline = {180, 190, 205, 255}, stick = {255, 255, 255, 255};
+    GFX_Start(16, (GFX_Params){.shape = GX_LINES, .size = 6});
+    for (unsigned i = 0; i < countof(gate); ++i) {
+        Vec2 a = gate[i], b = gate[(i + 1) % countof(gate)];
+        GFX_AddVtx(cx + a.X * rx, cy + a.Y * ry, 0, outline);
+        GFX_AddVtx(cx + b.X * rx, cy + b.Y * ry, 0, outline);
+    }
+    float tx, ty;
+    OSD_StickTip(direction.X, direction.Y, &tx, &ty);
+    GFX_Start(2, (GFX_Params){.shape = GX_LINES, .size = 12});
+    GFX_AddVtx(cx, cy, 0, stick);
+    GFX_AddVtx(cx + tx * rx, cy + ty * ry, 0, stick);
+}
+
+/* Draw in text-local coordinates so queue animation, layout and deletion all
+ * use the same transform as the number. No texture or font glyph is needed. */
+void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction)
+{
+    float sx = text->viewport_scale.X, sy = text->viewport_scale.Y;
+    DrawStickDiagram(text->trans.X + x * sx, -text->trans.Y - y * sy,
+        12.f * sx, 12.f * sy, direction);
+}
+
 void HUD_DrawTris(Tri *tris, GXColor *colors, int count)
 {
     HUDCamData *cam_data = stc_event_vars.hudcam_gobj->userdata;
@@ -1441,6 +1472,11 @@ static const Rect info_item_label_rect = { 0.8f, 2.5f, 8.6f, 2.5f };
 static const Rect info_item_info_rect = { 0.0f, 0.0f, 9.6f, 2.5f };
 
 void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
+    HUD_DrawInfoPanelWithStick(label, info, count, -1, 0);
+}
+
+void HUD_DrawInfoPanelWithStick(const char **label, const char **info, int count,
+    int stick_row, const Vec2 *direction) {
     HUDCamData *cam_data = stc_event_vars.hudcam_gobj->userdata;
     if (cam_data->hide) return;
     COBJ *prev_camera = COBJ_GetCurrent();
@@ -1473,7 +1509,7 @@ void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
         Rect label_rect = info_item_label_rect;
         label_rect.x += x;
         label_rect.y += cur_y;
-        HUD_DrawTextEx(
+        if (info_i != stick_row) HUD_DrawTextEx(
             label[info_i], &label_rect, 0.5f,
             (GXColor) {0,0,0,255}, (GXColor) {0,0,0,0},
             0, 1
@@ -1482,6 +1518,12 @@ void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
         Rect info_rect = info_item_info_rect;
         info_rect.x += x;
         info_rect.y += cur_y;
+        if (info_i == stick_row) {
+            // Share the existing tile with the number at its original font size.
+            info_rect.x += 2.4f;
+            info_rect.y += 1.25f;
+            info_rect.w -= 2.4f;
+        }
         HUD_DrawTextEx(
             info[info_i], &info_rect, 0.5f,
             (GXColor) {220,220,220,255}, (GXColor) {0,0,0,0},
@@ -1521,6 +1563,10 @@ void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
     GFX_AddVtx(x1i, y1i, 0, grey);
     GFX_AddVtx(x0i, y1i, 0, grey);
 
+    if (stick_row >= 0 && stick_row < count) {
+        Vec2 stick = direction ? *direction : (Vec2){0, 0};
+        DrawStickDiagram(x + 1.65f, y - stick_row * 5.5f + 2.5f, .9f, .9f, stick);
+    }
     CObj_SetCurrent(prev_camera);
 }
 
@@ -2208,6 +2254,15 @@ GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, 
     msg_data->queue_num = queue_num;
     msg_data->layout_key = -1;
     msg_data->native_frame = stc_match->time_frames;
+    if (msg_data->settings_id == 0 && msg_data->kind == 0 && (unsigned)queue_num < 6) {
+        GOBJ *fighter = Fighter_GetSubcharGObj(queue_num, 0);
+        if (fighter && fighter->userdata) {
+            FighterData *data = fighter->userdata;
+            float angle = data->TM.tm_union.wavedash.airdodge_angle;
+            msg_data->stick_direction = (Vec2){cos(angle), sin(angle)};
+            msg_data->stick_angle = 1;
+        }
+    }
     msg_data->state = MSGSTATE_SHIFT;
     msg_data->anim_timer = MSGTIMER_SHIFT;
     msg_jobj->scale.X = MSGJOINT_SCALE;

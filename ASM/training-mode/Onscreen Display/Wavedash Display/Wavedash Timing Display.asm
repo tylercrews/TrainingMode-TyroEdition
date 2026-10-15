@@ -235,12 +235,12 @@ SaveAngle:
 
 Wavedash_String:
     blrl
-    .string "Wavedash %df\nAngle: %2.1f\n%s: %df"
+    .string "Wavedash %df\n%2.1f\n%s: %df"
     .align 2
 
 Wavedash_String_NoHopType:
     blrl
-    .string "Wavedash %df\nAngle: %2.1f"
+    .string "Wavedash %df\n%2.1f"
     .align 2
 
 ShortHopString:

@@ -1219,6 +1219,20 @@ class OSDLayoutTests(unittest.TestCase):
                             self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,0),index//capacity)
                             self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,1),index%capacity)
 
+    def test_wavedash_stick_symbol_follows_banked_layout_and_live_visibility(self):
+        for mode in (1,2):
+            self.m = Machine(); self.m.init(); self.start(mode,ids=(0,)); m = self.m
+            obj = m.call("TestLayoutEmit",0,0,1,0)
+            m.call("TestLayoutStick",obj); m.call("TestLayoutTick",1)
+            m.call("OSD_MessageGX",obj,2)
+            self.assertEqual(m.call("TestStickDraws"),1)
+            self.assertEqual(m.call("TestStickPosition",0),(12 if mode == 2 else -38)&0xFFFFFFFF)
+            self.assertEqual(m.call("TestStickPosition",1),14)
+            m.call("Settings_Set",11,0,1); m.call("OSD_MessageGX",obj,2)
+            self.assertEqual(m.call("TestStickDraws"),1)
+            m.call("Settings_Set",11,0,0); m.call("OSD_MessageGX",obj,2)
+            self.assertEqual(m.call("TestStickDraws"),2)
+
     def test_asmash_result_renders_in_all_layouts_and_does_not_move_existing_results(self):
         for mode in range(3):
             with self.subTest(mode=mode):
@@ -1947,6 +1961,36 @@ class OSDStyleTests(unittest.TestCase):
             self.assertEqual(colors[-1][1],0x8DFF6EFF)
             self.assertEqual(m.call("TestStyleEncoded"),1)
             m.native_text(raw)  # Exercise the actual emitted converter hook, not a mock.
+
+    def test_stick_diagram_intersects_octagon_and_preserves_every_quadrant(self):
+        m = self.m
+        for x,y in [(1,0),(0,1),(-1,0),(0,-1),(1,1),(-1,1),(-1,-1),(1,-1),
+                    (95,-29),(-95,-29),(95,29),(-95,29),(0,0)]:
+            def signed(value): return value if value < 0x80000000 else value - 0x100000000
+            tx,ty = [signed(m.call("TestStickTip",x,y,axis))/10000 for axis in (0,1)]
+            if x == y == 0:
+                self.assertEqual((tx,ty),(0,0)); continue
+            self.assertAlmostEqual(max(abs(tx)+.41421356237*abs(ty),
+                                       abs(ty)+.41421356237*abs(tx)),1,places=3)
+            self.assertAlmostEqual(tx*y,ty*x,delta=.02)
+            self.assertGreaterEqual(tx*x,0); self.assertGreaterEqual(ty*y,0)
+
+    def test_wavedash_symbol_uses_angle_row_and_hides_with_osd(self):
+        m = self.m; m.init(); m.write(14,0,1)
+        for lines,row_y in [(2,15),(3,0)]:
+            m.call("TestStyleInit",0,1,0,1)
+            m.call("TestStyleStick",lines,0)
+            m.call("TestStyleDraw")
+            self.assertEqual(m.call("TestStickDraws"),1)
+            self.assertEqual(m.call("TestStyleX",1),20)
+            self.assertEqual(m.call("TestStyleY",1),row_y)
+            self.assertEqual(m.call("TestStickPosition",1),row_y+14)
+            self.assertEqual(m.call("TestStickPosition",0),(-38) & 0xFFFFFFFF)
+            self.assertEqual(m.call("TestStickDirection",0),(-1000)&0xFFFFFFFF)
+            self.assertEqual(m.call("TestStickDirection",1),(-300)&0xFFFFFFFF)
+            m.call("Settings_Set",11,0,1); m.call("TestStyleDraw")
+            self.assertEqual(m.call("TestStickDraws"),1)
+            m.call("Settings_Set",11,0,0)
 
     def test_lcancel_prefixed_result_keeps_window_outcome_and_measurement(self):
         m=self.m;m.init();m.write(14,1,1)

@@ -480,6 +480,7 @@ void Ledgedash_HUDThink(LedgedashData *event_data, FighterData *hmn_data)
 
             // save airdodge angle
             event_data->hud.airdodge_angle = angle;
+            event_data->airdodge_stick = hmn_data->input.lstick;
             event_data->action_state.is_airdodge = 1;
         }
     }
@@ -671,13 +672,14 @@ void Ledgedash_HitLogGX(GOBJ *gobj, int pass)
     static GXColor detect_diffuse = {255, 255, 255, 150};
 
     LdshHitlogData *hitlog_data = gobj->userdata;
+    LedgedashData *event_data = event_vars->event_gobj->userdata;
     
     // panel info
-    event_vars->HUD_DrawInfoPanel((const char**)panel_labels, (const char**)panel_info,
-        LdshOptions_EggMenu[EGG_ENABLE].val ? countof(panel_labels) : countof(panel_labels) - 1);
+    event_vars->HUD_DrawInfoPanelWithStick((const char**)panel_labels, (const char**)panel_info,
+        LdshOptions_EggMenu[EGG_ENABLE].val ? countof(panel_labels) : countof(panel_labels) - 1,
+        0, &event_data->displayed_stick);
 
     // action log
-    LedgedashData *event_data = event_vars->event_gobj->userdata;
     static char *names[] = {
         "Cliffwait",
         "Fall",
@@ -1456,6 +1458,7 @@ static void Ledgedash_UpdateAttempt(LedgedashData *data, FighterData *ft) {
     if (data->action_state.is_airdodge)
         sprintf(angle_text, "%.2f", fabs(data->hud.airdodge_angle / M_1DEGREE));
     else sprintf(angle_text, "-");
+    data->displayed_stick = data->action_state.is_airdodge ? data->airdodge_stick : (Vec2){0, 0};
     ((LdshHitlogData *)data->hitlog_gobj->userdata)->num = 0;
 }
 static void Ledgedash_ApplyOverlay(LedgedashData *data, GOBJ *fighter) {

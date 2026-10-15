@@ -1,6 +1,15 @@
 #include "osd_style.h"
 #include "settings.h"
 
+void OSD_StickTip(float x, float y, float *tip_x, float *tip_y) {
+    float ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
+    float edge_x = ax + 0.41421356237f * ay;
+    float edge_y = ay + 0.41421356237f * ax;
+    float edge = edge_x > edge_y ? edge_x : edge_y;
+    *tip_x = edge > 0 ? x / edge : 0;
+    *tip_y = edge > 0 ? y / edge : 0;
+}
+
 static int tagged(int kind) { return ((uint32_t)kind & 0xC0000000u) == 0x40000000u; }
 uint32_t OSD_MessageTag(int kind, unsigned id, unsigned argument, unsigned line, unsigned inline_layout) {
     if (id == 64) id = 8;

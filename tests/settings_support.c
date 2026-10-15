@@ -83,6 +83,25 @@ static int layout_text_index(Text *text) {
     return -1;
 }
 static int style_count, wait_frame, wait_tag;
+static unsigned stick_draws;
+static float stick_x, stick_y;
+static Vec2 stick_direction;
+void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction) {
+    ++stick_draws; stick_x = x; stick_y = y; stick_direction = direction;
+}
+void TestStyleStick(unsigned lines, unsigned owned) {
+    style_message.stick_angle = 1; style_message.line_count = lines;
+    style_message.layout_owned = owned;
+    style_message.stick_direction = (Vec2){-1.f, -.3f};
+    stick_draws = 0;
+}
+unsigned TestStickDraws(void) { return stick_draws; }
+int TestStickPosition(unsigned axis) { return axis ? stick_y : stick_x; }
+int TestStickDirection(unsigned axis) { return (axis ? stick_direction.Y : stick_direction.X) * 1000; }
+int TestStickTip(int x, int y, unsigned axis) {
+    float tx, ty; OSD_StickTip(x, y, &tx, &ty);
+    return (axis ? ty : tx) * 10000;
+}
 static const char *wait_label;
 static GOBJ wait_object;
 static int wave_frame, wave_hop;
@@ -444,6 +463,10 @@ GOBJ *TestLayoutEmit(int queue, int id, int frame, int kind) {
     return 0;
 }
 void TestLayoutTick(unsigned frame) { stc_match->time_frames = frame; Message_LayoutUpdate(); }
+void TestLayoutStick(GOBJ *object) {
+    MsgData *msg = object->userdata;
+    msg->stick_angle = 1; msg->stick_direction = (Vec2){-1.f, -.3f}; stick_draws = 0;
+}
 int TestLayoutVisible(GOBJ *object) { return Message_LayoutVisible(object->userdata); }
 int TestLayoutAge(GOBJ *object) { return ((MsgData *)object->userdata)->alive_timer; }
 int TestLayoutX100(GOBJ *object) { return ((MsgData *)object->userdata)->text->trans.X * 100; }

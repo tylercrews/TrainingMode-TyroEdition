@@ -225,6 +225,8 @@ void HUD_DrawTextEx(
 Rect HUD_DrawActionLogBar(u8 *action_log, GXColor *color_lookup, int log_count);
 void HUD_DrawActionLogKey(char **action_names, GXColor *action_colors, int action_count);
 void HUD_DrawInfoPanel(const char **label, const char **info, int count);
+void HUD_DrawInfoPanelWithStick(const char **label, const char **info, int count,
+    int stick_row, const Vec2 *direction);
 
 typedef struct RNGControl
 {
@@ -295,6 +297,8 @@ typedef struct EventVars
     void (*set_powershield_observer)(void (*)(FighterData *, int, int, int),
         void (*)(FighterData *, int, int), void (*)(void));
     void (*set_timing_overlay)(GOBJ *, const GXColor *);
+    void (*HUD_DrawInfoPanelWithStick)(const char **label, const char **info, int count,
+        int stick_row, const Vec2 *direction);
 } EventVars;
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
 #define event_vars (*event_vars_ptr_loc)
@@ -398,7 +402,10 @@ typedef struct MsgData
     int timing_failed;
     char layout_title[MSG_CHARMAX + 1];
     Text *layout_timing; // One fitted large glyph stream for prefix + result in Practice Panel.
+    Vec2 stick_direction; // Snapshot of the attempt, in controller coordinates (+Y = up).
+    int stick_angle; // Angle row has an octagonal stick diagram; currently Wavedash row 1.
 } MsgData;
+void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction);
 void Message_FreeObject(GOBJ *object);
 void Message_LayoutInit(int canvas);
 int Message_LayoutAdd(GOBJ *object, int queue);

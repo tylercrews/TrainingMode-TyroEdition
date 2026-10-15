@@ -49,6 +49,8 @@ struct LedgedashData
         u8 is_input_release : 1;
     } tip;
     LdshEggPlacement egg_placement; // Append: preserve existing event offsets; copied with savestates.
+    Vec2 airdodge_stick;
+    Vec2 displayed_stick; // Paired with the last published angle number across retries.
 };
 
 struct LedgedashAssets
