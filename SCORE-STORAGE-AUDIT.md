@@ -149,3 +149,10 @@ The extension still owns 20 bytes, with 68 bytes unallocated in the audited regi
 ## Version 10: Ledge entry and hop height
 
 Ownership remains 20 bytes. Byte 14 bits 6..7 now hold Get to Ledge (Spawn/Fall/Jump, default Jump), and byte 15 bits 6..7 hold Ledge Hop Height (Low/Medium/Original, default Low). Versions 1..9 initialize these formerly reserved bits rather than interpreting their old padding. Version 9 keeps all fourteen valid preset IDs and its aerial selection; invalid old preset 14 does not become the new 50%-dash preset. The preset slot now accepts fifteen choices. Powershield, all previous owned preferences, core settings and the surrounding score region remain intact. Hop Drop Adjustment is session-only. Migration and native records-reset tests cover the exact version-10 header as well as earlier formats.
+
+
+## Version 11: Attack on Shield and Reversal
+
+The extension now owns **24 bytes** at `0x1AE0..0x1AF7`, leaving **64 bytes** unallocated in the same 88-byte region. The first 20 bytes retain all version-10 preferences, apart from the version/length header. Bytes 20..23 form a little-endian word: bits 0..3 Reversal attack (14 choices), 4..5 distance, 6 player facing, 7 CPU facing, 8 ground/platform, 9..12 Attack on Shield response (10 choices), 13..15 hit count minus one (0..4), 16 infinite shields (default On), 17..18 distance; bits 19..31 remain reserved. The default word is `00 00 01 00`.
+
+Versions 1..10 initialize the new word, retaining all previously supported preferences and padding. Missing records remain read-only until an edit. Unsupported and foreign records keep their bytes and use private runtime preferences. New tests cover exhaustive value/invalid-write isolation, fresh-service reload, exact version-10 migration, production DAT relocation, and native records erasure across versions 1..11. Native score boundaries, save serialization and checksums are unchanged.

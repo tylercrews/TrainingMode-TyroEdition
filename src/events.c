@@ -3,6 +3,7 @@
 #include "savestate.h"
 #include "osds.h"
 #include "settings_extension.h"
+#include "shield_training.h"
 #include <stdarg.h>
 
 /////////////////////
@@ -355,6 +356,7 @@ EventDesc Combo = {
 
 // Attack On Shield Training
 EventDesc AttackOnShield = {
+    .tyro_muted = true,
     .eventName = "Attack on Shield\n",
     .eventDescription = "Practice attacks on a shielding opponent\nPause to change their OoS option.\n",
     .eventFile = 0,
@@ -371,8 +373,9 @@ EventDesc AttackOnShield = {
 };
 
 EventDesc Reversal = {
+    .tyro_muted = true,
     .eventName = "Reversal Training\n",
-    .eventDescription = "Practice OoS punishes! DPad left/right\nmoves characters closer and further apart.",
+    .eventDescription = "Practice OoS punishes! Pause to choose the\nattack and distance. DPad fine-tunes spacing.",
     .eventFile = 0,
     .jumpTableIndex = JUMP_REVERSAL,
     .CSSType = SLCHRKIND_TRAINING,
@@ -875,6 +878,7 @@ EventVars stc_event_vars = {
     .set_powershield_observer = Powershield_SetObserver,
     .set_timing_overlay = ActionCues_SetTimingOverlay,
     .HUD_DrawInfoPanelWithStick = HUD_DrawInfoPanelWithStick,
+    .shield_training = ShieldTraining_Control,
 };
 
 static GOBJ *stc_msgmgr;
@@ -1783,6 +1787,7 @@ void StartOSDs(void)
     // Very low priority of 20, runs after everything else
     GOBJ *osd_gobj = GObj_Create(0, 7, 0);
     GObj_AddProc(osd_gobj, OSD_Think, 20);
+
 }
 
 void EventLoad(void)

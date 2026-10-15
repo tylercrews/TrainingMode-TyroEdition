@@ -60,9 +60,17 @@ CustomEvent:
     mr r4, r27
     rtocbl r12, TM_GetEventDesc
     lbz r0, 0x14(r3) # EventDesc.tyro_edited, third bit in the flag byte
+    andi. r0, r0, 0x10
+    bne MutedEvent
+    lbz r0, 0x14(r3)
     andi. r0, r0, 0x20
     beq CheckEventFile
     bl Cyan
+    mflr r5
+    b ChangeColor
+
+MutedEvent:
+    bl MutedCyan
     mflr r5
     b ChangeColor
 
@@ -92,6 +100,10 @@ HasFile:
 Color:
     blrl
     .byte 180, 180, 180, 255
+
+MutedCyan:
+    blrl
+    .byte 0, 180, 180, 255
 
 Cyan:
     blrl

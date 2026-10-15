@@ -26,6 +26,8 @@ static int seen_frame, live;
 /* Borrow the event's existing Boolean option. Draw-time reads also work paused. */
 static const s16 *tangibility_option;
 static const s16 *cpu_invincibility_option;
+static const s16 *infinite_shields_option;
+void ActionCues_SetInfiniteShields(const s16 *option) { infinite_shields_option = option; }
 static int tangibility_enabled(void) { return tangibility_option && *tangibility_option; }
 static int cpu_fighter(FighterData *data) {
     Playerblock *player = Fighter_GetPlayerblock((u8)data->ply);
@@ -238,7 +240,8 @@ void ActionCues_LCancel(GOBJ *gobj) {
     if (entry) entry->missed_entry = (u8)data->input.timer_trigger_any_ignore_hitlag >= (**stc_ftcommon).lcancel_input_window;
 }
 static void full_shields(void) {
-    if (!live || !Settings_Get(TM_SETTING_FLAG, TM_FLAG_INFINITE_SHIELDS)) return;
+    if (!live || !(infinite_shields_option ? !!*infinite_shields_option :
+        Settings_Get(TM_SETTING_FLAG, TM_FLAG_INFINITE_SHIELDS))) return;
     float health = (**stc_ftcommon).x260;
     for (int ply = 0; ply < 6; ++ply)
         for (int sub = 0; sub < 2; ++sub) {
@@ -357,12 +360,14 @@ void ActionCues_Clear(void) {
 void ActionCues_SceneChange(void) {
     BindTimingShields(1);
     live = 0; manager = 0;
+    infinite_shields_option = 0;
     tangibility_option = 0;
     cpu_invincibility_option = 0; /* Event modules may unload after this callback. */
     ActionCues_Clear(); /* Native scene cleanup owns fighters and the service GOBJ. */
 }
 void ActionCues_MatchStart(void) {
     if (manager) return;
+    infinite_shields_option = 0;
     tangibility_option = 0;
     cpu_invincibility_option = 0;
     memset(fighters, 0, sizeof(fighters)); ActionCues_Clear(); live = 1;

@@ -19,6 +19,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T4 (V1.4.1T4)
 
+- Modernize Attack on Shield and Reversal Training with saved menus and Techchase distance presets. Add a 1-5 shield-hit reaction count and an event-local Infinite Shields override; remember Reversal's selected attack. Mark both event names in muted cyan. See [event details](docs/SHIELD-TRAINING.md).
 - Highlight events with Tyro-specific additions or changes in cyan on the event select screen: Training Lab, Ledgedash, Techchase, Ledgechase, Powershield, Side-B Sweetspot, Low Laser Puff Practice, Eggs-ercise and Under Fire. Shared global features alone do not change an event's label color.
 - Add L + R + A + Start to exit every event directly during gameplay or from any menu, retaining each event's Exit cleanup and score saving; analog trigger presses are supported.
 - Replace the Angle label with an octagonal stick-direction diagram beside the existing number in the global Wavedash OSD and the Wavedash/Ledgedash training HUDs, preserving font size and the actual left/right direction.
@@ -34,7 +35,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - Add event-local CPU Invincibility Overlay colors to Ledgechase and Techchase, overriding the global CPU tint; make both Techchase chance-menu titles read Tech Chances.
 - Add nine saved Techchase chance presets, ground/platform starting locations and Spotdodge Punish; remember its OSD, reset, invisibility and camera-mode choices while keeping manual percentages and camera coordinates session-only.
 - Add global A-Smash Release timing feedback, with 1f as the fastest A-button release; group its menu row above both OSD overrides and preserve existing palette storage.
-- Verify and protect unused event-score storage for a separate preferences extension, now 20 bytes, preserving all original scores, assigning Ledgechase a fixed spare score slot and leaving 68 spare bytes.
+- Verify and protect unused event-score storage for a separate preferences extension, now 24 bytes, preserving all original scores, assigning Ledgechase a fixed spare score slot and leaving 64 spare bytes.
 - Replace Ledgedash's Protection Highlight with event-local Highlight Dropped Invincibility, using the red diagnostic pulse when protection drops. It overrides the global invincibility tint. Is enabled by default in Under Fire.
 - Make Under Fire restart after hits or deaths, resetting its lava and timer for repeated practice; show Session Best beneath the timer and save an improved high score on pause-menu Exit.
 - Reset Side-B Sweetspot after landing on stage or platforms following Side-B, unfreezing Marth and preserving the existing death and ledge reset timing.

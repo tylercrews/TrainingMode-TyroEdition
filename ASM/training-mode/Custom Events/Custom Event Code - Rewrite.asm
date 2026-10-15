@@ -1503,15 +1503,16 @@ ReversalLoad:
 
     backup
     rtocbl r12, TM_StartOSDs
+    li r3, 4 # Initialize the event's modern menu and saved preferences.
+    li r4, 0
+    bl ShieldTrainingBridge
 
     # Schedule Think
     bl ReversalThink
     mflr r3
     li r4, 3                                            # Priority (After Interrupt)
-    bl ReversalWindowInfo
-    mflr r5
-    bl ReversalWindowText
-    mflr r6
+    li r5, 0 # Modern menu is initialized by StartOSDs
+    li r6, 0
     bl CreateEventThinkFunction
 
     b ReversalLoadExit
@@ -1548,7 +1549,10 @@ ReversalThink:
 
     # INIT FUNCTION VARIABLES
     lwz EventData, 0x2c(r3)                             # backup data pointer in r31
-    lwz MenuData, EventData_MenuDataPointer(EventData)
+    li r3, 0 # SHIELD_SYNC
+    li r4, 0
+    bl ShieldTrainingBridge
+    mr MenuData, r3
 
     bl GetAllPlayerPointers
     mr P1GObj, r3
@@ -1565,24 +1569,16 @@ ReversalThink:
     cmpwi r3, 0x0
     beq ReversalThinkMain
 
-    bl StageGetGroundID_Main
-    bl PlacePlayersCenterStage
-    # Clear Inputs
-    bl RemoveFirstFrameInputs
-    # SaveState
-    addi r3, EventData, 0x10                            # SaveState start
-    li r4, 1                                            # Override failsafe code
-    bl SaveState_Save
-    # Set Frame 1 As Over
-    li r3, 0x1
-    stb r3, 0x0(r31)
-    # Set Timer to -60
-    li r3, -60
-    stw r3, 0x4(r31)
+    # Honor the saved Ground/Platform selection on entry as well as menu edits.
+    b ReversalRemakeSavestate
 
 ReversalThinkMain:
     bl GiveFullShields
 
+    # Position/distance takes precedence if several options changed while paused.
+    lbz r3, PositionToggled(MenuData)
+    cmpwi r3, 0
+    bne ReversalRemakeSavestate
     # Reset when menu is toggled
     lbz r3, P1FacingDirectionToggled(MenuData)
     cmpwi r3, 0x0
@@ -1593,9 +1589,6 @@ ReversalThinkMain:
     lbz r3, CPUAttackToggled(MenuData)
     cmpwi r3, 0x0
     bne ReversalReset
-    lbz r3, PositionToggled(MenuData)
-    cmpwi r3, 0x0
-    bne ReversalRemakeSavestate
 
 ReversalSkipFacingReset:
     # Move Players Apart With DPad
@@ -1854,6 +1847,9 @@ ReversalRemakeSavestate_PlaceCharacters:
     addi r3, EventData, 0x10                            # SaveState start
     li r4, 1                                            # Override failsafe code
     bl SaveState_Save
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
     # Set Frame 1 As Over
     li r3, 0x1
     stb r3, 0x0(r31)
@@ -2537,15 +2533,16 @@ AttackOnShieldLoad:
 
     backup
     rtocbl r12, TM_StartOSDs
+    li r3, 3 # Initialize the event's modern menu and saved preferences.
+    li r4, 0
+    bl ShieldTrainingBridge
 
     # Schedule Think
     bl AttackOnShieldThink
     mflr r3
     li r4, 3                                            # Priority (After Interrupt)
-    bl AttackOnShieldWindowInfo
-    mflr r5
-    bl AttackOnShieldWindowText
-    mflr r6
+    li r5, 0 # Modern menu is initialized by StartOSDs
+    li r6, 0
     bl CreateEventThinkFunction
 
     b AttackOnShieldLoadExit
@@ -2573,7 +2570,10 @@ AttackOnShieldThink:
 
     # INIT FUNCTION VARIABLES
     lwz EventData, 0x2c(r3)                             # backup data pointer in r31
-    lwz MenuData, EventData_MenuDataPointer(EventData)
+    li r3, 0 # SHIELD_SYNC
+    li r4, 0
+    bl ShieldTrainingBridge
+    mr MenuData, r3
 
     bl GetAllPlayerPointers
     mr P1GObj, r3
@@ -2599,9 +2599,13 @@ AttackOnShieldThink:
     addi r3, EventData, EventData_SaveStateStruct
     li r4, 1                                            # Override failsafe code
     bl SaveState_Save
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
+    b AttackOnShieldRestoreState
 
 AttackOnShieldThinkMain:
-    bl GiveFullShields
+    # Shared shield service applies the event override before and after simulation.
 
     # Reset If Anyone Dies
     bl IsAnyoneDead
@@ -2615,6 +2619,10 @@ AttackOnShieldThinkSequence:
     # Clear Last AS So CPU Doesnt Act Immediately
     li r3, 0
     sth r3, TM_OneASAgo(r29)
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
+    b AttackOnShieldRestoreState
 
 AttackOnShieldNoOptionToggled:
     # Get Floats
@@ -2735,6 +2743,11 @@ AttackOnShieldCheckForShieldHit:
     lhz r3, TM_OneASAgo(r29)
     cmpwi r3, 0xB5
     bne AttackOnShieldCheckToReset
+    li r3, 2 # SHIELD_REACT: consume only after the selected hit count.
+    li r4, 0
+    bl ShieldTrainingBridge
+    cmpwi r3, 0
+    beq AttackOnShieldCheckToReset
     # Input OoS Option
     lbz r3, OoSOption(MenuData)
     cmpwi r3, 0x0
@@ -2847,21 +2860,15 @@ AttackOnShieldCheckToReset:
     cmpwi r3, 0x0                                       # Check if 0 now
     bne AttackOnShieldThinkExit                         # Exit If Not
 
-    # Randomize P1's X Coord
-    # Get Random X Coord
-    lbz r23, 0x10(r21)                                  # Starting X Coord
-    lbz r24, 0x11(r21)                                  # Furthest X Coord
-    sub r3, r24, r23                                    # Get Range
-    branchl r12, HSD_Randi                              # Get Random Number in Between
-    add r3, r3, r23                                     # Add to Starting Coord
-    # Cast to Float
-    bl IntToFloat
-    lwz r3, 0x10(r31)                                   # P1 Backup
-    stfs f1, 0xB0(r3)                                   # P1 Backup X Pos
-    li r3, 0x1                                          # Opposing Sides of Stage
+    li r3, 1 # Opposing sides, preserving the selected separation.
     bl Randomize_LeftorRightSide
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
 
 AttackOnShieldRestoreState:
+    li r3, 0
+    stw r3, 0x4(EventData)
     # Restore State
     addi r3, EventData, EventData_SaveStateStruct
     bl SaveState_Load
@@ -8536,6 +8543,20 @@ P2Struct:
 ###########################
 ## Create Think Function ##
 ###########################
+ShieldTrainingBridge:
+    mflr r0
+    stw r0, 4(sp)
+    stwu sp, -0x20(sp)
+    load r12, EventVars_Ptr
+    lwz r12, 0(r12)
+    lwz r12, EventVars_ShieldTraining(r12)
+    mtctr r12
+    bctrl
+    addi sp, sp, 0x20
+    lwz r0, 4(sp)
+    mtlr r0
+    blr
+
 CreateEventThinkFunction:
     # Registers
     .set WindowOptionCount, 31

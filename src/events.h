@@ -109,6 +109,7 @@ typedef struct EventDesc
     u8 disable_hazards : 1; // removes stage hazards
     u8 force_sopo : 1;
     u8 tyro_edited : 1; // event-specific Tyro changes; ESS reads byte 0x14, mask 0x20
+    u8 tyro_muted : 1; // muted cyan legacy events; ESS reads byte 0x14, mask 0x10
     u8 CSSType;
     AllowedCharacters allowed_characters;
     s8 playerKind;                    // -1 = use selected fighter
@@ -300,6 +301,7 @@ typedef struct EventVars
     void (*set_timing_overlay)(GOBJ *, const GXColor *);
     void (*HUD_DrawInfoPanelWithStick)(const char **label, const char **info, int count,
         int stick_row, const Vec2 *direction);
+    void *(*shield_training)(int command, void *native_data);
 } EventVars;
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
 #define event_vars (*event_vars_ptr_loc)

@@ -104,6 +104,8 @@ enum TMSettingsField {
     TM_SETTING_LOW_LASER, /* Event OSDs and global suppression in the extension. */
     TM_SETTING_POWERSHIELD, /* Powershield event menu, append-only identity. */
     TM_SETTING_SWEETSPOT_CAMERA, /* Index 0 only: Normal (0) / Zoomed Out (1). */
+    TM_SETTING_REVERSAL,
+    TM_SETTING_ATTACK_SHIELD,
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -142,6 +144,13 @@ enum TMPowershieldPreference {
     TM_PS_FIRE_SPEED, TM_PS_DELAY_MIN, TM_PS_DELAY_MAX, TM_PS_HEIGHT,
     TM_PS_DIRECTION, TM_PS_MOVEMENT, TM_PS_NANA, TM_PS_OSDS,
     TM_PS_SUPPRESS_GLOBAL, TM_PS_OVERLAY, TM_PS_PREF_COUNT
+};
+enum TMReversalPreference {
+    TM_REV_ATTACK, TM_REV_DISTANCE, TM_REV_PLAYER_FACING, TM_REV_CPU_FACING,
+    TM_REV_POSITION, TM_REV_PREF_COUNT
+};
+enum TMAttackShieldPreference {
+    TM_AOS_ACTION, TM_AOS_HITS, TM_AOS_INFINITE, TM_AOS_DISTANCE, TM_AOS_PREF_COUNT
 };
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1

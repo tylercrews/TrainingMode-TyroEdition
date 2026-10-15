@@ -16,6 +16,8 @@ uint32_t TMCue_CPUInvincibilityColor(unsigned choice);
  * Off is an explicit CPU override; other choices enable natural protection.
  * Draw-time reads include paused edits; restore clears retain the binding. */
 void ActionCues_SetCPUInvincibilityOverlay(const int16_t *palette);
+/* NULL follows the global preference; a local Boolean overrides On and Off. */
+void ActionCues_SetInfiniteShields(const int16_t *option);
 /* Native command interpreter snapshot at Fighter + 0x3E4, including its stack. */
 typedef struct TMCueScript {
     float timer, frame;

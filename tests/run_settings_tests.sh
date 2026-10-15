@@ -11,7 +11,7 @@ case "$(uname)" in
 esac
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s tmFunction \
     -t MexTK/tmFunction.txt -o build/settings-relocated-test.dat \
-    -i src/events.c src/menu.c src/osds.c src/savestate_v1.c src/settings.c src/settings_extension.c src/settings_game.c \
+    -i src/events.c src/shield_training.c src/menu.c src/osds.c src/savestate_v1.c src/settings.c src/settings_extension.c src/settings_game.c \
        src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c \
        src/powershield_osd_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c -dat dats/eventMenu.dat
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
@@ -48,3 +48,5 @@ python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
 python tests/test_lowlaser.py -v
 python tests/test_powershield.py -v
+
+python tests/test_shield_training.py -v
