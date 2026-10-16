@@ -17,6 +17,12 @@ The Tyro version and stable game/save identity live in [version.h](version.h). U
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
+
+### BUGS TO INVESTIGATE FOR T5
+- For some reason my OSDs have started duplicating after a couple events
+- the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
+- the button controls to select the color for the OSDs are really annoying and unintuitive
+
 ### T4 (V1.4.1T4)
 
 - **Program changes**

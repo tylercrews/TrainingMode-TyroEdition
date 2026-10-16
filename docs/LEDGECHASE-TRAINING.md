@@ -9,7 +9,7 @@ The event saves these ten choices:
 
 | Setting | Choices | Default |
 | --- | --- | --- |
-| Ledge Option Chances | Fifteen presets and session-only percentage edits | Even |
+| Ledge Option Chances | Fifteen presets and session-only percentage edits | All Normal Options |
 | Ledge Side | Left, Right, Swap on Success, Random | Left |
 | CPU 100% | Off / On; sets exactly 0% / 100% | Off |
 | Player Percent | 0%, 25%, 50%, 75%, 100%, 125%, 150% | 0% |
@@ -43,7 +43,7 @@ and hurtbox coverage still need live roster verification.
 
 | Preset | Getup | Jump | Roll | Attack | Hop | Dash |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Even | 25 | 25 | 25 | 25 | 0 | 0 |
+| All Normal Options | 25 | 25 | 25 | 25 | 0 | 0 |
 | Getup Only | 100 | 0 | 0 | 0 | 0 | 0 |
 | Jump Only | 0 | 100 | 0 | 0 | 0 | 0 |
 | Roll Only | 0 | 0 | 100 | 0 | 0 | 0 |

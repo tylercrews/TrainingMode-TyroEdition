@@ -26,7 +26,7 @@ static bool CheckHasJump(GOBJ *cpu);
 
 static const char *SideNames[] = {"Left", "Right", "Swap on Success", "Random"};
 static const char *PercentNames[] = {"0%", "25%", "50%", "75%", "100%", "125%", "150%"};
-static const char *PresetNames[] = {"Even", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting", "Getup / Roll",
+static const char *PresetNames[] = {"All Normal Options", "Getup Only", "Jump Only", "Roll Only", "Attack Only", "Tyro setting", "Getup / Roll",
     "Ledge Hop Only", "Ledge Dash Only", "Regular Four + Hop", "Regular Four + Dash", "All Six Even",
     "Dash 75 / Jump 25", "Hop / Dash", "Dash 50 / Others 10"};
 static const char *EntryNames[] = {"Spawn on Ledge", "Fall to Ledge", "Jump to Ledge"};
