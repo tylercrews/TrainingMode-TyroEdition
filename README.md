@@ -19,9 +19,10 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 
 ### BUGS TO INVESTIGATE FOR T5
-- For some reason my OSDs have started duplicating after a couple events
+- For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?
 - the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
 - the button controls to select the color for the OSDs are really annoying and unintuitive
+- would be nice to reorder your OSDs how you want
 
 ### T4 (V1.4.1T4)
 
