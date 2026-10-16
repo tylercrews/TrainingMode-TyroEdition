@@ -49,9 +49,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Saves preexisting settings like OSD, reset, invisibility and camera-mode choices, but manual percentages and camera coordinates remain session-only.
     - **Ledgechase** ([mechanics notes](docs/LEDGEDASH-MECHANICS.md))
         - An all new event that lets you choose a cpu opponent to try to fight their options from ledge.
-        - Randomizes the CPU between regular get up from ledge, roll up from ledge, ledge jump, ledge attack, and even included experimental ledge hop, and LedgeDash options.
-        - Tried to make flexible options for what the CPU does after their ledge option so they'll do hopefully anything you want to do. Doing attacks from ledge and trying to do falco ledgehop double laser are experimental and not finely tuned, especially not across the entire roster.
-        - Share Training Lab ground CPU actions, except Play Slots and Random Advanced.
+        - Randomizes the CPU between regular get up from ledge, roll up from ledge, ledge jump, ledge attack, and even included experimental ledge hop and LedgeDash options.
+        - Tried to make flexible options for what the CPU does after their ledge option so they'll do hopefully anything you want to do. Doing attacks from ledge and trying to do falco ledgehop double laser are experimental and not finely tuned, especially not across the entire roster. There are separate settings for aerial and grounded actions, so you can have something like a falco mixing you up between ledge hop dair and ledgedash shine.
         - Added a local CPU Invincibility Overlay color so you can see what frame to punish a little easier; overrides the global CPU invincibility overlay.
     - **Powershield** ([details](docs/POWERSHIELD-TRAINING.md))
         - Added Yellow>Green overlay that shows the first frame you are actionable after laser hitstun/shieldstun/powershield.
