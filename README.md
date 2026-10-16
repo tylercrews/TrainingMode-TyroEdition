@@ -22,10 +22,17 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 ### BUGS TO INVESTIGATE FOR T5
 - For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?
 - the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
+- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
 - the button controls to select the color for the OSDs are really annoying and unintuitive
 - would be nice to reorder your OSDs how you want
+- set up the Training Lab settings to save now that we have the memory available to use
+- Act OOWait is listed as Act OOLag in the menu
+- rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
+- make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily
+- the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically
 
 ### T4 (V1.4.1T4)
+#### ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra use)
 
 - **Program changes**
     - Change the game/save ID from `TYRE01` to `TMTE01`, for Training Mode Tyro Edition :3
