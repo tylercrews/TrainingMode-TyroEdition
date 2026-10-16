@@ -415,12 +415,12 @@ class ShieldTrainingTests(unittest.TestCase):
             self.assertEqual(self.word(self.cpu_ft+0x1A88),0x160 if count==3 else 0x60)
             self.assertEqual(self.word(self.native_state+4),48 if count==3 else 0)
 
-    def test_both_native_event_initializers_disable_original_pause_hud_and_keep_other_flags(self):
+    def test_native_event_initializers_disable_original_pause_hud_and_keep_other_flags(self):
         self.load_native();m=self.m;at=0x80407A00
         for original in (b'\0\0\0\0',b'\xA5\x5A\xA5\x5A',b'\xFF'*4):
             m.cpu.mem_write(at,original);m.call('NativePauseFlags',at)
             self.assertEqual(bytes(m.cpu.mem_read(at,4)),original[:2]+bytes((original[2]|8,original[3]|2)))
-        for event in ('Reversal','AttackOnShield'):
+        for event in ('Reversal','AttackOnShield','LedgeStall'):
             calls=[]
             for pc in range(self.native_symbols[event],self.native_symbols[event+'Load'],4):
                 word=self.word(pc)

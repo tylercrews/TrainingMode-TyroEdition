@@ -50,6 +50,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - **Ledgechase** ([mechanics notes](docs/LEDGEDASH-MECHANICS.md))
         - An all new event that lets you choose a cpu opponent to try to fight their options from ledge.
         - Randomizes the CPU between regular get up from ledge, roll up from ledge, ledge jump, ledge attack, and even included experimental ledge hop and LedgeDash options.
+        - Has a CPU 100% option so that you can see the slower animations, too
         - Tried to make flexible options for what the CPU does after their ledge option so they'll do hopefully anything you want to do. Doing attacks from ledge and trying to do falco ledgehop double laser are experimental and not finely tuned, especially not across the entire roster. There are separate settings for aerial and grounded actions, so you can have something like a falco mixing you up between ledge hop dair and ledgedash shine.
         - Added a local CPU Invincibility Overlay color so you can see what frame to punish a little easier; overrides the global CPU invincibility overlay.
     - **Powershield** ([details](docs/POWERSHIELD-TRAINING.md))

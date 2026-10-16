@@ -887,7 +887,7 @@ static TipMgr stc_tipmgr;
 
 /* Under Fire keeps its native lava/ledge logic, with an event-local C pause
  * menu so its new diagnostic and Exit behave like the other practice events. */
-static int under_fire_best, under_fire_count, under_fire_event;
+static int under_fire_best, under_fire_count, under_fire_event, under_fire_high_score;
 static int under_fire_refresh_pending, under_fire_failed;
 static int under_fire_active, under_fire_restart, under_fire_late, under_fire_canvas;
 static int under_fire_result_valid;
@@ -906,6 +906,8 @@ static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
 }
 static void UnderFire_UpdateCounterText(void) {
     if (!under_fire_count_text) return;
+    for (int row = 10; row < 15; ++row)
+        Text_SetText(under_fire_count_text, row, "High Score: %d", under_fire_high_score);
     for (int row = 0; row < 5; ++row)
         Text_SetText(under_fire_count_text, row, "Perfect Refreshes: %d", under_fire_count);
     for (int row = 5; row < 10; ++row)
@@ -918,6 +920,7 @@ void UnderFire_UpdateScore(int perfect_refresh) {
     UnderFire_UpdateCounterText();
 }
 static void UnderFire_Exit(GOBJ *menu) {
+    if (!under_fire_active) return;
     under_fire_active = 0;
     ActionCues_SetTangibilityOverlay(0);
     Trails_SetOverride(0);
@@ -928,6 +931,8 @@ static void UnderFire_Exit(GOBJ *menu) {
         Events_StoreEventScore(under_fire_event, under_fire_best);
         Events_SetEventAsPlayed(under_fire_event);
     }
+    if (menu && menu->userdata && ((MenuData *)menu->userdata)->mode == MenuMode_Paused)
+        EventMenu_ExitMenu(menu);
     Memcard_SaveIfChanged();
     stc_match->state = 3;
     Match_EndVS();
@@ -1176,10 +1181,14 @@ void UnderFire_Regrab(GOBJ *fighter) {
     under_fire_result_valid = 1;
 }
 static void UnderFire_Update(void) {
+    if (!under_fire_active) return;
     /* The native practice restore resets match time. The menu must also allow
      * closing while paused, which EventMenu_Update handles independently. */
     stc_event_vars.game_timer = stc_match->time_frames;
     EventMenu_Update(stc_event_vars.menu_gobj);
+    if (!under_fire_active) return;
+    // Hide both native timer models, including after unpause restores the HUD.
+    Match_HideTimer();
     if (under_fire_count_text)
         under_fire_count_text->hidden = ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
     if (under_fire_inv_text)
@@ -1188,7 +1197,8 @@ static void UnderFire_Update(void) {
     if (under_fire_drop_text)
         under_fire_drop_text->hidden = !under_fire_drop_valid || !under_fire_options[UF_REFRESH_OSDS].val ||
             ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
-    Develop_UpdateMatchHotkeys();
+    if (((MenuData *)stc_event_vars.menu_gobj->userdata)->mode != MenuMode_Paused)
+        Develop_UpdateMatchHotkeys();
 }
 void UnderFire_InitMenu(void) {
     under_fire_best = under_fire_count = under_fire_refresh_pending = under_fire_failed = 0;
@@ -1214,6 +1224,10 @@ void UnderFire_InitMenu(void) {
     stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
     under_fire_options[UF_PARTICLES].val = under_fire_options[UF_PARTICLES].val_prev =
         Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES);
+    // The pre-counter format stores survival time, not a refresh count.
+    under_fire_high_score = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE) ?
+        Events_GetSavedScore(under_fire_event) : 0;
+    if (under_fire_high_score < 0) under_fire_high_score = 0;
     Trails_SetOverride(&under_fire_options[1].val);
     ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
     OSD_SetEventSuppression(&under_fire_options[UF_SUPPRESS_OSDS].val);
@@ -1238,14 +1252,16 @@ void UnderFire_InitMenu(void) {
     int foreground = Text_AddSubtext(text, 0, 0, "");
     GXColor gold = {255, 225, 65, 255};
     Text_SetColor(text, foreground, &gold);
-    // Keep the current attempt large, with the session's best count below.
-    // Both rows share pause visibility and the existing outlined gold style.
-    for (int row = 0; row < 5; ++row) {
-        float x = row < 4 ? offsets[row].X : 0;
-        float y = 34 + (row < 4 ? offsets[row].Y : 0);
-        int subtext = Text_AddSubtext(text, x, y, "");
-        Text_SetColor(text, subtext, row < 4 ? &shadow : &gold);
-        Text_SetScale(text, subtext, 0.5625f, 0.5625f); // .8 * .5625 = original .45 scale.
+    // Smaller saved record above, session best below the large current count.
+    // All three share pause visibility and the outlined gold style.
+    for (int group = 0; group < 2; ++group) {
+        for (int row = 0; row < 5; ++row) {
+            float x = row < 4 ? offsets[row].X : 0;
+            float y = (group ? -28 : 34) + (row < 4 ? offsets[row].Y : 0);
+            int subtext = Text_AddSubtext(text, x, y, "");
+            Text_SetColor(text, subtext, row < 4 ? &shadow : &gold);
+            Text_SetScale(text, subtext, 0.5625f, 0.5625f); // .8 * .5625 = original .45 scale.
+        }
     }
     UnderFire_UpdateCounterText();
 }

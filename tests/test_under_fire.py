@@ -20,6 +20,11 @@ class UnderFireTests(unittest.TestCase):
         self.paused = 0
         self.texts, self.rows, self.colors, self.effects, self.stage_calls = [], [], [], [], []
         self.subtexts = {}
+        self.positions, self.scales = {}, {}
+        self.saved_score, self.score_reads = 0, []
+        self.menu_update, self.menu_updates, self.develop_updates = None, 0, 0
+        self.native_timer, self.timer_hides = False, 0
+        self.exit_calls = []
         self.second_values = []
         start = m.symbols['DAT_UnderFire']
         for pc in range(start, start + 1024, 4):
@@ -48,6 +53,17 @@ class UnderFireTests(unittest.TestCase):
         r = lambda n: cpu.reg_read(gpr(n))
         if address == self.create_menu:
             self.menu = r(3); cpu.reg_write(gpr(3), self.menu_obj)
+        elif address == self.menu_update: self.menu_updates += 1
+        elif address == 0x802F405C:
+            self.timer_hides += 1
+            if self.native_timer: return
+        elif address == 0x80225754: self.develop_updates += 1
+        elif address == 0x8015CF5C:
+            self.score_reads.append(r(3)); cpu.reg_write(gpr(3), self.saved_score & 0xFFFFFFFF)
+        elif address == 0x8015CF70: self.saved_score = r(4)
+        elif address == 0x8015CEB4: pass
+        elif address in (0x8016C7F0,0x801A4674,0x802F33CC,0x80024E84,0x8001CC84):
+            self.exit_calls.append(address)
         elif address == 0x8003418C: cpu.reg_write(gpr(3), 0)
         elif address == 0x801A45E8: cpu.reg_write(gpr(3), self.paused)
         elif address == 0x803A611C: cpu.reg_write(gpr(3), 7)
@@ -57,6 +73,8 @@ class UnderFireTests(unittest.TestCase):
             cpu.reg_write(gpr(3), text)
         elif address == 0x803A6B98:
             row = self.subtexts[r(3)]; self.subtexts[r(3)] += 1
+            self.positions[r(3),row] = tuple(struct.unpack('>d',struct.pack('>Q',cpu.reg_read(f)))[0]
+                for f in (reg.UC_PPC_REG_FPR1,reg.UC_PPC_REG_FPR2))
             cpu.reg_write(gpr(3), row)
         elif address == 0x803A70A0:
             value = r(6); value = value - 0x100000000 if value & 0x80000000 else value
@@ -64,7 +82,9 @@ class UnderFireTests(unittest.TestCase):
             self.second_values.append(r(7))
         elif address == 0x803A74F0:
             self.colors.append((r(3), r(4), bytes(cpu.mem_read(r(5),4))))
-        elif address == 0x803A7548: pass  # Native per-subtext scale; no renderer in this fixture.
+        elif address == 0x803A7548:
+            self.scales[r(3),r(4)] = tuple(struct.unpack('>d',struct.pack('>Q',cpu.reg_read(f)))[0]
+                for f in (reg.UC_PPC_REG_FPR1,reg.UC_PPC_REG_FPR2))
         elif address == 0x8005B880: self.effects.append(r(3))
         elif address in (0x80053ECC, 0x80053DA4):
             self.stage_calls.append((address,r(3)))
@@ -379,6 +399,98 @@ class UnderFireTests(unittest.TestCase):
 
     def counter(self):
         return next(row[3] for row in reversed(self.rows) if row[2]=='Perfect Refreshes: %d')
+
+    def high_score(self):
+        return next(row[3] for row in reversed(self.rows) if row[2]=='High Score: %d')
+
+    def test_saved_high_score_above_counter_is_small_and_ignores_legacy_time(self):
+        m=self.m
+        self.assertEqual(self.high_score(),0)
+        self.assertEqual(self.score_reads,[])
+        self.saved_score=9999 # A legacy survival-time record is not a count.
+        m.call('DAT_UnderFire')
+        self.assertEqual(self.high_score(),0)
+        self.assertEqual(self.score_reads,[])
+        m.call('DAT_Set',29,1,1)
+        m.cpu.mem_write(0x8045A6C0+0x535,b'\x02')
+        self.saved_score=42
+        m.call('DAT_UnderFire')
+        self.assertEqual(self.score_reads,[2])
+        self.assertEqual((self.high_score(),self.counter(),self.session_best()),(42,0,0))
+        text=self.texts[-1]
+        self.assertEqual(self.positions[text,14],(0,-28))
+        self.assertEqual(self.positions[text,4],(0,0))
+        self.assertEqual(self.positions[text,9],(0,34))
+        self.assertEqual(self.scales[text,14],(.5625,.5625))
+        self.assertEqual(self.scales[text,14],self.scales[text,9])
+        self.assertNotIn((text,4),self.scales) # Current attempt retains the large base font.
+        self.refresh(10);self.control(1)
+        self.assertEqual((self.high_score(),self.counter(),self.session_best()),(42,0,1))
+        self.assertEqual(self.saved_score,42) # Display/retries do not overwrite the record.
+        self.saved_score=-1
+        m.call('DAT_UnderFire')
+        self.assertEqual(self.high_score(),0)
+
+    def prepare_menu_update(self):
+        m=self.m
+        update=self.word(0x80479D88)
+        for pc in range(update,update+160,4):
+            word=self.word(pc)
+            if word&0xFC000003==0x48000001:
+                delta=word&0x03FFFFFC
+                if delta&0x02000000:delta-=0x04000000
+                self.menu_update=pc+delta;break
+        self.assertIsNotNone(self.menu_update)
+        m.symbols['Update']=update
+
+    def test_native_timer_models_stay_hidden_when_hud_is_restored(self):
+        m=self.m
+        self.prepare_menu_update()
+        self.native_code(0x802F405C,0x5C) # Real Match_HideTimer, both timer models.
+        self.native_code(0x80371D9C,0x170) # Real recursive JOBJ flag setter.
+        self.native_timer=True
+        objects=(0x80C10000,0x80C10100)
+        joints=(0x80C11000,0x80C11100)
+        for i,(obj,joint) in enumerate(zip(objects,joints)):
+            m.cpu.mem_write(0x804A1078+i*4,struct.pack('>I',obj))
+            m.cpu.mem_write(obj+0x28,struct.pack('>I',joint))
+        for paused in (0,1,0):
+            # Model what ShowHUD does on unpause, restoring visible models.
+            for joint in joints:m.cpu.mem_write(joint+0x14,struct.pack('>I',0x200))
+            m.cpu.mem_write(self.menu_data+9,bytes((paused,)))
+            m.call('Update')
+            self.assertEqual([self.word(joint+0x14) for joint in joints],[0x210,0x210])
+            self.assertEqual(m.cpu.mem_read(self.texts[-1]+0x4D,1)[0],paused)
+        self.assertEqual(self.timer_hides,3)
+        # The native API also tolerates HUDs without allocated timer models.
+        m.cpu.mem_write(0x804A1078,bytes(8))
+        m.call('Update')
+
+    def test_pause_hides_all_counter_rows_and_suppresses_camera_hotkeys(self):
+        m=self.m
+        self.prepare_menu_update()
+        text=self.texts[-1]
+        self.assertEqual(self.subtexts[text],15)
+        for paused in (1,1,0):
+            m.cpu.mem_write(self.menu_data+9,bytes((paused,)))
+            m.call('Update')
+            self.assertEqual(m.cpu.mem_read(text+0x4D,1)[0],paused)
+        self.assertEqual((self.menu_updates,self.develop_updates),(3,1))
+
+    def test_exit_unpauses_saves_best_and_stops_held_shortcut_repeats(self):
+        m=self.m
+        m.cpu.mem_write(self.menu_data+9,b'\x01')
+        m.call('DAT_UnderFireScore',1)
+        m.symbols['Exit']=self.word(self.option(6)+40)
+        m.call('Exit',self.menu_obj)
+        self.assertEqual(self.saved_score,1)
+        self.assertEqual(m.cpu.mem_read(self.menu_data+9,1)[0],0)
+        self.assertEqual(m.cpu.mem_read(0x8046B6A0,1)[0],3)
+        self.assertLess(self.exit_calls.index(0x801A4674),self.exit_calls.index(0x8016C7F0))
+        calls=list(self.exit_calls)
+        m.symbols['Update']=self.word(0x80479D88)
+        m.call('Update');m.call('Exit',self.menu_obj)
+        self.assertEqual(self.exit_calls,calls)
 
     def session_best(self):
         return next(row[3] for row in reversed(self.rows) if row[2]=='Session Best: %d')

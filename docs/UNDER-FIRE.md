@@ -2,12 +2,23 @@
 
 The event keeps its native Brinstar lava challenge and automatically retries
 after a hit or death. A large **Perfect Refreshes** counter replaces the timer,
-with a smaller **Session Best: N** count directly beneath it. Each perfect
+with a smaller **High Score: N** above it and **Session Best: N** directly beneath
+it. High Score shows the saved perfect-refresh record loaded on event entry;
+an absent record or an old survival-time record displays zero. Each perfect
 ledge refresh (Invincibility = 0) adds
 one, including before the lava reaches the ledge. Close misses do not score.
 Retries and side changes reset the current count; Session Best keeps the
 highest count across those attempts. Both start at zero on entering the event
-and hide while paused. Use the pause menu's Exit to save that best count.
+and all three lines hide while paused. Use the pause menu's Exit or
+L + R + A + Start to save that best count. A newly saved High Score appears on
+the next entry; Session Best tracks improvements during the current session.
+
+The native timer models are hidden during event updates, including after
+unpausing restores the HUD. The score counters remain visible during play.
+The shared menu owns pausing. Under Fire disables the native pause menu and
+its HUD, and skips native camera hotkeys while the shared menu is open. Exit
+unpauses before ending the match. The high-score display reads the existing
+record and adds no save fields or memory-card storage.
 
 Event Select displays an integer count. Old survival-time records are hidden
 until the first positive count replaces them, rather than treating a frame

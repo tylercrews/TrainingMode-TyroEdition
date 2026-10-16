@@ -548,6 +548,8 @@ LedgeStall:
     li r7, 0                                            # OSD
     li r8, 1                                            # Use Sopo bool
     bl InitializeMatch
+    mr r3, r26
+    bl ShieldTrainingMatchMenu                         # Shared C menu owns pausing and its HUD.
 
     # Perfect-refresh counter replaces the native timer (MATCH_TIMER_HIDE=1).
     lbz r3, 0(r26)
@@ -8176,6 +8178,7 @@ P2Struct:
 ###########################
 # MatchInit byte 2 bit 3 disables native pausing; byte 3 bit 1 hides
 # the native pause HUD. Match_FreezeGame(1) still serves the C menu.
+# Shared by Under Fire, Attack on Shield and Reversal Training.
 ShieldTrainingMatchMenu:
     lbz r4, 2(r3)
     ori r4, r4, 0x08
