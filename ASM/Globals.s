@@ -197,6 +197,18 @@
     ENTRY TM_ShineAfterIASA
     ENTRY TM_SettingsCommitPending
     ENTRY TM_SettingsEventCharacters
+    ENTRY TM_UnderFireInitMenu
+    ENTRY TM_UnderFireUpdateScore
+    ENTRY TM_SettingsResetEventRecords
+    ENTRY TM_SettingsEventScoreSlot
+    ENTRY TM_ASmashEnter
+    ENTRY TM_ASmashInput
+    ENTRY TM_UnderFireControl
+    ENTRY TM_UnderFireRegrab
+    ENTRY TM_UnderFireSetCamera
+    ENTRY TM_UnderFireTiming
+    # Keep the full 50-slot ABI; slot 49 dispatches event timing/contact phases.
+    .set TM_EventTiming, TM_UnderFireTiming
 
     # TmDt Data Pointers
     .set TM_Data, TM_tmFunction - 0x4
@@ -937,6 +949,7 @@
     .endm
 
     .set EventVars_Ptr, 0x803d7054
+    .set EventVars_ShieldTraining, 0xAC
     .set EventVars_EventGobj, (2 * 4)
     .set EventVars_RNGControl, (4 * 4)
     .set EventVars_Flags, (6 * 4)
@@ -983,6 +996,7 @@
 .set SettingsField_Character, 24
 .set SettingsField_SweetspotLines, 25
 .set SettingsField_EventSelection, 26
+.set SettingsField_SweetspotCamera, 32
 
 # Preserve the native hook's entire register context, including volatile FPRs,
 # r0, CR, CTR and XER. Leave ABI linkage/argument space below the saves.

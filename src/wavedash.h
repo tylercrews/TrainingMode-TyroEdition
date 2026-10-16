@@ -51,6 +51,8 @@ struct WavedashData
     int short_hop;
     int wd_attempted;
     int wd_succeeded;
+    Vec2 airdodge_stick;
+    Vec2 displayed_stick; // Paired with the last published angle number.
 };
 
 struct WavedashAssets

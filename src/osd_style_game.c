@@ -1,5 +1,12 @@
 #include "events.h"
 
+/* Event-owned runtime choice; never change the saved global override. */
+static const s16 *event_suppression;
+void OSD_SetEventSuppression(const s16 *enabled) { event_suppression = enabled; }
+int OSD_IsSuppressed(void) {
+    return (event_suppression && *event_suppression) || Settings_Get(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
+}
+
 /* ESC followed by eight uppercase RGBA hex digits emits native 0x0C + RGB.
  * The native command has no alpha byte. One centered row owns every run. */
 static char *append_color(char *out, uint32_t color) {
@@ -66,7 +73,7 @@ void OSD_ApplyMessageStyle(MsgData *msg) {
 void OSD_MessageGX(GOBJ *gobj, int pass) {
     MsgData *msg = gobj->userdata;
     int visible = Message_LayoutVisible(msg) && (msg->settings_id < 0 ||
-        (!Settings_Get(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF) &&
+        (!OSD_IsSuppressed() &&
          Settings_Get(TM_SETTING_OSD_COLOR, msg->settings_id) != TM_COLOR_OFF));
     if (visible && (unsigned)msg->queue_num < 6 && Settings_Get(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF)) {
         Playerblock *player = Fighter_GetPlayerblock(msg->queue_num);
@@ -79,4 +86,12 @@ void OSD_MessageGX(GOBJ *gobj, int pass) {
     OSD_ApplyMessageStyle(msg); /* After all legacy caller recoloring, before the text GX pass. */
     Message_LayoutGeometry(gobj);
     GXLink_Common(gobj, pass);
+    if (msg->stick_angle && msg->line_count >= 2) {
+        unsigned mode = msg->layout_owned ? Settings_Get(TM_SETTING_OSD_LAYOUT, 0) : TM_OSD_RECENT;
+        float row_y = mode == TM_OSD_PANEL || mode == TM_OSD_FIXED ? 0 :
+            (msg->line_count - 1) * (-MSGTEXT_YOFFSET / 2) + MSGTEXT_YOFFSET;
+        float icon_x = mode == TM_OSD_PANEL ? 12.f : -38.f;
+        Text_SetPosition(msg->text, 1, mode == TM_OSD_PANEL ? 38.f : 20.f, row_y);
+        if (pass == 2) OSD_DrawStickDiagram(msg->text, icon_x, row_y + 14.f, msg->stick_direction);
+    }
 }

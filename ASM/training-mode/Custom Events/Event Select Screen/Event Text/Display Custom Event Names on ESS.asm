@@ -54,6 +54,27 @@ CustomEvent:
     lfs f2, -0x3870(rtoc)
     branchl r12, Text_InitializeSubtext
 
+    # Tyro-specific event edits take priority over the legacy/module colors.
+    lwz r3, MemcardData(r13)
+    SettingsRead SettingsField_Page, 3
+    mr r4, r27
+    rtocbl r12, TM_GetEventDesc
+    lbz r0, 0x14(r3) # EventDesc.tyro_edited, third bit in the flag byte
+    andi. r0, r0, 0x10
+    bne MutedEvent
+    lbz r0, 0x14(r3)
+    andi. r0, r0, 0x20
+    beq CheckEventFile
+    bl Cyan
+    mflr r5
+    b ChangeColor
+
+MutedEvent:
+    bl MutedCyan
+    mflr r5
+    b ChangeColor
+
+CheckEventFile:
     # Get event file
     lwz r3, MemcardData(r13)
     SettingsRead SettingsField_Page, 3
@@ -63,11 +84,12 @@ CustomEvent:
     bne HasFile
 
 NoFile:
-    # Change color
-    mr r3, text
-    li r4, 0
     bl Color
     mflr r5
+
+ChangeColor:
+    mr r3, text
+    li r4, 0
     branchl r12, Text_ChangeTextColor
 
 HasFile:
@@ -78,6 +100,14 @@ HasFile:
 Color:
     blrl
     .byte 180, 180, 180, 255
+
+MutedCyan:
+    blrl
+    .byte 0, 180, 180, 255
+
+Cyan:
+    blrl
+    .byte 0, 255, 255, 255
 
 VanillaEvent:
 

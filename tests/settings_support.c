@@ -5,6 +5,10 @@
 #include "../src/osd_layout.h"
 #include <stddef.h>
 
+/* The freestanding service fixture has no active native Under Fire event.
+ * Its production implementation is exercised via the relocated shared DAT. */
+void UnderFire_Timing(FighterData *fighter, int phase, int next) { }
+
 void memcpy(void *dst, const void *src, int size) {
     unsigned char *d = dst;
     const unsigned char *s = src;
@@ -38,6 +42,14 @@ int sprintf(char *out, const char *format, ...) {
     *out = 0; va_end(args); return out - start;
 }
 int TestDirty(void) { return stc_memcard_state->memcard_changed; }
+unsigned Events_ScoreIndex(unsigned page, unsigned event) {
+    static const unsigned counts[3] = {5, 17, 7};
+    if (page >= 3 || event >= counts[page]) return UINT32_MAX;
+    if(page==1 && event==16) return 50;
+    unsigned index = event;
+    for (unsigned p = 0; p < page; ++p) index += p==1?16:counts[p];
+    return index;
+}
 void TestEventCharacters(unsigned save) { Settings_Characters(save, -1, -1, 1); }
 int TestTextCopyFormat(char *out, int limit, const char *format, void *args) {
     /* Native SetText fixture inputs are already formatted, as in the timing
@@ -71,6 +83,25 @@ static int layout_text_index(Text *text) {
     return -1;
 }
 static int style_count, wait_frame, wait_tag;
+static unsigned stick_draws;
+static float stick_x, stick_y;
+static Vec2 stick_direction;
+void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction) {
+    ++stick_draws; stick_x = x; stick_y = y; stick_direction = direction;
+}
+void TestStyleStick(unsigned lines, unsigned owned) {
+    style_message.stick_angle = 1; style_message.line_count = lines;
+    style_message.layout_owned = owned;
+    style_message.stick_direction = (Vec2){-1.f, -.3f};
+    stick_draws = 0;
+}
+unsigned TestStickDraws(void) { return stick_draws; }
+int TestStickPosition(unsigned axis) { return axis ? stick_y : stick_x; }
+int TestStickDirection(unsigned axis) { return (axis ? stick_direction.Y : stick_direction.X) * 1000; }
+int TestStickTip(int x, int y, unsigned axis) {
+    float tx, ty; OSD_StickTip(x, y, &tx, &ty);
+    return (axis ? ty : tx) * 10000;
+}
 static const char *wait_label;
 static GOBJ wait_object;
 static int wave_frame, wave_hop;
@@ -193,7 +224,8 @@ void Text_SetColor(Text *text, int subtext, GXColor *color) {
         style_colors[subtext] = ((uint32_t)color->r << 24) | ((uint32_t)color->g << 16) |
                                 ((uint32_t)color->b << 8) | color->a;
 }
-void GXLink_Common(GOBJ *gobj, int pass) { backgrounds++; }
+static void TestShieldNativeDraw(GOBJ *gobj, int pass);
+void GXLink_Common(GOBJ *gobj, int pass) { backgrounds++; TestShieldNativeDraw(gobj, pass); }
 void TestStyleInit(int id, int frame, int line, int best) {
     memset(&style_text, 0, sizeof(style_text));
     memset(&style_message, 0, sizeof(style_message));
@@ -244,6 +276,67 @@ static Playerblock cue_players[6];
 static int cue_active[12];
 static float cue_lengths[12];
 static void (*cue_early)(GOBJ *), (*cue_late)(GOBJ *);
+static void (*trail_think)(GOBJ *), (*trail_draw)(GOBJ *, int);
+static int trail_spheres;
+static GOBJ *trail_lookup[64];
+static GOBJ shield_objects[4];
+static Effect shield_effects[4];
+static JOBJ shield_joints[4][8];
+static DOBJ shield_dobjs[4][7];
+static MOBJ shield_mobjs[4][7];
+static TOBJ shield_tobjs[4][7][2];
+static struct _HSD_TObjTev shield_tevs[4][7][2];
+static u32 shield_draw_colors[4][7][2][2];
+static unsigned shield_draw_count[4];
+static void TestShieldNativeDraw(GOBJ *object, int pass) {
+    unsigned which = object - shield_objects;
+    if (which >= 4) return;
+    ++shield_draw_count[which];
+    for (unsigned node = 0; node < 7; ++node)
+        for (unsigned texture = 0; texture < 2; ++texture) {
+            struct _HSD_TObjTev *tev = shield_tobjs[which][node][texture].tev;
+            shield_draw_colors[which][node][texture][0] = tev ? *(u32 *)&tev->constant : 0;
+            shield_draw_colors[which][node][texture][1] = tev ? *(u32 *)&tev->tev0 : 0;
+        }
+}
+void TestShieldInit(unsigned which, unsigned owner, int shield) {
+    GOBJ *object = &shield_objects[which];
+    object->next = trail_lookup[MATCHPLINK_EFFECT1];
+    trail_lookup[MATCHPLINK_EFFECT1] = object;
+    object->gx_cb = GXLink_Common;
+    object->userdata = &shield_effects[which];
+    object->hsd_object = &shield_joints[which][0];
+    shield_effects[which].gobj = object;
+    shield_effects[which].parent = &cue_objects[owner];
+    shield_effects[which].callback = (void *)(shield ? 0x8005FAB8 : 0x8005FCD8);
+    shield_joints[which][0].child = &shield_joints[which][1];
+    for (unsigned node = 0; node < 7; ++node) {
+        shield_joints[which][node+1].dobj = &shield_dobjs[which][node];
+        if (node < 6) shield_joints[which][node+1].sibling = &shield_joints[which][node+2];
+        shield_dobjs[which][node].mobj = &shield_mobjs[which][node];
+        shield_mobjs[which][node].tobj = &shield_tobjs[which][node][0];
+        shield_tobjs[which][node][0].next = &shield_tobjs[which][node][1];
+        for (unsigned texture = 0; texture < 2; ++texture) {
+            shield_tobjs[which][node][texture].tev = &shield_tevs[which][node][texture];
+            shield_tevs[which][node][texture].constant = (GXColor){255,255,255,90+node};
+            shield_tevs[which][node][texture].tev0 = (GXColor){255,80,80,40+texture};
+        }
+    }
+}
+void TestShieldSharedMaterial(unsigned which) {
+    shield_tobjs[which][1][0].tev = shield_tobjs[which][0][0].tev;
+}
+void TestShieldMissingMaterial(unsigned which) {
+    shield_dobjs[which][1].mobj = 0;
+    shield_tobjs[which][2][0].tev = 0;
+}
+uintptr_t TestShieldMaterials(unsigned which) { return (uintptr_t)&shield_tevs[which]; }
+void TestShieldDraw(unsigned which) { shield_objects[which].gx_cb(&shield_objects[which],2); }
+u32 TestShieldColor(unsigned which, unsigned node, unsigned texture, unsigned reg) {
+    return shield_draw_colors[which][node][texture][reg];
+}
+unsigned TestShieldWrapped(unsigned which) { return shield_objects[which].gx_cb != GXLink_Common; }
+unsigned TestShieldDrawCount(unsigned which) { return shield_draw_count[which]; }
 static uint32_t cue_draw_colors[12];
 static unsigned cue_draw_flags[12];
 static unsigned cue_draw_count[12];
@@ -251,8 +344,13 @@ GOBJ *GObj_Create(int entity_class, int p_link, int p_priority) { return &cue_ma
 GOBJProc *GObj_AddProc(GOBJ *gobj, void *callback, int priority) {
     if (priority == 0) cue_early = callback;
     if (priority == 23) cue_late = callback;
+    if (priority == 22) trail_think = callback;
     return 0;
 }
+void GObj_AddGXLink(GOBJ *gobj, void *callback, int link, int priority) {
+    if (link == 5) trail_draw = callback;
+}
+void Develop_DrawSphere(float size, Vec3 *a, Vec3 *b, GXColor *diffuse, GXColor *ambient) { ++trail_spheres; }
 GOBJ *Fighter_GetSubcharGObj(int ply, int sub) {
     unsigned slot = ply * 2 + sub;
     return slot < 12 && cue_active[slot] ? &cue_objects[slot] : 0;
@@ -284,6 +382,16 @@ void TestCueInit(void) {
     memset(cue_active, 0, sizeof(cue_active));
     memset(cue_draw_count, 0, sizeof(cue_draw_count));
     memset(cue_players, 0, sizeof(cue_players));
+    memset(trail_lookup, 0, sizeof(trail_lookup));
+    *stc_gobj_lookup = trail_lookup;
+    memset(shield_objects, 0, sizeof(shield_objects));
+    memset(shield_effects, 0, sizeof(shield_effects));
+    memset(shield_joints, 0, sizeof(shield_joints));
+    memset(shield_dobjs, 0, sizeof(shield_dobjs));
+    memset(shield_mobjs, 0, sizeof(shield_mobjs));
+    memset(shield_tobjs, 0, sizeof(shield_tobjs));
+    memset(shield_tevs, 0, sizeof(shield_tevs));
+    memset(shield_draw_count, 0, sizeof(shield_draw_count));
     *stc_ftcommon = &cue_common;
     cue_common.lcancel_input_window = 7; cue_common.x260 = 60;
     for (unsigned slot = 0; slot < 12; ++slot) {
@@ -298,6 +406,28 @@ void TestCueInit(void) {
     ActionCues_MatchStart();
 }
 uintptr_t TestCueData(unsigned slot) { return (uintptr_t)&cue_data[slot]; }
+static const TMTrailAPI test_trail_api = {Trails_Configure, Trails_Clear, Trails_SetOverride};
+static const TMSettingsAPI test_trail_settings = {Settings_Get, Settings_Set, Settings_Status};
+static EventVars test_trail_vars;
+static void TestTrailTangibility(const s16 *option) {}
+void TestTrailInit(void) {
+    TestCueInit();
+    *stc_gobj_lookup = trail_lookup;
+    memset(trail_lookup,0,sizeof(trail_lookup));
+    Trails_SceneChange(); Trails_MatchStart();
+    test_trail_vars.trails=&test_trail_api;
+    test_trail_vars.settings=&test_trail_settings;
+    test_trail_vars.set_tangibility_overlay=TestTrailTangibility;
+    *event_vars_ptr_loc=&test_trail_vars;
+}
+void TestTrailHit(int active) {
+    cue_active[0]=1;
+    cue_data[0].hitbox[0].active=active;
+    cue_data[0].hitbox[0].size=2;
+    cue_data[0].hitbox[0].dmg=8;
+}
+void TestTrailTick(unsigned frame) { stc_match->time_frames=frame; trail_think(&cue_manager); }
+int TestTrailDraw(void) { trail_spheres=0; trail_draw(&cue_manager,2); return trail_spheres; }
 uintptr_t TestCueObject(unsigned slot) { return (uintptr_t)&cue_objects[slot]; }
 void TestCueState(unsigned slot, int state, int frame, int end, int rate100) {
     cue_active[slot] = 1;
@@ -402,6 +532,10 @@ GOBJ *TestLayoutEmit(int queue, int id, int frame, int kind) {
     return 0;
 }
 void TestLayoutTick(unsigned frame) { stc_match->time_frames = frame; Message_LayoutUpdate(); }
+void TestLayoutStick(GOBJ *object) {
+    MsgData *msg = object->userdata;
+    msg->stick_angle = 1; msg->stick_direction = (Vec2){-1.f, -.3f}; stick_draws = 0;
+}
 int TestLayoutVisible(GOBJ *object) { return Message_LayoutVisible(object->userdata); }
 int TestLayoutAge(GOBJ *object) { return ((MsgData *)object->userdata)->alive_timer; }
 int TestLayoutX100(GOBJ *object) { return ((MsgData *)object->userdata)->text->trans.X * 100; }

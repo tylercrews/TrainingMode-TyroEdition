@@ -80,6 +80,7 @@ static EventOption LcOptions_Main[OPTLC_COUNT] = {
     },
 };
 static EventMenu LabMenu_Main = {
+    .on_exit = Event_Exit,
     .name = "L-Cancel Training",
     .option_num = sizeof(LcOptions_Main) / sizeof(EventOption),
     .options = LcOptions_Main,

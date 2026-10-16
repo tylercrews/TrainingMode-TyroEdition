@@ -42,6 +42,7 @@ static EventOption Options_Main[] = {
 };
 
 static EventMenu LabMenu_Main = {
+    .on_exit = Event_Exit,
     .name = "Laser Land Training",
     .option_num = sizeof(Options_Main) / sizeof(EventOption),
     .options = Options_Main,

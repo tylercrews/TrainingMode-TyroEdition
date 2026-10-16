@@ -70,6 +70,7 @@ static EventOption WdOptions_Main[] = {
     },
 };
 static EventMenu WdMenu_Main = {
+    .on_exit = Event_Exit,
     .name = "Wavedash Training",
     .option_num = sizeof(WdOptions_Main) / sizeof(EventOption),
     .options = WdOptions_Main,
@@ -129,7 +130,8 @@ void HUD_GX(GOBJ *gobj, int pass) {
     if (pass != 2) return;
     
     // Draw info panel
-    event_vars->HUD_DrawInfoPanel((const char**)panel_label, (const char**)panel_info, countof(panel_label));
+    event_vars->HUD_DrawInfoPanelWithStick((const char**)panel_label, (const char**)panel_info,
+        countof(panel_label), 1, &event_data->displayed_stick);
 
     #define W 1.6f // width of square
     #define H 2.f // height of square
@@ -280,6 +282,7 @@ void Wavedash_Think(WavedashData *event_data, FighterData *hmn_data)
     {
         PADStatus *stat = PadGetRaw(hmn_data->pad_index);
         event_data->angle = -atan2(stat->stickY, fabs(stat->stickX)) / M_1DEGREE;
+        event_data->airdodge_stick = (Vec2){stat->stickX, stat->stickY};
     }
     
     if (event_data->result == -1) {
@@ -347,6 +350,7 @@ void Wavedash_Think(WavedashData *event_data, FighterData *hmn_data)
         
         // update angle
         sprintf(angle_text, "%.1f", event_data->angle);
+        event_data->displayed_stick = event_data->airdodge_stick;
         
         // update success rate
         int success = event_data->wd_succeeded;

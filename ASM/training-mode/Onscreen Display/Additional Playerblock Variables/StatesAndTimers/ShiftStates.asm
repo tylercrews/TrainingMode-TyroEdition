@@ -2,6 +2,18 @@
     .include "../../../../Globals.s"
     .include "../../../../m-ex/Header.s"
 
+    # Record actual A-smash entry before native state_id is overwritten.
+    # r24 is the requested action state; r27 is the model JOBJ.
+    SettingsBackup
+    mr r3, r26
+    mr r4, r24
+    rtocbl r12, TM_ASmashEnter
+    mr r3, r26
+    li r4, 2
+    mr r5, r24
+    rtocbl r12, TM_EventTiming
+    SettingsRestore
+
 # Store Previous AS + Reset AS Frame Count Timer
 
 ###################

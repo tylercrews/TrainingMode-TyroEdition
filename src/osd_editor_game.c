@@ -8,7 +8,7 @@ static const char *row_names[] = {
     "Powershield Frame", "SDI Inputs", "Lockout Timers", "Item Throw Interrupts", "Boost Grab",
     "Act OoLag", "Act OoAirborne", "Jump Cancel Timing", "Fastfall Timing", "Frame Advantage",
     "Combo Counter", "Grab Breakout", "Ledgedash Info", "Act OoHitstun",
-    TM_GLOBAL_CPU_OSDS_OFF_NAME, TM_GLOBAL_OSDS_OFF_NAME, 0, TM_GLOBAL_TRAIL_VERY_FAST_NAME, TM_GLOBAL_TRAIL_INSTANT_NAME,
+    TM_GLOBAL_ASMASH_RELEASE_NAME, TM_GLOBAL_CPU_OSDS_OFF_NAME, TM_GLOBAL_OSDS_OFF_NAME, TM_GLOBAL_TRAIL_VERY_FAST_NAME, TM_GLOBAL_TRAIL_INSTANT_NAME,
     TM_GLOBAL_MISSED_LCANCEL_NAME, TM_GLOBAL_RUN_TURN_NAME, TM_GLOBAL_ACTION_CUES_NAME,
     TM_GLOBAL_INFINITE_SHIELDS_NAME, TM_GLOBAL_INVINCIBILITY_NAME,
 };
@@ -84,7 +84,7 @@ int OSD_EditorInput(void *data, unsigned buttons, unsigned row) {
         /* ESS previews one owner's selection. Additional live-player pages
          * remain available through the common pause-menu L/R controls. */
         unsigned count = 0, mask = Settings_Get(TM_SETTING_OSD_MASK, 0);
-        for (unsigned i = 0; i < TM_SETTINGS_OSDS; ++i) count += !!(mask & (1u << TMSettings_OSDIDs[i]));
+        for (unsigned i = 0; i < TM_OSD_CATEGORIES; ++i) count += !!(mask & (1u << TMSettings_OSDCategoryID(i)));
         if (mask & (1u << 8)) ++count; /* Reserve preview capacity for the Fox/Falco child before CSS. */
         unsigned capacity = TMOSD_Capacity(Settings_Get(TM_SETTING_OSD_LAYOUT, 0));
         unsigned pages = count ? (count + capacity - 1) / capacity : 1;

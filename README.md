@@ -18,6 +18,69 @@ The Tyro version and stable game/save identity live in [version.h](version.h). U
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
+
+### BUGS TO INVESTIGATE FOR T5
+- For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?
+- the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
+- the button controls to select the color for the OSDs are really annoying and unintuitive
+- would be nice to reorder your OSDs how you want
+
+### T4 (V1.4.1T4)
+
+- **Program changes**
+    - Change the game/save ID from `TYRE01` to `TMTE01`, for Training Mode Tyro Edition :3
+    - Made use of some unutilized event-storage available on the memory card slot to expand preference storage for events, without cannibalizing any pre-existing memory or event-score slots.
+    - Highlighted events with Tyro-specific changes in cyan on the event select screen. The dark cyan ones I haven't put quite as much effort into making improvements.
+- **Globals and all events**
+    - Added **L + R + A + Start** shortcut to exit any event during gameplay or from menus, with normal cleanup and score saving; analog triggers are supported.
+    - Added a global **A-Smash Release** OSD so that you can get timing feedback for how quickly you're able to let go of A when doing a smash attack.
+    - Added an octagonal stick-direction diagram beside the angle in the global Wavedash OSD and Wavedash/Ledgedash HUDs. The display makes it much easier to understand what the degree means at a glance.
+    - Set up logic so that in-event OSD overrides and overlays can disable the global settings you have so you don't have to exit and go back to the global menu to turn helpful/conflicting osds/overlays on/off. 
+    - Made every event that I worked on (except Training Lab) remember settings that you use via the memory card.
+    - Fixed the Powershield OSD, which wasn't accurately reading what frame you shielded on and wouldn't tell you if you got a successful powershield.
+- **Event-specific changes**
+    - **Training Lab** ([details](docs/STADIUM-TRANSFORMATIONS.md))
+        - Got the Pokémon Stadium transformation selection working without having to turn Hazards On. Selected stages will go through the transitions to get to them and then stay frozen until you change settings.
+    - **Attack on Shield / Reversal** ([details](docs/SHIELD-TRAINING.md))
+        - Created an updated menu, adding Techchase distance presets.
+        - Attack on Shield: Add a 1–5 shield-hit reaction count, Infinite Shields override, Shield DI In/Out, all five short-hop aerials and Spotdodge Shine.
+        - Reversal: Remember the selected attack; add Grab, Run Up JC Grab that tracks the player, and Spotdodge Shine.
+    - **Ledgedash** ([mechanics notes](docs/LEDGEDASH-MECHANICS.md))
+        - Rename GALINT to **Any GALINT**; added **4 / 7 / 10 GALINT** minimums as alternate success criteria in case you want to be more strict on yourself.
+        - Improved the HELP descriptions, detailing input, hand-circle timing and GALINT.
+        - Add local Hitbox Trails and replaced my invincibility highlighting with **Highlight Dropped Invincibility** overlay, a red pulse that shows you when you take too long and become tangible again.
+    - **Techchase**
+        - Creates a new list of nine saved chance presets so you can easily swap around without having to fine tune every single percentage every time.
+        - Added a new mode where you can have the CPU drop onto a side or top platform instead of on the ground with you, so you can practice platform techchasing too. Gave a drop height setting too so hopefully any character can take advantage of it.
+        - Added a Spotdodge Punish setting that makes the CPU do an instant spotdodge after their tech option so you can practice punishing the spot dodge instead of the actual tech.
+        - Add a local CPU Invincibility Overlay color to make it easier to see when they are invincible; overrides the global CPU invincibility overlay.
+        - Saves preexisting settings like OSD, reset, invisibility and camera-mode choices, but manual percentages and camera coordinates remain session-only.
+    - **Ledgechase** ([mechanics notes](docs/LEDGEDASH-MECHANICS.md))
+        - An all new event that lets you choose a cpu opponent to try to fight their options from ledge.
+        - Randomizes the CPU between regular get up from ledge, roll up from ledge, ledge jump, ledge attack, and even included experimental ledge hop and LedgeDash options.
+        - Has a CPU 100% option so that you can see the slower animations, too
+        - Tried to make flexible options for what the CPU does after their ledge option so they'll do hopefully anything you want to do. Doing attacks from ledge and trying to do falco ledgehop double laser are experimental and not finely tuned, especially not across the entire roster. There are separate settings for aerial and grounded actions, so you can have something like a falco mixing you up between ledge hop dair and ledgedash shine.
+        - Added a local CPU Invincibility Overlay color so you can see what frame to punish a little easier; overrides the global CPU invincibility overlay.
+    - **Powershield** ([details](docs/POWERSHIELD-TRAINING.md))
+        - Added Yellow>Green overlay that shows the first frame you are actionable after laser hitstun/shieldstun/powershield.
+        - Added OSD to see exactly what frame you Act out of Laser (ignoring shielding late or walking out of laser), as well as the newly corrected Powershield OSD. Also works for shieldstun so you can see how quickly you're wavedashing out of blocking the laser too.
+    - **Side-B Sweetspot**
+        - Semi-bugfix qol change - Reset the event after landing on stage or platforms following Side-B, instead of you needing to realize the event wasn't going to reset and jump off stage to kill yourself.
+        - Created a camera zoom setting so that you can see yourself off the sides of the stage more easily on small stages like Yoshi's, instead of having to gauge where you were through the spyglass.
+    - **Low Laser Puff Practice** ([details](docs/LOW-LASER-PUFF.md))
+        - An all new Character-specific Tech event for Fox/Falco. Just plants a fixed startup-crouch Puff to practice shooting the lowest of low lasers without the fake-gratification of hitting the puff-crouch-idle (which is a little taller and has an easier timing)
+        - Includes neutral laser/fastfall OSDs so you can see what timing you're hitting for the lasers
+        - Might end up adding more characters/flavors to this event, but with these OSDs I think it sets up the best kind of groundwork to practice any laser heights.
+    - **Under Fire**
+        - low key totally overhauled this event to make it actually useful and worth playing and actually do something unique to practice over just ledgedash event.
+        - Event now restarts automatically after hits/deaths instead of spitting you back to the event menu.
+        - Changed high score from being timer-based to being count-based for how many perfect ledge refreshes you can do, so the "startup" of the event doesn't feel like wasted time.
+        - Retains Session Best score that displays on screen through resets and updates/saves your high score when you exit the event.
+        - Gave the event a proper menu, with options to turn off local Hitbox Trails so they're not in the way of seeing your model, and a custom overlay to highlight Dropped Invincibility which will override the global character invincibility overlay to make your mistakes more clear.
+        - Created a setting to hide move animations, so that when you're trying to refresh with Fox/Falco you can see your character model more clearly instead of the flames.
+        - You can now switch from the left side ledge to the right side ledge! It wasn't possible to practice refreshing on both sides in this event before. Works like ledgedash event where you can either change the setting manually or use the Dpad left-right. Also works as a nice shortcut to reset the event faster.
+        - Added two event-specific OSDs to show what frame you drop off ledge (telling you if you hit the frame-perfect you need), and show you how close you were to getting a perfect refresh.
+
 ### T3 (V1.4.1T3)
 
 - Remember the selected event and page across sessions, restoring the cursor and scroll position on boot.

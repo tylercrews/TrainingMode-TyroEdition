@@ -1,0 +1,540 @@
+"""Execute Under Fire's relocated shared DAT, regrab hook and native reset."""
+import struct
+import unittest
+from unicorn import UC_HOOK_CODE
+import test_settings as fixtures
+from test_settings import ROOT, gpr, reg
+
+
+class UnderFireTests(unittest.TestCase):
+    dat_path = fixtures.RelocatedDATSettingsTests.dat_path
+
+    def setUp(self):
+        fixtures.RelocatedDATSettingsTests.setUp(self)
+        m = self.m
+        m.init(); m.call('TestCueInit')
+        self.fighter = m.call('TestCueObject', 0)
+        self.ft = m.call('TestCueData', 0)
+        self.menu_obj, self.menu_data = 0x80407600, 0x80407800
+        m.cpu.mem_write(self.menu_obj + 0x2C, struct.pack('>I', self.menu_data))
+        self.paused = 0
+        self.texts, self.rows, self.colors, self.effects, self.stage_calls = [], [], [], [], []
+        self.subtexts = {}
+        self.positions, self.scales = {}, {}
+        self.saved_score, self.score_reads = 0, []
+        self.menu_update, self.menu_updates, self.develop_updates = None, 0, 0
+        self.native_timer, self.timer_hides = False, 0
+        self.exit_calls = []
+        self.second_values = []
+        start = m.symbols['DAT_UnderFire']
+        for pc in range(start, start + 1024, 4):
+            word = self.word(pc)
+            if word & 0xFC000003 == 0x48000001:
+                delta = word & 0x03FFFFFC
+                if delta & 0x02000000: delta -= 0x04000000
+                self.create_menu = pc + delta
+                break
+        else: self.fail('Menu initialization call missing')
+        self.hook = m.cpu.hook_add(UC_HOOK_CODE, self.dependencies)
+        m.call('DAT_UnderFire')
+        self.options = self.word(self.menu + 8)
+        for slot, name in ((46,'DAT_UnderFireControl'), (47,'DAT_UnderFireRegrab'), (48,'DAT_UnderFireCamera'), (49,'DAT_UnderFireTiming')):
+            m.cpu.mem_write(0x80300000 - 200 + slot*4, struct.pack('>I', m.symbols[name]))
+
+    def tearDown(self): self.m.cpu.hook_del(self.hook)
+    def word(self, address): return struct.unpack('>I', self.m.cpu.mem_read(address, 4))[0]
+    def string(self, address): return bytes(self.m.cpu.mem_read(address,100)).split(b'\0',1)[0].decode()
+    def option(self, row, value=None):
+        address = self.options + row*44
+        if value is not None: self.m.cpu.mem_write(address+6, struct.pack('>h', value))
+        return address
+
+    def dependencies(self, cpu, address, size, user):
+        r = lambda n: cpu.reg_read(gpr(n))
+        if address == self.create_menu:
+            self.menu = r(3); cpu.reg_write(gpr(3), self.menu_obj)
+        elif address == self.menu_update: self.menu_updates += 1
+        elif address == 0x802F405C:
+            self.timer_hides += 1
+            if self.native_timer: return
+        elif address == 0x80225754: self.develop_updates += 1
+        elif address == 0x8015CF5C:
+            self.score_reads.append(r(3)); cpu.reg_write(gpr(3), self.saved_score & 0xFFFFFFFF)
+        elif address == 0x8015CF70: self.saved_score = r(4)
+        elif address == 0x8015CEB4: pass
+        elif address in (0x8016C7F0,0x801A4674,0x802F33CC,0x80024E84,0x8001CC84):
+            self.exit_calls.append(address)
+        elif address == 0x8003418C: cpu.reg_write(gpr(3), 0)
+        elif address == 0x801A45E8: cpu.reg_write(gpr(3), self.paused)
+        elif address == 0x803A611C: cpu.reg_write(gpr(3), 7)
+        elif address == 0x803A6754:
+            text = 0x80409000 + len(self.texts)*0x400
+            self.texts.append(text); self.subtexts[text] = 0
+            cpu.reg_write(gpr(3), text)
+        elif address == 0x803A6B98:
+            row = self.subtexts[r(3)]; self.subtexts[r(3)] += 1
+            self.positions[r(3),row] = tuple(struct.unpack('>d',struct.pack('>Q',cpu.reg_read(f)))[0]
+                for f in (reg.UC_PPC_REG_FPR1,reg.UC_PPC_REG_FPR2))
+            cpu.reg_write(gpr(3), row)
+        elif address == 0x803A70A0:
+            value = r(6); value = value - 0x100000000 if value & 0x80000000 else value
+            self.rows.append((r(3), r(4), self.string(r(5)), value))
+            self.second_values.append(r(7))
+        elif address == 0x803A74F0:
+            self.colors.append((r(3), r(4), bytes(cpu.mem_read(r(5),4))))
+        elif address == 0x803A7548:
+            self.scales[r(3),r(4)] = tuple(struct.unpack('>d',struct.pack('>Q',cpu.reg_read(f)))[0]
+                for f in (reg.UC_PPC_REG_FPR1,reg.UC_PPC_REG_FPR2))
+        elif address == 0x8005B880: self.effects.append(r(3))
+        elif address in (0x80053ECC, 0x80053DA4):
+            self.stage_calls.append((address,r(3)))
+            x = -100 if address == 0x80053ECC else 100
+            cpu.mem_write(r(4), struct.pack('>3f',x,10,0))
+        else: return
+        cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+
+    def control(self, reset=0): return self.m.call('DAT_UnderFireControl', self.fighter, reset)
+    def protection(self, frames): self.m.cpu.mem_write(self.ft+0x1990, struct.pack('>i',frames))
+
+    def test_defaults_menu_and_dpad_share_side_and_full_reset_request(self):
+        m = self.m; core = m.record()
+        self.assertEqual(m.cpu.mem_read(self.menu+4,1)[0],7)
+        for row, name, value in ((2,'Ledge Side',0),(3,'Disable Attack Particles',0),(4,'Ledge Refresh OSTs',1),(5,'Suppress Global OSTs',1)):
+            at = self.option(row)
+            self.assertEqual(self.string(self.word(at+12)),name)
+            self.assertEqual(bytes(m.cpu.mem_read(at+6,4)),struct.pack('>hh',value,value))
+        self.assertEqual(self.control(),0)
+        m.cpu.mem_write(self.ft+0x668,struct.pack('>I',2))
+        self.assertEqual(self.control(),3)  # Right plus restart request.
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(2)+6,4)),b'\0\1\0\1')
+        m.cpu.mem_write(self.ft+0x668,bytes(4))
+        self.assertEqual(self.control(),3)  # Pending until the native spawn.
+        self.assertEqual(self.control(1),1)
+        self.assertEqual(self.control(),1)
+        self.option(2,0)
+        m.symbols['ChangeSide'] = self.word(self.option(2)+36)
+        m.call('ChangeSide',self.menu_obj,0)
+        self.assertEqual(self.control(),2)
+        self.assertEqual(self.control(1),0)
+        self.paused = 2
+        m.cpu.mem_write(self.ft+0x668,struct.pack('>I',2))
+        self.assertEqual(self.control(),0)  # Paused menu navigation cannot switch ledges.
+        self.assertEqual(m.record(),core)
+
+    def test_camera_mirrors_with_native_brinstar_ledge_ids(self):
+        m = self.m; box = 0x80408000
+        m.call('DAT_UnderFireCamera',box)
+        self.assertEqual(self.stage_calls[-1],(0x80053ECC,5))
+        self.assertEqual(struct.unpack('>3f',m.cpu.mem_read(box+16,12)),(-65,30,0))
+        self.option(2,1); self.control(1)
+        self.assertEqual(self.stage_calls[-1],(0x80053DA4,17))
+        self.assertEqual(struct.unpack('>3f',m.cpu.mem_read(box+16,12)),(65,30,0))
+
+    def test_signed_regrab_result_counts_tangible_frames_and_respects_toggle(self):
+        m = self.m
+        self.protection(7); self.control()
+        m.call('DAT_UnderFireRegrab',self.fighter)
+        self.assertEqual(self.rows[-1][2:],('%+df',7))
+        self.assertEqual(self.colors[-1][2],bytes.fromhex('8DFF6EFF'))
+        self.protection(0)
+        # No earlier tangible frame: this regrab is the first late frame.
+        m.call('DAT_UnderFireRegrab',self.fighter)
+        self.assertEqual(self.rows[-1][3],0)
+        for _ in range(4): self.control()
+        m.call('DAT_UnderFireRegrab',self.fighter)
+        self.assertEqual(self.rows[-1][3],-3)
+        self.assertEqual(self.colors[-1][2],bytes.fromhex('FF4646FF'))
+        count = len(self.rows); self.option(4,0)
+        m.call('DAT_UnderFireRegrab',self.fighter)
+        self.assertEqual(len(self.rows),count)
+        self.option(4,1); self.control(1); self.protection(0)
+        m.call('DAT_UnderFireRegrab',self.fighter)
+        self.assertEqual(self.rows[-1][3],0)  # Retry clears timing history.
+
+    def test_native_regrab_hook_runs_when_global_ledge_osd_is_off(self):
+        m = self.m
+        m.call('Settings_Set',14,26,0)
+        m.cpu.reg_write(gpr(13),0x804DB6A0)
+        m.cpu.mem_write(0x804DB6A0-0x77C0,struct.pack('>I',0x8045A6C0))
+        self.protection(12)
+        hook = m.install_hook(0x80081370,0x80600000)
+        m.cpu.reg_write(gpr(3),self.fighter)
+        m.cpu.reg_write(gpr(30),self.fighter)
+        m.cpu.reg_write(gpr(31),self.ft)
+        m.cpu.emu_start(hook,0x80081374,count=300000)
+        self.assertEqual(m.cpu.reg_read(reg.UC_PPC_REG_PC),0x80081374)
+        self.assertEqual(self.rows[-1][2:],('%+df',12))
+        self.assertEqual(m.cpu.reg_read(gpr(30)),self.fighter)
+        self.assertEqual(m.cpu.reg_read(gpr(3)),self.fighter)
+
+    def test_native_right_shortcut_runs_complete_restore_and_selected_spawn(self):
+        m = self.m
+        elf = (ROOT/'build/under-fire-native-test.elf').read_bytes()
+        shoff = struct.unpack_from('>I',elf,0x20)[0]
+        stride,count = struct.unpack_from('>HH',elf,0x2E)
+        sections = [struct.unpack_from('>10I',elf,shoff+i*stride) for i in range(count)]
+        symbols = {}
+        for _,kind,flags,address,offset,size,link,_,_,entry in sections:
+            if flags & 2 and size and kind != 8: m.cpu.mem_write(address,elf[offset:offset+size])
+            if kind == 2:
+                names = sections[link]
+                table = elf[names[4]:names[4]+names[5]]
+                for i in range(0,size,entry):
+                    name,value,_,_,_,section = struct.unpack_from('>IIIBBH',elf,offset+i)
+                    if section: symbols[table[name:].split(b'\0',1)[0].decode()] = value
+        m.symbols['NativeThink'] = symbols['LedgeStallThink']+4
+        event,state = 0x80407200,0x80407400
+        m.cpu.mem_write(event+0x2C,struct.pack('>I',state))
+        m.cpu.mem_write(state,struct.pack('>BBHIf',0,0,123,0,-100))
+        calls = []
+        bound = {symbols[n]:n for n in ('GetAllPlayerPointers','CheckIfFirstFrame','SaveState_Load',
+            'PlaceOnLedge','UpdateCameraBox','IntToFloat','Ledgestall_UpdateLavaPosition')}
+        def native(cpu,address,size,user):
+            name = bound.get(address)
+            if not name: return
+            if name == 'GetAllPlayerPointers':
+                for n,v in ((3,self.fighter),(4,self.ft),(5,0),(6,0)):cpu.reg_write(gpr(n),v)
+            elif name == 'CheckIfFirstFrame': cpu.reg_write(gpr(3),0)
+            elif name == 'IntToFloat':
+                v = cpu.reg_read(gpr(3));v = v-0x100000000 if v & 0x80000000 else v
+                cpu.reg_write(reg.UC_PPC_REG_FPR1,struct.unpack('>Q',struct.pack('>d',float(v)))[0])
+            else:
+                calls.append((name,cpu.reg_read(gpr(4))))
+                if name == 'SaveState_Load':cpu.mem_write(self.ft+0x668,bytes(4))
+            cpu.reg_write(reg.UC_PPC_REG_PC,cpu.reg_read(reg.UC_PPC_REG_LR))
+        hook = m.cpu.hook_add(UC_HOOK_CODE,native)
+        try:
+            m.cpu.mem_write(self.ft+0x668,struct.pack('>I',2))
+            m.call('NativeThink',event)
+            self.assertEqual([n for n,_ in calls],['SaveState_Load','PlaceOnLedge','UpdateCameraBox',
+                                                  'Ledgestall_UpdateLavaPosition'])
+            self.assertEqual(calls[1],('PlaceOnLedge',1))
+            self.assertEqual(bytes(m.cpu.mem_read(state,12)),struct.pack('>BBHIf',0,0,123,0,-100))
+            self.assertEqual(bytes(m.cpu.mem_read(0x8046B6C8,6)),bytes(6))
+            self.assertEqual(self.control(),1)  # No repeat restore after the shortcut.
+        finally:m.cpu.hook_del(hook)
+
+    def native_code(self, address, length):
+        dol = (ROOT/'build/Start.dol').read_bytes()
+        for i in range(18):
+            off,base,size = [struct.unpack_from('>I',dol,j+4*i)[0] for j in (0,0x48,0x90)]
+            if base <= address and address+length <= base+size:
+                self.m.cpu.mem_write(address,dol[off+address-base:off+address-base+length]);return
+        self.fail('Native code range missing')
+
+    def timing(self, phase, value=0): return self.m.call('DAT_UnderFireTiming',self.ft,phase,value)
+    def state(self, value): self.m.cpu.mem_write(self.ft+0x10,struct.pack('>I',value))
+    def tick(self, tick, remaining):
+        self.m.cpu.mem_write(0x8046B6C4,struct.pack('>I',tick))
+        self.protection(remaining)
+        self.timing(4)  # Animation sampling also runs for states with no IASA.
+    def grant(self, amount=30):
+        self.state(253);self.timing(3,amount);self.protection(amount)
+        self.m.cpu.mem_write(self.ft+0x2344,struct.pack('>f',100))
+
+    def test_attack_particle_gate_preserves_ledge_circle_jump_rings_and_other_owners(self):
+        m = self.m
+        m.cpu.mem_write(self.fighter,struct.pack('>H',4))
+        resume = 0x8005FDE0
+        m.install_hook(0x8005FDDC,0x80600000)
+        m.symbols['NativeSpawn'] = 0x8005FDDC
+        created = []
+        def body(cpu,address,size,user):
+            created.append(tuple(cpu.reg_read(gpr(i)) for i in (3,4,5)))
+            cpu.reg_write(gpr(3),0x80407F00)
+            cpu.reg_write(reg.UC_PPC_REG_PC,cpu.reg_read(reg.UC_PPC_REG_LR))
+        hook=m.cpu.hook_add(UC_HOOK_CODE,body,begin=resume,end=resume)
+        try:
+            for effect in (1163,1164,18,100):
+                self.assertEqual(m.call('NativeSpawn',effect,self.fighter,0x80408000),0x80407F00)
+            count=len(created);self.option(3,1)
+            m.cpu.mem_write(self.ft+0x2071,b'\x30')  # Native Special category.
+            for _ in range(5):
+                for effect in (1163,1164,18,100):
+                    self.assertEqual(m.call('NativeSpawn',effect,self.fighter,0x80408000),0)
+                self.control()
+            self.assertEqual(len(created),count)  # Late GFX cannot flicker back in.
+            # Ledge-grab effect must survive even if the old special category
+            # is still present while the native catch entry spawns it.
+            self.assertEqual(m.call('NativeSpawn',1052,self.fighter,0x80408000),0x80407F00)
+            m.cpu.mem_write(self.ft+0x2071,b'\0')  # Free movement / double jump.
+            for effect in (18,100):
+                self.assertEqual(m.call('NativeSpawn',effect,self.fighter,0x80408000),0x80407F00)
+            stage=0x80408200;m.cpu.mem_write(stage,struct.pack('>H',3))
+            self.assertEqual(m.call('NativeSpawn',18,stage,0x80408000),0x80407F00)
+            self.option(3,0)
+            self.assertEqual(m.call('NativeSpawn',1163,self.fighter,0x80408000),0x80407F00)
+            self.assertEqual(created[-1],(1163,self.fighter,0x80408000))
+        finally:m.cpu.hook_del(hook)
+
+    def test_native_firefox_charge_and_launch_do_not_respawn_or_clear_move_flags(self):
+        m=self.m;self.option(3,1)
+        m.cpu.mem_write(self.fighter,struct.pack('>H',4))
+        m.cpu.mem_write(self.ft+0x2071,b'\x30')
+        self.native_code(0x800E7100,0x138)
+        m.install_hook(0x8005FDDC,0x80600000)
+        # Native callbacks need a bone lookup; bound its unrelated table access.
+        m.cpu.mem_write(self.ft+0x5E8,struct.pack('>I',0x80408400))
+        calls=[]
+        def bone(cpu,address,size,user):
+            calls.append(True);cpu.reg_write(gpr(3),0)
+            cpu.reg_write(reg.UC_PPC_REG_PC,cpu.reg_read(reg.UC_PPC_REG_LR))
+        hook=m.cpu.hook_add(UC_HOOK_CODE,bone,begin=0x8007500C,end=0x8007500C)
+        try:
+            for kind in (1,22):
+                m.cpu.mem_write(self.ft+4,struct.pack('>I',kind))
+                for function in (0x800E7100,0x800E719C):
+                    m.cpu.mem_write(self.ft+0x2219,b'\0')
+                    m.symbols['NativeFirefox']=function
+                    m.call('NativeFirefox',self.fighter)
+                    self.assertEqual(bytes(m.cpu.mem_read(self.ft+0x2219,1)),b'\x80')
+                    before=len(calls)
+                    for _ in range(3):
+                        self.control();m.call('NativeFirefox',self.fighter)
+                    self.assertEqual(len(calls),before)
+        finally:m.cpu.hook_del(hook)
+
+    def test_invincibility_snapshot_survives_timer_clear_and_zero_boundary(self):
+        m=self.m;self.grant()
+        for frame,remaining,expected in ((10,9,9),(11,1,1),(12,0,0),(13,0,-1),(14,0,-2),(15,0,-3)):
+            self.tick(frame,remaining)
+            self.protection(0)  # Native catch/state cleanup no longer loses the sample.
+            m.call('DAT_UnderFireRegrab',self.fighter)
+            self.assertEqual(self.rows[-1][3],expected)
+            self.assertEqual(self.colors[-1][2],bytes.fromhex('8DFF6EFF' if expected>=0 else
+                'FF50FFFF' if expected>=-2 else 'FF4646FF'))
+            if expected==0:self.assertEqual(self.rows[-1][2],'%df')
+
+    def test_centered_pair_and_retired_act_is_invisible(self):
+        m=self.m
+        for elapsed in range(1,5):
+            self.control(1);self.grant()
+            self.tick(100+elapsed*20,29)  # First legal drop after neutral latch.
+            self.timing(0);self.timing(2,29)
+            self.assertEqual(self.rows[-2][2],'Ledge Drop')
+            self.assertEqual(self.rows[-1][2:],('%df',1))
+            self.assertEqual(self.colors[-1][2],bytes.fromhex('8DFF6EFF'))
+            drop_text=self.rows[-1][0]
+            self.timing(1);self.state(29)
+            for i in range(elapsed):
+                self.tick(101+elapsed*20+i,28-i);self.timing(0)
+                if i!=elapsed-1:self.timing(1)
+            count=len(self.rows)
+            self.timing(2,353)  # Fox aerial up-B.
+            self.assertEqual(len(self.rows),count)
+            self.timing(1)
+            m.call('DAT_UnderFireRegrab',self.fighter)
+            inv_text=self.rows[-1][0]
+            self.assertEqual([struct.unpack('>2f',m.cpu.mem_read(t,8)) for t in
+                              (drop_text,inv_text)],[(255,100),(385,100)])
+
+    def test_first_display_uses_invincibility_depth_not_cliffwait_duration(self):
+        self.grant();self.tick(5,26);self.timing(0);self.timing(2,29)
+        self.assertEqual(self.rows[-1][2:],('%df',4))
+        self.assertEqual(self.colors[-1][2],bytes((255,70,70,255)))
+
+    def test_timing_ignores_forced_transitions_freezes_and_obeys_each_toggle(self):
+        self.grant();self.tick(1,30);self.timing(0);self.timing(1)
+        count=len(self.rows);self.timing(2,29)
+        self.assertEqual(len(self.rows),count)  # Collision outside IASA is not an action.
+        self.control(1);self.grant();self.option(4,0)
+        count=len(self.rows)  # Retry updates the counter to zero.
+        self.tick(2,30);self.timing(0);self.timing(2,29)
+        self.assertEqual(len(self.rows),count)
+        self.timing(1);self.state(29)
+        self.tick(3,29);self.timing(0);self.timing(2,27)
+        self.assertEqual(len(self.rows),count)
+
+    def test_native_invincibility_grant_starts_cycle_before_first_ledge_action(self):
+        m=self.m;self.state(253)
+        m.cpu.mem_write(self.ft+0x2344,struct.pack('>f',100))
+        self.native_code(0x8007B760,0x44)
+        m.install_hook(0x8007B760,0x80601000)
+        m.symbols['NativeGrant']=0x8007B760
+        def color(cpu,address,size,user):
+            cpu.reg_write(reg.UC_PPC_REG_PC,cpu.reg_read(reg.UC_PPC_REG_LR))
+        hook=m.cpu.hook_add(UC_HOOK_CODE,color,begin=0x800BFFD0,end=0x800BFFD0)
+        try:m.call('NativeGrant',self.fighter,30)
+        finally:m.cpu.hook_del(hook)
+        self.assertEqual(self.word(self.ft+0x1990),30)
+        self.assertEqual(self.word(self.ft+0x198C),2)
+        # Native CliffWait's grant frame requires a neutral release; dropping
+        # on the next frame is frame 1, not frame 2.
+        self.tick(1,30);self.timing(0);self.timing(1)
+        self.tick(2,29);self.timing(0);self.timing(2,29)
+        self.assertEqual(self.rows[-1][2:],('%df',1))
+
+    def test_frozen_and_duplicate_updates_do_not_age_expired_protection(self):
+        m=self.m;self.grant();self.tick(1,1)
+        m.call('TestCueFrozen',0,1)
+        self.tick(2,1);self.tick(3,1)
+        m.call('TestCueFrozen',0,0)
+        self.tick(4,0);self.timing(4)
+        m.call('DAT_UnderFireRegrab',self.fighter)
+        self.assertEqual(self.rows[-1][3],0)
+
+    def test_fastfall_action_has_no_retired_act_readout(self):
+        m=self.m
+        self.grant();self.tick(1,29);self.timing(0);self.timing(2,29);self.timing(1)
+        self.state(29)
+        self.tick(2,28);self.timing(0);self.timing(1)
+        m.cpu.mem_write(self.ft+0x221A,b'\x08')
+        count=len(self.rows)
+        self.tick(3,27);self.timing(0);self.timing(2,27)
+        self.assertEqual(len(self.rows),count)
+        self.assertFalse(any('Act' == row[2] or 'Act/Jump' in row[2] for row in self.rows))
+
+    def test_attack_particle_toggle_saves_and_restores_through_event_menu(self):
+        m=self.m;core=m.record()
+        m.symbols['ChangeParticles']=self.word(self.option(3)+36)
+        self.option(3,1);m.call('ChangeParticles',self.menu_obj,1)
+        self.assertEqual(m.call('DAT_Get',29,0),1)
+        m.call('DAT_UnderFire')
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(3)+6,4)),struct.pack('>hh',1,1))
+        self.option(3,0);m.call('ChangeParticles',self.menu_obj,0)
+        m.call('DAT_UnderFire')
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(3)+6,4)),bytes(4))
+        self.assertEqual(self.effects,[])  # No blanket removal of utility effects.
+        self.assertEqual(m.record(),core)
+
+    def counter(self):
+        return next(row[3] for row in reversed(self.rows) if row[2]=='Perfect Refreshes: %d')
+
+    def high_score(self):
+        return next(row[3] for row in reversed(self.rows) if row[2]=='High Score: %d')
+
+    def test_saved_high_score_above_counter_is_small_and_ignores_legacy_time(self):
+        m=self.m
+        self.assertEqual(self.high_score(),0)
+        self.assertEqual(self.score_reads,[])
+        self.saved_score=9999 # A legacy survival-time record is not a count.
+        m.call('DAT_UnderFire')
+        self.assertEqual(self.high_score(),0)
+        self.assertEqual(self.score_reads,[])
+        m.call('DAT_Set',29,1,1)
+        m.cpu.mem_write(0x8045A6C0+0x535,b'\x02')
+        self.saved_score=42
+        m.call('DAT_UnderFire')
+        self.assertEqual(self.score_reads,[2])
+        self.assertEqual((self.high_score(),self.counter(),self.session_best()),(42,0,0))
+        text=self.texts[-1]
+        self.assertEqual(self.positions[text,14],(0,-28))
+        self.assertEqual(self.positions[text,4],(0,0))
+        self.assertEqual(self.positions[text,9],(0,34))
+        self.assertEqual(self.scales[text,14],(.5625,.5625))
+        self.assertEqual(self.scales[text,14],self.scales[text,9])
+        self.assertNotIn((text,4),self.scales) # Current attempt retains the large base font.
+        self.refresh(10);self.control(1)
+        self.assertEqual((self.high_score(),self.counter(),self.session_best()),(42,0,1))
+        self.assertEqual(self.saved_score,42) # Display/retries do not overwrite the record.
+        self.saved_score=-1
+        m.call('DAT_UnderFire')
+        self.assertEqual(self.high_score(),0)
+
+    def prepare_menu_update(self):
+        m=self.m
+        update=self.word(0x80479D88)
+        for pc in range(update,update+160,4):
+            word=self.word(pc)
+            if word&0xFC000003==0x48000001:
+                delta=word&0x03FFFFFC
+                if delta&0x02000000:delta-=0x04000000
+                self.menu_update=pc+delta;break
+        self.assertIsNotNone(self.menu_update)
+        m.symbols['Update']=update
+
+    def test_native_timer_models_stay_hidden_when_hud_is_restored(self):
+        m=self.m
+        self.prepare_menu_update()
+        self.native_code(0x802F405C,0x5C) # Real Match_HideTimer, both timer models.
+        self.native_code(0x80371D9C,0x170) # Real recursive JOBJ flag setter.
+        self.native_timer=True
+        objects=(0x80C10000,0x80C10100)
+        joints=(0x80C11000,0x80C11100)
+        for i,(obj,joint) in enumerate(zip(objects,joints)):
+            m.cpu.mem_write(0x804A1078+i*4,struct.pack('>I',obj))
+            m.cpu.mem_write(obj+0x28,struct.pack('>I',joint))
+        for paused in (0,1,0):
+            # Model what ShowHUD does on unpause, restoring visible models.
+            for joint in joints:m.cpu.mem_write(joint+0x14,struct.pack('>I',0x200))
+            m.cpu.mem_write(self.menu_data+9,bytes((paused,)))
+            m.call('Update')
+            self.assertEqual([self.word(joint+0x14) for joint in joints],[0x210,0x210])
+            self.assertEqual(m.cpu.mem_read(self.texts[-1]+0x4D,1)[0],paused)
+        self.assertEqual(self.timer_hides,3)
+        # The native API also tolerates HUDs without allocated timer models.
+        m.cpu.mem_write(0x804A1078,bytes(8))
+        m.call('Update')
+
+    def test_pause_hides_all_counter_rows_and_suppresses_camera_hotkeys(self):
+        m=self.m
+        self.prepare_menu_update()
+        text=self.texts[-1]
+        self.assertEqual(self.subtexts[text],15)
+        for paused in (1,1,0):
+            m.cpu.mem_write(self.menu_data+9,bytes((paused,)))
+            m.call('Update')
+            self.assertEqual(m.cpu.mem_read(text+0x4D,1)[0],paused)
+        self.assertEqual((self.menu_updates,self.develop_updates),(3,1))
+
+    def test_exit_unpauses_saves_best_and_stops_held_shortcut_repeats(self):
+        m=self.m
+        m.cpu.mem_write(self.menu_data+9,b'\x01')
+        m.call('DAT_UnderFireScore',1)
+        m.symbols['Exit']=self.word(self.option(6)+40)
+        m.call('Exit',self.menu_obj)
+        self.assertEqual(self.saved_score,1)
+        self.assertEqual(m.cpu.mem_read(self.menu_data+9,1)[0],0)
+        self.assertEqual(m.cpu.mem_read(0x8046B6A0,1)[0],3)
+        self.assertLess(self.exit_calls.index(0x801A4674),self.exit_calls.index(0x8016C7F0))
+        calls=list(self.exit_calls)
+        m.symbols['Update']=self.word(0x80479D88)
+        m.call('Update');m.call('Exit',self.menu_obj)
+        self.assertEqual(self.exit_calls,calls)
+
+    def session_best(self):
+        return next(row[3] for row in reversed(self.rows) if row[2]=='Session Best: %d')
+
+    def refresh(self, base, late=0):
+        self.grant();self.tick(base,29);self.timing(0);self.timing(2,29);self.timing(1)
+        self.state(29);self.tick(base+1,1)
+        for i in range(late+1):self.tick(base+2+i,0)
+        self.m.call('DAT_UnderFireRegrab',self.fighter)
+
+    def test_counter_only_scores_perfect_refresh_once_and_survives_hidden_osds(self):
+        m=self.m
+        self.assertEqual(self.counter(),0)
+        self.assertEqual(self.session_best(),0)
+        m.call('DAT_UnderFireRegrab',self.fighter)  # Initial placement.
+        self.assertEqual(self.counter(),0)
+        self.refresh(10)
+        self.assertEqual(self.counter(),1)
+        m.call('DAT_UnderFireRegrab',self.fighter)  # Duplicate native callback.
+        self.assertEqual(self.counter(),1)
+        self.refresh(20,1);self.refresh(30,2);self.refresh(40,3)
+        self.assertEqual(self.counter(),1)
+        self.option(4,0);self.refresh(50)
+        self.assertEqual(self.counter(),2)
+        self.assertEqual(self.session_best(),2)
+        self.assertEqual(self.rows[-1][2:],('Session Best: %d',2))
+        self.control(1)
+        self.assertEqual(self.counter(),0)
+        self.assertEqual(self.session_best(),2)
+        self.refresh(60)
+        self.assertEqual(self.counter(),1)
+        self.assertEqual(self.session_best(),2)
+        self.state(75);self.control();self.state(29);self.refresh(70)
+        self.assertEqual(self.counter(),1)  # Feedback window cannot add score.
+        self.assertEqual(self.session_best(),2)
+        m.call('DAT_UnderFire')
+        self.assertEqual((self.counter(),self.session_best()),(0,0))  # New session.
+
+    def test_drop_near_misses_are_magenta_and_later_failures_red(self):
+        for frame,color in ((1,'8DFF6EFF'),(2,'FF50FFFF'),(3,'FF50FFFF'),(4,'FF4646FF')):
+            self.control(1);self.grant();self.tick(frame,30-frame)
+            self.timing(0);self.timing(2,29)
+            self.assertEqual(self.rows[-1][2:],('%df',frame))
+            self.assertEqual(self.colors[-1][2],bytes.fromhex(color))
+
+
+if __name__ == '__main__': unittest.main(verbosity=2)

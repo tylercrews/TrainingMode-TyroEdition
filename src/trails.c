@@ -71,6 +71,9 @@ unsigned TMTrail_Effective(unsigned very_fast, unsigned instant, unsigned local_
     if (instant) return TM_TRAIL_INSTANT;
     return local_enabled && local_mode < TM_TRAIL_DISABLED ? local_mode : TM_TRAIL_DISABLED;
 }
+unsigned TMTrail_OverrideMode(unsigned choice) {
+    return choice > 0 && choice < TM_TRAIL_OVERRIDE_COUNT ? choice - 1 : TM_TRAIL_DISABLED;
+}
 
 uint32_t TMTrail_PlayerColor(unsigned accent, unsigned is_cpu) {
     static const uint32_t colors[] = {0xFF4646C8, 0x4691FFC8, 0xFFE141C8, 0x4BE164C8};

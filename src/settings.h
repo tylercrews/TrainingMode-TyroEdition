@@ -11,12 +11,17 @@
 #define TM_SETTINGS_LEGACY_OVERLAYS 17
 #define TM_SETTINGS_OVERLAY_CHOICES 11
 #define TM_SETTINGS_OSDS 19
+#define TM_OSD_CATEGORIES (TM_SETTINGS_OSDS + 1) /* Append-only runtime category; core palette unchanged. */
+#define TM_GLOBAL_ASMASH_RELEASE_ID 30
+#define TM_GLOBAL_ASMASH_RELEASE_NAME "A-Smash Release"
 #define TM_SETTINGS_FLAGS_OFFSET 10
 #define TM_SETTINGS_OVERLAYS_OFFSET 12
 #define TM_SETTINGS_COLORS_OFFSET 30
 /* Previously unused capacity: byte 6 bits 1-5 human ID+1, bits 6-7 marker 10;
  * byte 37 bits 1-5 CPU ID+1. Palette occupies byte 37 bit 0 only.
- * Byte 37 bits 6-7 and byte 43 bit 7 remain unused. */
+ * Byte 37 bit 6 extends Ledgedash's criterion; bit 7 remains unused.
+ * Byte 43 bit 7 stores Side-B Sweetspot's zoomed-out camera. */
+#define TM_SETTINGS_CRITERION_HIGH_MASK 0x40 /* Byte 37: criterion bit 2. */
 #define TM_SETTINGS_SIGNATURE_OFFSET 38
 #define TM_SETTINGS_RESERVED_OFFSET 40
 #define TM_SETTINGS_EXTRA_FLAGS_OFFSET 40 /* Bits 0/1/2: TurnRun/protection/CPU OSD override. */
@@ -25,7 +30,7 @@
 #define TM_SETTINGS_EVENT_TIPS_MASK 0x40 /* Byte 40 bit 6: Ledgedash hints. */
 #define TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK 0x80 /* Byte 40 bit 7: inverted; unset defaults On. */
 #define TM_SETTINGS_LAYOUT_MASK 0x60 /* Byte 43 bits 5-6: Recent / Fixed / Panel. */
-#define TM_SETTINGS_EGGS_FREE_MASK 0x80 /* Byte 43 bit 7 remains reserved. */
+#define TM_SETTINGS_SWEETSPOT_CAMERA_MASK 0x80 /* Byte 43 bit 7: Normal / Zoomed Out. */
 #define TM_OSD_LAYOUT_NAMES "Recent", "Fixed Grid", "Practice Panel"
 #define TM_OSD_DISPLAY_NAMES "HUD", "Sides", "Top Left", "Top Right", "Fixed Grid", "Practice Panel"
 #define TM_SETTINGS_LEDGE_OFFSET 41
@@ -93,6 +98,14 @@ enum TMSettingsField {
     TM_SETTING_CHARACTER, /* Index 0 human / 1 CPU; external ID, UINT32_MAX = unset. */
     TM_SETTING_SWEETSPOT_LINES, /* Index 0 only: Enable Line Guides; default On. */
     TM_SETTING_EVENT_SELECTION, /* Byte 5 high six bits; page remains in low two. */
+    TM_SETTING_TECHCHASE, /* Separate extension; manual chances are session-only. */
+    TM_SETTING_LEDGECHASE, /* Separate extension; manual ledge chances are session-only. */
+    TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
+    TM_SETTING_LOW_LASER, /* Event OSDs and global suppression in the extension. */
+    TM_SETTING_POWERSHIELD, /* Powershield event menu, append-only identity. */
+    TM_SETTING_SWEETSPOT_CAMERA, /* Index 0 only: Normal (0) / Zoomed Out (1). */
+    TM_SETTING_REVERSAL,
+    TM_SETTING_ATTACK_SHIELD,
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -106,6 +119,39 @@ enum TMEggsPreference {
     TM_EGGS_FREE_PRACTICE, TM_EGGS_PREF_COUNT,
 };
 enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUNT };
+enum TMTechchasePreference {
+    TM_TECHCHASE_PRESET, TM_TECHCHASE_REACTION_OSD, TM_TECHCHASE_TIMING_OSD,
+    TM_TECHCHASE_RESET, TM_TECHCHASE_INVISIBILITY, TM_TECHCHASE_CAMERA,
+    TM_TECHCHASE_LOCATION, TM_TECHCHASE_SPOTDODGE, TM_TECHCHASE_CPU_COLOR,
+    TM_TECHCHASE_HEIGHT, TM_TECHCHASE_DISTANCE,
+    TM_TECHCHASE_PREF_COUNT,
+};
+enum TMLedgechasePreference {
+    TM_LEDGECHASE_SIDE, TM_LEDGECHASE_CPU_100, TM_LEDGECHASE_PLAYER_PERCENT,
+    TM_LEDGECHASE_PRESET, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR,
+    TM_LEDGECHASE_CPU_ACTION, TM_LEDGECHASE_AIR_ATTACK,
+    TM_LEDGECHASE_ENTRY, TM_LEDGECHASE_HOP_HEIGHT, TM_LEDGECHASE_PREF_COUNT,
+};
+enum TMUnderFirePreference {
+    TM_UNDERFIRE_ATTACK_PARTICLES,
+    TM_UNDERFIRE_COUNTER_SCORE, /* Record-format marker; old survival frames are not counts. */
+    TM_UNDERFIRE_PREF_COUNT
+};
+enum TMLowLaserPreference {
+    TM_LOW_LASER_OSDS, TM_LOW_LASER_SUPPRESS_GLOBAL, TM_LOW_LASER_PREF_COUNT
+};
+enum TMPowershieldPreference {
+    TM_PS_FIRE_SPEED, TM_PS_DELAY_MIN, TM_PS_DELAY_MAX, TM_PS_HEIGHT,
+    TM_PS_DIRECTION, TM_PS_MOVEMENT, TM_PS_NANA, TM_PS_OSDS,
+    TM_PS_SUPPRESS_GLOBAL, TM_PS_OVERLAY, TM_PS_PREF_COUNT
+};
+enum TMReversalPreference {
+    TM_REV_ATTACK, TM_REV_DISTANCE, TM_REV_PLAYER_FACING, TM_REV_CPU_FACING,
+    TM_REV_POSITION, TM_REV_PREF_COUNT
+};
+enum TMAttackShieldPreference {
+    TM_AOS_ACTION, TM_AOS_HITS, TM_AOS_INFINITE, TM_AOS_DISTANCE, TM_AOS_SHIELD_DI, TM_AOS_PREF_COUNT
+};
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1
 #define TM_LEDGE_DEFAULT_TIPS 1
@@ -113,6 +159,9 @@ enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUN
 #define TM_EGGS_DEFAULT_VELOCITY 1
 
 extern const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS];
+static inline unsigned TMSettings_OSDCategoryID(unsigned slot) {
+    return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] : TM_GLOBAL_ASMASH_RELEASE_ID;
+}
 extern const uint8_t TMSettings_EditorIDs[29];
 int TMSettings_EditorID(unsigned native_row);
 int TMSettings_NativeFlag(unsigned row);
@@ -134,5 +183,8 @@ int Settings_Status(void);
 void Settings_CommitPending(void);
 void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable);
 void Settings_EventCharacters(unsigned save);
+void Settings_ResetEventRecords(void *card);
+void *Settings_EventScoreSlot(unsigned event);
+unsigned Events_ScoreIndex(unsigned page, unsigned event);
 
 #endif

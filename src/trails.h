@@ -11,6 +11,10 @@ enum TMTrailDecay {
     TM_TRAIL_INSTANT, TM_TRAIL_SLOW, TM_TRAIL_NO_FADE, TM_TRAIL_DISABLED,
 };
 #define TM_TRAIL_DECAY_LABELS "Normal", "Fast", "Very Fast", "Instant", "Slow", "Off"
+/* Event overrides distinguish disabled trails from trails with no fading. */
+#define TM_TRAIL_OVERRIDE_LABELS "Off", "Normal", "Fast", "Very Fast", "Instant", "Slow", "No Fade"
+#define TM_TRAIL_OVERRIDE_COUNT 7
+unsigned TMTrail_OverrideMode(unsigned choice);
 
 typedef struct TMTrailVec { float x, y, z; } TMTrailVec;
 typedef struct TMTrailSample {
@@ -35,9 +39,11 @@ uint32_t TMTrail_PlayerColor(unsigned accent, unsigned is_cpu);
 typedef struct TMTrailAPI {
     void (*configure)(unsigned enabled, unsigned mode);
     void (*clear)(void);
+    void (*set_override)(const int16_t *choice);
 } TMTrailAPI;
 void Trails_MatchStart(void);
 void Trails_SceneChange(void);
 void Trails_Configure(unsigned enabled, unsigned mode);
 void Trails_Clear(void);
+void Trails_SetOverride(const int16_t *choice);
 #endif

@@ -8,7 +8,7 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
 /* Read down the left column, then the right. 255 marks a display-only gap. */
 const uint8_t TMSettings_EditorIDs[29] = {
     0,1,3,5,8,9,10,12,13,14,16,18,19,20,21,
-    22,24,26,28,29,6,255,2,4,7,17,11,23,25,
+    22,24,26,28,30,29,6,2,4,7,17,11,23,25,
 };
 int TMSettings_EditorID(unsigned native_row) {
     static const uint8_t physical[] = {
@@ -69,11 +69,11 @@ typedef struct EventPreference {
     uint8_t byte, shift, width, count, default_value;
 } EventPreference;
 /* 24 value bits + one initialization bit. Bytes are explicit, never C bitfields.
- * Keep byte 40's low three flags and byte 43's layout/free bits independent. */
+ * Keep byte 40's low three flags and byte 43's layout/camera bits independent. */
 static const EventPreference ledge_preferences[TM_LEDGE_PREF_COUNT] = {
     {41, 0, 3, 5, 0}, /* Starting Position: Ledge */
     {41, 3, 3, 5, TM_LEDGE_DEFAULT_RESET}, /* Reset: Same Side */
-    {41, 6, 2, 4, 0}, /* Success Criteria: GALINT */
+    {41, 6, 2, 7, 0}, /* Success Criteria: Any GALINT; high bit in byte 37. */
     {40, 4, 2, 4, TM_LEDGE_DEFAULT_DELAY}, /* Reset Delay: Normal */
     {40, 6, 1, 2, TM_LEDGE_DEFAULT_TIPS}, /* Tips: On */
 };
@@ -90,11 +90,17 @@ static const EventPreference *event_preference(unsigned field, unsigned index) {
     return 0;
 }
 static unsigned preference_raw(const uint8_t *r, const EventPreference *p) {
-    return (r[p->byte] >> p->shift) & ((1u << p->width) - 1);
+    unsigned value = (r[p->byte] >> p->shift) & ((1u << p->width) - 1);
+    if (p == &ledge_preferences[TM_LEDGE_CRITERION])
+        value |= (r[37] & TM_SETTINGS_CRITERION_HIGH_MASK) ? 4 : 0;
+    return value;
 }
 static void preference_write(uint8_t *r, const EventPreference *p, unsigned value) {
     unsigned mask = ((1u << p->width) - 1) << p->shift;
-    r[p->byte] = (r[p->byte] & ~mask) | (value << p->shift);
+    r[p->byte] = (r[p->byte] & ~mask) | ((value << p->shift) & mask);
+    if (p == &ledge_preferences[TM_LEDGE_CRITERION])
+        r[37] = (r[37] & ~TM_SETTINGS_CRITERION_HIGH_MASK) |
+            (value & 4 ? TM_SETTINGS_CRITERION_HIGH_MASK : 0);
 }
 static void preference_defaults(uint8_t *r, unsigned field) {
     unsigned count = field == TM_SETTING_LEDGEDASH ? TM_LEDGE_PREF_COUNT : TM_EGGS_PREF_COUNT;
@@ -167,7 +173,7 @@ int TMSettings_Prepare(uint8_t r[TM_SETTINGS_SIZE], int owns_save) {
          * initialize it only on the first explicit event preference write. */
         r[40] &= ~TM_SETTINGS_EVENT_INITIALIZED;
         r[40] &= ~TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK; /* Older formats default guides On. */
-        r[43] &= ~TM_SETTINGS_LAYOUT_MASK;
+        r[43] &= ~(TM_SETTINGS_LAYOUT_MASK | TM_SETTINGS_SWEETSPOT_CAMERA_MASK);
     }
     if (!signed_format) {
         if (r[6] >= 2) r[6] = 0;
@@ -220,6 +226,8 @@ uint32_t TMSettings_Read(const uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsi
     case TM_SETTING_RECOMMENDED: return r[6] & 1;
     case TM_SETTING_SWEETSPOT_LINES:
         return index == 0 ? !(r[40] & TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK) : 0;
+    case TM_SETTING_SWEETSPOT_CAMERA:
+        return index == 0 ? !!(r[43] & TM_SETTINGS_SWEETSPOT_CAMERA_MASK) : 0;
     case TM_SETTING_CHARACTER: {
         if (index > 1 || (r[6] & 0xC0) != 0x80) return UINT32_MAX;
         unsigned code = (r[index ? 37 : 6] >> 1) & 31;
@@ -266,6 +274,13 @@ uint32_t TMSettings_Read(const uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsi
 
 int TMSettings_Write(uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsigned index, uint32_t value) {
     if (r[38] != 'T' || r[39] != 'Y' || (r[10] >> 6) != TM_SETTINGS_VERSION) return 0;
+    if (field == TM_SETTING_SWEETSPOT_CAMERA) {
+        if (index != 0 || value > 1) return 0;
+        uint8_t old = r[43];
+        r[43] = (r[43] & ~TM_SETTINGS_SWEETSPOT_CAMERA_MASK) |
+            (value ? TM_SETTINGS_SWEETSPOT_CAMERA_MASK : 0);
+        return r[43] != old;
+    }
     if (field == TM_SETTING_SWEETSPOT_LINES) {
         if (index != 0 || value > 1) return 0;
         uint8_t old = r[40];

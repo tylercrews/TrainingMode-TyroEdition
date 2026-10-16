@@ -26,6 +26,7 @@ void OSD_Think(GOBJ *event);
 #define OSD_GrabBreakout 24
 #define OSD_Ledge 26
 #define OSD_ActOoHitstun 28
+#define OSD_ASmashRelease 30
 
 // Special ID: always displays. Never overwrites another OSD.
 #define OSD_Null (-1)

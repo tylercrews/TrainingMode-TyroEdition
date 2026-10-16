@@ -548,6 +548,14 @@ LedgeStall:
     li r7, 0                                            # OSD
     li r8, 1                                            # Use Sopo bool
     bl InitializeMatch
+    mr r3, r26
+    bl ShieldTrainingMatchMenu                         # Shared C menu owns pausing and its HUD.
+
+    # Perfect-refresh counter replaces the native timer (MATCH_TIMER_HIDE=1).
+    lbz r3, 0(r26)
+    rlwinm r3, r3, 0, 0, 29
+    ori r3, r3, 1
+    stb r3, 0(r26)
 
     # 1 Player
     lwz r4, 0x0(r29)
@@ -574,9 +582,10 @@ LedgeStallLoad:
     # Schedule Think
     bl LedgeStallThink
     mflr r3
-    li r4, 3                                            # Priority (After EnvCOllision)
+    li r4, 3                                            # Native practice callback priority.
     li r5, 0
     bl CreateEventThinkFunction
+    rtocbl r12, TM_UnderFireInitMenu
 
     # Destroy Lava map_gobj proc
     li r3, 8                                            # lava's map_gobj ID
@@ -659,6 +668,10 @@ LedgeStallLoad:
     bl IntToFloat
     stfs f1, 0x4C(r20)
 
+    # Keep the event camera focused on whichever ledge is selected.
+    mr r3, r20
+    rtocbl r12, TM_UnderFireSetCamera
+
     # Set Camera To Be Zoomed Out More
     load r4, 0x8049e6c8
     load r3, 0x3FE66666
@@ -700,14 +713,13 @@ LedgeStallThink:
     .set EventState_Reset, 0x2
     .set Timer, 0x1
     .set LavaTimer, 0x2
-    .set SurvivalTime, 0x4
+    .set SurvivalTime, 0x4                               # Retired timer score; keep userdata offsets stable.
     .set LavaPosition, 0x8
 
     # Constants
     .set ResetTimer, 30
     .set LavaStartY, -100
     .set LavaStartTimer, 123
-    .set SuvivalTime_CountInterval, 5
 
     backup
 
@@ -742,6 +754,12 @@ LedgeStallThink:
     bl SaveState_Save
 
 LedgeStallThink_Start:
+    mr r3, REG_P1GObj
+    li r4, 0
+    rtocbl r12, TM_UnderFireControl
+    andi. r0, r3, 2
+    bne LedgeStallThink_Restore
+
     # Check if player was damaged or died
     lwz r3, 0x10(REG_P1Data)
     cmpwi r3, ASID_DamageHi1
@@ -802,49 +820,8 @@ LedgeStallThink_LavaDelay:
     b LedgeStallThink_LavaRiseThink
 
 LedgeStallThink_LavaRiseThink:
-    # Ensure player is in the lava before incrementing survival time
-    lfs f1, LavaPosition(REG_EventData)
-    lfs f2, 0xB4(REG_P1Data)
-    fcmpo cr0, f2, f1
-    bge LedgeStallThink_LavaRiseThink_NotInLava
-    # Increment Score
-    lwz r3, SurvivalTime(REG_EventData)
-    addi r3, r3, 1
-    stw r3, SurvivalTime(REG_EventData)
-
-LedgeStallThink_LavaRiseThink_SkipScoreIncrement:
-    # Play HRC SFX every X score
-    li r3, SuvivalTime_CountInterval
-    bl IntToFloat
-    fmr f2, f1
-    lwz r3, SurvivalTime(REG_EventData)
-    subi r3, r3, 1
-    bl IntToFloat
-    branchl r12, fmod
-    fmr f2, f1
-    li r3, 0
-    bl IntToFloat
-    fcmpo cr0, f2, f1
-    bne LedgeStallThink_LavaRiseThink_SkipSFX
-    # Play SFX
-    li r3, 0xBB
-    bl PlaySFX
-    li r3, 0xBB
-    bl PlaySFX
-
-LedgeStallThink_LavaRiseThink_SkipSFX:
-    b LedgeStallThink_LavaRiseThink_NotInLavaSkip
-
-LedgeStallThink_LavaRiseThink_NotInLava:
-    # Reset Timer back to 0
-    li r3, 0
-    load r4, 0x8046b6a0
-    stw r3, 0x28(r4)                                    # seconds
-    sth r3, 0x2C(r4)                                    # subseconds
-    # Set survival time to 0
-    stw r3, SurvivalTime(REG_EventData)
-
-LedgeStallThink_LavaRiseThink_NotInLavaSkip:
+    # Score now comes only from perfect ledge catches in UnderFire_Regrab.
+    # Keep the native lava rise/limit unchanged, including before max height.
     # Check if lava is at max height
     lfs f1, LavaPosition(REG_EventData)
     lfs f2, LavaMaxY(REG_EventConstants)
@@ -860,25 +837,7 @@ LedgeStallThink_LavaRiseThink_SkipLavaRise:
     b LedgeStallThink_CheckTimer
 
 LedgeStallThink_Reset:
-    # Effectively pause timer
-    load r4, 0x8046b6a0
-    lwz r3, 0x28(r4)                                    # seconds
-    cmpwi r3, 0
-    beq LedgeStallThink_NoSecondCarryover
-    lhz r3, 0x2C(r4)                                    # subseconds
-    cmpwi r3, 0
-    bne LedgeStallThink_NoSecondCarryover
-    li r3, 0x3B
-    sth r3, 0x2C(r4)                                    # subseconds
-    lwz r3, 0x28(r4)                                    # seconds
-    subi r3, r3, 1
-    stw r3, 0x28(r4)                                    # seconds
-    b LedgeStallThink_CheckTimer
-
-LedgeStallThink_NoSecondCarryover:
-    lhz r3, 0x2C(r4)                                    # subseconds
-    subi r3, r3, 1
-    sth r3, 0x2C(r4)                                    # subseconds
+    # Keep the hit/death feedback delay; there is no displayed timer to pause.
     b LedgeStallThink_CheckTimer
 
 LedgeStallThink_CheckTimer:
@@ -892,61 +851,9 @@ LedgeStallThink_CheckTimer:
     cmpwi r3, 0
     bgt LedgeStallThink_Exit
 
-    # Pasue game
-    lfs f1, -0x4D68(rtoc)
-    branchl r12, 0x8016b274                             # Pause game engine
-    # Check if player had any score when taking damage
-    lwz r3, SurvivalTime(REG_EventData)
-    cmpwi r3, 0
-    ble LedgeStallThink_Failure
-
-LedgeStallThink_Success:
-    # Get current high score
-    lwz r3, MemcardData(r13)
-    lbz r20, 0x535(r3)
-    mr r3, r20
-    branchl r12, Events_GetEventSavedScore
-    lwz r4, SurvivalTime(REG_EventData)
-    cmpw r4, r3
-    ble LedgeStallThink_Success_NoHighScore
-
-LedgeStallThink_Success_NewHighScore:
-    li r3, 2
-    branchl r12, 0x8016b33c                             # Display Success + SFX
-    load r3, 0x9c40
-    branchl r12, 0x8016b350
-    li r3, 325
-    branchl r12, 0x8016b364                             # queue crowd cheer after Success
-    branchl r12, 0x8016b328                             # set game as ended
-    mr r3, r20                                          # update score
-    lwz r4, SurvivalTime(REG_EventData)
-    branchl r12, Events_SetEventSavedScore
-    mr r3, r20                                          # set event as played
-    branchl r12, Events_SetEventAsPlayed
-    b LedgeStallThink_Success_DestroyGObj
-
-LedgeStallThink_Success_NoHighScore:
-    li r3, 2
-    branchl r12, 0x8016b33c                             # Display New Record + SFX
-    li r3, 324
-    branchl r12, 0x8016b364                             # queue crowd cheer after New Record
-    branchl r12, 0x8016b328                             # set game as ended
-    b LedgeStallThink_Success_DestroyGObj
-
-LedgeStallThink_Failure:
-    li r3, 6
-    branchl r12, 0x8016b33c                             # Display Failure + SFX
-    li r3, 328
-    branchl r12, 0x8016b364                             # queue crowd sigh after failure
-    li r3, 40
-    branchl r12, 0x8016b378                             # frames to linger?
-    branchl r12, 0x8016b328                             # set game as ended
-    b LedgeStallThink_Success_DestroyGObj
-
-LedgeStallThink_Success_DestroyGObj:
-    mr r3, REG_EventGObj
-    branchl r12, GObj_Destroy                           # destroy event gobj
-    b LedgeStallThink_Exit
+    # Keep practicing after a hit/death, regardless of the survival score.
+    # The event's pause-menu Exit is the only event-owned completion path.
+    b LedgeStallThink_Restore
 
 LedgeStallThink_Restore:
     # Restore State
@@ -962,9 +869,12 @@ LedgeStallThink_Restore:
     li r4, 0
     rlwimi r3, r4, 3, 28, 28
     stb r3, 0x221D(REG_P1Data)
-    # Shorten Timer
+    # Restart the displayed clock; InitializePositions restores the full lava delay.
     li r3, 0
-    sth r3, LavaTimer(REG_EventData)
+    load r4, 0x8046b6a0
+    stw r3, 0x28(r4)
+    sth r3, 0x2C(r4)
+    b LedgeStallThink_Exit
 
 LedgeStallThink_Exit:
     restore
@@ -986,9 +896,12 @@ LedgeStall_InitializePositions:
     lwz REG_P1Data, 0x2C(REG_P1GObj)
     mr REG_EventData, r4
 
-    # Place on left ledge
+    # Use the event's selected side, including D-pad/menu changes.
     mr r3, REG_P1GObj
-    li r4, 0
+    li r4, 1
+    rtocbl r12, TM_UnderFireControl
+    mr r4, r3
+    mr r3, REG_P1GObj
     bl PlaceOnLedge
 
     # Update Camera
@@ -1576,6 +1489,9 @@ Reversal:
     li r7, 0                                            # OSD
     li r8, 0                                            # Use Sopo bool
     bl InitializeMatch
+    # The C menu owns pausing: suppress the native pause screen/camera.
+    mr r3, r26
+    bl ShieldTrainingMatchMenu
 
     # STORE THINK FUNCTION
     bl ReversalLoad
@@ -1592,15 +1508,16 @@ ReversalLoad:
 
     backup
     rtocbl r12, TM_StartOSDs
+    li r3, 4 # Initialize the event's modern menu and saved preferences.
+    li r4, 0
+    bl ShieldTrainingBridge
 
     # Schedule Think
     bl ReversalThink
     mflr r3
     li r4, 3                                            # Priority (After Interrupt)
-    bl ReversalWindowInfo
-    mflr r5
-    bl ReversalWindowText
-    mflr r6
+    li r5, 0 # C menu owns pause/navigation
+    li r6, 0
     bl CreateEventThinkFunction
 
     b ReversalLoadExit
@@ -1637,7 +1554,10 @@ ReversalThink:
 
     # INIT FUNCTION VARIABLES
     lwz EventData, 0x2c(r3)                             # backup data pointer in r31
-    lwz MenuData, EventData_MenuDataPointer(EventData)
+    li r3, 0 # SHIELD_SYNC
+    li r4, 0
+    bl ShieldTrainingBridge
+    mr MenuData, r3
 
     bl GetAllPlayerPointers
     mr P1GObj, r3
@@ -1654,24 +1574,16 @@ ReversalThink:
     cmpwi r3, 0x0
     beq ReversalThinkMain
 
-    bl StageGetGroundID_Main
-    bl PlacePlayersCenterStage
-    # Clear Inputs
-    bl RemoveFirstFrameInputs
-    # SaveState
-    addi r3, EventData, 0x10                            # SaveState start
-    li r4, 1                                            # Override failsafe code
-    bl SaveState_Save
-    # Set Frame 1 As Over
-    li r3, 0x1
-    stb r3, 0x0(r31)
-    # Set Timer to -60
-    li r3, -60
-    stw r3, 0x4(r31)
+    # Honor the saved Ground/Platform selection on entry as well as menu edits.
+    b ReversalRemakeSavestate
 
 ReversalThinkMain:
     bl GiveFullShields
 
+    # Position/distance takes precedence if several options changed while paused.
+    lbz r3, PositionToggled(MenuData)
+    cmpwi r3, 0
+    bne ReversalRemakeSavestate
     # Reset when menu is toggled
     lbz r3, P1FacingDirectionToggled(MenuData)
     cmpwi r3, 0x0
@@ -1682,9 +1594,6 @@ ReversalThinkMain:
     lbz r3, CPUAttackToggled(MenuData)
     cmpwi r3, 0x0
     bne ReversalReset
-    lbz r3, PositionToggled(MenuData)
-    cmpwi r3, 0x0
-    bne ReversalRemakeSavestate
 
 ReversalSkipFacingReset:
     # Move Players Apart With DPad
@@ -1726,6 +1635,14 @@ ReversalCheckToAttack:
     bne ReversalCheckToReset
 
 ReversalDecideSmashAttack:
+    lbz r3, CPUAttack(MenuData)
+    cmpwi r3, 14
+    blt ReversalLegacyAttack
+    li r3, 6 # SHIELD_REV_INPUT: grab / run-up JC grab / spotdodge shine.
+    mr r4, P2Data
+    bl ShieldTrainingBridge
+    b ReversalCheckToReset
+ReversalLegacyAttack:
     lbz r3, CPUAttack(MenuData)
     cmpwi r3, 0x0
     beq ReversalRandomSmashAttack
@@ -1943,6 +1860,9 @@ ReversalRemakeSavestate_PlaceCharacters:
     addi r3, EventData, 0x10                            # SaveState start
     li r4, 1                                            # Override failsafe code
     bl SaveState_Save
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
     # Set Frame 1 As Over
     li r3, 0x1
     stb r3, 0x0(r31)
@@ -2058,6 +1978,10 @@ ReversalAdjustCPUDirection_Skip:
 ReversalLoadState:
     addi r3, EventData, EventData_SaveStateStruct
     bl SaveState_Load
+    # Legacy restores bypass Savestate_v1's observer cleanup.
+    li r3, 7 # SHIELD_RESET: clear hit counts and action phases on every retry.
+    li r4, 0
+    bl ShieldTrainingBridge
     # Reset Timer
     li r3, 30
     branchl r12, HSD_Randi
@@ -2188,154 +2112,6 @@ Reversal_Blacklist:
     # Roy
     .long 0x00010000                                    # FSmash USmash DSmash
 
-####################################################
-
-ReversalWindowInfo:
-    blrl
-# amount of options, amount of options in each window
-
-    .long 0x030D0101                                    # 3 window, Smash Attack has 13 options, Facing Direction Has 2
-    .long 0x01000000                                    # Position has 2
-
-####################################################
-
-ReversalWindowText:
-    blrl
-
-########
-## DI ##
-########
-
-    # Window Title = CPU Attack
-    .long 0x43505520
-    .long 0x41747461
-    .long 0x636b0000
-
-    # Option 1 = Random Smash Attack
-    .long 0x52616e64
-    .long 0x6f6d2053
-    .long 0x6d617368
-    .long 0x20417474
-    .long 0x61636b00
-
-    # Option 2 = Forward Smash
-    .long 0x466f7277
-    .long 0x61726420
-    .long 0x536d6173
-    .long 0x68000000
-
-    # Option 3 = Down Smash
-    .long 0x446f776e
-    .long 0x20536d61
-    .long 0x73680000
-
-    # Option 4 = Up Smash
-    .long 0x55702053
-    .long 0x6d617368
-    .long 0x00000000
-
-    # Option 5 = Random Aerial
-    .long 0x52616e64
-    .long 0x6f6d2041
-    .long 0x65726961
-    .long 0x6c000000
-
-    # Option 6 = Fair
-    .long 0x46616972
-    .long 0x00000000
-
-    # Option 7 = Nair
-    .long 0x4e616972
-    .long 0x00000000
-
-    # Option 8 = Dair
-    .long 0x44616972
-    .long 0x00000000
-
-    # Option 9 = FTilt
-    .long 0x4654696c
-    .long 0x74000000
-
-    # Option 10 = DTilt
-    .long 0x4454696c
-    .long 0x74000000
-
-    # Option 11 = UTilt
-    .long 0x5554696c
-    .long 0x74000000
-    
-    # Option 12 - Dash Attack
-    .string "Dash Attack"
-
-    # Option 13 - Getup Attack (Stomach)
-    .string "Getup Attack (Stomach)"
-
-    # Option 14 - Getup Attack (Back)
-    .string "Getup Attack (Back)"
-
-#########$$$#############
-## P1 Facing Direction ##
-##########$$$############
-
-    # Window Title = Facing Direction
-    .long 0x50312046
-    .long 0x6163696e
-    .long 0x67204469
-    .long 0x72656374
-    .long 0x696f6e00
-
-    # Option 1 = Towards
-    .long 0x546f7761
-    .long 0x72647300
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-    # Option 2 = Away
-    .long 0x41776179
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-#########$$$##############
-## CPU Facing Direction ##
-##########$$$#############
-
-    # Window Title = CP Facing Direction
-    .long 0x43502046
-    .long 0x6163696e
-    .long 0x67204469
-    .long 0x72656374
-    .long 0x696f6e00
-
-    # Option 1 = Towards
-    .long 0x546f7761
-    .long 0x72647300
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-    # Option 2 = Away
-    .long 0x41776179
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-    .long 0x00000000
-
-##############
-## Position ##
-##############
-
-    # Window Title
-    .string "Position"
-
-    # Options
-    .string "Ground"
-    .string "Platform"
-
-
-    .align 2
 ####################################################
 
 ReversalLoadExit:
@@ -2610,6 +2386,9 @@ AttackOnShield:
     li r7, 0                                            # OSD
     li r8, 0                                            # Use Sopo bool
     bl InitializeMatch
+    # The C menu owns pausing: suppress the native pause screen/camera.
+    mr r3, r26
+    bl ShieldTrainingMatchMenu
 
     # STORE THINK FUNCTION
     bl AttackOnShieldLoad
@@ -2626,15 +2405,16 @@ AttackOnShieldLoad:
 
     backup
     rtocbl r12, TM_StartOSDs
+    li r3, 3 # Initialize the event's modern menu and saved preferences.
+    li r4, 0
+    bl ShieldTrainingBridge
 
     # Schedule Think
     bl AttackOnShieldThink
     mflr r3
     li r4, 3                                            # Priority (After Interrupt)
-    bl AttackOnShieldWindowInfo
-    mflr r5
-    bl AttackOnShieldWindowText
-    mflr r6
+    li r5, 0 # C menu owns pause/navigation
+    li r6, 0
     bl CreateEventThinkFunction
 
     b AttackOnShieldLoadExit
@@ -2662,7 +2442,10 @@ AttackOnShieldThink:
 
     # INIT FUNCTION VARIABLES
     lwz EventData, 0x2c(r3)                             # backup data pointer in r31
-    lwz MenuData, EventData_MenuDataPointer(EventData)
+    li r3, 0 # SHIELD_SYNC
+    li r4, 0
+    bl ShieldTrainingBridge
+    mr MenuData, r3
 
     bl GetAllPlayerPointers
     mr P1GObj, r3
@@ -2688,9 +2471,13 @@ AttackOnShieldThink:
     addi r3, EventData, EventData_SaveStateStruct
     li r4, 1                                            # Override failsafe code
     bl SaveState_Save
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
+    b AttackOnShieldRestoreState
 
 AttackOnShieldThinkMain:
-    bl GiveFullShields
+    # Shared shield service applies the event override before and after simulation.
 
     # Reset If Anyone Dies
     bl IsAnyoneDead
@@ -2704,225 +2491,21 @@ AttackOnShieldThinkSequence:
     # Clear Last AS So CPU Doesnt Act Immediately
     li r3, 0
     sth r3, TM_OneASAgo(r29)
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
+    b AttackOnShieldRestoreState
 
 AttackOnShieldNoOptionToggled:
-    # Get Floats
-    bl AttackOnShield_Floats
-    mflr r21
-    # Get Frames as Int
-    lfs f1, 0x894(r29)
-    fctiwz f1, f1
-    stfd f1, 0xF0(sp)
-    lwz r22, 0xF4(sp)
-
-    # Check If Perfroming OoS Option
-    lwz r3, 0x4(r31)
-    cmpwi r3, 0x0
-    ble AttackOnShieldShieldWait
-    # Branch To OoSThink
-    lbz r3, OoSOption(MenuData)
-    cmpwi r3, 0x1
-    beq AttackOnShieldNairThink
-    cmpwi r3, 0x2
-    beq AttackOnShieldUpBThink
-    cmpwi r3, 0x3
-    beq AttackOnShieldUpSmashThink
-    cmpwi r3, 0x4
-    beq AttackOnShieldShineThink
-    cmpwi r3, 0x8
-    beq AttackOnShieldWavedashThink
-    b AttackOnShieldShieldWait
-
-AttackOnShieldNairThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x19
+    li r3, 5 # SHIELD_AOS_INPUT
+    mr r4, P2Data
+    bl ShieldTrainingBridge
+    cmpwi r3, 2 # Do not age the reset timer during hitlag/freeze.
+    beq AttackOnShieldThinkExit
+    cmpwi r3, 1 # Start the existing post-response / shield-poke reset delay.
     bne AttackOnShieldCheckToReset
-    # Input Nair
-    li r3, 0x100
-    stw r3, 0x1A88(r29)
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldUpBThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x18
-    bne AttackOnShieldCheckToReset
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 0x200
-    stw r3, 0x1A88(r29)                                 # Press B
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldUpSmashThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x18
-    bne AttackOnShieldCheckToReset
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 0x100
-    stw r3, 0x1A88(r29)                                 # Press A
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldShineThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x19
-    bne AttackOnShieldCheckToReset
-    # Input Shine
-    li r3, -127
-    stb r3, 0x1A8D(r29)
-    li r3, 0x200
-    stw r3, 0x1A88(r29)
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldWavedashThink:
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x19
-    bne AttackOnShieldCheckToReset
-    # Get Random Airdodge Angle
-    li r3, 30                                           # 30 Different Angles
-    branchl r12, HSD_Randi
-    addi r3, r3, 310                                    # Start at 310°
-    bl ComboTrainingDecideStickAngle_ConvertAngle
-    mr r20, r3
-    # Joystick X = X Component * (OpponentDirection)
-    bl GetDirectionInRelationToP1
-    mullw r3, r3, r20
-    stb r3, 0x1A8C(r29)
-    # Joystick Y = Y Component
-    stb r4, 0x1A8D(r29)
-    # Press L To Wavedash
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)
-    b AttackOnShieldCheckToReset
-
-AttackOnShieldShieldWait:
-    # Always Hold L
-    li r3, 0xC0                                         # Hit L
-    stw r3, 0x1A88(r29)                                 # Held Buttons
-
-    # Check If Got Shield Poked
-    # Hitlag
-    lbz r3, 0x221A(r29)                                 # Check If in Hitlag
-    rlwinm. r3, r3, 0, 26, 26
-    beq AttackOnShieldCheckForShieldHit
-    # Damage State
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0x4B
-    blt AttackOnShieldCheckForShieldHit
-    cmpwi r3, 0x5B
-    bgt AttackOnShieldCheckForShieldHit
-    # Was Hit, Start Reset Timer
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldCheckForShieldHit:
-    # Check If In ShieldWait (0xb3)
-    lwz r3, 0x10(r29)
-    cmpwi r3, 0xB3
-    bne AttackOnShieldCheckToReset
-    # Check If Was Just in ShieldStun
-    lhz r3, TM_OneASAgo(r29)
-    cmpwi r3, 0xB5
-    bne AttackOnShieldCheckToReset
-    # Input OoS Option
-    lbz r3, OoSOption(MenuData)
-    cmpwi r3, 0x0
-    beq AttackOnShieldInputGrab
-    cmpwi r3, 0x1
-    beq AttackOnShieldNair
-    cmpwi r3, 0x2
-    beq AttackOnShieldUpB
-    cmpwi r3, 0x3
-    beq AttackOnShieldUpSmash
-    cmpwi r3, 0x4
-    beq AttackOnShieldShine
-    cmpwi r3, 0x5
-    beq AttackOnShieldSpotdodge
-    cmpwi r3, 0x6
-    beq AttackOnShieldRollAway
-    cmpwi r3, 0x7
-    beq AttackOnShieldRollTowards
-    cmpwi r3, 0x8
-    beq AttackOnShieldWavedash
-    cmpwi r3, 0x9
-    beq AttackOnShieldNone
-
-AttackOnShieldInputGrab:
-    li r3, 0x1C0
-    stw r3, 0x1A88(r29)                                 # Press R+A
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldNair:
-    li r3, 0xCC0
-    stw r3, 0x1A88(r29)                                 # Press X/Y
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldUpB:
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldUpSmash:
-    li r3, 127
-    stb r3, 0x1A8D(r29)                                 # Press Up
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldShine:
-    li r3, 0xCC0
-    stw r3, 0x1A88(r29)                                 # Press X/Y
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldSpotdodge:
-    li r3, -127
-    stb r3, 0x1A8D(r29)                                 # Press Down
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)                                 # Press R
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldRollAway:
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)                                 # Press R
-    # Push Towards Opponent's Direction
-    bl GetDirectionInRelationToP1
-    li r4, 127
-    mullw r3, r3, r4
-    stb r3, 0x1A8C(r29)                                 # Press Away
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-    
-AttackOnShieldRollTowards:
-    li r3, 0xC0
-    stw r3, 0x1A88(r29)                                 # Press R
-    # Push Towards Opponent's Direction
-    bl GetDirectionInRelationToP1
-    li r4, -127
-    mullw r3, r3, r4
-    stb r3, 0x1A8C(r29)                                 # Press Away
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldWavedash:
-    li r3, 0xCC0
-    stw r3, 0x1A88(r29)                                 # Press X/Y
-    li r3, 48                                           # Init Timer
-    stw r3, 0x4(r31)
-    b AttackOnShieldThinkExit
-
-AttackOnShieldNone:
+    li r3, 48
+    stw r3, 0x4(EventData)
     b AttackOnShieldThinkExit
 
 # Check To Reset
@@ -2936,24 +2519,22 @@ AttackOnShieldCheckToReset:
     cmpwi r3, 0x0                                       # Check if 0 now
     bne AttackOnShieldThinkExit                         # Exit If Not
 
-    # Randomize P1's X Coord
-    # Get Random X Coord
-    lbz r23, 0x10(r21)                                  # Starting X Coord
-    lbz r24, 0x11(r21)                                  # Furthest X Coord
-    sub r3, r24, r23                                    # Get Range
-    branchl r12, HSD_Randi                              # Get Random Number in Between
-    add r3, r3, r23                                     # Add to Starting Coord
-    # Cast to Float
-    bl IntToFloat
-    lwz r3, 0x10(r31)                                   # P1 Backup
-    stfs f1, 0xB0(r3)                                   # P1 Backup X Pos
-    li r3, 0x1                                          # Opposing Sides of Stage
+    li r3, 1 # Opposing sides, preserving the selected separation.
     bl Randomize_LeftorRightSide
+    li r3, 1 # SHIELD_DISTANCE
+    addi r4, EventData, EventData_SaveStateStruct
+    bl ShieldTrainingBridge
 
 AttackOnShieldRestoreState:
+    li r3, 0
+    stw r3, 0x4(EventData)
     # Restore State
     addi r3, EventData, EventData_SaveStateStruct
     bl SaveState_Load
+    # Legacy restores bypass Savestate_v1's observer cleanup.
+    li r3, 7 # SHIELD_RESET: clear hit counts and action phases on every retry.
+    li r4, 0
+    bl ShieldTrainingBridge
     b AttackOnShieldThinkExit
 
 AttackOnShieldThinkExit:
@@ -2974,36 +2555,6 @@ AttackOnShield_Floats:
 
 #################################
 
-AttackOnShieldWindowInfo:
-    blrl
-# amount of options, amount of options in each window
-
-    .long 0x0009FFFF                                    # 1 window, OoS Option has 11 options
-
-####################################################
-
-AttackOnShieldWindowText:
-    blrl
-
-################
-## OoS Option ##
-################
-
-    .string "OoS Option"
-    
-    .string "Grab"
-    .string "Nair"
-    .string "Up B"
-    .string "Up Smash"
-    .string "Shine"
-    .string "Spotdodge"
-    .string "Roll Away"
-    .string "Roll Towards"
-    .string "Wavedash Away"
-    .string "None"
-
-    .align 2
-    
 AttackOnShieldLoadExit:
     restore
     blr
@@ -8625,6 +8176,32 @@ P2Struct:
 ###########################
 ## Create Think Function ##
 ###########################
+# MatchInit byte 2 bit 3 disables native pausing; byte 3 bit 1 hides
+# the native pause HUD. Match_FreezeGame(1) still serves the C menu.
+# Shared by Under Fire, Attack on Shield and Reversal Training.
+ShieldTrainingMatchMenu:
+    lbz r4, 2(r3)
+    ori r4, r4, 0x08
+    stb r4, 2(r3)
+    lbz r4, 3(r3)
+    ori r4, r4, 0x02
+    stb r4, 3(r3)
+    blr
+
+ShieldTrainingBridge:
+    mflr r0
+    stw r0, 4(sp)
+    stwu sp, -0x20(sp)
+    load r12, EventVars_Ptr
+    lwz r12, 0(r12)
+    lwz r12, EventVars_ShieldTraining(r12)
+    mtctr r12
+    bctrl
+    addi sp, sp, 0x20
+    lwz r0, 4(sp)
+    mtlr r0
+    blr
+
 CreateEventThinkFunction:
     # Registers
     .set WindowOptionCount, 31

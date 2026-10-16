@@ -1,6 +1,9 @@
 #include "events.h"
+#include "powershield_osd.h"
 #include "savestate.h"
 #include "osds.h"
+#include "settings_extension.h"
+#include "shield_training.h"
 #include <stdarg.h>
 
 /////////////////////
@@ -32,6 +35,7 @@ static EventMatchData Lab_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Lab = {
+    .tyro_edited = true,
     // Event Name
     .eventName = "Training Lab\n",
     .eventDescription = "Free practice with\ncomplete control.\n",
@@ -99,6 +103,7 @@ static EventMatchData Ledgedash_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Ledgedash = {
+    .tyro_edited = true,
     .eventName = "Ledgedash Training\n",
     .eventDescription = "Practice Ledgedashes!\nUse D-Pad to change ledge.\n",
     .eventFile = "ledgedash",
@@ -163,6 +168,7 @@ static EventMatchData TechChase_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc TechChase = {
+    .tyro_edited = true,
     .eventName = "Techchase Training\n",
     .eventDescription = "Practice chasing techs! A\nuseful tool to extend combos.",
     .eventFile = "techchase",
@@ -176,6 +182,38 @@ EventDesc TechChase = {
     .scoreType = SCORETYPE_KO,
     .callbackPriority = 3,
     .matchData = &TechChase_MatchData,
+};
+
+// Ledgechase Training
+static EventMatchData LedgeChase_MatchData = {
+    .timer = MATCH_TIMER_HIDE,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = false,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+EventDesc LedgeChase = {
+    .tyro_edited = true,
+    .eventName = "Ledgechase Training\n",
+    .eventDescription = "React to ledge options and punish their recovery.\nPause to change ledge chances and CPU actions.",
+    .eventFile = "ledgechase",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_TRAINING,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .cpuKind = -1,
+    .stage = GRKINDEXT_FD,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &LedgeChase_MatchData,
 };
 
 // Float Cancel Training
@@ -225,6 +263,7 @@ static EventMatchData Sweetspot_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Sweetspot = {
+    .tyro_edited = true,
     .eventName = "Side-B Sweetspot\n",
     .eventDescription = "Use a sweetspot Side-B to avoid Marth's\ndown-tilt and grab the ledge!",
     .eventFile = "sweetspot",
@@ -242,6 +281,23 @@ EventDesc Sweetspot = {
     .scoreType = SCORETYPE_KO,
     .callbackPriority = 3,
     .matchData = &Sweetspot_MatchData,
+};
+
+static EventMatchData LowLaser_MatchData = {
+    .timer = MATCH_TIMER_HIDE, .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true, .hideReady = true, .isCreateHUD = true,
+    .isCheckForZRetry = true,
+};
+EventDesc LowLaser = {
+    .tyro_edited = true,
+    .eventName = "Low Laser Puff Practice\n",
+    .eventDescription = "Practice low lasers against a frozen crouching Puff.\nMeasure laser-start and fastfall timing.",
+    .eventFile = "lowlaser", .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = {.hmn = CSSID_FALCO | CSSID_FOX, .cpu = -1},
+    .playerKind = -1, .cpuKind = CKIND_JIGGLYPUFF, .stage = 32, /* External FD ID. */
+    .disable_hazards = true, .scoreType = SCORETYPE_KO, .callbackPriority = 16,
+    .matchData = &LowLaser_MatchData,
 };
 
 // Laser land training
@@ -300,6 +356,7 @@ EventDesc Combo = {
 
 // Attack On Shield Training
 EventDesc AttackOnShield = {
+    .tyro_muted = true,
     .eventName = "Attack on Shield\n",
     .eventDescription = "Practice attacks on a shielding opponent\nPause to change their OoS option.\n",
     .eventFile = 0,
@@ -316,8 +373,9 @@ EventDesc AttackOnShield = {
 };
 
 EventDesc Reversal = {
+    .tyro_muted = true,
     .eventName = "Reversal Training\n",
-    .eventDescription = "Practice OoS punishes! DPad left/right\nmoves characters closer and further apart.",
+    .eventDescription = "Practice OoS punishes! Pause to choose the\nattack and distance. DPad fine-tunes spacing.",
     .eventFile = 0,
     .jumpTableIndex = JUMP_REVERSAL,
     .CSSType = SLCHRKIND_TRAINING,
@@ -362,6 +420,7 @@ static EventMatchData Powershield_MatchData = {
     .timerSeconds = 0,
 };
 EventDesc Powershield = {
+    .tyro_edited = true,
     .eventName = "Powershield Training\n",
     .eventDescription = "Powershield Falco's laser!",
     .eventFile = "powershield",
@@ -598,6 +657,7 @@ static EventMatchData Eggs_MatchData = {
 };
 
 EventDesc Eggs = {
+    .tyro_edited = true,
     .eventName = "Eggs-ercise \n",
     .eventDescription = "Break the eggs! Only strong hits will\nbreak them. Start = more options.",
     .eventFile = "eggs",
@@ -680,8 +740,9 @@ EventDesc Reaction = {
 };
 
 EventDesc Ledgestall = {
+    .tyro_edited = true,
     .eventName = "Under Fire\n",
-    .eventDescription = "Ledgestall to remain\ninvincible while the lava rises!\n",
+    .eventDescription = "Count perfect ledge refreshes\nwhile the lava rises!\n",
     .eventFile = 0,
     .jumpTableIndex = JUMP_LEDGESTALL,
     .CSSType = SLCHRKIND_EVENT,
@@ -690,7 +751,7 @@ EventDesc Ledgestall = {
     .stage = GRKINDEXT_ZEBES,
     .disable_hazards = true,
     .force_sopo = false,
-    .scoreType = SCORETYPE_TIME,
+    .scoreType = SCORETYPE_KO,
     .callbackPriority = 3,
     .matchData = 0,
 };
@@ -731,6 +792,7 @@ static EventDesc *General_Events[] = {
     &WaveshineSDI,
     &SlideOff,
     &GrabMash,
+    &LedgeChase,
 };
 static EventPage General_Page = {
     .name = "General Tech",
@@ -747,6 +809,7 @@ static EventDesc *CharacterSpecific_Events[] = {
     &EscapeSheik,
     &EscapeDThrowKnee,
     &FloatCancel,
+    &LowLaser,
 };
 static EventPage CharacterSpecific_Page = {
     .name = "Character-specific Tech",
@@ -759,6 +822,17 @@ EventPage *EventPages[] = {
     &General_Page,
     &CharacterSpecific_Page,
 };
+/* Persisted score identities do not follow menu insertion order. The original
+ * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
+ * versioned preferences extension. Further catalogue changes need a mapping. */
+typedef char event_score_map_matches[(countof(Minigames_Events) == 5 &&
+    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 8) ? 1 : -1];
+unsigned Events_ScoreIndex(unsigned page, unsigned event) {
+    if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
+    if (page == 0) return event;
+    if (page == 1) return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : 5 + event;
+    return event < 7 ? 21 + event : UINT32_MAX; /* Low Laser is unscored free practice. */
+}
 
 ////////////////////////
 /// Static Variables ///
@@ -767,7 +841,7 @@ EventPage *EventPages[] = {
 RNGControl rng;
 
 static const TMSettingsAPI settings_api = { Settings_Get, Settings_Set, Settings_Status };
-static const TMTrailAPI trails_api = { Trails_Configure, Trails_Clear };
+static const TMTrailAPI trails_api = { Trails_Configure, Trails_Clear, Trails_SetOverride };
 static unsigned restore_serial;
 static unsigned Events_RestoreSerial(void) { return restore_serial; }
 void Events_NotifyRestore(void) { restore_serial++; Message_LayoutClear(); }
@@ -798,11 +872,399 @@ EventVars stc_event_vars = {
     .set_local_overlay = ActionCues_SetLocalOverlay,
     .get_restore_serial = Events_RestoreSerial,
     .is_protected = ActionCues_IsProtected,
+    .set_tangibility_overlay = ActionCues_SetTangibilityOverlay,
+    .set_cpu_invincibility_overlay = ActionCues_SetCPUInvincibilityOverlay,
+    .set_osd_suppression = OSD_SetEventSuppression,
+    .set_powershield_observer = Powershield_SetObserver,
+    .set_timing_overlay = ActionCues_SetTimingOverlay,
+    .HUD_DrawInfoPanelWithStick = HUD_DrawInfoPanelWithStick,
+    .shield_training = ShieldTraining_Control,
 };
 
 static GOBJ *stc_msgmgr;
 static Savestate_v1 *stc_savestate;
 static TipMgr stc_tipmgr;
+
+/* Under Fire keeps its native lava/ledge logic, with an event-local C pause
+ * menu so its new diagnostic and Exit behave like the other practice events. */
+static int under_fire_best, under_fire_count, under_fire_event, under_fire_high_score;
+static int under_fire_refresh_pending, under_fire_failed;
+static int under_fire_active, under_fire_restart, under_fire_late, under_fire_canvas;
+static int under_fire_result_valid;
+static Text *under_fire_count_text, *under_fire_inv_text, *under_fire_drop_text;
+static int under_fire_drop_valid;
+static int under_fire_input_tick, under_fire_input_state;
+static int under_fire_in_iasa;
+static int under_fire_inv_total, under_fire_inv_frame, under_fire_inv_tick, under_fire_inv_remaining;
+static CmSubject *under_fire_camera;
+enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
+static void UnderFire_ChangeSide(GOBJ *menu, int value) { under_fire_restart = 1; }
+static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
+    Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES, value);
+    // Do not destroy all owned effects: that also erases the ledge-grab cue
+    // and double-jump rings. New attack effects are filtered at their spawn.
+}
+static void UnderFire_UpdateCounterText(void) {
+    if (!under_fire_count_text) return;
+    for (int row = 10; row < 15; ++row)
+        Text_SetText(under_fire_count_text, row, "High Score: %d", under_fire_high_score);
+    for (int row = 0; row < 5; ++row)
+        Text_SetText(under_fire_count_text, row, "Perfect Refreshes: %d", under_fire_count);
+    for (int row = 5; row < 10; ++row)
+        Text_SetText(under_fire_count_text, row, "Session Best: %d", under_fire_best);
+}
+void UnderFire_UpdateScore(int perfect_refresh) {
+    if (!under_fire_active || under_fire_failed || perfect_refresh != 1) return;
+    if (under_fire_count < 2147483647) ++under_fire_count;
+    if (under_fire_count > under_fire_best) under_fire_best = under_fire_count;
+    UnderFire_UpdateCounterText();
+}
+static void UnderFire_Exit(GOBJ *menu) {
+    if (!under_fire_active) return;
+    under_fire_active = 0;
+    ActionCues_SetTangibilityOverlay(0);
+    Trails_SetOverride(0);
+    OSD_SetEventSuppression(0);
+    int counter_record = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE);
+    if (under_fire_best > 0 && (!counter_record || under_fire_best > Events_GetSavedScore(under_fire_event))) {
+        Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE, 1);
+        Events_StoreEventScore(under_fire_event, under_fire_best);
+        Events_SetEventAsPlayed(under_fire_event);
+    }
+    if (menu && menu->userdata && ((MenuData *)menu->userdata)->mode == MenuMode_Paused)
+        EventMenu_ExitMenu(menu);
+    Memcard_SaveIfChanged();
+    stc_match->state = 3;
+    Match_EndVS();
+}
+static const char *under_fire_trail_names[] = { TM_TRAIL_OVERRIDE_LABELS };
+static const char *under_fire_side_names[] = {"Left", "Right"};
+static EventOption under_fire_options[] = {
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Highlight Dropped Invincibility",
+     .desc = {"Pulse red whenever invincibility/intangibility drops.",
+              "Overrides the Invincibility Overlay while On."}},
+    {.kind = OPTKIND_STRING, .name = "Hitbox Trails", .values = under_fire_trail_names,
+     .value_num = TM_TRAIL_OVERRIDE_COUNT,
+     .desc = {"Choose this event's trails, including Off.", "Overrides global hitbox trails during this event."}},
+    {.kind = OPTKIND_STRING, .name = "Ledge Side", .values = under_fire_side_names,
+     .value_num = 2, .OnChange = UnderFire_ChangeSide,
+     .desc = {"Choose the left or right ledge.", "D-pad Left/Right also switches and restarts."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Disable Attack Particles", .OnChange = UnderFire_ChangeParticles,
+     .desc = {"Hide attack effects, including Fox/Falco up-B.", "Keep ledge-grab circles and double-jump rings.", "This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Refresh OSTs",
+     .desc = {"Show Ledge Drop and Invincibility together.",
+              "Perfect stall: 29f protection / 29f lockout.",
+              "Regrab at expiry renews it: green 0 = perfect.",
+              "1-2f late is magenta; later failures are red."}},
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Suppress Global OSTs",
+     .desc = {"Hide global OSDs during this event only.", "Your saved global choices stay unchanged.",
+              "Ledge Refresh OSTs and the counter stay visible."}},
+    {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = UnderFire_Exit,
+     .desc = {"Return to the Event Selection Screen."}},
+};
+static EventMenu under_fire_menu = {
+    .on_exit = UnderFire_Exit,
+    .name = "Under Fire", .option_num = countof(under_fire_options),
+    .options = under_fire_options,
+};
+static void UnderFire_UpdateCamera(void) {
+    if (!under_fire_camera) return;
+    Vec3 ledge;
+    // Brinstar's two native ledge floors, shared with the ASM ledge table.
+    int right = under_fire_options[UF_SIDE].val;
+    if (right) Stage_GetRightOfLineCoordinates(17, &ledge);
+    else Stage_GetLeftOfLineCoordinates(5, &ledge);
+    under_fire_camera->cam_pos = ledge;
+    under_fire_camera->cam_pos.X += right ? -35 : 35;
+    under_fire_camera->cam_pos.Y += 20;
+}
+void UnderFire_SetCamera(CmSubject *camera) {
+    under_fire_camera = camera;
+    UnderFire_UpdateCamera();
+}
+// Called by the native practice callback, or immediately before
+// placing the player on a ledge. Bit 1 requests the existing complete restore.
+int UnderFire_Control(GOBJ *fighter, int reset, int effect_id) {
+    // Effect_SpawnSync supplies the owner for models AND loose particles.
+    // This pure query is called before spawning, including late accessory GFX.
+    if (reset == 2) {
+        if (!under_fire_active || !under_fire_options[UF_PARTICLES].val ||
+            !fighter || fighter->entity_class != 4 || !fighter->userdata) return 0;
+        FighterData *ft = fighter->userdata;
+        if (ft->ply != 0 || effect_id == 1052) return 0; // Native ledge-grab circle.
+        return ft->state_kind == FTSTATEKIND_ATTACK || ft->state_kind == FTSTATEKIND_SPECIAL ||
+            (ft->state_id >= ASID_CLIFFATTACKSLOW && ft->state_id <= ASID_CLIFFATTACKQUICK);
+    }
+    int side = under_fire_options[UF_SIDE].val;
+    if (reset) {
+        under_fire_restart = under_fire_late = 0;
+        under_fire_count = under_fire_refresh_pending = under_fire_failed = 0;
+        UnderFire_UpdateCounterText();
+        under_fire_result_valid = 0;
+        under_fire_drop_valid = 0;
+        under_fire_input_tick = under_fire_input_state = -1;
+        under_fire_in_iasa = 0;
+        under_fire_inv_total = under_fire_inv_frame = under_fire_inv_remaining = 0;
+        under_fire_inv_tick = -1;
+        if (under_fire_inv_text) under_fire_inv_text->hidden = 1;
+        if (under_fire_drop_text) under_fire_drop_text->hidden = 1;
+        UnderFire_UpdateCamera();
+        return side;
+    }
+    if (!under_fire_active || Pause_CheckStatus(1) == 2) return side;
+    FighterData *ft = fighter->userdata;
+    if (ft->flags.dead || ft->flags.hitstun ||
+        (ft->state_id >= ASID_DAMAGEHI1 && ft->state_id <= ASID_DAMAGEFLYROLL)) under_fire_failed = 1;
+    int down = ft->input.down;
+    if (down & (HSD_BUTTON_DPAD_LEFT | HSD_BUTTON_DPAD_RIGHT)) {
+        side = !(down & HSD_BUTTON_DPAD_LEFT);
+        under_fire_options[UF_SIDE].val = under_fire_options[UF_SIDE].val_prev = side;
+        under_fire_restart = 1;
+    }
+    if (!ft->flags.freeze && !ft->flags.hitlag && ft->dmg.hitlag_frames <= 0) {
+        if (ft->hurt.intang_frames.ledge > 0) under_fire_late = 0;
+        else if (under_fire_late < 32767) ++under_fire_late;
+    }
+    return side | (under_fire_restart ? 2 : 0);
+}
+static void UnderFire_ShowDrop(int frame) {
+    if (!under_fire_options[UF_REFRESH_OSDS].val) return;
+    if (!under_fire_drop_text) {
+        Text *text = Text_CreateText(2, under_fire_canvas);
+        if (!text) return;
+        under_fire_drop_text = text;
+        text->kerning = 1;
+        text->align = 1;
+        text->trans.X = 255;
+        text->trans.Y = 100;
+        text->viewport_scale.X = text->viewport_scale.Y = 1;
+        text->scale.X = text->scale.Y = 0.45f;
+        Text_AddSubtext(text, 0, 0, "");
+        Text_AddSubtext(text, 0, 22, "");
+    }
+    Text *text = under_fire_drop_text;
+    Text_SetText(text, 0, "Ledge Drop");
+    u32 color = OSD_PaletteColor(frame == 1 ? TM_COLOR_GREEN :
+        frame == 2 || frame == 3 ? TM_COLOR_MAGENTA : TM_COLOR_RED);
+    Text_SetText(text, 1, "%df", frame);
+    Text_SetColor(text, 1, (GXColor *)&color);
+    text->hidden = 0;
+    under_fire_drop_valid = 1;
+}
+
+#if 0
+/* Retired Act diagnostic, retained for posterity. It used the same
+ * invincibility-cycle origin as Ledge Drop. The second drop/fastfall count
+ * has been removed; this display and its menu option are intentionally off. */
+static void UnderFire_ShowAct(int frame) {
+    static Text *text;
+    if (!text) {
+        text = Text_CreateText(2, under_fire_canvas);
+        if (!text) return;
+        text->kerning = text->align = 1;
+        text->trans = (Vec3){320,100,0};
+        text->viewport_scale.X = text->viewport_scale.Y = 1;
+        text->scale.X = text->scale.Y = .45f;
+        Text_AddSubtext(text,0,0,"Act");
+        Text_AddSubtext(text,0,22,"");
+    }
+    GXColor white = {255,255,255,255};
+    Text_SetText(text,1,"%df",frame);
+    Text_SetColor(text,1,&white);
+    text->hidden = 0;
+}
+static int UnderFire_IsFall(int state) { return state >= ASID_FALL && state <= ASID_FALLAERIALB; }
+static int UnderFire_IsAirAction(int next) {
+    return next == ASID_JUMPAERIALF || next == ASID_JUMPAERIALB || next == ASID_ESCAPEAIR ||
+        (next >= ASID_ATTACKAIRN && next <= ASID_ATTACKAIRLW) ||
+        (next >= ASID_LIGHTTHROWAIRF && next <= ASID_LIGHTTHROWAIRLW) ||
+        (next >= ASID_LIGHTTHROWAIRF4 && next <= ASID_LIGHTTHROWAIRLW4) || next >= 341;
+}
+#endif
+static void UnderFire_CaptureInvincibility(FighterData *ft) {
+    int tick = stc_match->time_frames;
+    if (under_fire_inv_tick == tick) return;
+    under_fire_inv_tick = tick;
+    under_fire_inv_remaining = ft->hurt.intang_frames.ledge;
+    if (under_fire_inv_total > 0) {
+        if (under_fire_inv_remaining > 0) {
+            // CliffWait first requires a neutral stick-release latch. The
+            // grant frame cannot drop; the next (first legal) frame is 1.
+            under_fire_inv_frame = under_fire_inv_total - under_fire_inv_remaining;
+        } else if (under_fire_inv_frame < 32767) ++under_fire_inv_frame;
+    }
+}
+// phase: 0/1 bracket IASA; 2 samples a state change; 3 observes a native
+// protection grant; 4 samples every animation update, even with no IASA.
+void UnderFire_Timing(FighterData *ft, int phase, int next) {
+    if (!under_fire_active || ft->ply != 0 || ft->flags.ms) return;
+    if (phase == 1) { under_fire_in_iasa = 0; return; }
+    if (phase == 3) {
+        if (ft->state_id == ASID_CLIFFWAIT && next > 0) {
+            under_fire_inv_total = next > ft->hurt.intang_frames.ledge ? next : ft->hurt.intang_frames.ledge;
+            under_fire_inv_frame = under_fire_inv_remaining = 0;
+            under_fire_inv_tick = -1;
+        }
+        return;
+    }
+    if (ft->flags.dead || ft->flags.sleep || ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames > 0) return;
+    int state = ft->state_id;
+    if (phase == 4) { UnderFire_CaptureInvincibility(ft); return; }
+    if (phase == 0) {
+        UnderFire_CaptureInvincibility(ft);
+        int tick = stc_match->time_frames;
+        under_fire_in_iasa = 1;
+        if (under_fire_input_tick == tick) return;
+        under_fire_input_tick = tick;
+        under_fire_input_state = state;
+        return;
+    }
+    int from_input = under_fire_in_iasa && under_fire_input_tick == stc_match->time_frames && under_fire_input_state == state;
+    // The SDK exposes state variables as integers; read the native float
+    // without aliasing that storage through a different struct type.
+    float cliff_fall_timer;
+    memcpy(&cliff_fall_timer, &ft->state_var.state_var2, sizeof(cliff_fall_timer));
+    if (from_input && state == ASID_CLIFFWAIT && next == ASID_FALL &&
+        cliff_fall_timer > 0)
+        UnderFire_ShowDrop(under_fire_inv_frame);
+    if (state == ASID_CLIFFWAIT && next != state && under_fire_inv_total > 0)
+        under_fire_refresh_pending = 1;
+#if 0 // Retired Act OSD: display only the invincibility-cycle frame.
+    if (from_input && UnderFire_IsFall(state) && !UnderFire_IsFall(next) && UnderFire_IsAirAction(next)) {
+        UnderFire_ShowAct(under_fire_inv_frame);
+    }
+#endif
+}
+void UnderFire_Regrab(GOBJ *fighter) {
+    if (!under_fire_active) return;
+    FighterData *ft = fighter->userdata;
+    if (ft->ply != 0 || ft->flags.ms) return;
+    // Keep this frame's pre-transition sample: catch/state cleanup can already
+    // have cleared the live timer. Do not confuse that with expired protection.
+    int remaining = ft->hurt.intang_frames.ledge;
+    if (under_fire_inv_tick == stc_match->time_frames && under_fire_inv_remaining > remaining)
+        remaining = under_fire_inv_remaining;
+    int late = under_fire_inv_total > 0 && under_fire_inv_frame >= under_fire_inv_total
+        ? under_fire_inv_frame - under_fire_inv_total + 1 : under_fire_late > 0 ? under_fire_late : 1;
+    /* Because the remaining intangibility and the ledgegrab lockout are both
+     * exactly 29 frames, a perfectly executed stall regrabs the ledge on the
+     * exact frame your invincibility ends, offering 100% total intangibility.
+     * https://smashboards.com/threads/question-about-firefox-ledgestall.357655/
+     * That refresh boundary is green 0; additional tangible frames are -1,
+     * -2, etc. Earlier catches retain +frames. This is a diagnostic convention,
+     * not a change to the engine's protection or ledge-grab eligibility. */
+    int result = remaining > 0 ? remaining : 1 - late;
+    // Score once per completed ledge departure/catch, independently of OSDs.
+    // Initial placement, duplicate callbacks and failed refreshes never count.
+    if (under_fire_refresh_pending && under_fire_inv_total > 0 && !ft->flags.dead && !ft->flags.hitstun)
+        UnderFire_UpdateScore(result == 0);
+    under_fire_refresh_pending = 0;
+    if (!under_fire_options[UF_REFRESH_OSDS].val) return;
+    if (!under_fire_inv_text) {
+        Text *text = Text_CreateText(2, under_fire_canvas);
+        if (!text) return;
+        under_fire_inv_text = text;
+        text->kerning = 1;
+        text->align = 1;
+        text->trans.X = 385;
+        text->trans.Y = 100;
+        text->viewport_scale.X = text->viewport_scale.Y = 1;
+        text->scale.X = text->scale.Y = 0.45f;
+        Text_AddSubtext(text, 0, 0, "Invincibility");
+        Text_AddSubtext(text, 0, 22, "");
+    }
+    u32 color = OSD_PaletteColor(result >= 0 ? TM_COLOR_GREEN :
+        result >= -2 ? TM_COLOR_MAGENTA : TM_COLOR_RED);
+    Text_SetText(under_fire_inv_text, 1, result ? "%+df" : "%df", result);
+    Text_SetColor(under_fire_inv_text, 1, (GXColor *)&color);
+    under_fire_inv_text->hidden = 0;
+    under_fire_result_valid = 1;
+}
+static void UnderFire_Update(void) {
+    if (!under_fire_active) return;
+    /* The native practice restore resets match time. The menu must also allow
+     * closing while paused, which EventMenu_Update handles independently. */
+    stc_event_vars.game_timer = stc_match->time_frames;
+    EventMenu_Update(stc_event_vars.menu_gobj);
+    if (!under_fire_active) return;
+    // Hide both native timer models, including after unpause restores the HUD.
+    Match_HideTimer();
+    if (under_fire_count_text)
+        under_fire_count_text->hidden = ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
+    if (under_fire_inv_text)
+        under_fire_inv_text->hidden = !under_fire_result_valid || !under_fire_options[UF_REFRESH_OSDS].val ||
+            ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
+    if (under_fire_drop_text)
+        under_fire_drop_text->hidden = !under_fire_drop_valid || !under_fire_options[UF_REFRESH_OSDS].val ||
+            ((MenuData *)stc_event_vars.menu_gobj->userdata)->mode == MenuMode_Paused;
+    if (((MenuData *)stc_event_vars.menu_gobj->userdata)->mode != MenuMode_Paused)
+        Develop_UpdateMatchHotkeys();
+}
+void UnderFire_InitMenu(void) {
+    under_fire_best = under_fire_count = under_fire_refresh_pending = under_fire_failed = 0;
+    under_fire_active = 1;
+    under_fire_restart = under_fire_late = 0;
+    under_fire_result_valid = 0;
+    under_fire_camera = 0;
+    under_fire_inv_text = 0;
+    under_fire_drop_text = 0;
+    under_fire_drop_valid = 0;
+    under_fire_input_tick = under_fire_input_state = -1;
+    under_fire_in_iasa = 0;
+    under_fire_inv_total = under_fire_inv_frame = under_fire_inv_remaining = 0;
+    under_fire_inv_tick = -1;
+    under_fire_event = stc_memcard->EventBackup.event;
+    under_fire_count_text = 0;
+    for (int row = 0; row < UF_EXIT; ++row) {
+        int value = row == UF_HIGHLIGHT || row == UF_REFRESH_OSDS || row == UF_SUPPRESS_OSDS;
+        under_fire_options[row].val = under_fire_options[row].val_prev = value;
+    }
+    under_fire_menu.scroll = under_fire_menu.cursor = 0;
+    stc_event_vars.event_desc = &Ledgestall;
+    stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
+    under_fire_options[UF_PARTICLES].val = under_fire_options[UF_PARTICLES].val_prev =
+        Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES);
+    // The pre-counter format stores survival time, not a refresh count.
+    under_fire_high_score = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE) ?
+        Events_GetSavedScore(under_fire_event) : 0;
+    if (under_fire_high_score < 0) under_fire_high_score = 0;
+    Trails_SetOverride(&under_fire_options[1].val);
+    ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
+    OSD_SetEventSuppression(&under_fire_options[UF_SUPPRESS_OSDS].val);
+    stc_hsd_update->onFrame = UnderFire_Update;
+    int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
+    under_fire_canvas = canvas;
+    Text *text = Text_CreateText(2, canvas);
+    if (!text) return;
+    under_fire_count_text = text;
+    text->kerning = 1;
+    text->align = 1;
+    text->trans.X = 320;
+    text->trans.Y = 55;
+    text->viewport_scale.X = text->viewport_scale.Y = 1;
+    text->scale.X = text->scale.Y = 0.8f;
+    GXColor shadow = {0, 0, 0, 255};
+    static const Vec2 offsets[4] = {{-1,-1}, {1,-1}, {-1,1}, {1,1}};
+    for (int row = 0; row < 4; ++row) {
+        int subtext = Text_AddSubtext(text, offsets[row].X, offsets[row].Y, "");
+        Text_SetColor(text, subtext, &shadow);
+    }
+    int foreground = Text_AddSubtext(text, 0, 0, "");
+    GXColor gold = {255, 225, 65, 255};
+    Text_SetColor(text, foreground, &gold);
+    // Smaller saved record above, session best below the large current count.
+    // All three share pause visibility and the outlined gold style.
+    for (int group = 0; group < 2; ++group) {
+        for (int row = 0; row < 5; ++row) {
+            float x = row < 4 ? offsets[row].X : 0;
+            float y = (group ? -28 : 34) + (row < 4 ? offsets[row].Y : 0);
+            int subtext = Text_AddSubtext(text, x, y, "");
+            Text_SetColor(text, subtext, row < 4 ? &shadow : &gold);
+            Text_SetScale(text, subtext, 0.5625f, 0.5625f); // .8 * .5625 = original .45 scale.
+        }
+    }
+    UnderFire_UpdateCounterText();
+}
 
 static Vec2 stc_msg_queue_offsets_vertical[] = {
     {0, 5.15f},
@@ -871,6 +1333,36 @@ void GFX_Start(u16 vtx_count, GFX_Params params)
     COBJ_GetViewingMtx(COBJ_GetCurrent(), &mtx);
 
     GXBegin(params.shape, GX_VTXFMT0, vtx_count);
+}
+
+static void DrawStickDiagram(float cx, float cy, float rx, float ry, Vec2 direction)
+{
+    static const Vec2 gate[8] = {
+        {1, 0}, {.70710678f, .70710678f}, {0, 1}, {-.70710678f, .70710678f},
+        {-1, 0}, {-.70710678f, -.70710678f}, {0, -1}, {.70710678f, -.70710678f},
+    };
+    if (rx <= 0 || ry <= 0) return;
+    GXColor outline = {180, 190, 205, 255}, stick = {255, 255, 255, 255};
+    GFX_Start(16, (GFX_Params){.shape = GX_LINES, .size = 6});
+    for (unsigned i = 0; i < countof(gate); ++i) {
+        Vec2 a = gate[i], b = gate[(i + 1) % countof(gate)];
+        GFX_AddVtx(cx + a.X * rx, cy + a.Y * ry, 0, outline);
+        GFX_AddVtx(cx + b.X * rx, cy + b.Y * ry, 0, outline);
+    }
+    float tx, ty;
+    OSD_StickTip(direction.X, direction.Y, &tx, &ty);
+    GFX_Start(2, (GFX_Params){.shape = GX_LINES, .size = 12});
+    GFX_AddVtx(cx, cy, 0, stick);
+    GFX_AddVtx(cx + tx * rx, cy + ty * ry, 0, stick);
+}
+
+/* Draw in text-local coordinates so queue animation, layout and deletion all
+ * use the same transform as the number. No texture or font glyph is needed. */
+void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction)
+{
+    float sx = text->viewport_scale.X, sy = text->viewport_scale.Y;
+    DrawStickDiagram(text->trans.X + x * sx, -text->trans.Y - y * sy,
+        12.f * sx, 12.f * sy, direction);
 }
 
 void HUD_DrawTris(Tri *tris, GXColor *colors, int count)
@@ -1010,6 +1502,11 @@ static const Rect info_item_label_rect = { 0.8f, 2.5f, 8.6f, 2.5f };
 static const Rect info_item_info_rect = { 0.0f, 0.0f, 9.6f, 2.5f };
 
 void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
+    HUD_DrawInfoPanelWithStick(label, info, count, -1, 0);
+}
+
+void HUD_DrawInfoPanelWithStick(const char **label, const char **info, int count,
+    int stick_row, const Vec2 *direction) {
     HUDCamData *cam_data = stc_event_vars.hudcam_gobj->userdata;
     if (cam_data->hide) return;
     COBJ *prev_camera = COBJ_GetCurrent();
@@ -1042,7 +1539,7 @@ void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
         Rect label_rect = info_item_label_rect;
         label_rect.x += x;
         label_rect.y += cur_y;
-        HUD_DrawTextEx(
+        if (info_i != stick_row) HUD_DrawTextEx(
             label[info_i], &label_rect, 0.5f,
             (GXColor) {0,0,0,255}, (GXColor) {0,0,0,0},
             0, 1
@@ -1051,6 +1548,12 @@ void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
         Rect info_rect = info_item_info_rect;
         info_rect.x += x;
         info_rect.y += cur_y;
+        if (info_i == stick_row) {
+            // Share the existing tile with the number at its original font size.
+            info_rect.x += 2.4f;
+            info_rect.y += 1.25f;
+            info_rect.w -= 2.4f;
+        }
         HUD_DrawTextEx(
             info[info_i], &info_rect, 0.5f,
             (GXColor) {220,220,220,255}, (GXColor) {0,0,0,0},
@@ -1090,6 +1593,10 @@ void HUD_DrawInfoPanel(const char **label, const char **info, int count) {
     GFX_AddVtx(x1i, y1i, 0, grey);
     GFX_AddVtx(x0i, y1i, 0, grey);
 
+    if (stick_row >= 0 && stick_row < count) {
+        Vec2 stick = direction ? *direction : (Vec2){0, 0};
+        DrawStickDiagram(x + 1.65f, y - stick_row * 5.5f + 2.5f, .9f, .9f, stick);
+    }
     CObj_SetCurrent(prev_camera);
 }
 
@@ -1227,7 +1734,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             cpu_costume = preload->queued.fighters[1].costume;
         }
 
-        if (cpu_kind == CKIND_ZELDA)
+        /* Ledgechase's native controller supports either selected form. Other
+         * events retain their existing Sheik CPU convention. */
+        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase)
             cpu_kind = CKIND_SHEIK;
 
         if (cpu_kind != -1) {
@@ -1269,12 +1778,32 @@ void EventInit(int page, int eventID, MatchInit *matchData)
     }
 };
 
+static void LegacyEventUpdate(void)
+{
+    // Legacy events use native pause handling, which otherwise requires pausing
+    // before LRAS. The per-frame callback also runs during active gameplay.
+    if (stc_match->state == 3)
+        return;
+    if (Event_CheckExitInput()) {
+        Memcard_SaveIfChanged();
+        stc_match->state = 3;
+        Match_EndVS();
+        return;
+    }
+    Develop_UpdateMatchHotkeys();
+}
+
 void StartOSDs(void)
 {
+    // Every event load calls this. Menu-backed events install their own update
+    // callback afterward so their normal Exit callbacks still own cleanup.
+    stc_hsd_update->onFrame = LegacyEventUpdate;
+
     // Add OSD callback
     // Very low priority of 20, runs after everything else
     GOBJ *osd_gobj = GObj_Create(0, 7, 0);
     GObj_AddProc(osd_gobj, OSD_Think, 20);
+
 }
 
 void EventLoad(void)
@@ -1471,6 +2000,10 @@ void OnFileLoad(HSD_Archive *archive) // this function is run right after TmDt i
 
 void OnSceneChange(void)
 {
+    Powershield_SceneChange();
+    under_fire_active = 0;
+    under_fire_camera = 0;
+    OSD_SetEventSuppression(0);
     Trails_SceneChange();
     ActionCues_SceneChange();
     // Hook exists at 801a4c94
@@ -1488,6 +2021,7 @@ void OnBoot(void)
 
 void OnStartMelee(void)
 {
+    Powershield_SceneChange();
     Settings_Status();
     Trails_MatchStart();
     ActionCues_MatchStart();
@@ -1770,6 +2304,15 @@ GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, 
     msg_data->queue_num = queue_num;
     msg_data->layout_key = -1;
     msg_data->native_frame = stc_match->time_frames;
+    if (msg_data->settings_id == 0 && msg_data->kind == 0 && (unsigned)queue_num < 6) {
+        GOBJ *fighter = Fighter_GetSubcharGObj(queue_num, 0);
+        if (fighter && fighter->userdata) {
+            FighterData *data = fighter->userdata;
+            float angle = data->TM.tm_union.wavedash.airdodge_angle;
+            msg_data->stick_direction = (Vec2){cos(angle), sin(angle)};
+            msg_data->stick_angle = 1;
+        }
+    }
     msg_data->state = MSGSTATE_SHIFT;
     msg_data->anim_timer = MSGTIMER_SHIFT;
     msg_jobj->scale.X = MSGJOINT_SCALE;

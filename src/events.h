@@ -108,6 +108,8 @@ typedef struct EventDesc
     char *eventCSSFile;
     u8 disable_hazards : 1; // removes stage hazards
     u8 force_sopo : 1;
+    u8 tyro_edited : 1; // event-specific Tyro changes; ESS reads byte 0x14, mask 0x20
+    u8 tyro_muted : 1; // muted cyan legacy events; ESS reads byte 0x14, mask 0x10
     u8 CSSType;
     AllowedCharacters allowed_characters;
     s8 playerKind;                    // -1 = use selected fighter
@@ -225,6 +227,8 @@ void HUD_DrawTextEx(
 Rect HUD_DrawActionLogBar(u8 *action_log, GXColor *color_lookup, int log_count);
 void HUD_DrawActionLogKey(char **action_names, GXColor *action_colors, int action_count);
 void HUD_DrawInfoPanel(const char **label, const char **info, int count);
+void HUD_DrawInfoPanelWithStick(const char **label, const char **info, int count,
+    int stick_row, const Vec2 *direction);
 
 typedef struct RNGControl
 {
@@ -289,6 +293,15 @@ typedef struct EventVars
     void (*set_local_overlay)(GOBJ *, const GXColor *);
     unsigned (*get_restore_serial)(void);
     int (*is_protected)(GOBJ *);
+    void (*set_tangibility_overlay)(const s16 *);
+    void (*set_cpu_invincibility_overlay)(const s16 *);
+    void (*set_osd_suppression)(const s16 *);
+    void (*set_powershield_observer)(void (*)(FighterData *, int, int, int),
+        void (*)(FighterData *, int, int), void (*)(void));
+    void (*set_timing_overlay)(GOBJ *, const GXColor *);
+    void (*HUD_DrawInfoPanelWithStick)(const char **label, const char **info, int count,
+        int stick_row, const Vec2 *direction);
+    void *(*shield_training)(int command, void *native_data);
 } EventVars;
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
 #define event_vars (*event_vars_ptr_loc)
@@ -392,7 +405,10 @@ typedef struct MsgData
     int timing_failed;
     char layout_title[MSG_CHARMAX + 1];
     Text *layout_timing; // One fitted large glyph stream for prefix + result in Practice Panel.
+    Vec2 stick_direction; // Snapshot of the attempt, in controller coordinates (+Y = up).
+    int stick_angle; // Angle row has an octagonal stick diagram; currently Wavedash row 1.
 } MsgData;
+void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction);
 void Message_FreeObject(GOBJ *object);
 void Message_LayoutInit(int canvas);
 int Message_LayoutAdd(GOBJ *object, int queue);
@@ -406,13 +422,24 @@ void Message_LayoutEndCombo(int queue);
 unsigned Message_LayoutPageCount(void);
 void OSD_ApplyMessageStyle(MsgData *msg);
 void OSD_MessageGX(GOBJ *gobj, int pass);
+void OSD_SetEventSuppression(const s16 *enabled);
+int OSD_IsSuppressed(void);
 void OSD_EditorInit(void *data);
 int OSD_EditorInput(void *data, unsigned buttons, unsigned row);
 void ActionCues_LCancel(GOBJ *gobj);
 int ActionCues_Remaining(GOBJ *gobj);
 int ActionCues_CommonState(int kind, int state);
 void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color);
+void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
+void ActionCues_SetTangibilityOverlay(const s16 *enabled);
+void ActionCues_SetCPUInvincibilityOverlay(const s16 *palette);
+void UnderFire_InitMenu(void);
+void UnderFire_UpdateScore(int perfect_refresh);
+int UnderFire_Control(GOBJ *fighter, int reset, int effect_id);
+void UnderFire_Regrab(GOBJ *fighter);
+void UnderFire_SetCamera(CmSubject *camera);
+void UnderFire_Timing(FighterData *fighter, int phase, int value);
 void OSDContext_Clear(void);
 void OSDContext_Tick(FighterData *fighter);
 void OSDContext_LCancel(GOBJ *fighter);

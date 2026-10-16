@@ -38,3 +38,13 @@ OSD_ShineBeforeIASA
 OSD_ShineAfterIASA
 Settings_CommitPending
 Settings_EventCharacters
+UnderFire_InitMenu
+UnderFire_UpdateScore
+Settings_ResetEventRecords
+Settings_EventScoreSlot
+OSD_ASmashEnter
+OSD_ASmashInput
+UnderFire_Control
+UnderFire_Regrab
+UnderFire_SetCamera
+EventTiming_Observe

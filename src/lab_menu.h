@@ -131,7 +131,8 @@ static EventMenuRow LabUI_Tools_rows[] = {
 LMENU(LabUI_Tools, "OSD Tools", "Create feedback from the human action states.");
 
 static EventMenuRow LabUI_Global_rows[] = {
-    LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 1, 0), LR(LabOptions_OSDs, TM_SETTINGS_OSDS, 0),
+    LR(LabOptions_OSDs, TM_SETTINGS_OSDS, 3),
+    LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 2, 0), LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 1, 0),
     LREF(LabLink_Movement, 1), LREF(LabLink_Combat, 4), LREF(LabLink_Timing, 3),
     LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 10, 0), LREF(LabLink_GlobalVisuals, 0),
 };

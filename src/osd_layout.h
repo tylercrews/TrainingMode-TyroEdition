@@ -4,7 +4,7 @@
 #include "settings.h"
 
 #define TM_OSD_PLAYERS 6
-#define TM_OSD_SLOTS (TM_SETTINGS_OSDS + 1) /* Runtime-only JC Shine child slot, sharing setting 8. */
+#define TM_OSD_SLOTS (TM_OSD_CATEGORIES + 1) /* Runtime-only JC Shine child slot, sharing setting 8. */
 #define TM_OSD_KEYS (TM_OSD_PLAYERS * TM_OSD_SLOTS)
 #define TM_OSD_GRID_COLUMNS 5
 #define TM_OSD_GRID_CELLS 10

@@ -26,6 +26,8 @@ uint32_t OSD_PaletteColor(unsigned choice);
 uint32_t OSD_TimingColor(int displayed_frame);
 uint32_t OSD_TimingColorFor(int displayed_frame, unsigned best_frame);
 uint32_t OSD_WavedashHopColor(int short_hop, int displayed_frame);
+/* Intersect a direction ray with a unit octagonal controller gate. */
+void OSD_StickTip(float x, float y, float *tip_x, float *tip_y);
 static inline int OSD_ReadTimingArgument(va_list args, unsigned index) {
     if (!index || index > 3) return -1;
     va_list copy;

@@ -1,5 +1,6 @@
 #include "../MexTK/mex.h"
 #include "events.h"
+#include "techchase_logic.h"
 
 static EventMenu Menu_Main;
 static EventMenu Menu_Chances;
@@ -15,6 +16,16 @@ static void FinishMoveHMN(GOBJ *menu);
 static void StartMoveCam(GOBJ *menu);
 static void FinishMoveCam(GOBJ *menu);
 static void ChangeCam(GOBJ *menu_gobj, int _new_val);
+static void ChangePreset(GOBJ *menu_gobj, int value);
+static void ChangeLocation(GOBJ *menu_gobj, int value);
+static void ChangeHeight(GOBJ *menu_gobj, int value);
+static void ChangeDistance(GOBJ *menu_gobj, int value);
+static void ChangeReactionOSD(GOBJ *menu_gobj, int value);
+static void ChangeTimingOSD(GOBJ *menu_gobj, int value);
+static void ChangeReset(GOBJ *menu_gobj, int value);
+static void ChangeInvisibility(GOBJ *menu_gobj, int value);
+static void ChangeSpotdodge(GOBJ *menu_gobj, int value);
+static void ChangeCPUColor(GOBJ *menu_gobj, int value);
 static void ChangeTechInPlaceChance (GOBJ *menu_gobj, int _new_val);
 static void ChangeTechAwayChance    (GOBJ *menu_gobj, int _new_val);
 static void ChangeTechTowardChance  (GOBJ *menu_gobj, int _new_val);
@@ -86,6 +97,15 @@ static const char *Options_GameSpeedText[] = {"1", "5/6", "2/3", "1/2", "1/4"};
 static const char *Options_Reset[] = {"Fast", "Slow", "None"};
 static int ResetDurations[] = { 30, 60, 2147483647 };
 static const char *Options_CamMode[] = {"Normal", "Zoom", "Custom"};
+static const char *Options_Preset[] = {
+    "Original", "Even", "In Place Only", "Away Only", "Toward Only", "Miss Tech Only",
+    "In Place / Toward", "Away / Toward", "Tyro setting"
+};
+static const char *Options_Location[] = {"Center Stage", "Left Plat", "Right Plat", "Top Plat"};
+static const char *Options_Height[] = {"Normal", "Short", "Tall", "Double"};
+static const char *Options_Distance[] = {"Right Next To", "Close", "Medium", "Past Tech Roll"};
+static const char *Options_LocationDisplay[TC_LOCATION_COUNT];
+static const char *Options_CPUColor[] = {TM_CPU_INVINCIBILITY_NAMES};
 
 enum {
     OPT_CHANCE_MENU,
@@ -93,6 +113,11 @@ enum {
     OPT_TIMING_OSD,
     OPT_RESET,
     OPT_INVIS,
+    OPT_LOCATION,
+    OPT_HEIGHT,
+    OPT_DISTANCE,
+    OPT_SPOTDODGE,
+    OPT_CPU_COLOR,
     OPT_SPEED,
     OPT_MOVE_CPU,
     OPT_MOVE_HMN,
@@ -114,12 +139,14 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Reaction Frame OSD",
         .desc = {"Check which frame you reacted on."},
+        .OnChange = ChangeReactionOSD,
     },
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Timing OSD",
         .desc = {"Check how early or late you were."},
         .val = true,
+        .OnChange = ChangeTimingOSD,
     },
     {
         .kind = OPTKIND_STRING,
@@ -127,6 +154,7 @@ static EventOption Options_Main[] = {
         .desc = {"Change how quickly the event resets."},
         .values = Options_Reset,
         .value_num = countof(Options_Reset),
+        .OnChange = ChangeReset,
     },
     {
         .kind = OPTKIND_STRING,
@@ -134,6 +162,46 @@ static EventOption Options_Main[] = {
         .desc = {"Toggle the CPU turning invisible during tech", "animations."},
         .values = Options_Invis,
         .value_num = countof(Options_Invis),
+        .OnChange = ChangeInvisibility,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Starting Location",
+        .desc = {"CPU falls onto the selected platform.", "HMN starts on the ground nearby.", "Unavailable platforms are skipped."},
+        .values = Options_LocationDisplay,
+        .value_num = TC_LOCATION_COUNT,
+        .OnChange = ChangeLocation,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "CPU Drop Height",
+        .desc = {"Choose how far above the target CPU starts.", "Double gives slow characters more time to climb.", "This setting is saved."},
+        .values = Options_Height,
+        .value_num = TC_HEIGHT_COUNT,
+        .OnChange = ChangeHeight,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Player Distance",
+        .desc = {"Choose horizontal spacing from the CPU.", "HMN stays on the ground, facing the target.", "This setting is saved."},
+        .values = Options_Distance,
+        .value_num = TC_DISTANCE_COUNT,
+        .OnChange = ChangeDistance,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Spotdodge Punish",
+        .desc = {"CPU spotdodges as soon as its tech/getup ends.", "Punish its recovery; reset waits until it ends."},
+        .OnChange = ChangeSpotdodge,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "CPU Invincibility Overlay",
+        .desc = {"Choose a color for the CPU's natural", "invincibility and intangibility."},
+        .values = Options_CPUColor,
+        .value_num = TM_CPU_INVINCIBILITY_COUNT,
+        .val = TM_CPU_INVINCIBILITY_DEFAULT,
+        .OnChange = ChangeCPUColor,
     },
     {
         .kind = OPTKIND_STRING,
@@ -162,6 +230,7 @@ static EventOption Options_Main[] = {
 };
 
 static EventMenu Menu_Main = {
+    .on_exit = Exit,
     .name = "Techchase Training",
     .option_num = countof(Options_Main),
     .options = Options_Main,
@@ -170,6 +239,7 @@ static EventMenu Menu_Main = {
 EventMenu *Event_Menu = &Menu_Main;
 
 enum {
+    OPTCHANCE_PRESET,
     OPTCHANCE_TECHINPLACE,
     OPTCHANCE_TECHAWAY,
     OPTCHANCE_TECHTOWARD,
@@ -192,6 +262,14 @@ enum {
 };
 
 static EventOption Options_Chances[] = {
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Preset",
+        .desc = {"Choose the four tech chances. This is saved.", "Percentage edits below last for this session."},
+        .values = Options_Preset,
+        .value_num = TC_PRESET_COUNT,
+        .OnChange = ChangePreset,
+    },
     {
         .kind = OPTKIND_INT,
         .value_num = 101,
@@ -276,10 +354,23 @@ static EventOption Options_Chances[] = {
 };
 
 static EventMenu Menu_Chances = {
-    .name = "Option Chances",
+    .name = "Tech Chances",
     .option_num = countof(Options_Chances),
     .options = Options_Chances,
 };
+
+static void SetTechPresetChances(int preset) {
+    for (int i = 0; i < 4; ++i)
+        Options_Chances[OPTCHANCE_TECHINPLACE + i].val = TC_PresetChance(preset, i);
+}
+
+static void InitializeChances(int preset) {
+    static const s16 defaults[] = {40, 30, 30, 0, 0, 25, 25, 25, 25};
+    for (unsigned i = 0; i < countof(defaults); ++i)
+        Options_Chances[OPTCHANCE_TECHINPLACE + i].val = defaults[i];
+    Options_Chances[OPTCHANCE_PRESET].val = preset;
+    SetTechPresetChances(preset);
+}
 
 static void UpdatePosition(GOBJ *fighter) {
     FighterData *data = fighter->userdata;
@@ -325,6 +416,8 @@ static int reset_timer = -1;
 static int missed_tech_getup_timer = -1;
 static int first_action_frame = -1;
 static bool put_out_hitbox = false;
+static int punish_phase = TC_PUNISH_START;
+static int spotdodge_length = 0;
 
 // figatree_curr->frame_num for last getup animation.
 // We can't easily request this on demand so we store it here pre-emptively.
@@ -337,9 +430,105 @@ static Vec3 cpu_pos = { 5, 27, 0 };
 static Vec3 hmn_pos = { -5, 0, 0 };
 static float cpu_facing_direction = -1;
 static float hmn_facing_direction = 1;
+static bool automatic_position = true;
+static int location_available[TC_LOCATION_COUNT];
+static int previous_location = TC_CENTER;
+
+static int IsPlatformLine(const CollLineDesc *line) {
+    /* Native MapLine.lo_flags LINE_FLAG_PLATFORM is 0x0100. The SDK's
+     * legacy is_drop label addresses 0x0400 (dynamic collision), not this bit. */
+    return ((const u8 *)line)[0xE] & 1;
+}
+
+/* Use enabled, current collision vertices rather than fixed stage coordinates.
+ * This follows Fountain's moving platforms and grounds HMN under the platform. */
+static int FindSolidGround(float x, Vec3 *position, int *index) {
+    CollDataStage *stage = *stc_colldata;
+    CollLine *lines = *stc_collline;
+    CollVert *verts = *stc_collvert;
+    if (!stage || !lines || !verts) return 0;
+    int found = 0;
+    for (int i = 0; i < stage->line_num; ++i) {
+        CollLineDesc *line = lines[i].desc;
+        if (!line || !line->is_floor || IsPlatformLine(line) || line->disabled || !GrColl_CheckIfLineEnabled(i) ||
+            line->vert_prev < 0 || line->vert_next < 0 ||
+            line->vert_prev >= stage->vert_num || line->vert_next >= stage->vert_num) continue;
+        Vec2 a = verts[line->vert_prev].pos_curr, b = verts[line->vert_next].pos_curr;
+        float left = a.X < b.X ? a.X : b.X, right = a.X > b.X ? a.X : b.X;
+        if (right - left < 0.01f || x < left || x > right) continue;
+        float y = a.Y + (b.Y - a.Y) * (x - a.X) / (b.X - a.X);
+        if (!found || y > position->Y) { *position = (Vec3){x, y, 0}; *index = i; found = 1; }
+    }
+    return found;
+}
+
+static int FindLocationSurface(int location, Vec3 *position) {
+    int line_index;
+    if (location == TC_CENTER) return FindSolidGround(5, position, &line_index);
+    int stage_id = Stage_GetExternalID();
+    if (stage_id != GRKINDEXT_STORY && stage_id != GRKINDEXT_IZUMI &&
+        stage_id != GRKINDEXT_FD && stage_id != GRKINDEXT_PSTAD &&
+        stage_id != GRKINDEXT_BATTLE && stage_id != GRKINDEXT_OLDPU) return 0;
+    CollDataStage *stage = *stc_colldata;
+    CollLine *lines = *stc_collline;
+    CollVert *verts = *stc_collvert;
+    if (!stage || !lines || !verts) return 0;
+    float best = -100000;
+    int found = 0;
+    for (int i = 0; i < stage->line_num; ++i) {
+        CollLineDesc *line = lines[i].desc;
+        if (!line || !line->is_floor || line->disabled || !GrColl_CheckIfLineEnabled(i) ||
+            line->vert_prev < 0 || line->vert_next < 0 ||
+            line->vert_prev >= stage->vert_num || line->vert_next >= stage->vert_num) continue;
+        Vec2 a = verts[line->vert_prev].pos_curr, b = verts[line->vert_next].pos_curr;
+        float x, y;
+        if (!TC_SurfaceTarget(a.X, a.Y, b.X, b.Y, IsPlatformLine(line), location, &x, &y)) continue;
+        float distance = TC_PlayerDistance(Options_Main[OPT_DISTANCE].val);
+        float hmn_x = x < 0 ? x + distance : x - distance;
+        Vec3 ground;
+        if (!FindSolidGround(hmn_x, &ground, &line_index) || y <= ground.Y + 4) continue;
+        float score = location == TC_TOP_PLATFORM ? y : -fabs(x);
+        if (!found || score > best) { *position = (Vec3){x, y, 0}; best = score; found = 1; }
+    }
+    return found;
+}
+
+static void RefreshLocationChoices(void) {
+    static const char *unavailable[] = {"Center Stage", "Left Plat (N/A)", "Right Plat (N/A)", "Top Plat (N/A)"};
+    Vec3 position;
+    for (int i = 0; i < TC_LOCATION_COUNT; ++i) {
+        location_available[i] = FindLocationSurface(i, &position);
+        Options_LocationDisplay[i] = location_available[i] ? Options_Location[i] : unavailable[i];
+    }
+    // Center retains the original placement if stage geometry is unavailable.
+    location_available[TC_CENTER] = 1;
+    Options_Main[OPT_LOCATION].disable = !location_available[TC_LEFT_PLATFORM] &&
+        !location_available[TC_RIGHT_PLATFORM] && !location_available[TC_TOP_PLATFORM];
+}
+
+static void ApplyStartingLocation(void) {
+    RefreshLocationChoices();
+    int location = Options_Main[OPT_LOCATION].val;
+    Vec3 surface, ground;
+    int line_index;
+    if (!location_available[location] || !FindLocationSurface(location, &surface)) {
+        location = TC_CENTER;
+        Options_Main[OPT_LOCATION].val = location;
+        if (!FindLocationSurface(location, &surface)) surface = (Vec3){5, 0, 0};
+    }
+    previous_location = location;
+    float distance = TC_PlayerDistance(Options_Main[OPT_DISTANCE].val);
+    float hmn_x = surface.X < 0 ? surface.X + distance : surface.X - distance;
+    if (!FindSolidGround(hmn_x, &ground, &line_index)) ground = (Vec3){hmn_x, 0, 0};
+    hmn_pos = ground;
+    cpu_pos = (Vec3){surface.X, surface.Y + TC_DropHeight(Options_Main[OPT_HEIGHT].val), 0};
+    hmn_facing_direction = surface.X > hmn_x ? 1 : -1;
+    cpu_facing_direction = -hmn_facing_direction;
+}
 
 static void Reset(void) {
     event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
+    if (automatic_position) ApplyStartingLocation();
 
     GOBJ *hmn = Fighter_GetGObj(0);
     GOBJ *cpu = Fighter_GetGObj(1);
@@ -379,6 +568,8 @@ static void Reset(void) {
     missed_tech_getup_timer = -1;
     first_action_frame = -1;
     put_out_hitbox = false;
+    punish_phase = TC_PUNISH_START;
+    spotdodge_length = 0;
 }
 
 static int tech_frame_distinguishable[27] = {
@@ -410,6 +601,36 @@ static int tech_frame_distinguishable[27] = {
      6, // Ganondorf
      7, // Roy
 };
+
+static int RunSpotdodgePunish(GOBJ *cpu) {
+    FighterData *data = cpu->userdata;
+    int state = data->state_id;
+    int category = ASID_DOWNSPOTD <= state && state <= ASID_PASSIVESTANDB ? TC_STATE_OPTION :
+        state == ASID_WAIT ? TC_STATE_WAIT : state == ASID_ESCAPE ? TC_STATE_DODGE : TC_STATE_OTHER;
+    int action = TC_PunishStep(&punish_phase, Options_Main[OPT_SPOTDODGE].val, category);
+    if (state == ASID_ESCAPE) spotdodge_length = data->figatree_curr->frame_num;
+    if (action == TC_ACTION_DODGE) {
+        /* CPU input processing already ran at priority 2. Supply this tick's
+         * processed input, with a fresh down tilt, before native Wait IASA.
+         * Native Wait IASA performs the regular spotdodge eligibility check;
+         * no tech/getup state or animation length is forcibly shortened. */
+        data->cpu.held = PAD_TRIGGER_R;
+        data->cpu.lstickX = 0;
+        data->cpu.lstickY = -127;
+        // Native fighter input also carries the synthesized HSD_PAD_LR bit;
+        // the raw R button alone is insufficient for the spotdodge check.
+        data->input.held = PAD_TRIGGER_R | 0x80000000u;
+        data->input.lstick = (Vec2){0, -1};
+        data->input.trigger = 1;
+        data->input.timer_lstick_tilt_y = 0;
+        Fighter_IASACheck_AllGrounded(cpu);
+        if (data->state_id == ASID_ESCAPE) {
+            punish_phase = TC_PUNISH_DODGING;
+            spotdodge_length = data->figatree_curr->frame_num;
+        }
+    }
+    return action;
+}
 
 void Event_Update(GOBJ *menu) {
     if (Pause_CheckStatus(1) != 2) {
@@ -492,7 +713,9 @@ void Event_Think(GOBJ *menu) {
     cpu_data->cpu.cstickX = 0;
     cpu_data->cpu.cstickY = 0;
 
+    int punish_action = reset_timer == -1 ? RunSpotdodgePunish(cpu) : TC_ACTION_NONE;
     int state_id = cpu_data->state_id;
+    bool punish_recovery = Options_Main[OPT_SPOTDODGE].val && punish_phase >= TC_PUNISH_DODGING;
     
     // cache getup_option_length
     if (ASID_DOWNSPOTD <= state_id && state_id <= ASID_PASSIVESTANDB)
@@ -519,7 +742,7 @@ void Event_Think(GOBJ *menu) {
     }
 
     // set intangibility
-    if (
+    if (!punish_recovery && (
         (
             // make invincible on last frame of getup/tech option
             ASID_DOWNSPOTD <= state_id && state_id <= ASID_PASSIVESTANDB
@@ -527,7 +750,7 @@ void Event_Think(GOBJ *menu) {
         )
         || state_id == ASID_WAIT
         || state_id == ASID_DAMAGEFALL
-    ) {
+    )) {
         cpu_data->hurt.intang_frames.ledge = 1;
         cpu_data->hurt.kind_game = 1;
     } else {
@@ -539,6 +762,7 @@ void Event_Think(GOBJ *menu) {
     if (
         Options_Main[OPT_TIMING_OSD].val
         && state_id == ASID_WAIT 
+        && (!Options_Main[OPT_SPOTDODGE].val || punish_phase == TC_PUNISH_FINISHED)
         && hmn_data->flags.hitbox_active
         && !put_out_hitbox
     ) { 
@@ -600,7 +824,7 @@ void Event_Think(GOBJ *menu) {
         }
 
         // fail if finished tech 
-        if (state_id == ASID_WAIT) {
+        if (state_id == ASID_WAIT && punish_action == TC_ACTION_RESET) {
             // SFX_Play(0xAF);
             reset_timer = ResetDurations[Options_Main[OPT_RESET].val];
         }
@@ -618,16 +842,18 @@ void Event_Think(GOBJ *menu) {
                 int prev_state_id = -1;
                 for (int i = 0; i < 6; ++i) {
                     prev_state_id = cpu_data->TM.state_prev[i];
-                    if (ASID_DOWNSPOTD <= prev_state_id && prev_state_id <= ASID_PASSIVESTANDB) {
+                    if ((punish_recovery && prev_state_id == ASID_ESCAPE) ||
+                        (!punish_recovery && ASID_DOWNSPOTD <= prev_state_id && prev_state_id <= ASID_PASSIVESTANDB)) {
                         frames_taken = cpu_data->TM.state_prev_frames[i];
                         break;
                     }
                 }
 
-                if (prev_state_id != -1) {
+                if (frames_taken != -1) {
+                    int option_length = punish_recovery ? spotdodge_length : getup_option_length;
                     event_vars->Message_Display(
                         16, hmn_data->ply, MSGCOLOR_GREEN, 
-                        "%if Early\n", getup_option_length - frames_taken - 2
+                        "%if Early\n", option_length - frames_taken - 2
                     );
                 }
             }
@@ -688,12 +914,6 @@ static void Event_PostThink(GOBJ *menu) {
         } break;
     }
 
-    memset(&cpu_data->color[1], 0, sizeof(ColorOverlay));
-    memset(&cpu_data->color[0], 0, sizeof(ColorOverlay));
-    if (state_id == ASID_WAIT) {
-        cpu_data->color[1].hex = (GXColor) {0xF0, 0xF0, 0xF0, 0xA0};
-        cpu_data->color[1].color_enable = 1;
-    }
 }
 
 void Event_Init(GOBJ *gobj) {
@@ -703,11 +923,67 @@ void Event_Init(GOBJ *gobj) {
     FighterData *hmn_data = hmn->userdata;
     hmn_pad_index = hmn_data->pad_index;
     null_pad_index = (hmn_pad_index + 1) % 4;
+    automatic_position = true;
+    InitializeChances(TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_PRESET));
+    Options_Main[OPT_REACTION_OSD].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_REACTION_OSD);
+    Options_Main[OPT_TIMING_OSD].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_TIMING_OSD);
+    Options_Main[OPT_RESET].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_RESET);
+    Options_Main[OPT_INVIS].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_INVISIBILITY);
+    Options_Main[OPT_LOCATION].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_LOCATION);
+    Options_Main[OPT_HEIGHT].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT);
+    Options_Main[OPT_DISTANCE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE);
+    Options_Main[OPT_SPOTDODGE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE);
+    Options_Main[OPT_CPU_COLOR].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR);
+    event_vars->set_cpu_invincibility_overlay(&Options_Main[OPT_CPU_COLOR].val);
+    Options_Main[OPT_CAM].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CAMERA);
+    ApplyStartingLocation();
+    ChangeCam(0, Options_Main[OPT_CAM].val);
+    for (unsigned i = 0; i < countof(Options_Main); ++i) Options_Main[i].val_prev = Options_Main[i].val;
+    for (unsigned i = 0; i < countof(Options_Chances); ++i) Options_Chances[i].val_prev = Options_Chances[i].val;
 }
 
 static void Exit(GOBJ *menu) {
+    event_vars->set_cpu_invincibility_overlay(0);
+    Memcard_SaveIfChanged();
     stc_match->state = 3;
     Match_EndVS();
+}
+
+static void ChangePreset(GOBJ *menu, int value) {
+    SetTechPresetChances(value);
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_PRESET, value);
+}
+static void ChangeReactionOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_REACTION_OSD, value); }
+static void ChangeTimingOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_TIMING_OSD, value); }
+static void ChangeReset(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_RESET, value); }
+static void ChangeInvisibility(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_INVISIBILITY, value); }
+static void ChangeCPUColor(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR, value); }
+static void ChangeHeight(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT, value);
+    automatic_position = true;
+    Reset();
+}
+static void ChangeDistance(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE, value);
+    automatic_position = true;
+    Reset();
+}
+static void ChangeSpotdodge(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE, value);
+    Reset();
+}
+static void ChangeLocation(GOBJ *menu, int value) {
+    RefreshLocationChoices();
+    // Left/right changes wrap around the selector; keep moving in that same
+    // direction past missing platforms (FD and Stadium's missing top platform).
+    int direction = (value - previous_location + TC_LOCATION_COUNT) % TC_LOCATION_COUNT == 1 ? 1 : -1;
+    for (int i = 0; i < TC_LOCATION_COUNT && !location_available[value]; ++i)
+        value = (value + direction + TC_LOCATION_COUNT) % TC_LOCATION_COUNT;
+    Options_Main[OPT_LOCATION].val = value;
+    previous_location = value;
+    automatic_position = true;
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_LOCATION, value);
+    Reset();
 }
 
 // Clean up percentages so the total is always 100.
@@ -781,10 +1057,12 @@ static void EnableHmnControl(void) {
 static void StartMoveCPU(GOBJ *menu) {
     DisableHmnControl();
     Reset();
+    automatic_position = false;
     Options_Main[OPT_MOVE_CPU] = Option_FinishMoveCPU;
     Options_Main[OPT_MOVE_HMN].disable = true;
     Options_Main[OPT_MOVE_CAM].disable = true;
     Options_Main[OPT_CAM].disable = true;
+    Options_Main[OPT_LOCATION].disable = true;
 }
 
 static void FinishMoveCPU(GOBJ *menu) {
@@ -793,6 +1071,7 @@ static void FinishMoveCPU(GOBJ *menu) {
     Options_Main[OPT_MOVE_CPU] = Option_MoveCPU;
     Options_Main[OPT_MOVE_HMN].disable = false;
     Options_Main[OPT_CAM].disable = false;
+    RefreshLocationChoices();
     if (Options_Main[OPT_CAM].val == OPTCAM_CUSTOM){
         Options_Main[OPT_MOVE_CAM].disable = false;
     }
@@ -801,10 +1080,12 @@ static void FinishMoveCPU(GOBJ *menu) {
 static void StartMoveHMN(GOBJ *menu) {
     DisableHmnControl();
     Reset();
+    automatic_position = false;
     Options_Main[OPT_MOVE_HMN] = Option_FinishMoveHMN; 
     Options_Main[OPT_MOVE_CPU].disable = true;
     Options_Main[OPT_MOVE_CAM].disable = true;
     Options_Main[OPT_CAM].disable = true;
+    Options_Main[OPT_LOCATION].disable = true;
 }
 
 static void FinishMoveHMN(GOBJ *menu) {
@@ -813,6 +1094,7 @@ static void FinishMoveHMN(GOBJ *menu) {
     Options_Main[OPT_MOVE_HMN] = Option_MoveHMN; 
     Options_Main[OPT_MOVE_CPU].disable = false;
     Options_Main[OPT_CAM].disable = false;
+    RefreshLocationChoices();
     if (Options_Main[OPT_CAM].val == OPTCAM_CUSTOM){
         Options_Main[OPT_MOVE_CAM].disable = false;
     }
@@ -825,6 +1107,7 @@ static void StartMoveCam(GOBJ *menu) {
     Options_Main[OPT_MOVE_HMN].disable = true;
     Options_Main[OPT_MOVE_CPU].disable = true;
     Options_Main[OPT_CAM].disable = true;
+    Options_Main[OPT_LOCATION].disable = true;
 }
 
 static void FinishMoveCam(GOBJ *menu) {
@@ -837,9 +1120,11 @@ static void FinishMoveCam(GOBJ *menu) {
     Options_Main[OPT_MOVE_HMN].disable = false;
     Options_Main[OPT_MOVE_CPU].disable = false;
     Options_Main[OPT_CAM].disable = false;
+    RefreshLocationChoices();
 }
 
 static void ChangeCam(GOBJ *menu_gobj, int value) {
+    if (menu_gobj) TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CAMERA, value);
     Options_Main[OPT_MOVE_CAM].disable = value != OPTCAM_CUSTOM;
     if (value == OPTCAM_NORMAL){
         Match_SetNormalCamera();

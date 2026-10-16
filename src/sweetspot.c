@@ -2,6 +2,44 @@
 
 static Vec2 ledge_positions[2];
 
+// Stage camera settings are outside the practice savestate. Keep the original
+// values so toggling modes never compounds the zoom or affects another event.
+static struct {
+    float left, right, top, bottom;
+    float min_distance, max_distance;
+} normal_camera;
+
+static void RestoreCamera(void *unused) {
+    stc_stage->cambound_left = normal_camera.left;
+    stc_stage->cambound_right = normal_camera.right;
+    stc_stage->cambound_top = normal_camera.top;
+    stc_stage->cambound_bottom = normal_camera.bottom;
+    stc_stage->x34 = normal_camera.min_distance;
+    stc_stage->x38 = normal_camera.max_distance;
+}
+
+static void ApplyCamera(int zoomed_out) {
+    RestoreCamera(0);
+    if (zoomed_out) {
+        // Retain normal tracking of both fighters, with more recovery space on
+        // either side. Widen the tracking limits too: distance alone still
+        // clamps an offstage fighter to the stage's original camera bounds.
+        stc_stage->cambound_left -= 80;
+        stc_stage->cambound_right += 80;
+        stc_stage->cambound_top += 40;
+        stc_stage->cambound_bottom -= 40;
+        stc_stage->x34 *= 1.5f;
+        stc_stage->x38 *= 1.5f;
+    }
+    Match_SetNormalCamera();
+    Match_CorrectCamera();
+}
+
+static void ChangeCamera(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0, value);
+    ApplyCamera(value);
+}
+
 static void GetLedgePositions(Vec2 coords_out[2]) {
     static char ledge_ids[34][2] = {
         { 0xFF, 0xFF }, { 0xFF, 0xFF }, { 0x03, 0x07 }, { 0x33, 0x36 },
@@ -91,6 +129,7 @@ static void ChangeLineGuides(GOBJ *menu, int value) {
 
 enum menu_options {
     OPT_VERTICAL_LINES,
+    OPT_CAMERA,
     // OPT_EXTRA_UNDERSIDE_LINES,
 };
 
@@ -109,6 +148,15 @@ static EventOption Options_Main[] = {
         .OnChange = ChangeLineGuides,
         .desc = {"Side-B just above the line guide",
                  "to sweetspot the ledge."},
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Camera",
+        .value_num = 2,
+        .values = (const char *[]) { "Normal", "Zoomed Out" },
+        .OnChange = ChangeCamera,
+        .desc = {"Zoom out to see farther offstage",
+                 "and line up with the ledge."},
     },
     /* Extra underside guide retained for reference; excluded from the menu.
     {
@@ -132,6 +180,7 @@ static EventOption Options_Main[] = {
 };
 
 static EventMenu Menu_Main = {
+    .on_exit = Exit,
     .name = "Sweetspot Training",
     .option_num = sizeof(Options_Main) / sizeof(EventOption),
     .options = Options_Main,
@@ -325,10 +374,20 @@ void Draw_Lines(void) {
 void Event_Init(GOBJ* gobj) {
     Options_Main[OPT_VERTICAL_LINES].val = Options_Main[OPT_VERTICAL_LINES].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT_LINES, 0);
+    Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
+        TM_GetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0);
+    normal_camera.left = stc_stage->cambound_left;
+    normal_camera.right = stc_stage->cambound_right;
+    normal_camera.top = stc_stage->cambound_top;
+    normal_camera.bottom = stc_stage->cambound_bottom;
+    normal_camera.min_distance = stc_stage->x34;
+    normal_camera.max_distance = stc_stage->x38;
+    ApplyCamera(Options_Main[OPT_CAMERA].val);
     // Archived underside option was session-only, never memory-card backed.
     // Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val = Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val_prev = 0;
     GetLedgePositions(ledge_positions);
     GOBJ *draw_gobj = GObj_Create(0, 0, 0);
+    GObj_AddUserData(draw_gobj, 0, RestoreCamera, &normal_camera);
     GObj_AddGXLink(draw_gobj, Draw_Lines, 3, 0);
 }
 
@@ -375,6 +434,19 @@ void Event_Think(GOBJ *menu) {
         // on the transition frame that skips the dash state entirely.
         sideb.range_origin = hmn_data->phys.pos_prev;
         sideb.range_locked = true;
+    }
+
+    /* Landing can occur before Marth reaches down-tilt or after he freezes.
+     * During startup/dash, native Side-B collision switches directly to the
+     * grounded special states; endlag lands in LandingFallSpecial instead. */
+    if (sideb.attempted && state != STATE_RESET
+        && (hmn_data->state_id == ASID_LANDING
+            || hmn_data->state_id == ASID_LANDINGFALLSPECIAL
+            || (hmn_data->phys.air_state == 0
+                && hmn_data->state_id >= 347 && hmn_data->state_id <= 349))) {
+        FrameSpeedChange(cpu, 1.0);
+        reset_timer = 30;
+        state = STATE_RESET;
     }
 
     // Begin CPU AI logic

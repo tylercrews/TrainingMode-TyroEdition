@@ -25,7 +25,8 @@ enum menu_options
     OPT_RESETDELAY,
     OPT_LEDGE,
     OPT_CRITERION,
-    OPT_PROTECTION,
+    OPT_TANGIBILITY,
+    OPT_TRAILS,
     OPT_EGG,
     OPT_ABOUT,
     OPT_DEFAULTS,
@@ -54,7 +55,7 @@ static char *panel_labels[5] = {"Angle", "GALINT", "Success Rate", "Criterion", 
 static char angle_text[24] = "-";
 static char galint_text[24] = "-";
 static char success_rate_text[48] = "-";
-static char criterion_text[20] = "GALINT";
+static char criterion_text[20] = "Any GALINT";
 static char egg_text[24] = "Off";
 static char *panel_info[5] = {angle_text, galint_text, success_rate_text, criterion_text, egg_text};
 static void Ledgedash_ChangeLedge(GOBJ *menu, int value);
@@ -72,6 +73,7 @@ static int Ledgedash_EggDamage(GOBJ *object);
 static void Ledgedash_ChangeSavedSetting(GOBJ *menu, int value);
 static void Ledgedash_ChangeTips(GOBJ *menu, int value);
 static void Ledgedash_ResetSettings(GOBJ *menu);
+static void Ledgedash_ChangeHitboxTrails(GOBJ *menu, int value);
 typedef char ldsh_event_fits[(sizeof(LedgedashData) <= EVENT_DATASIZE) ? 1 : -1];
 static struct {
     GOBJ *object, *retiring;
@@ -87,9 +89,10 @@ static float LdshOptions_GameSpeeds[] = {1.f, 5.f/6.f, 2.f/3.f, 1.f/2.f, 1.f/4.f
 static const char *LdshOptions_GameSpeedText[] = {"1", "5/6", "2/3", "1/2", "1/4"};
 static const char *LdshOptions_Reset[] = {"None", "Same Side", "Swap", "Swap on Success", "Random"};
 static const char *LdshOptions_ResetDelay[] = {"Slow", "Normal", "Fast", "Instant"};
+static const char *LdshOptions_Trails[] = { TM_TRAIL_OVERRIDE_LABELS };
 static const char *LdshOptions_Ledge[] = {"Left", "Right"};
-static const char *LdshOptions_Criteria[] = {"GALINT", "Waveland", "Attack/Dash in GALINT", "Pop Egg in GALINT"};
-static const char *LdshCriterionLabels[] = {"GALINT", "Waveland", "Act GALINT", "Pop Egg"};
+static const char *LdshOptions_Criteria[] = {"Any GALINT", "Waveland", "Attack/Dash in GALINT", "Pop Egg in GALINT", "4 GALINT", "7 GALINT", "10 GALINT"};
+static const char *LdshCriterionLabels[] = {"Any GALINT", "Waveland", "Act GALINT", "Pop Egg", "4 GALINT", "7 GALINT", "10 GALINT"};
 static const char *LdshOptions_Egg[] = {"Ground", "Platform", "Random"};
 enum { EGG_ENABLE, EGG_TARGET, EGG_DISTANCE, EGG_RANDOM_DISTANCE, EGG_MIN_DISTANCE,
        EGG_MAX_DISTANCE, EGG_DAMAGE };
@@ -113,6 +116,56 @@ static EventMenu LdshMenu_Eggs = {.name = "Egg Targets", .option_num = countof(L
     .options = LdshOptions_EggMenu};
 static int LdshOptions_ResetDelaySuccess[] = { 120, 60, 30, 1 };
 static int LdshOptions_ResetDelayFailure[] = { 60, 20, 1, 1 };
+
+static EventOption LdshOptions_Help[] = {
+    {.kind = OPTKIND_INFO, .name = "Drop, Jump, Air Dodge",
+     .desc = {"Release ledge, double jump toward stage, then",
+              "air dodge diagonally into the floor to waveland.",
+              "Jump after releasing, not while still hanging.",
+              "The built-in ledge jump is a different option."}},
+    {.kind = OPTKIND_INFO, .name = "Watch the Hand Circle",
+     .desc = {"Watch the circle at ledge around your grabbing hand.",
+              "Use its expansion to learn the ledge-release rhythm.",
+              "It starts on grab, before you can drop: do not",
+              "release on its first appearance. Practice slowly."}},
+    {.kind = OPTKIND_INFO, .name = "Reset Sticks, Then Drop",
+     .desc = {"Return both sticks to neutral before releasing.",
+              "Then tap away or down to let go of the ledge.",
+              "An early held input can fail; reset and tap again.",
+              "Away avoids a down input carrying into fastfall."}},
+    {.kind = OPTKIND_INFO, .name = "Jump Before Air Dodge",
+     .desc = {"Double jump as soon as possible after the drop.",
+              "Drift inward and let your collision box clear stage.",
+              "Air dodge too early and you can hit the wall / fall.",
+              "Air dodge too late and you spend ledge protection."}},
+    {.kind = OPTKIND_INFO, .name = "Characters and Collision",
+     .desc = {"Jump height, timing and air drift vary by character.",
+              "Your environment collision box (ECB) matters too.",
+              "How you grab ledge can change the ECB and timing.",
+              "Regrab from a real recovery to practice that setup."}},
+    {.kind = OPTKIND_INFO, .name = "What GALINT Measures",
+     .desc = {"GALINT: grounded actionable ledge intangibility.",
+              "These are protected frames after landing lag ends.",
+              "Landing alone does not mean you are actionable.",
+              "A waveland can succeed with zero GALINT."}},
+    {.kind = OPTKIND_INFO, .name = "Protection Is Limited",
+     .desc = {"Hanging, dropping, jumping and landing spend time.",
+              "Ledge intangibility keeps counting during the return.",
+              "Air-dodge intangibility is a separate protection.",
+              "Peach needs special setups for useful GALINT."}},
+    {.kind = OPTKIND_INFO, .name = "Build a Consistent Rhythm",
+     .desc = {"Start at reduced speed; learn drop, jump, then dodge.",
+              "Use Tips to catch early drops and stick-reset errors.",
+              "Keep Ledge Invincibility helps learn the sequence;",
+              "turn it Off to practice normal protection timing."}},
+    {.kind = OPTKIND_INFO, .name = "Use the Practice Feedback",
+     .desc = {"Highlight Dropped Invincibility pulses red in gaps.",
+              "Read Angle beside the stick diagram and GALINT.",
+              "Start with Waveland, then Any GALINT or 4/7/10.",
+              "Try Attack/Dash or Pop Egg to practice a follow-up."}},
+};
+static EventMenu LdshMenu_Help = {.name = "Ledgedash Help", .options = LdshOptions_Help,
+    .option_num = countof(LdshOptions_Help)};
 
 static EventOption LdshOptions_Main[] = {
     {
@@ -194,25 +247,25 @@ static EventOption LdshOptions_Main[] = {
     },
     {
         .kind = OPTKIND_STRING, .value_num = LDSH_CRITERIA_COUNT, .name = "Success Criteria",
-        .desc = {"Choose what counts as a successful ledgedash.", "Changing this resets session statistics and the attempt.", "Pop Egg requires popping the target during grounded GALINT."},
+        .desc = {"Choose what counts as a successful ledgedash.", "Changing this resets session statistics and the attempt.", "4/7/10 GALINT require at least that many actionable frames.", "Pop Egg requires popping the target during grounded GALINT."},
         .values = LdshOptions_Criteria, .OnChange = Ledgedash_ChangeCriterion,
     },
     {
-        .kind = OPTKIND_TOGGLE, .val = 1, .name = "Protection Highlight",
-        .desc = {"Brighten the action color while invincible/intangible.", "Works independently of Color Overlays."},
+        .kind = OPTKIND_TOGGLE, .val = 1, .name = "Highlight Dropped Invincibility",
+        .desc = {"Pulse red whenever invincibility/intangibility drops.", "Overrides the Invincibility Overlay while On.", "Works independently of Color Overlays."},
+    },
+    {
+        .kind = OPTKIND_STRING, .name = "Hitbox Trails", .values = LdshOptions_Trails,
+        .value_num = TM_TRAIL_OVERRIDE_COUNT, .OnChange = Ledgedash_ChangeHitboxTrails,
+        .desc = {"Choose this event's trails, including Off.", "Overrides global hitbox trails during this event."},
     },
     {
         .kind = OPTKIND_MENU, .name = "Egg Targets", .menu = &LdshMenu_Eggs,
         .desc = {"Enable eggs and choose target, distance, randomization and damage."},
     },
     {
-        .kind = OPTKIND_INFO,
-        .name = "HELP",
-        .desc =
-            {"Ledgedashing is the act of wavedashing onto stage from ledge.",
-             "This is most commonly done by dropping off ledge, double jumping ",
-             "immediately, and quickly airdodging onto stage. Each input",
-             "is performed quickly after the last, making it difficult and risky."},
+        .kind = OPTKIND_MENU, .name = "Help", .menu = &LdshMenu_Help,
+        .desc = {"Learn the release cue, inputs, collision timing and GALINT."},
     },
     {
         .kind = OPTKIND_FUNC, .name = "Reset Event Settings",
@@ -247,6 +300,7 @@ static ShortcutList Ldsh_ShortcutList = {
 };
 
 static EventMenu LdshMenu_Main = {
+    .on_exit = Event_Exit,
     .name = "Ledgedash Training",
     .option_num = sizeof(LdshOptions_Main) / sizeof(EventOption),
     .options = LdshOptions_Main,
@@ -275,11 +329,14 @@ static void Ledgedash_ChangeTips(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_LEDGEDASH, TM_LEDGE_TIPS, value);
     Tips_Toggle(menu, value);
 }
+static void Ledgedash_ChangeHitboxTrails(GOBJ *menu, int value) {
+    event_vars->trails->set_override(&LdshOptions_Main[OPT_TRAILS].val);
+}
 static void Ledgedash_ResetSettings(GOBJ *menu) {
     /* Defaults for the event-local choices too; callbacks run once after the batch. */
     static const u8 main_defaults[OPT_EGG] = {
         [OPT_RESET] = TM_LEDGE_DEFAULT_RESET, [OPT_HUD] = 1, [OPT_TIPS] = TM_LEDGE_DEFAULT_TIPS,
-        [OPT_RESETDELAY] = TM_LEDGE_DEFAULT_DELAY, [OPT_PROTECTION] = 1,
+        [OPT_RESETDELAY] = TM_LEDGE_DEFAULT_DELAY, [OPT_TANGIBILITY] = 1,
     };
     static const u8 egg_defaults[EGG_DAMAGE + 1] = {
         [EGG_DISTANCE] = 20, [EGG_MIN_DISTANCE] = 10, [EGG_MAX_DISTANCE] = 35, [EGG_DAMAGE] = 10,
@@ -307,6 +364,8 @@ static void Ledgedash_ResetSettings(GOBJ *menu) {
 void Event_Init(GOBJ *gobj)
 {
     Ledgedash_LoadSettings();
+    event_vars->set_tangibility_overlay(&LdshOptions_Main[OPT_TANGIBILITY].val);
+    Ledgedash_ChangeHitboxTrails(0, LdshOptions_Main[OPT_TRAILS].val);
     LedgedashData *event_data = gobj->userdata;
     Ledgedash_EggCleanup();
     GOBJ *cleanup = GObj_Create(0, 0, 0);
@@ -381,9 +440,11 @@ void Event_Think(GOBJ *event)
 }
 void Event_Exit(GOBJ *menu)
 {
+    event_vars->trails->set_override(0);
     Memcard_SaveIfChanged();
     Ledgedash_EggCleanup();
     event_vars->set_local_overlay(Fighter_GetGObj(0), 0);
+    event_vars->set_tangibility_overlay(0);
     // end game
     stc_match->state = 3;
 
@@ -465,6 +526,7 @@ void Ledgedash_HUDThink(LedgedashData *event_data, FighterData *hmn_data)
 
             // save airdodge angle
             event_data->hud.airdodge_angle = angle;
+            event_data->airdodge_stick = hmn_data->input.lstick;
             event_data->action_state.is_airdodge = 1;
         }
     }
@@ -521,7 +583,8 @@ void Ledgedash_ResetThink(LedgedashData *event_data, GOBJ *hmn)
          * airdodge check during a Falling start. Hard criteria alone keep their
          * grounded GALINT opportunity open until the verdict is resolved. */
         int pending_hard = event_data->attempt.phase == LDSH_LANDED &&
-            LdshOptions_Main[OPT_CRITERION].val >= LDSH_ACT_GALINT && hmn_data->hurt.intang_frames.ledge > 0;
+            (LdshOptions_Main[OPT_CRITERION].val == LDSH_ACT_GALINT ||
+             LdshOptions_Main[OPT_CRITERION].val == LDSH_POP_EGG) && hmn_data->hurt.intang_frames.ledge > 0;
         if (Ldsh_LegacyResetFailure(hmn_data->state_id, hmn_data->TM.state_frame,
                 hmn_data->flags.dead, !hmn_data->phys.air_state,
                 event_data->action_state.is_release, pending_hard)) {
@@ -655,13 +718,14 @@ void Ledgedash_HitLogGX(GOBJ *gobj, int pass)
     static GXColor detect_diffuse = {255, 255, 255, 150};
 
     LdshHitlogData *hitlog_data = gobj->userdata;
+    LedgedashData *event_data = event_vars->event_gobj->userdata;
     
     // panel info
-    event_vars->HUD_DrawInfoPanel((const char**)panel_labels, (const char**)panel_info,
-        LdshOptions_EggMenu[EGG_ENABLE].val ? countof(panel_labels) : countof(panel_labels) - 1);
+    event_vars->HUD_DrawInfoPanelWithStick((const char**)panel_labels, (const char**)panel_info,
+        LdshOptions_EggMenu[EGG_ENABLE].val ? countof(panel_labels) : countof(panel_labels) - 1,
+        0, &event_data->displayed_stick);
 
     // action log
-    LedgedashData *event_data = event_vars->event_gobj->userdata;
     static char *names[] = {
         "Cliffwait",
         "Fall",
@@ -1440,6 +1504,7 @@ static void Ledgedash_UpdateAttempt(LedgedashData *data, FighterData *ft) {
     if (data->action_state.is_airdodge)
         sprintf(angle_text, "%.2f", fabs(data->hud.airdodge_angle / M_1DEGREE));
     else sprintf(angle_text, "-");
+    data->displayed_stick = data->action_state.is_airdodge ? data->airdodge_stick : (Vec2){0, 0};
     ((LdshHitlogData *)data->hitlog_gobj->userdata)->num = 0;
 }
 static void Ledgedash_ApplyOverlay(LedgedashData *data, GOBJ *fighter) {
@@ -1449,15 +1514,7 @@ static void Ledgedash_ApplyOverlay(LedgedashData *data, GOBJ *fighter) {
     if (frame < countof(data->action_state.action_log)) action = data->action_state.action_log[frame];
     GXColor color = action_colors[action];
     int colored = LdshOptions_Main[OPT_OVERLAYS].val && frame < countof(data->action_state.action_log);
-    int protected = LdshOptions_Main[OPT_PROTECTION].val && event_vars->is_protected(fighter);
-    if (protected) {
-        if (!colored || action == LDACT_NONE) color = action_colors[LDACT_GALINT];
-        color.r += (255 - color.r) * 2 / 5;
-        color.g += (255 - color.g) * 2 / 5;
-        color.b += (255 - color.b) * 2 / 5;
-        color.a = 230;
-    }
-    event_vars->set_local_overlay(fighter, !ft->flags.dead && (colored || protected) ? &color : 0);
+    event_vars->set_local_overlay(fighter, !ft->flags.dead && colored ? &color : 0);
 }
 static void Ledgedash_ChangeLedge(GOBJ *menu, int value) {
     LedgedashData *data = event_vars->event_gobj->userdata;

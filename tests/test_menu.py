@@ -26,11 +26,11 @@ def build():
 
 
 class Machine:
-    def __init__(self):
+    def __init__(self, elf_name="menu-test.elf", init_name="TestMenuInit"):
         self.cpu = Uc(UC_ARCH_PPC, UC_MODE_32 | UC_MODE_BIG_ENDIAN)
         self.cpu.mem_map(0x100000, 0x100000)
         self.cpu.mem_map(0x80000000, 0x500000)
-        elf = (ROOT / "build/menu-test.elf").read_bytes()
+        elf = (ROOT / "build" / elf_name).read_bytes()
         shoff = struct.unpack_from(">I", elf, 0x20)[0]
         stride, count = struct.unpack_from(">HH", elf, 0x2E)
         sections = [struct.unpack_from(">10I", elf, shoff + i * stride) for i in range(count)]
@@ -45,7 +45,7 @@ class Machine:
                 for at in range(0, size, entry):
                     name, value, *_ = struct.unpack_from(">IIIBBH", elf, offset + at)
                     self.symbols[names[name:].split(b"\0", 1)[0].decode()] = value
-        self.call("TestMenuInit")
+        self.call(init_name)
 
     def call(self, name, *args):
         self.cpu.reg_write(reg.UC_PPC_REG_1, 0x80400000)
@@ -148,6 +148,16 @@ class MenuTests(unittest.TestCase):
         self.m.call("TestMenuWriteSource", 1, 1, 77)
         self.assertEqual(self.m.call("TestMenuValue", option), 77)
 
+    def test_a_smash_precedes_both_global_overrides(self):
+        _, names, _ = self.m.graph()
+        options = names['Global Settings'][:3]
+        def label(option):
+            address = struct.unpack('>I', self.m.cpu.mem_read(option + 12, 4))[0]
+            return bytes(self.m.cpu.mem_read(address, 80)).split(b'\0', 1)[0].decode()
+        self.assertEqual([label(option) for option in options],
+                         ['A-Smash Release', 'OVERRIDE ALL OSDS OFF', 'OVERRIDE CPU OSDS OFF'])
+        self.assertEqual([self.m.call('TestMenuOrigin', option) for option in options], [519, 521, 520])
+
     def test_optimized_lab_dat_views_after_native_relocation(self):
         """Validate production pointers, not just the ELF compiler layout."""
         dat = (ROOT / "build/lab.dat").read_bytes()
@@ -206,7 +216,7 @@ class MenuTests(unittest.TestCase):
         root = word(base + public[3])
         self.assertEqual(byte(root + 36), 8)
         tabs = word(root + 32)
-        observed, visited, option_pointers = {}, set(), {}
+        observed, visited, option_pointers, ordered = {}, set(), {}, {}
         def walk(menu, depth):
             self.assertLessEqual(depth, 3)
             if menu in visited:
@@ -230,6 +240,7 @@ class MenuTests(unittest.TestCase):
                     if label:
                         option_label = text(label)
                         observed.setdefault(option_label, []).append(name)
+                        ordered.setdefault(name, []).append(option_label)
                         option_pointers[option_label] = option
                     for desc in range(4):
                         description = word(option + 16 + desc * 4)
@@ -245,6 +256,8 @@ class MenuTests(unittest.TestCase):
         self.assertEqual(observed["Boost Grab"], ["Combat & Defense OSDs"])
         self.assertEqual(observed["Frame Advance"], ["Session"])
         self.assertIn("Recording", observed["Save Positions"])
+        self.assertEqual(ordered['Global Settings'][:3],
+                         ['A-Smash Release', 'OVERRIDE ALL OSDS OFF', 'OVERRIDE CPU OSDS OFF'])
         # The opt-in root callback lives in the relocated Lab, not shared-code
         # exports. Simulate a disabled recording mode before the state exists.
         reason_callback = word(root + 44)

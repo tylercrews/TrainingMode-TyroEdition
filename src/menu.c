@@ -153,10 +153,33 @@ void EventMenu_ChangeOptionVal(GOBJ *gobj, EventOption* option, int val) {
     EventMenu_UpdateText(gobj);
 }
 
+int Event_CheckExitInput(void)
+{
+    // Match native LRAS, including analog-only triggers on either shoulder.
+    for (int i = 0; i < 4; i++) {
+        HSD_Pad *pad = PadGetMaster(i);
+        if ((pad->held & (HSD_BUTTON_A | HSD_BUTTON_START)) == (HSD_BUTTON_A | HSD_BUTTON_START)
+            && ((pad->held & HSD_TRIGGER_L) || pad->triggerLeft >= ANALOG_TRIGGER_THRESHOLD)
+            && ((pad->held & HSD_TRIGGER_R) || pad->triggerRight >= ANALOG_TRIGGER_THRESHOLD))
+            return 1;
+    }
+    return 0;
+}
+
 void EventMenu_Update(GOBJ *gobj)
 {
     MenuData *menu_data = gobj->userdata;
     EventMenu *curr_menu = menu_data->curr_menu;
+
+    // Check before pause, navigation and custom menus so the combo always exits.
+    if (menu_data->root_menu->on_exit && Event_CheckExitInput()) {
+        if (menu_data->mode == MenuMode_Paused)
+            EventMenu_ExitMenu(gobj);
+        else
+            Memcard_SaveIfChanged();
+        menu_data->root_menu->on_exit(gobj);
+        return;
+    }
 
     bool pause_pressed = false;
     int pause_index = 0;
