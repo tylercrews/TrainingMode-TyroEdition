@@ -106,6 +106,7 @@ enum TMSettingsField {
     TM_SETTING_SWEETSPOT_CAMERA, /* Index 0 only: Normal (0) / Zoomed Out (1). */
     TM_SETTING_REVERSAL,
     TM_SETTING_ATTACK_SHIELD,
+    TM_SETTING_EDITOR_PAGE, /* Runtime-only Global Settings page; never saved. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -162,8 +163,12 @@ extern const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS];
 static inline unsigned TMSettings_OSDCategoryID(unsigned slot) {
     return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] : TM_GLOBAL_ASMASH_RELEASE_ID;
 }
-extern const uint8_t TMSettings_EditorIDs[29];
-int TMSettings_EditorID(unsigned native_row);
+#define TM_EDITOR_PAGES 2
+#define TM_EDITOR_ROWS 29
+extern const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS];
+/* Physical RSS row -> setting binding on one Global Settings page. */
+int TMSettings_EditorIDFor(unsigned page, unsigned native_row);
+int TMSettings_EditorID(unsigned native_row); /* Page 0. */
 int TMSettings_NativeFlag(unsigned row);
 void TMSettings_Init(uint8_t record[TM_SETTINGS_SIZE]);
 int TMSettings_Prepare(uint8_t record[TM_SETTINGS_SIZE], int owns_save);

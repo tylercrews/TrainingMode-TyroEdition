@@ -19,7 +19,7 @@ static struct {
 static const char *category_names[TM_OSD_CATEGORIES] = {
     "Wavedash", "L-Cancel", "Act OoS", "Dashback", "Fighter-specific Tech",
     "Powershield", "SDI Inputs", "Lockout Timers", "Item Throw Interrupts", "Boost Grab",
-    "Act OoWait", "Act OoAirborne", "Jump Cancel", "Fastfall", "Frame Advantage",
+    "Act OoWait", "Act OoJump", "Jump Cancel", "Fastfall", "Frame Advantage",
     "Combo Counter", "Grab Breakout", "Ledgedash", "Act OoHitstun", TM_GLOBAL_ASMASH_RELEASE_NAME,
 };
 static const char *slot_name(unsigned key) {

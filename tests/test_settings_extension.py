@@ -91,11 +91,11 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(bool(m.call('Settings_Get', 0, 0) & (1 << 30)), bool(color))
             self.assertEqual(m.record(), core)
         m.call('Settings_Set', 14, 30, 7)
-        m.call('Settings_Set', 17, 16, 1)  # Native Boolean exit pass retains chosen palette.
+        m.call('Settings_Set', 17, 6, 1)  # Native Boolean exit pass (A-Smash physical row 6) retains chosen palette.
         self.assertEqual(m.call('Settings_Get', 14, 30), 7)
-        m.call('Settings_Set', 17, 16, 0)
+        m.call('Settings_Set', 17, 6, 0)
         self.assertEqual(m.call('Settings_Get', 14, 30), 0)
-        m.call('TestEditorInit'); m.call('TestEditorInput', 0x200, 19)
+        m.call('TestEditorInit'); m.call('TestEditorInput', 0x200, 6)  # A-Smash Release row
         self.assertEqual(m.call('Settings_Get', 14, 30), 1)
         self.assertEqual(m.record(), core)
         m.call('Settings_Set', 0, 0, m.call('Settings_Get', 0, 0) & ~(1 << 30))

@@ -261,7 +261,20 @@ void TestEditorInit(void) {
     *(Text **)(editor_data + 0x44) = &editor_right;
     OSD_EditorInit(editor_data);
 }
-int TestEditorInput(unsigned buttons, unsigned row) { return OSD_EditorInput(editor_data, buttons, row); }
+int TestEditorInput(unsigned buttons, unsigned row) {
+    *(volatile uint16_t *)0x804A04F2 = row; /* Native input always applies to the cursor row. */
+    return OSD_EditorInput(editor_data, buttons, row);
+}
+/* Native "entry finished" pass after a page switch: Texts are recreated, then init. */
+void TestEditorReload(void) {
+    /* Native end-of-entry clears HIDDEN on both columns; the next input re-hides gaps. */
+    for (unsigned i = 0; i < 29; ++i) editor_joints[i].flags &= ~JOBJ_HIDDEN;
+    *(Text **)(editor_data + 0x40) = &editor_left;
+    *(Text **)(editor_data + 0x44) = &editor_right;
+    OSD_EditorInit(editor_data);
+}
+unsigned TestEditorByte(unsigned offset) { return editor_data[offset]; }
+unsigned TestEditorTextPtr(unsigned column) { return *(uint32_t *)(editor_data + 0x40 + column * 4); }
 unsigned TestEditorCache(unsigned row) { return editor_data[row + 2]; }
 void TestEditorAnimate(unsigned row) { editor_data[row + 2] = *(volatile uint8_t *)0x804A04F4; }
 unsigned TestEditorChoiceChar(unsigned row, unsigned offset) { return editor_choices[row][offset]; }
@@ -502,6 +515,7 @@ Text *Text_CreateText(int sis, int canvas) {
 void Text_Destroy(Text *text) { int i = layout_text_index(text); if (i >= 0) layout_texts[i].live = 0; }
 void JOBJ_SetMtxDirtySub(JOBJ *joint) {}
 void JOBJ_GetChild(JOBJ *joint, JOBJ **out, int index, ...) { *out = 0; }
+void JOBJ_ReqAnimAll(JOBJ *joint, float frame) {}
 void Message_FreeObject(GOBJ *object) {
     ++layout_freed;
     MsgData *msg = object->userdata;

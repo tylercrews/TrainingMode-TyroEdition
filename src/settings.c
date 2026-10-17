@@ -5,20 +5,27 @@
 const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
     0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28,
 };
-/* Read down the left column, then the right. 255 marks a display-only gap. */
-const uint8_t TMSettings_EditorIDs[29] = {
-    0,1,3,5,8,9,10,12,13,14,16,18,19,20,21,
-    22,24,26,28,30,29,6,2,4,7,17,11,23,25,
+/* Read down the left column, then the right. 255 marks a display-only gap.
+ * Page 0, Global OSDs: movement/tech, Act Oo*, then (right column) shield and
+ * escape, punish, ledge/items, and both overrides in the bottom-right corner.
+ * Page 1, Global Overlays & Gameplay: visual cues, then Infinite Shields. */
+const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS] = {
+    { 0,1,20,19,5,8,30,255,3,16,18,28,255,255,255,
+      9,10,24,12,255,21,22,255,26,13,14,255,29,6, },
+    { 2,4,7,17,11,25,255,23,255,255,255,255,255,255,255,
+      255,255,255,255,255,255,255,255,255,255,255,255,255,255, },
 };
-int TMSettings_EditorID(unsigned native_row) {
+int TMSettings_EditorIDFor(unsigned page, unsigned native_row) {
     static const uint8_t physical[] = {
         0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,
         12,13,14,15,16,17,18,19,20,21,22,23,25,27,
     };
+    if (page >= TM_EDITOR_PAGES) return 255;
     for (unsigned i = 0; i < sizeof(physical); ++i)
-        if (physical[i] == native_row) return TMSettings_EditorIDs[i];
+        if (physical[i] == native_row) return TMSettings_EditorIDs[page][i];
     return 255;
 }
+int TMSettings_EditorID(unsigned native_row) { return TMSettings_EditorIDFor(0, native_row); }
 int TMSettings_NativeFlag(unsigned row) {
     switch (row) {
     case TM_GLOBAL_OSDS_OFF_ROW: return TM_FLAG_OSDS_OFF;

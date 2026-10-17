@@ -15,7 +15,9 @@ static u8 fallback[TM_SETTINGS_SIZE];
 static int seen;
 static int last_owns;
 static int status;
-static unsigned osd_page;
+static unsigned osd_page, editor_page;
+/* ASM/Globals.s mirrors this as SettingsField_EditorPage. */
+typedef char TMSettings_EditorPageField[TM_SETTING_EDITOR_PAGE == 35 ? 1 : -1];
 static int pending_save; /* Survives native archive unload clearing its own xC. */
 static int queued_to_native;
 static u8 extension_fallback[TM_EXTENSION_SIZE];
@@ -77,7 +79,8 @@ static void extension_set(unsigned field,unsigned index,u32 value) {
 }
 uint32_t Settings_Get(unsigned field, unsigned index) {
     if (field == TM_SETTING_OSD_PAGE) return osd_page;
-    if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorID(index); field=TM_SETTING_NATIVE_ROW; }
+    if (field == TM_SETTING_EDITOR_PAGE) return editor_page;
+    if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID))
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && index==TM_GLOBAL_ASMASH_RELEASE_ID)
@@ -91,7 +94,8 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
 
 void Settings_Set(unsigned field, unsigned index, uint32_t value) {
     if (field == TM_SETTING_OSD_PAGE) { if (value < 19) osd_page = value; return; }
-    if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorID(index); field=TM_SETTING_NATIVE_ROW; }
+    if (field == TM_SETTING_EDITOR_PAGE) { if (value < TM_EDITOR_PAGES) editor_page = value; return; }
+    if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)) {
         extension_set(field,index,value); return;
     }

@@ -43,17 +43,17 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - ~~For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?~~ Resolved in T5: the "duplicates" were the CPU's own OSD cells, and the remembered OSD page could hide your cells. CPU cells are now tagged and matches start on page 1.
 - the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
 - see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
-- the button controls to select the color for the OSDs are really annoying and unintuitive
+- ~~the button controls to select the color for the OSDs are really annoying and unintuitive~~ Resolved in T5: A/B step forward/back, Start saves and exits, L/R switch pages.
 - would be nice to reorder your OSDs how you want
 - set up the Training Lab settings to save now that we have the memory available to use
-- Act OOWait is listed as Act OOLag in the menu
+- ~~Act OOWait is listed as Act OOLag in the menu~~ Resolved in T5.
 - rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
 - make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily
-- the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically
+- ~~the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically~~ Resolved in T5: regrouped on the new Global OSDs page.
 - Similar Actionable X>Green for hitstun ending?
 - maybe instead of a full octagon for the wavedash angle display I should have a half-octagon. It would make the display a little larger relatively, but might make a little less sense. But I think it's only being used for wavedash OSDs so there's no need to worry about reusability
 - eggsercise when you have infinite mode on has a wonky timer - starts counting up from wherever the timer was when you switched. If you switch during the last 5 seconds when the timer swaps over to the large 5 4 3 2 1 numbers, it will get stuck at 5 forever. Should probably make it so when you start on infinite mode it starts at 0 just because I like to take screenshots of how long I practice
-- Act OOAirborne in menu is Act OOJump in game
+- ~~Act OOAirborne in menu is Act OOJump in game~~ Resolved in T5: renamed to Act OoJump.
 - There should be an Act OOAttack OSD
 - the Green>Yellow when actionable overlay does not tell you when you're actionable out of grabs. This would be tremendously helpful when learning to chaingrab/upthrow different characters with fox
 
@@ -66,6 +66,9 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - **Globals and all events**
     - Fixed Grid and Practice Panel OSD cells that belong to a CPU now have a small grey **CPU** tag, so a CPU's block of cells (which never updates if the CPU doesn't wavedash, shine, etc.) can't be mistaken for frozen duplicates of your own OSDs. Turning on **Override CPU OSDs Off** still hides them entirely.
     - Every match now starts on OSD page 1. Previously the page chosen in the global OSD menu (or left over from the last match) carried into the next match, which could hide your Wavedash/character-specific cells on a page you weren't looking at.
+    - Split the Global Settings menu into two pages, **Global OSDs** and **Global Overlays & Gameplay**, switched with L/R. The OSD page is regrouped (movement/tech, Act Oo*, shield/escape, punish, ledge/items) with the two OVERRIDE rows in the bottom-right corner below a blank line.
+    - New Global Settings controls: **A** steps a setting forward, **B** steps it backward, **Start** saves and exits, X/Y still change the OSD display. (Previously Start stepped backward and B exited, and R didn't actually turn the page.)
+    - Renamed the **Act OoLag** and **Act OoAirborne** menu entries to **Act OoWait** and **Act OoJump**, matching how they show up in game.
 
 ### T4 (V1.4.1T4)
 

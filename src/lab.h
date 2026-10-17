@@ -994,14 +994,14 @@ static EventOption LabOptions_OSDs[] = {
         .kind = OPTKIND_STRING,
         .value_num = 8,
         .values = LabOSD_ColorNames,
-        .name = "Act OoLag",
+        .name = "Act OoWait",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
         .value_num = 8,
         .values = LabOSD_ColorNames,
-        .name = "Act OoAirborne",
+        .name = "Act OoJump",
         .OnChange = Lab_ChangeOSDs,
     },
     {

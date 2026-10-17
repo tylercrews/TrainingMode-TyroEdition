@@ -18,6 +18,11 @@
     li r0, 5
     sth r0, -0x4AD8(r13)
 
+    # Global Settings always opens on its first page (Global OSDs), before
+    # the native menu loads each row through the page's editor bindings.
+    li r3, 0
+    SettingsWrite SettingsField_EditorPage, 3
+
     # LOAD RSS
     branchl r3, 0x80237410
 

@@ -265,7 +265,7 @@ TextProperties:
     .long 0xC22C0000        # Center Title Y
     .float 0                # OSD Position text X
     .float -43.0            # OSD Position text Y
-    .float -120.0           # XYText X
+    .float 320.0            # XYText X (right-aligned; the row-0 line is otherwise empty)
     .float -7.25            # XYText Y
     .float 800
     .float -43.0
@@ -308,7 +308,7 @@ OSDPositionTextPanel:
 
 XYText:
     blrl
-    .string "X/Y: Display  L/R: Page  B/Z: Color"
+    .string "A/B: Change  L/R: Page  X/Y: Display  Start: Save"
     .align 2
 
 FDDRecommended:
@@ -356,9 +356,9 @@ TextASCIIRight:
     .string "Item Throw Interrupts" # OSD ID 13
     .string "Boost Grab"
     .string "" # DO NOT USE - reserved for custom events
-    .string "Act OoLag"
+    .string "Act OoWait"
     .string "" # OSD ID 17
-    .string "Act OoAirborne"
+    .string "Act OoJump"
     .string "Jump Cancel Timing"
     .string "Fastfall Timing"
     .string "Frame Advantage"
