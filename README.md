@@ -70,6 +70,9 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - New Global Settings controls: **A** steps a setting forward, **B** steps it backward, **Start** saves and exits, X/Y still change the OSD display. (Previously Start stepped backward and B exited, and R didn't actually turn the page.)
     - Renamed the **Act OoLag** and **Act OoAirborne** menu entries to **Act OoWait** and **Act OoJump**, matching how they show up in game.
     - Added a **Randall Overlay** (Global Overlays & Gameplay page, and Training Lab > Stage Options on Yoshi's Story). It draws Randall's platform and a cloud outline on top of everything, so you can always see where he is on his track, even while he's behind the stage. The platform line comes from Randall's live collision, so it matches exactly where you can land.
+    - Randall Overlay is also available as a standalone **Slippi Gecko code** for netplay/vanilla Melee: see [slippi/randall-overlay](slippi/randall-overlay/README.md). It's visual only, so it can't desync.
+    - Fixed Global Settings checkboxes keeping the other page's ON/OFF state after an L/R page switch (for example Randall Overlay showing ON next to "Off" until first pressed). Every checkbox is now set from its own setting whenever the page is drawn.
+    - The Global Overlays & Gameplay page is grouped into **character overlays**, **character gameplay** (Infinite Shields) and **stage overlays** (Randall Overlay), separated by blank rows.
 
 ### T4 (V1.4.1T4)
 

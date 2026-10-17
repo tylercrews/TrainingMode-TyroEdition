@@ -29,6 +29,7 @@ static const char *display_names[] = { TM_OSD_DISPLAY_NAMES };
 #define RSS_SELECTED (*(volatile u8 *)0x804A04F4) /* Cursor row's live Boolean. */
 #define RSS_BUSY R13_U8(-0x4AAC)                  /* Think ignores input while set. */
 #define RSS_ENTER_END (*(float *)0x803ED498)      /* Entry animation's final frame. */
+#define RSS_CHECKBOX_FRAMES ((float *)R13_OFFSET(-0x6AE8)) /* Off/On frames, as in 0x802368DC. */
 #define RSS_TITLE_SUBTEXT 16
 /* RSS think receives remapped menu bits, not raw pad bits. Start also sets
  * 0x10 (confirm) but exits first via "Start Exits Custom RSS". */
@@ -63,17 +64,32 @@ static void hide_tree(JOBJ *joint) {
     joint->flags |= JOBJ_HIDDEN;
     for (JOBJ *child = joint->child; child; child = child->sibling) hide_tree(child);
 }
+/* Same column-root/child/sibling layout as native RSS at 0x802364A0. */
+static JOBJ *row_joint(void *data, unsigned row) {
+    JOBJ *root = *(JOBJ **)((uint8_t *)data + (row < 15 ? 0x2C : 0x34));
+    JOBJ *joint = root ? root->child : 0;
+    unsigned index = row < 15 ? row : row - 15;
+    while (index-- && joint) joint = joint->sibling;
+    return joint;
+}
 static void hide_gaps(void *data) {
-    /* Same column-root/child/sibling layout as native RSS at 0x802364A0.
-     * Do not follow a row's next sibling when hiding its subtree. */
+    /* Do not follow a row's next sibling when hiding its subtree. */
     for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row) {
         if (row_name(row)) continue;
-        JOBJ *root = *(JOBJ **)((uint8_t *)data + (row < 15 ? 0x2C : 0x34));
-        JOBJ *joint = root ? root->child : 0;
-        unsigned index = row < 15 ? row : row - 15;
-        while (index-- && joint) joint = joint->sibling;
+        JOBJ *joint = row_joint(data, row);
         if (joint) hide_tree(joint);
     }
+}
+/* Pose a row's checkbox (child 2) for its Boolean, exactly as the native toggle
+ * path does for the cursor row. Native RSS never re-poses other rows, so a page
+ * switch would otherwise keep the previous page's ON/OFF boxes. */
+static void pose_checkbox(void *data, unsigned row, unsigned on) {
+    JOBJ *joint = row_joint(data, row), *box = 0;
+    if (!joint) return;
+    JOBJ_GetChild(joint, &box, 2, -1);
+    if (!box) return;
+    JOBJ_ReqAnimAll(box, RSS_CHECKBOX_FRAMES[!!on]);
+    JOBJ_AnimAll(box);
 }
 
 static int flag_for(unsigned id) {
@@ -113,6 +129,7 @@ void OSD_EditorInit(void *data) {
     /* Native think animates the cursor row whenever its snapshot differs from
      * the live Boolean; match them so a new page does not fake a toggle. */
     if (RSS_CURSOR < TM_EDITOR_ROWS) RSS_SELECTED = ((uint8_t *)data)[RSS_CURSOR + 2];
+    for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row) pose_checkbox(data, row, ((uint8_t *)data)[row + 2]);
     hide_gaps(data);
     refresh_display(data);
     refresh_title(data);

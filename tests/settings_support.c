@@ -514,8 +514,24 @@ Text *Text_CreateText(int sis, int canvas) {
 }
 void Text_Destroy(Text *text) { int i = layout_text_index(text); if (i >= 0) layout_texts[i].live = 0; }
 void JOBJ_SetMtxDirtySub(JOBJ *joint) {}
-void JOBJ_GetChild(JOBJ *joint, JOBJ **out, int index, ...) { *out = 0; }
-void JOBJ_ReqAnimAll(JOBJ *joint, float frame) {}
+/* Editor rows expose a checkbox child (index 2) whose requested frame is recorded. */
+static JOBJ editor_boxes[29];
+static float editor_box_frames[29];
+static int editor_box_index(JOBJ *box) {
+    for (unsigned i = 0; i < 29; ++i) if (box == &editor_boxes[i]) return i;
+    return -1;
+}
+void JOBJ_GetChild(JOBJ *joint, JOBJ **out, int index, ...) {
+    *out = 0;
+    for (unsigned i = 0; i < 29; ++i)
+        if (joint == &editor_joints[i] && index == 2) *out = &editor_boxes[i];
+}
+void JOBJ_ReqAnimAll(JOBJ *joint, float frame) {
+    int i = editor_box_index(joint);
+    if (i >= 0) editor_box_frames[i] = frame;
+}
+void JOBJ_AnimAll(JOBJ *joint) {}
+int TestEditorBoxFrame(unsigned row) { return row < 29 ? (int)editor_box_frames[row] : -1; }
 void Message_FreeObject(GOBJ *object) {
     ++layout_freed;
     MsgData *msg = object->userdata;
