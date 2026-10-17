@@ -25,8 +25,8 @@ off saving replay files; watching or recording a replay is not necessary.
 The tint appears on **all fighters**, including opponents and Ice Climbers'
 subfighters. Yellow lasts the final two unfrozen recovery frames; green confirms
 recovery for two frames. Normal/autocancel landing, special landing, aerial
-landing lag at its actual L-cancel rate, and ordinary grounded/aerial attacks
-follow the Training Mode overlay. Game & Watch's custom normal attacks and
+landing lag at its actual L-cancel rate, ordinary grounded/aerial attacks and
+ordinary throws (F/B/U/D) follow the Training Mode overlay. Game & Watch's custom normal attacks and
 Kirby's dash attack are included. Specials, rapid-jab startup/loops, animation
 loops and other unsupported recovery types do not get guessed timing cues.
 FoD's separate floor reflection keeps its native appearance.

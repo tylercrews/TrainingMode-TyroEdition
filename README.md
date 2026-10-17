@@ -73,6 +73,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - Randall Overlay is also available as a standalone **Slippi Gecko code** for netplay/vanilla Melee: see [slippi-gecko-codes/randall-overlay](slippi-gecko-codes/randall-overlay/README.md). It's visual only, so it can't desync.
     - Fixed Global Settings checkboxes keeping the other page's ON/OFF state after an L/R page switch (for example Randall Overlay showing ON next to "Off" until first pressed). Every checkbox is now set from its own setting whenever the page is drawn.
     - The Global Overlays & Gameplay page is grouped into **character overlays**, **character gameplay** (Infinite Shields) and **stage overlays** (Randall Overlay), separated by blank rows.
+    - The yellow/green actionable overlay now also covers throws: after your forward/back/up/down throw, you get the yellow warning and green flash at the exact frame the throw animation ends and you can move again (weight-dependent throw speeds included). Character-special throws like DK's cargo carry and Kirby's swallow aren't covered. The Actionable Slippi Gecko code got the same change.
 
 ### T4 (V1.4.1T4)
 
