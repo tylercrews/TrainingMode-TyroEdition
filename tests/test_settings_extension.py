@@ -15,16 +15,19 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
+CURRENT = 13  # TM_EXTENSION_VERSION
+RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by every migration.
 
 def upgraded(raw):
     value = bytearray(raw)
-    value[4:6] = bytes((12,16))
+    value[4:6] = bytes((CURRENT,16))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
     value[15] &= 0x3F
+    value[8] &= ~RANDALL
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2), (1,0)), (31, PS_COUNTS, PS_DEFAULTS))
@@ -36,6 +39,50 @@ class ExtensionTests(unittest.TestCase):
         self.m.init()
         self.m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
         self.m.call('TestClearDirty')
+
+    def test_randall_overlay_flag_lives_in_extension_byte_eight_bit_three(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+        m.call('Settings_Set', 14, 30, 5)  # A-Smash palette shares byte 8.
+        m.call('Settings_Set', 11, 9, 1)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0] & 0x0F, RANDALL | 5)
+        self.assertEqual(m.call('Settings_Get', 14, 30), 5)
+        self.assertEqual(m.record(), core)  # The full core record has no room; it is untouched.
+        m.call('Settings_Set', 11, 9, 2)  # Out of range is ignored.
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        m.call('Settings_Set', 11, 9, 0)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+        self.assertEqual(m.call('Settings_Get', 14, 30), 5)
+
+    def test_version_12_padding_never_turns_randall_on(self):
+        m = self.m
+        m.call('Settings_Set', 31, 0, 1)  # Create a current extension.
+        old = bytearray(m.cpu.mem_read(EXT, OWNED_SIZE))
+        old[4] = 12; old[8] |= RANDALL
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+        m.call('Settings_Set', 14, 30, 2)  # First edit migrates to version 13.
+        after = bytes(m.cpu.mem_read(EXT, OWNED_SIZE))
+        expected = bytearray(old); expected[4] = CURRENT; expected[8] = (old[8] & ~(RANDALL | 7)) | 2
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+
+    def test_randall_overlay_editor_row_and_lab_share_the_global_flag(self):
+        m = self.m
+        fixtures.open_editor(m, 1)
+        row = fixtures.editor_row(31)[1]
+        label = 'Randall Overlay'
+        self.assertEqual(''.join(chr(m.call('TestEditorLabelChar', row, i)) for i in range(len(label))), label)
+        m.call('TestEditorInput', fixtures.MENU_A, row)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        m.call('TestEditorAnimate', row)
+        m.call('TestSettingsEditorWrite', fixtures.PHYSICAL[row], m.call('TestEditorCache', row))
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        self.assertEqual(m.call('TestSettingsEditorRow', fixtures.PHYSICAL[row]), 1)
+        m.call('Settings_Set', 16, 31, 0)  # Logical row write, as the Lab and native hooks use.
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
 
     def test_absent_defaults_are_read_only_and_first_edit_only_owns_twenty_bytes(self):
         m = self.m
@@ -55,7 +102,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.record(), core)
         self.assertEqual(bytes(m.cpu.mem_read(EXT - 4, 4)), b'\xA5' * 4)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, 72)), b'\xA5' * 72)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), b'TYEX\x0C\x10\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), b'TYEX\x0D\x10\xA5\x5A')
 
     def test_every_value_and_invalid_write_preserve_neighbors_and_reloaded_preferences(self):
         m = self.m
@@ -149,7 +196,7 @@ class ExtensionTests(unittest.TestCase):
                          (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0))
         self.assertEqual(tuple(m.call('Settings_Get', 28, i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, OWNED_SIZE)),
-                         b'TYEX\x0C\x10\xA5\x5A\xFD\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES)
+                         b'TYEX\x0D\x10\xA5\x5A\xF5\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, REGION_SIZE - OWNED_SIZE)),
                          b'\xE5' * (REGION_SIZE - OWNED_SIZE))
         self.assertEqual(m.record(), core)
@@ -182,8 +229,10 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', 28, 6), (1,13,31,11)[action])
             after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
             self.assertEqual(after[:4], legacy[:4])
-            self.assertEqual(after[4:6], bytes((12,16)))
-            self.assertEqual(after[6:11], legacy[6:11])
+            self.assertEqual(after[4:6], bytes((CURRENT,16)))
+            self.assertEqual(after[6:8], legacy[6:8])
+            self.assertEqual(after[8], legacy[8] & ~RANDALL)  # Newly owned bit is cleared.
+            self.assertEqual(after[9:11], legacy[9:11])
             self.assertEqual(after[11], legacy[11] & 0x87)
             mask = ~((15 << 18) | (3 << 22)) & 0xFFFFFF
             self.assertEqual(int.from_bytes(after[12:15], 'little') & mask, int.from_bytes(legacy[12:15], 'little') & mask)
@@ -314,7 +363,7 @@ class ExtensionTests(unittest.TestCase):
                              tuple(n-1 for n in PS_COUNTS))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
-            expected = bytearray(old); expected[4:6] = bytes((12,16)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[19] = preset
+            expected = bytearray(old); expected[4:6] = bytes((CURRENT,16)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[19] = preset; expected[8] &= ~RANDALL
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 0)
@@ -345,7 +394,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual((m.call('TMExtension_Read', EXT, 28, 8),m.call('TMExtension_Read', EXT, 28, 9)), (2,0))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
-            expected = bytearray(old); expected[4:6] = bytes((12,16)); expected[20:24] = SHIELD_DEFAULT_BYTES
+            expected = bytearray(old); expected[4:6] = bytes((CURRENT,16)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[8] &= ~RANDALL
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 11)
@@ -370,7 +419,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(tuple(m.call('TMExtension_Read',EXT,field,i) for i in range(len(counts))),defaults)
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
         self.assertEqual(m.call('Settings_Get',28,8),2)
-        expected=bytearray(old);expected[4:6]=bytes((12,16));expected[20:24]=SHIELD_DEFAULT_BYTES
+        expected=bytearray(old);expected[4:6]=bytes((CURRENT,16));expected[20:24]=SHIELD_DEFAULT_BYTES; expected[8] &= ~RANDALL
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
         for field, counts, _ in FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(n-1 for n in counts))
@@ -391,7 +440,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('TMExtension_Read',EXT,34,4),0)
             self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
             self.assertEqual(m.call('Settings_Get',34,0),action if action<10 else 0)
-            expected=bytearray(old);expected[4]=12
+            expected=bytearray(old);expected[4]=CURRENT; expected[8] &= ~RANDALL
             expected[20]=(expected[20]&0xF0) # Version-11 invalid attack padding repairs to choice zero.
             word=int.from_bytes(expected[20:24],'little')&~((1<<19)|(1<<20))
             if action>=10:word&=~(15<<9)
@@ -449,7 +498,7 @@ class RelocatedExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('DAT_Get',27,i) for i in range(len(COUNTS))),
                          (8,1,0,2,2,2,3,1,7,0,0))
         self.assertEqual(tuple(m.call('DAT_Get',28,i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), b'TYEX\x0C\x10\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), b'TYEX\x0D\x10\xA5\x5A')
         self.assertEqual(bytes(m.cpu.mem_read(EXT+OWNED_SIZE,REGION_SIZE-OWNED_SIZE)),
                          b'\xE5'*(REGION_SIZE-OWNED_SIZE))
         self.assertEqual(m.record(),core)

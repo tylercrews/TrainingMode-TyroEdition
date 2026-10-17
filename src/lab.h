@@ -822,6 +822,29 @@ static EventMenu LabMenu_Stage_FOD = {
     .options = LabOptions_Stage_FOD,
 };
 
+// STAGE MENU YOSHI'S STORY -------------------------------------------------
+
+enum stage_story_option
+{
+    OPTSTAGE_STORY_RANDALL,
+    OPTSTAGE_STORY_COUNT,
+};
+
+static EventOption LabOptions_Stage_Story[OPTSTAGE_STORY_COUNT] = {{
+    .kind = OPTKIND_TOGGLE,
+    .name = TM_GLOBAL_RANDALL_NAME,
+    .desc = {"Always show Randall's platform and cloud,",
+             "even while it passes behind the stage.",
+             "Shares the Global Overlays & Gameplay setting."},
+    .OnChange = Lab_ChangeRandallOverlay,
+}};
+
+static EventMenu LabMenu_Stage_Story = {
+    .name = "Stage Options",
+    .option_num = sizeof(LabOptions_Stage_Story) / sizeof(EventOption),
+    .options = LabOptions_Stage_Story,
+};
+
 // STAGE MENU TABLE --------------------------------------------------------
 
 static EventMenu *stage_menus[] = {
@@ -833,7 +856,7 @@ static EventMenu *stage_menus[] = {
     0,                          // GRKINDEXT_KONGO,
     0,                          // GRKINDEXT_ZEBES,
     0,                          // GRKINDEXT_CORNERIA,
-    0,                          // GRKINDEXT_STORY,
+    &LabMenu_Stage_Story,       // GRKINDEXT_STORY,
     0,                          // GRKINDEXT_ONETT,
     0,                          // GRKINDEXT_MUTECITY,
     0,                          // GRKINDEXT_RCRUISE,

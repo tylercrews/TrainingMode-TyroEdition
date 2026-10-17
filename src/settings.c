@@ -12,7 +12,7 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
 const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS] = {
     { 0,1,20,19,5,8,30,255,3,16,18,28,255,255,255,
       9,10,24,12,255,21,22,255,26,13,14,255,29,6, },
-    { 2,4,7,17,11,25,255,23,255,255,255,255,255,255,255,
+    { 2,4,7,17,11,25,31,255,23,255,255,255,255,255,255,
       255,255,255,255,255,255,255,255,255,255,255,255,255,255, },
 };
 int TMSettings_EditorIDFor(unsigned page, unsigned native_row) {
@@ -37,6 +37,7 @@ int TMSettings_NativeFlag(unsigned row) {
     case TM_GLOBAL_RUN_TURN_ROW: return TM_FLAG_RUN_TURNAROUND;
     case TM_GLOBAL_INFINITE_SHIELDS_ROW: return TM_FLAG_INFINITE_SHIELDS;
     case TM_GLOBAL_INVINCIBILITY_ROW: return TM_FLAG_INVINCIBILITY;
+    case TM_GLOBAL_RANDALL_ROW: return TM_FLAG_RANDALL;
     default: return -1;
     }
 }

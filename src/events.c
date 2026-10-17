@@ -2005,6 +2005,7 @@ void OnSceneChange(void)
     under_fire_camera = 0;
     OSD_SetEventSuppression(0);
     Trails_SceneChange();
+    StageOverlay_SceneChange();
     ActionCues_SceneChange();
     // Hook exists at 801a4c94
     TM_CreateWatermark();
@@ -2024,6 +2025,7 @@ void OnStartMelee(void)
     Powershield_SceneChange();
     Settings_Status();
     Trails_MatchStart();
+    StageOverlay_MatchStart();
     ActionCues_MatchStart();
     Message_Init();
     Tip_Init();

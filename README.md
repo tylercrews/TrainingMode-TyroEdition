@@ -48,7 +48,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - set up the Training Lab settings to save now that we have the memory available to use
 - ~~Act OOWait is listed as Act OOLag in the menu~~ Resolved in T5.
 - rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
-- make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily
+- ~~make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily~~ Resolved in T5: **Randall Overlay** in Global Overlays & Gameplay and in Training Lab's Yoshi's Story stage options.
 - ~~the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically~~ Resolved in T5: regrouped on the new Global OSDs page.
 - Similar Actionable X>Green for hitstun ending?
 - maybe instead of a full octagon for the wavedash angle display I should have a half-octagon. It would make the display a little larger relatively, but might make a little less sense. But I think it's only being used for wavedash OSDs so there's no need to worry about reusability
@@ -69,6 +69,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - Split the Global Settings menu into two pages, **Global OSDs** and **Global Overlays & Gameplay**, switched with L/R. The OSD page is regrouped (movement/tech, Act Oo*, shield/escape, punish, ledge/items) with the two OVERRIDE rows in the bottom-right corner below a blank line.
     - New Global Settings controls: **A** steps a setting forward, **B** steps it backward, **Start** saves and exits, X/Y still change the OSD display. (Previously Start stepped backward and B exited, and R didn't actually turn the page.)
     - Renamed the **Act OoLag** and **Act OoAirborne** menu entries to **Act OoWait** and **Act OoJump**, matching how they show up in game.
+    - Added a **Randall Overlay** (Global Overlays & Gameplay page, and Training Lab > Stage Options on Yoshi's Story). It draws Randall's platform and a cloud outline on top of everything, so you can always see where he is on his track, even while he's behind the stage. The platform line comes from Randall's live collision, so it matches exactly where you can land.
 
 ### T4 (V1.4.1T4)
 

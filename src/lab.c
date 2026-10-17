@@ -267,6 +267,10 @@ void Lab_ChangeStadiumTransformation(GOBJ *menu_gobj, int value) {
     Stadium_Select(value);
 }
 
+void Lab_ChangeRandallOverlay(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL, value);
+}
+
 void Lab_ChangeInputDisplay(GOBJ *menu_gobj, int value) {
     TM_SetSetting(TM_SETTING_INPUT_DISPLAY, 0, value);
 }
@@ -6170,6 +6174,8 @@ void Event_Init(GOBJ *gobj)
 
     // stage options
     EventMenu *stage_menu = stage_menus[Stage_GetExternalID()];
+    LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val =
+        LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val_prev = !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL);
     if (stage_menu != NULL) {
         LabOptions_Main[OPTLAB_STAGE].disable = 0;
         LabOptions_Main[OPTLAB_STAGE].menu = stage_menu;

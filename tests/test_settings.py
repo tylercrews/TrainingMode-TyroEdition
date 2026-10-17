@@ -20,7 +20,7 @@ IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 # Global Settings pages, read down the left column then the right; 255 = gap.
 EDITOR = [
     [0,1,20,19,5,8,30,255,3,16,18,28,255,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
-    [2,4,7,17,11,25,255,23] + [255] * 21,
+    [2,4,7,17,11,25,31,255,23] + [255] * 20,
 ]
 PHYSICAL = [0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,12,13,14,15,16,17,18,19,20,21,22,23,25,27]
 EDITOR_PAGE = 35
@@ -2355,7 +2355,7 @@ class OSDEditorTests(unittest.TestCase):
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
         rows = [id for page in EDITOR for id in page if id != 255]
-        self.assertEqual(sorted(rows), sorted(IDS + [30, 29, 6, 2, 4, 7, 17, 11, 23, 25]))
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31]))
         self.assertTrue(set(IDS + [30]) <= set(EDITOR[0]))
         for page in range(2):
             for native, row in zip(PHYSICAL, range(29)):
@@ -2505,7 +2505,7 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorReload")
         self.assertEqual(self.label(m, 0, 23), "Hitbox Trails Very Fast")
         self.assertEqual(m.call("TestEditorCache", 0), 1)
-        self.assertEqual(m.call("TestEditorHidden", 6), 1)
+        self.assertEqual(m.call("TestEditorHidden", 7), 1)
         self.assertEqual(m.call("TestEditorLabelChar", master, 0), 0)
         # Exit saving through the native row hook now binds Global Overlays rows.
         m.call("TestSettingsEditorWrite", PHYSICAL[0], 0)

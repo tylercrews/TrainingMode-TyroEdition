@@ -1,6 +1,6 @@
 # Global OSDs, hitbox trails, and Ledgedash: investigation and implementation plan
 
-**Current save-space ledger (October 15, 2026):** see [addendum 55](#save-memory-shield-actions-v12). The core has one unused bit; the 24-byte version-12 extension leaves 64 contiguous bytes unallocated and eighteen unused payload bits. Earlier reserve totals below describe historical allocations.
+**Current save-space ledger (October 17, 2026):** T5's global **Randall Overlay** claims extension byte 8 bit 3 (version 13; every migration clears that bit). The core has one unused bit (byte 37 bit 7); the 24-byte version-13 extension leaves 64 contiguous bytes unallocated and **seventeen** unused payload bits (byte 8 bits 4..7, byte 10 bit 7, byte 11 bit 7, byte 22 bits 5..7, byte 23). See [addendum 55](#save-memory-shield-actions-v12) for the version-12 baseline. Earlier reserve totals below describe historical allocations.
 
 **Running to-do list: audited October 6, 2026**
 
