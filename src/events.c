@@ -1356,13 +1356,44 @@ static void DrawStickDiagram(float cx, float cy, float rx, float ry, Vec2 direct
     GFX_AddVtx(cx + tx * rx, cy + ty * ry, 0, stick);
 }
 
+/* Bottom half of the octagonal gate, closed by a flat top edge through the
+ * pivot (cx, cy). Wavedashes always point down, so the top half is never used;
+ * any upward component is flattened onto the top edge. */
+static void DrawHalfStickDiagram(float cx, float cy, float rx, float ry, Vec2 direction)
+{
+    static const Vec2 gate[5] = {
+        {1, 0}, {.70710678f, -.70710678f}, {0, -1}, {-.70710678f, -.70710678f}, {-1, 0},
+    };
+    if (rx <= 0 || ry <= 0) return;
+    GXColor outline = {180, 190, 205, 255}, stick = {255, 255, 255, 255};
+    GFX_Start(10, (GFX_Params){.shape = GX_LINES, .size = 6});
+    for (unsigned i = 0; i < countof(gate); ++i) {
+        Vec2 a = gate[i], b = gate[(i + 1) % countof(gate)];
+        GFX_AddVtx(cx + a.X * rx, cy + a.Y * ry, 0, outline);
+        GFX_AddVtx(cx + b.X * rx, cy + b.Y * ry, 0, outline);
+    }
+    float tx, ty;
+    OSD_StickTip(direction.X, direction.Y > 0 ? 0 : direction.Y, &tx, &ty);
+    GFX_Start(2, (GFX_Params){.shape = GX_LINES, .size = 12});
+    GFX_AddVtx(cx, cy, 0, stick);
+    GFX_AddVtx(cx + tx * rx, cy + ty * ry, 0, stick);
+}
+
 /* Draw in text-local coordinates so queue animation, layout and deletion all
- * use the same transform as the number. No texture or font glyph is needed. */
+ * use the same transform as the number. No texture or font glyph is needed.
+ * (x, y) is the diagram's visual center. */
 void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction)
 {
     float sx = text->viewport_scale.X, sy = text->viewport_scale.Y;
+    /* Full octagon (24x24), kept for swapping back:
     DrawStickDiagram(text->trans.X + x * sx, -text->trans.Y - y * sy,
         12.f * sx, 12.f * sy, direction);
+    */
+    /* Half octagon (30x15): larger radius in less height, with the pivot raised
+     * half a radius so the shape stays centered on the angle row. */
+    const float r = 15.f;
+    DrawHalfStickDiagram(text->trans.X + x * sx, -text->trans.Y - (y - r / 2) * sy,
+        r * sx, r * sy, direction);
 }
 
 void HUD_DrawTris(Tri *tris, GXColor *colors, int count)
@@ -1595,7 +1626,13 @@ void HUD_DrawInfoPanelWithStick(const char **label, const char **info, int count
 
     if (stick_row >= 0 && stick_row < count) {
         Vec2 stick = direction ? *direction : (Vec2){0, 0};
+        /* Full octagon (1.8x1.8), kept for swapping back:
         DrawStickDiagram(x + 1.65f, y - stick_row * 5.5f + 2.5f, .9f, .9f, stick);
+        */
+        /* Half octagon (2.2x1.1), pivot raised half a radius to stay centered
+         * on the row; 2.2 wide still clears the number at +2.4. */
+        const float r = 1.1f;
+        DrawHalfStickDiagram(x + 1.65f, y - stick_row * 5.5f + 2.5f + r / 2, r, r, stick);
     }
     CObj_SetCurrent(prev_camera);
 }

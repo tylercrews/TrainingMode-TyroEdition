@@ -1331,7 +1331,7 @@ class OSDLayoutTests(unittest.TestCase):
             m.call("TestLayoutStick",obj); m.call("TestLayoutTick",1)
             m.call("OSD_MessageGX",obj,2)
             self.assertEqual(m.call("TestStickDraws"),1)
-            self.assertEqual(m.call("TestStickPosition",0),(12 if mode == 2 else -38)&0xFFFFFFFF)
+            self.assertEqual(m.call("TestStickPosition",0),(15 if mode == 2 else -38)&0xFFFFFFFF)
             self.assertEqual(m.call("TestStickPosition",1),14)
             m.call("Settings_Set",11,0,1); m.call("OSD_MessageGX",obj,2)
             self.assertEqual(m.call("TestStickDraws"),1)
