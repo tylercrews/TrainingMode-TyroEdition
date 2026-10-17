@@ -53,6 +53,9 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - Similar Actionable X>Green for hitstun ending?
 - maybe instead of a full octagon for the wavedash angle display I should have a half-octagon. It would make the display a little larger relatively, but might make a little less sense. But I think it's only being used for wavedash OSDs so there's no need to worry about reusability
 - eggsercise when you have infinite mode on has a wonky timer - starts counting up from wherever the timer was when you switched. If you switch during the last 5 seconds when the timer swaps over to the large 5 4 3 2 1 numbers, it will get stuck at 5 forever. Should probably make it so when you start on infinite mode it starts at 0 just because I like to take screenshots of how long I practice
+- Act OOAirborne in menu is Act OOJump in game
+- There should be an Act OOAttack OSD
+- the Green>Yellow when actionable overlay does not tell you when you're actionable out of grabs. This would be tremendously helpful when learning to chaingrab/upthrow different characters with fox
 
 ## Tyro branch changelog
 
