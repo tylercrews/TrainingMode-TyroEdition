@@ -8,6 +8,7 @@
 typedef char settings_overlay_capacity[(OVERLAY_COUNT <= TM_SETTINGS_OVERLAYS) ? 1 : -1];
 typedef char settings_overlay_effects[(countof(LabValues_OverlayColours) == TM_SETTINGS_OVERLAY_CHOICES) ? 1 : -1];
 typedef char settings_osd_capacity[(countof(LabOSD_ID) == TM_SETTINGS_OSDS) ? 1 : -1];
+typedef char lab_act_oo_attack_row[(countof(LabOptions_OSDs) == LABOSD_ACT_OO_ATTACK + 1) ? 1 : -1];
 
 // Static Variables
 static DIDraw didraws[6];
@@ -323,9 +324,12 @@ void Lab_ChangeOSDs(GOBJ *menu_gobj, int value) {
     for (row = 0; row < countof(LabOSD_ID); ++row)
         if (selected == &LabOptions_OSDs[row]) break;
     if (row == countof(LabOSD_ID)) {
-        if (selected != &LabOptions_OSDs[TM_SETTINGS_OSDS]) return;
-        TM_SetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID, value);
-        LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
+        unsigned extension = selected == &LabOptions_OSDs[TM_SETTINGS_OSDS] ? TM_SETTINGS_OSDS :
+            selected == &LabOptions_OSDs[LABOSD_ACT_OO_ATTACK] ? LABOSD_ACT_OO_ATTACK : 0;
+        if (!extension) return;
+        unsigned id = extension == TM_SETTINGS_OSDS ? TM_GLOBAL_ASMASH_RELEASE_ID : TM_GLOBAL_ACT_OO_ATTACK_ID;
+        TM_SetSetting(TM_SETTING_OSD_COLOR, id, value);
+        LabOptions_OSDs[extension].val = TM_GetSetting(TM_SETTING_OSD_COLOR, id);
         Memcard_SaveIfChanged();
         return;
     }
@@ -6136,6 +6140,7 @@ void Event_Init(GOBJ *gobj)
     for (int i = 0; i < (int)countof(LabOSD_ID); i++)
         LabOptions_OSDs[i].val = TM_GetSetting(TM_SETTING_OSD_COLOR, LabOSD_ID[i]);
     LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
+    LabOptions_OSDs[LABOSD_ACT_OO_ATTACK].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ACT_OO_ATTACK_ID);
 
     LabOptions_OSDs[TM_SETTINGS_OSDS + 3].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_VERY_FAST);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 4].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_INSTANT);

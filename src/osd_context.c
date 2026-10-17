@@ -52,6 +52,47 @@ int TMShine_After(TMShineEpisode *s, uint32_t frame, int state, int frozen) {
     if (s->elapsed >= 15) { s->done = 1; return TM_SHINE_FAIL; }
     return TM_SHINE_PENDING; /* A released shine remains pending until the deadline. */
 }
+int TMAttack_Tracked(int state) {
+    return (state >= ASID_ATTACK11 && state <= ASID_ATTACKLW4) ||
+        (state >= ASID_THROWF && state <= ASID_THROWLW);
+}
+int TMAttack_Idle(int state) {
+    return state == ASID_WAIT || (state >= ASID_WALKSLOW && state <= ASID_TURN) ||
+        (state >= ASID_SQUAT && state <= ASID_SQUATRV);
+}
+void TMAttack_Tick(TMAttackEpisode *a, int state, unsigned instance, int hitlag, int dead) {
+    if (dead) { *a = (TMAttackEpisode){0}; return; }
+    if (!TMAttack_Tracked(state)) return;
+    if (!a->active || state != a->state || instance != a->instance)
+        *a = (TMAttackEpisode){.state = state, .instance = instance, .active = 1};
+    if (hitlag) increment(&a->hitlag);
+}
+void TMAttack_Before(TMAttackEpisode *a, uint32_t frame, int state, unsigned instance,
+    int actionable, int frozen) {
+    a->prepared = 0;
+    if (frozen || !a->active) return;
+    if (TMAttack_Tracked(state)) {
+        /* The animation tick normally starts the episode; cover a missed one. */
+        if (state != a->state || instance != a->instance) TMAttack_Tick(a, state, instance, 0, 0);
+        if (!actionable) return;
+    } else if (!TMAttack_Idle(state) ||
+               (a->state >= ASID_THROWF && a->state <= ASID_THROWLW)) {
+        /* Hit, grabbed, or a throw's Wait recovery, which Act OoWait reports. */
+        a->active = 0;
+        return;
+    }
+    if (++a->opportunity > TM_ATTACK_WINDOW) { a->active = 0; return; }
+    a->prepared = 1; a->prepared_frame = frame;
+    a->prepared_state = state; a->prepared_instance = instance;
+}
+unsigned TMAttack_After(TMAttackEpisode *a, uint32_t frame, int state, unsigned instance, int frozen) {
+    if (frozen || !a->prepared || a->prepared_frame != frame) return 0;
+    a->prepared = 0;
+    if (state == a->prepared_state && instance == a->prepared_instance) return 0;
+    if (TMAttack_Idle(state)) return 0;
+    a->active = 0;
+    return a->opportunity;
+}
 void TMOSDContext_Step(TMOSDContext *c, uint32_t frame, int state, int attack,
     int airborne, int shine, int shield, int victim, int hitlag, int dead) {
     if (c->seen && frame == c->frame) return;

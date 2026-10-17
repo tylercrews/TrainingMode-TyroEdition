@@ -27,4 +27,22 @@ typedef struct TMShineEpisode {
 void TMShine_Tick(TMShineEpisode *shine, uint32_t frame, int state, int hitlag, int dead);
 void TMShine_Before(TMShineEpisode *shine, uint32_t frame, int state, int frozen, int jump_available);
 int TMShine_After(TMShineEpisode *shine, uint32_t frame, int state, int frozen);
+/* Act OoAttack: one grounded attack or throw, then its actionable recovery.
+ * States are already normalized by ActionCues_CommonState. */
+#define TM_ATTACK_WINDOW 13
+typedef struct TMAttackEpisode {
+    int state, active;
+    unsigned instance, hitlag, opportunity;
+    uint32_t prepared_frame;
+    int prepared, prepared_state;
+    unsigned prepared_instance;
+} TMAttackEpisode;
+int TMAttack_Tracked(int state);
+/* Wait, crouch and Act OoWait's buffered walk/turn/squat: not yet an action. */
+int TMAttack_Idle(int state);
+void TMAttack_Tick(TMAttackEpisode *attack, int state, unsigned instance, int hitlag, int dead);
+void TMAttack_Before(TMAttackEpisode *attack, uint32_t frame, int state, unsigned instance,
+    int actionable, int frozen);
+/* Return the 1-based actionable frame of the action just taken; 0 = none. */
+unsigned TMAttack_After(TMAttackEpisode *attack, uint32_t frame, int state, unsigned instance, int frozen);
 #endif

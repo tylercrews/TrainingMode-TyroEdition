@@ -10,6 +10,7 @@ static const char *row_names[32] = {
     [20] = "Fastfall Timing", [21] = "Frame Advantage", [22] = "Combo Counter",
     [24] = "Grab Breakout", [26] = "Ledgedash Info", [28] = "Act OoHitstun",
     [TM_GLOBAL_ASMASH_RELEASE_ID] = TM_GLOBAL_ASMASH_RELEASE_NAME,
+    [TM_GLOBAL_ACT_OO_ATTACK_ID] = TM_GLOBAL_ACT_OO_ATTACK_NAME,
     [TM_GLOBAL_CPU_OSDS_OFF_ROW] = TM_GLOBAL_CPU_OSDS_OFF_NAME,
     [TM_GLOBAL_OSDS_OFF_ROW] = TM_GLOBAL_OSDS_OFF_NAME,
     [TM_GLOBAL_TRAIL_VERY_FAST_ROW] = TM_GLOBAL_TRAIL_VERY_FAST_NAME,

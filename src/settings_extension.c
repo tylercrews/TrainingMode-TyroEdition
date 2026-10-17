@@ -48,8 +48,12 @@ static int version9(const uint8_t *r) { return format(r,9,12); }
 static int version10(const uint8_t *r) { return format(r,10,12); }
 static int version11(const uint8_t *r) { return format(r,11,16); }
 static int version12(const uint8_t *r) { return format(r,12,16); }
-/* Byte 8: A-Smash Release palette in bits 0..2, Randall Overlay in bit 3. */
+static int version13(const uint8_t *r) { return format(r,13,16); }
+/* Byte 8: A-Smash Release palette in bits 0..2, Randall Overlay in bit 3,
+ * Act OoAttack palette in bits 4..6 (version 14). Bit 7 remains free. */
 #define RANDALL_BIT 0x08u
+#define ACT_OO_ATTACK_SHIFT 4
+#define ACT_OO_ATTACK_BITS (7u<<ACT_OO_ATTACK_SHIFT)
 /* Old None, Spotdodge, inward Roll, Dash, Smash menu choices. */
 static unsigned migrate_ledge_action(unsigned action) {
     static const uint8_t choices[] = {0,1,13,31,11};
@@ -121,7 +125,7 @@ void TMExtension_Init(uint8_t *r) {
 }
 int TMExtension_Prepare(uint8_t *r) {
     if(!signature(r)) return TM_EXTENSION_ABSENT;
-    int migrated=legacy(r), keep_shield=version11(r)||version12(r);
+    int migrated=legacy(r), keep_shield=version11(r)||version12(r)||version13(r), keep_randall=version13(r);
     if(migrated) {
         uint8_t old[TM_EXTENSION_LEGACY_SIZE]; memcpy(old,r,sizeof(old));
         TMExtension_Init(r);
@@ -140,8 +144,8 @@ int TMExtension_Prepare(uint8_t *r) {
         set_preference(r,TM_SETTING_REVERSAL,TM_REV_ATTACK,attack<14?attack:0);
         r[4]=TM_EXTENSION_VERSION;
         migrated=1;
-    } else if(version12(r)) {
-        r[4]=TM_EXTENSION_VERSION; /* Only the Randall bit below is newly owned. */
+    } else if(version12(r) || version13(r)) {
+        r[4]=TM_EXTENSION_VERSION; /* Only the byte-8 bits below are newly owned. */
         migrated=1;
     } else if(version10(r)) {
         r[4]=TM_EXTENSION_VERSION; r[5]=TM_EXTENSION_SIZE-8;
@@ -176,8 +180,9 @@ int TMExtension_Prepare(uint8_t *r) {
         migrated=1;
     } else if(!supported(r)) return TM_EXTENSION_UNSUPPORTED;
     if(migrated && !keep_shield) init_shield_preferences(r);
-    /* Older records never owned this padding bit; it must not turn the overlay on. */
-    if(migrated) r[8]&=~RANDALL_BIT;
+    /* Older records never owned these padding bits; they must not turn anything on. */
+    if(migrated && !keep_randall) r[8]&=~RANDALL_BIT;
+    if(migrated) r[8]&=~ACT_OO_ATTACK_BITS;
     int changed=0;
     for(unsigned field=TM_SETTING_TECHCHASE;field<=TM_SETTING_ATTACK_SHIELD;++field) {
         unsigned count=preference_count(field);
@@ -190,28 +195,30 @@ int TMExtension_Prepare(uint8_t *r) {
     return migrated?TM_EXTENSION_MIGRATED:changed?TM_EXTENSION_REPAIRED:TM_EXTENSION_READY;
 }
 uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
-    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r), v10=version10(r), v11=version11(r), v12=version12(r),
-        current=supported(r)||older||v4||v5||v6||v7||v8||v9||v10||v11||v12, old=legacy(r);
+    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r), v10=version10(r), v11=version11(r), v12=version12(r), v13=version13(r),
+        current=supported(r)||older||v4||v5||v6||v7||v8||v9||v10||v11||v12||v13, old=legacy(r);
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)
         return current||old?r[8]&7:0;
+    if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ACT_OO_ATTACK_ID)
+        return supported(r)?(r[8]&ACT_OO_ATTACK_BITS)>>ACT_OO_ATTACK_SHIFT:0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)
-        return supported(r)?!!(r[8]&RANDALL_BIT):0;
+        return supported(r)||v13?!!(r[8]&RANDALL_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
-    if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12) return p->initial;
+    if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12 && !v13) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_SHIELD_DI) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_ACTION) {
         unsigned action=(read_bits(r,20)>>9)&15;
         return action<10?action:0;
     }
     if(v11 && field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) return (r[20]&15)<14?r[20]&15:0;
-    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12) return p->initial;
-    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12) return p->initial;
-    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12) {
+    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13) return p->initial;
+    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12 && !v13) return p->initial;
+    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13) {
         if(index==TM_LEDGECHASE_ENTRY || index==TM_LEDGECHASE_HOP_HEIGHT) return p->initial;
         if(v9 && index==TM_LEDGECHASE_PRESET) return (r[19]&15)<14?r[19]&15:0;
     }
-    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v9) {
+    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v9) {
         if(index==TM_LEDGECHASE_AIR_ATTACK) return p->initial;
         if(index==TM_LEDGECHASE_PRESET) {
             unsigned preset=current?(read_bits(r,12)>>6)&7:0;
@@ -229,15 +236,17 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
 }
 int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     int color=field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID;
+    int attack=field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ACT_OO_ATTACK_ID;
     int randall=field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL;
     const ExtensionPreference *p=preference(field,index);
-    if(!color && !randall && !p) return 0;
-    if(value >= (color?8:randall?2:p->count)) return 0;
-    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r)) return 0;
+    if(!color && !attack && !randall && !p) return 0;
+    if(value >= (color||attack?8:randall?2:p->count)) return 0;
+    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
-    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r)) TMExtension_Prepare(r);
+    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r)) TMExtension_Prepare(r);
     else if(!supported(r)) TMExtension_Init(r);
     if(color) r[8]=(r[8]&~7u)|value;
+    else if(attack) r[8]=(r[8]&~ACT_OO_ATTACK_BITS)|(value<<ACT_OO_ATTACK_SHIFT);
     else if(randall) r[8]=(r[8]&~RANDALL_BIT)|(value?RANDALL_BIT:0);
     else set_preference(r,field,index,value);
     for(unsigned i=0;i<TM_EXTENSION_SIZE;++i) if(before[i]!=r[i]) return 1;

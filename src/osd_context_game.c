@@ -1,8 +1,12 @@
 #include "events.h"
 #include "osds.h"
 #include "osd_context.h"
-typedef struct OSDContextFighter { FighterData *fighter; int spawn; TMOSDContext context; TMShineEpisode shine; } OSDContextFighter;
-typedef char osd_context_layout[(sizeof(TMOSDContext) == 64 && sizeof(TMShineEpisode) == 60 && sizeof(OSDContextFighter) == 132) ? 1 : -1];
+typedef struct OSDContextFighter {
+    FighterData *fighter; int spawn; TMOSDContext context; TMShineEpisode shine;
+    TMAttackEpisode attack; int throw_iasa_clear; /* past_iasa survives into throws. */
+} OSDContextFighter;
+typedef char osd_context_layout[(sizeof(TMOSDContext) == 64 && sizeof(TMShineEpisode) == 60 &&
+    sizeof(TMAttackEpisode) == 36 && sizeof(OSDContextFighter) == 172) ? 1 : -1];
 static OSDContextFighter contexts[12];
 static OSDContextFighter *entry_for(FighterData *fighter) {
     unsigned slot = (unsigned)(u8)fighter->ply * 2 + !!fighter->flags.ms;
@@ -25,8 +29,13 @@ void OSDContext_Tick(FighterData *fighter) {
     int state = fighter->state_id;
     int shine = (fighter->kind == FTKIND_FOX || fighter->kind == FTKIND_FALCO) && state >= 360 && state <= 369;
     OSDContextFighter *entry = entry_for(fighter);
-    TMShine_Tick(&entry->shine, stc_match->time_frames, shine ? state : -1,
-        fighter->flags.hitlag || (fighter->flags.freeze && fighter->dmg.hitlag_frames > 0), fighter->flags.dead);
+    int hitlag = fighter->flags.hitlag || (fighter->flags.freeze && fighter->dmg.hitlag_frames > 0);
+    TMShine_Tick(&entry->shine, stc_match->time_frames, shine ? state : -1, hitlag, fighter->flags.dead);
+    int common = ActionCues_CommonState(fighter->kind, state);
+    TMAttackEpisode *attack = &entry->attack;
+    if (TMAttack_Tracked(common) && (!attack->active || attack->state != common ||
+        attack->instance != (unsigned)fighter->atk_instance)) entry->throw_iasa_clear = 0;
+    TMAttack_Tick(attack, common, fighter->atk_instance, hitlag, fighter->flags.dead);
     int shield = state >= ASID_GUARDON && state <= ASID_GUARDREFLECT;
     int victim = (state >= ASID_DAMAGEHI1 && state <= ASID_DAMAGEFLYROLL) || state == ASID_DAMAGEFALL;
     TMOSDContext_Step(c, stc_match->time_frames, state, fighter->atk_instance,
@@ -82,21 +91,68 @@ void OSD_ActOutWait(GOBJ *object) {
         "Act OoWait\n%s\n%df", label, frame);
 }
 
+static const char *attack_label(int state) {
+    static const char *names[] = {
+        "Jab", "Jab", "Jab", "Rapid jab", "Rapid jab", "Rapid jab", "Dash attack",
+        "Ftilt", "Ftilt", "Ftilt", "Ftilt", "Ftilt", "Utilt", "Dtilt",
+        "Fsmash", "Fsmash", "Fsmash", "Fsmash", "Fsmash", "Usmash", "Dsmash",
+    };
+    static const char *throws[] = { "Fthrow", "Bthrow", "Uthrow", "Dthrow" };
+    if (state >= ASID_ATTACK11 && state <= ASID_ATTACKLW4) return names[state - ASID_ATTACK11];
+    if (state >= ASID_THROWF && state <= ASID_THROWLW) return throws[state - ASID_THROWF];
+    return "Attack";
+}
+typedef char attack_label_layout[(ASID_ATTACKLW4 - ASID_ATTACK11 == 20 && ASID_THROWLW - ASID_THROWF == 3) ? 1 : -1];
+/* Count each native IASA call that could have accepted an action: an attack or
+ * throw past its interrupt point, or its Wait/crouch once the animation ends. */
+static void attack_before(GOBJ *object, FighterData *data, OSDContextFighter *entry) {
+    int state = ActionCues_CommonState(data->kind, data->state_id);
+    int actionable = 0;
+    if (TMAttack_Tracked(state)) {
+        actionable = ActionCues_Remaining(object) == 0;
+        if (state >= ASID_THROWF && state <= ASID_THROWLW) {
+            /* Throw entry keeps an earlier attack's IASA bit; trust it only
+             * after this throw has been seen without it. */
+            if (!data->flags.past_iasa) entry->throw_iasa_clear = 1;
+            else if (entry->throw_iasa_clear) actionable = 1;
+        }
+    }
+    TMAttack_Before(&entry->attack, stc_match->time_frames, state, data->atk_instance, actionable,
+        data->flags.hitlag || data->flags.freeze || data->flags.dead);
+}
+static void attack_after(FighterData *data, OSDContextFighter *entry) {
+    TMAttackEpisode *attack = &entry->attack;
+    unsigned frame = TMAttack_After(attack, stc_match->time_frames,
+        ActionCues_CommonState(data->kind, data->state_id), data->atk_instance,
+        data->flags.hitlag || data->flags.freeze || data->flags.dead);
+    if (!frame || data->flags.ms || !(Settings_Get(TM_SETTING_OSD_MASK, 0) & (1u << OSD_ActOoAttack))) return;
+    GOBJ *message = Message_Display(OSD_MessageTag(OSD_ActOoAttack, OSD_ActOoAttack, 2, 2, 0) |
+        TM_OSD_POINTER_FIRST | TM_OSD_DEFER_FORMAT, data->ply, MSGCOLOR_WHITE,
+        "Act OoAttack\n%s\n%df", attack_label(attack->state), frame);
+    MsgData *msg = message->userdata;
+    msg->timing_hitlag = attack->hitlag; /* The attack's own hitlag, not the new state's. */
+    OSD_FormatTiming(msg, 0, -MSGTEXT_YOFFSET);
+    OSD_ApplyMessageStyle(msg);
+}
+
 void OSD_ShineBeforeIASA(GOBJ *object) {
     if (!object || !object->userdata) return;
     FighterData *data = object->userdata;
-    if (data->kind != FTKIND_FOX && data->kind != FTKIND_FALCO) return;
     OSDContextFighter *entry = entry_for(data);
-    if (entry) TMShine_Before(&entry->shine, stc_match->time_frames, data->state_id,
+    if (!entry) return;
+    attack_before(object, data, entry);
+    if (data->kind != FTKIND_FOX && data->kind != FTKIND_FALCO) return;
+    TMShine_Before(&entry->shine, stc_match->time_frames, data->state_id,
         data->flags.freeze || data->flags.dead,
         data->state_id == 361 || (u8)data->jump.jumps_used < data->attr.max_jumps);
 }
 void OSD_ShineAfterIASA(GOBJ *object) {
     if (!object || !object->userdata) return;
     FighterData *data = object->userdata;
-    if (data->kind != FTKIND_FOX && data->kind != FTKIND_FALCO) return;
     OSDContextFighter *entry = entry_for(data);
     if (!entry) return;
+    attack_after(data, entry);
+    if (data->kind != FTKIND_FOX && data->kind != FTKIND_FALCO) return;
     TMShineEpisode *shine = &entry->shine;
     int result = TMShine_After(shine, stc_match->time_frames, data->state_id,
         data->flags.freeze || data->flags.dead);

@@ -69,6 +69,7 @@
     .set OSD.ComboCounter, 22
     .set OSD.GrabBreakout, 24
     .set OSD.Ledge, 26
+    .set OSD.ActOoAttack, 27
     .set OSD.ActOoHitstun, 28
 
     # Special ID: always displays. Never overwrites another OSD.

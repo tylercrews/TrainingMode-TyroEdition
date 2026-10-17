@@ -11,7 +11,7 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
  * Page 1, Global Overlays & Gameplay: character overlays, character gameplay
  * (Infinite Shields), then stage overlays (Randall), separated by blank rows. */
 const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS] = {
-    { 0,1,20,19,5,8,30,255,3,16,18,28,255,255,255,
+    { 0,1,20,19,5,8,30,255,3,16,27,18,28,255,255,
       9,10,24,12,255,21,22,255,26,13,14,255,29,6, },
     { 2,4,7,17,11,25,255,23,255,31,255,255,255,255,255,
       255,255,255,255,255,255,255,255,255,255,255,255,255,255, },

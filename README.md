@@ -54,7 +54,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - maybe instead of a full octagon for the wavedash angle display I should have a half-octagon. It would make the display a little larger relatively, but might make a little less sense. But I think it's only being used for wavedash OSDs so there's no need to worry about reusability
 - eggsercise when you have infinite mode on has a wonky timer - starts counting up from wherever the timer was when you switched. If you switch during the last 5 seconds when the timer swaps over to the large 5 4 3 2 1 numbers, it will get stuck at 5 forever. Should probably make it so when you start on infinite mode it starts at 0 just because I like to take screenshots of how long I practice
 - ~~Act OOAirborne in menu is Act OOJump in game~~ Resolved in T5: renamed to Act OoJump.
-- There should be an Act OOAttack OSD
+- ~~There should be an Act OOAttack OSD~~ Resolved in T5: new **Act OoAttack** OSD.
 - the Green>Yellow when actionable overlay does not tell you when you're actionable out of grabs. This would be tremendously helpful when learning to chaingrab/upthrow different characters with fox
 
 ## Tyro branch changelog
@@ -74,6 +74,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - Fixed Global Settings checkboxes keeping the other page's ON/OFF state after an L/R page switch (for example Randall Overlay showing ON next to "Off" until first pressed). Every checkbox is now set from its own setting whenever the page is drawn.
     - The Global Overlays & Gameplay page is grouped into **character overlays**, **character gameplay** (Infinite Shields) and **stage overlays** (Randall Overlay), separated by blank rows.
     - The yellow/green actionable overlay now also covers throws: after your forward/back/up/down throw, you get the yellow warning and green flash at the exact frame the throw animation ends and you can move again (weight-dependent throw speeds included). Character-special throws like DK's cargo carry and Kirby's swallow aren't covered. The Actionable Slippi Gecko code got the same change.
+    - New **Act OoAttack** OSD (Global OSDs page next to Act OoWait, and Training Lab > Action Timing OSDs). After a grounded attack (jab, tilts, smashes, dash attack) or a throw, it shows the attack and how many frames after becoming actionable you started your next action: **1f** cyan, **2f** green, **3f** yellow, **4f+** red, with the attack's hitlag in front when it hit (e.g. `4hl->2f`). It counts acting out of IASA and out of the Wait/crouch after the animation ends, including a buffered frame of walk/turn/crouch like Act OoWait does. Throws that end in Wait are left to Act OoWait so you don't get two messages. Starts Off; its color is saved in the extension save block.
 
 ### T4 (V1.4.1T4)
 

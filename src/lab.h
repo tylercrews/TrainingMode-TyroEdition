@@ -942,6 +942,8 @@ static u8 LabOSD_ID[] = {
 
 // Must match LabOSD_ID order
 static const char *LabOSD_ColorNames[] = { TM_OSD_COLOR_NAMES };
+// Appended after OSD Display so the existing TM_SETTINGS_OSDS + N rows keep their indices.
+#define LABOSD_ACT_OO_ATTACK (TM_SETTINGS_OSDS + 11)
 static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_STRING,
@@ -1138,6 +1140,11 @@ static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_MENU, .name = "OSD Display", .menu = &LabMenu_OSDDisplay,
         .desc = {"Choose Recent, Fixed Grid or Practice Panel.", "Stable styles retain results; paused L/R changes page."},
+    },
+    {
+        .kind = OPTKIND_STRING, .name = TM_GLOBAL_ACT_OO_ATTACK_NAME,
+        .value_num = 8, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
+        .desc = {"Frames to act once a grounded attack or throw is actionable.", "1f = first frame. Throws that end in Wait use Act OoWait."},
     },
 };
 

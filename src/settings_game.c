@@ -58,6 +58,8 @@ static u8 *settings_view(void) {
     return status == TM_SETTINGS_UNSUPPORTED || status == TM_SETTINGS_FOREIGN ? fallback : record;
 }
 
+static const u8 extension_osds[] = { TM_GLOBAL_ASMASH_RELEASE_ID, TM_GLOBAL_ACT_OO_ATTACK_ID };
+#define EXTENSION_OSD_BITS ((1u<<TM_GLOBAL_ASMASH_RELEASE_ID)|(1u<<TM_GLOBAL_ACT_OO_ATTACK_ID))
 static u8 *extension_view(void) {
     u8 *core=settings_view();
     u8 *extension=(u8 *)stc_memcard+TM_EXTENSION_OFFSET;
@@ -82,13 +84,15 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
     if (field == TM_SETTING_EDITOR_PAGE) return editor_page;
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_NATIVE_ROW && index==TM_GLOBAL_RANDALL_ROW) { field=TM_SETTING_FLAG; index=TM_FLAG_RANDALL; }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL))
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL))
         return TMExtension_Read(extension_view(),field,index);
-    if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && index==TM_GLOBAL_ASMASH_RELEASE_ID)
+    if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index))
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
     if(field==TM_SETTING_OSD_MASK) {
-        u32 mask=TMSettings_Read(settings_view(),field,index)&~(1u<<TM_GLOBAL_ASMASH_RELEASE_ID);
-        return mask|(Settings_Get(TM_SETTING_OSD_COLOR,TM_GLOBAL_ASMASH_RELEASE_ID)?1u<<TM_GLOBAL_ASMASH_RELEASE_ID:0);
+        u32 mask=TMSettings_Read(settings_view(),field,index)&~EXTENSION_OSD_BITS;
+        for(unsigned i=0;i<countof(extension_osds);++i)
+            if(Settings_Get(TM_SETTING_OSD_COLOR,extension_osds[i])) mask|=1u<<extension_osds[i];
+        return mask;
     }
     return TMSettings_Read(settings_view(), field, index);
 }
@@ -98,23 +102,23 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
     if (field == TM_SETTING_EDITOR_PAGE) { if (value < TM_EDITOR_PAGES) editor_page = value; return; }
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_NATIVE_ROW && index==TM_GLOBAL_RANDALL_ROW) { field=TM_SETTING_FLAG; index=TM_FLAG_RANDALL; }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)) {
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)) {
         extension_set(field,index,value); return;
     }
-    if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && index==TM_GLOBAL_ASMASH_RELEASE_ID) {
+    if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index)) {
         if(value>1) return;
         unsigned old=Settings_Get(TM_SETTING_OSD_COLOR,index);
         extension_set(TM_SETTING_OSD_COLOR,index,value?(old?old:TM_COLOR_WHITE):TM_COLOR_OFF); return;
     }
     u8 *view = settings_view();
     if(field==TM_SETTING_OSD_MASK) {
-        unsigned old=Settings_Get(TM_SETTING_OSD_COLOR,TM_GLOBAL_ASMASH_RELEASE_ID);
-        extension_set(TM_SETTING_OSD_COLOR,TM_GLOBAL_ASMASH_RELEASE_ID,
-            value&(1u<<TM_GLOBAL_ASMASH_RELEASE_ID)?(old?old:TM_COLOR_WHITE):TM_COLOR_OFF);
+        for(unsigned i=0;i<countof(extension_osds);++i) {
+            unsigned id=extension_osds[i], old=Settings_Get(TM_SETTING_OSD_COLOR,id);
+            extension_set(TM_SETTING_OSD_COLOR,id,value&(1u<<id)?(old?old:TM_COLOR_WHITE):TM_COLOR_OFF);
+        }
         /* Existing core bytes and palette mappings stay compatible. The new
-         * enable is synthesized; this formerly unused bit is never repurposed. */
-        value=(value&~(1u<<TM_GLOBAL_ASMASH_RELEASE_ID))|
-            (TMSettings_Read(view,TM_SETTING_OSD_MASK,0)&(1u<<TM_GLOBAL_ASMASH_RELEASE_ID));
+         * enables are synthesized; these formerly unused bits are never repurposed. */
+        value=(value&~EXTENSION_OSD_BITS)|(TMSettings_Read(view,TM_SETTING_OSD_MASK,0)&EXTENSION_OSD_BITS);
     }
     if (TMSettings_Write(view, field, index, value) && view != fallback) {
         mark_changed();

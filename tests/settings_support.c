@@ -456,6 +456,10 @@ void TestCueLanding(unsigned slot, int lag, int allow_interrupt) {
 void TestCueFrozen(unsigned slot, int frozen) { cue_data[slot].flags.hitlag = frozen; cue_data[slot].flags.freeze = frozen; }
 void TestCueIASA(unsigned slot, int ready) { cue_data[slot].flags.past_iasa = ready; }
 void TestCueKind(unsigned slot, int kind) { cue_data[slot].kind = kind; }
+void TestCueInstance(unsigned slot, unsigned instance) { cue_data[slot].atk_instance = instance; }
+void TestCueTimers(unsigned slot, int state_frame, int iasa_frames) {
+    cue_data[slot].TM.state_frame = state_frame; cue_data[slot].TM.iasa_frames = iasa_frames;
+}
 void TestCueSpawn(unsigned slot, int spawn, int dead) {
     cue_data[slot].spawn_num = spawn; cue_data[slot].flags.dead = dead;
 }

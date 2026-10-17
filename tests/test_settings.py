@@ -19,7 +19,7 @@ STOP = 0x100000
 IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 # Global Settings pages, read down the left column then the right; 255 = gap.
 EDITOR = [
-    [0,1,20,19,5,8,30,255,3,16,18,28,255,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
+    [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
     [2,4,7,17,11,25,255,23,255,31] + [255] * 19,
 ]
 PHYSICAL = [0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,12,13,14,15,16,17,18,19,20,21,22,23,25,27]
@@ -1257,14 +1257,14 @@ class OSDLayoutTests(unittest.TestCase):
         for player in range(6):
             for slot, category in enumerate(IDS):
                 key = m.call("TMOSD_Key",player,category)
-                self.assertEqual(key,player*21+slot)
+                self.assertEqual(key,player*22+slot)
                 self.assertEqual(m.call("TMOSD_Category",key),category)
                 for mode, capacity in [(1,10),(2,9)]:
                     index=player*19+slot
                     self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,0),index//capacity)
                     self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,1),index%capacity)
-        self.assertEqual(m.call("TMOSD_Key",0,64),20)
-        self.assertEqual(m.call("TestLayoutCell",ptr,20,1,0),0xFFFFFFFF) # Non-space-animal roster has no JC slot.
+        self.assertEqual(m.call("TMOSD_Key",0,64),21)
+        self.assertEqual(m.call("TestLayoutCell",ptr,21,1,0),0xFFFFFFFF) # Non-space-animal roster has no JC slot.
         for player, category in [(-1,0),(6,0),(0,2)]:
             self.assertEqual(m.call("TMOSD_Key",player,category),0xFFFFFFFF)
 
@@ -1288,7 +1288,7 @@ class OSDLayoutTests(unittest.TestCase):
             self.assertEqual(m.call("TMOSD_Count",ptr),6*(20+enabled))
             for player in range(6):
                 key=m.call("TMOSD_Key",player,30)
-                self.assertEqual(key,player*21+19)
+                self.assertEqual(key,player*22+19)
                 self.assertEqual(m.call("TMOSD_Category",key),30)
                 for mode,capacity in ((1,10),(2,9)):
                     if enabled:
@@ -1302,6 +1302,27 @@ class OSDLayoutTests(unittest.TestCase):
                             index=player*20+slot+(slot>4)
                             self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,0),index//capacity)
                             self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,1),index%capacity)
+
+    def test_additive_act_oo_attack_category_follows_asmash_without_moving_old_cells(self):
+        m=self.m;ptr=0x80406000
+        old_mask=sum(1<<id for id in IDS)
+        for enabled in (0,1):
+            m.call("TMOSD_MapReset",ptr,old_mask|(1<<30)|((1<<27) if enabled else 0))
+            m.call("TMOSD_MapOwners",ptr,63)
+            self.assertEqual(m.call("TMOSD_Count",ptr),6*(20+enabled))
+            for player in range(6):
+                key=m.call("TMOSD_Key",player,27)
+                self.assertEqual(key,player*22+20)
+                self.assertEqual(m.call("TMOSD_Category",key),27)
+                asmash=m.call("TMOSD_Key",player,30)
+                index=player*(20+enabled)+19
+                self.assertEqual(m.call("TestLayoutCell",ptr,asmash,1,0),index//10)
+                self.assertEqual(m.call("TestLayoutCell",ptr,asmash,1,1),index%10)
+                if enabled:
+                    self.assertEqual(m.call("TestLayoutCell",ptr,key,1,0),(index+1)//10)
+                    self.assertEqual(m.call("TestLayoutCell",ptr,key,1,1),(index+1)%10)
+                else:
+                    self.assertEqual(m.call("TestLayoutCell",ptr,key,1,0),0xFFFFFFFF)
 
     def test_wavedash_stick_symbol_follows_banked_layout_and_live_visibility(self):
         for mode in (1,2):
@@ -1804,6 +1825,97 @@ class OSDContextTests(unittest.TestCase):
         self.assertEqual(bytes(m.call("TestWaitLabelChar", i) for i in range(8)), b"L-cancel")
         m.call("ActionCues_Clear")
         self.assertEqual(m.call("OSDContext_MessageHitlag", 0, 8), 0)
+
+
+FTILT, JAB1, JAB2, THROWF, WAIT, WALK, KNEEBEND, DAMAGE = 53, 44, 45, 219, 14, 15, 24, 75
+
+class AttackEpisodeTests(unittest.TestCase):
+    """Act OoAttack counts native IASA calls that could have accepted an action."""
+    def setUp(self):
+        self.m=Machine(); self.episode=0x80403000
+        self.m.cpu.mem_write(self.episode,bytes(36))
+
+    def tick(self,state,instance=0,hitlag=0,dead=0):
+        self.m.call("TMAttack_Tick",self.episode,state,instance,hitlag,dead)
+
+    def act(self,frame,before,actionable,after,frozen=0,instance=0,after_instance=None):
+        self.m.call("TMAttack_Before",self.episode,frame,before,instance,actionable,frozen)
+        return self.m.call("TMAttack_After",self.episode,frame,after,
+                           instance if after_instance is None else after_instance,frozen)
+
+    def fields(self):  # state, active, instance, hitlag, opportunity
+        return struct.unpack(">5I",self.m.cpu.mem_read(self.episode,20))
+
+    def test_iasa_interrupt_counts_actionable_frames_once(self):
+        for frame in range(1,4):
+            self.tick(FTILT);self.assertEqual(self.act(frame,FTILT,0,FTILT),0)
+        self.tick(FTILT);self.assertEqual(self.act(4,FTILT,1,FTILT),0)  # First actionable frame missed.
+        self.tick(FTILT);self.assertEqual(self.act(5,FTILT,1,KNEEBEND),2)
+        self.assertEqual(self.act(5,FTILT,1,KNEEBEND),0)  # No duplicate on the same update.
+        self.assertEqual(self.fields()[1],0)
+        self.m.cpu.mem_write(self.episode,bytes(36))
+        self.tick(FTILT);self.assertEqual(self.act(1,FTILT,1,KNEEBEND),1)
+
+    def test_wait_and_buffered_walk_after_animation_end_count_until_the_action(self):
+        self.tick(FTILT);self.act(1,FTILT,0,FTILT)
+        self.tick(WAIT);self.assertEqual(self.act(2,WAIT,0,WAIT),0)
+        self.tick(WAIT);self.assertEqual(self.act(3,WAIT,0,WALK),0)  # Walk is not yet the action.
+        self.tick(WALK);self.assertEqual(self.act(4,WALK,0,KNEEBEND),3)
+
+    def test_throws_into_wait_belong_to_act_oowait_but_throw_iasa_does_not(self):
+        self.tick(THROWF);self.act(1,THROWF,0,THROWF)
+        self.tick(WAIT);self.assertEqual(self.act(2,WAIT,0,KNEEBEND),0)
+        self.assertEqual(self.fields()[1],0)
+        self.tick(THROWF,1);self.assertEqual(self.act(3,THROWF,1,KNEEBEND,0,1),1)
+
+    def test_being_hit_or_waiting_past_the_window_reports_nothing(self):
+        self.tick(FTILT);self.act(1,FTILT,0,DAMAGE)
+        self.tick(DAMAGE);self.assertEqual(self.act(2,DAMAGE,0,KNEEBEND),0)
+        for limit,expected in ((13,13),(14,0)):
+            self.m.cpu.mem_write(self.episode,bytes(36));self.tick(FTILT)
+            for frame in range(1,limit):self.assertEqual(self.act(frame,FTILT,1,FTILT),0)
+            self.assertEqual(self.act(limit,FTILT,1,KNEEBEND),expected)
+
+    def test_hitlag_is_kept_for_the_attack_and_frozen_updates_are_not_opportunities(self):
+        for frame in range(1,4):
+            self.tick(FTILT,0,1);self.assertEqual(self.act(frame,FTILT,1,FTILT,1),0)
+        self.assertEqual(self.fields()[3:5],(3,0))
+        self.tick(FTILT);self.assertEqual(self.act(4,FTILT,1,KNEEBEND),1)
+        self.assertEqual(self.fields()[3],3)
+        self.tick(FTILT,0,0,1);self.assertEqual(self.fields(),(0,0,0,0,0))  # Death clears.
+
+    def test_attack_out_of_attack_reports_and_starts_a_new_episode(self):
+        self.tick(JAB1,1);self.assertEqual(self.act(1,JAB1,1,JAB2,0,1,2),1)
+        self.tick(JAB2,2);self.assertEqual(self.fields(),(JAB2,1,2,0,0))
+        self.assertEqual(self.act(2,JAB2,0,JAB2,0,2),0)
+        self.tick(FTILT,3);self.act(3,FTILT,1,FTILT,0,3)
+        self.assertEqual(self.act(4,FTILT,1,FTILT,0,3,4),2)  # Same attack, new instance.
+
+    def test_native_adapter_reports_title_label_and_timing_colors(self):
+        m=self.m;m.init();m.call("TestCueInit");m.call("TestCueKind",0,2)
+        def frame(f,state,iasa,after,frozen=0):
+            m.call("TestCueState",0,state,f,40,100);m.call("TestCueIASA",0,iasa)
+            m.call("TestCueFrozen",0,frozen);m.call("TestContextTick",0,f)
+            m.call("TestShineBefore",0)
+            m.call("TestCueState",0,after,f,40,100);m.call("TestShineAfter",0)
+        def run(start,hitlag=0):
+            m.call("TestWaitClear");m.call("TestCueInstance",0,start)
+            for f in range(start,start+hitlag):frame(f,FTILT,0,FTILT,1)
+            f=start+hitlag
+            frame(f,FTILT,0,FTILT);frame(f+1,FTILT,1,FTILT);frame(f+2,FTILT,1,KNEEBEND)
+        run(1)
+        self.assertEqual(m.call("TestWaitFrame"),0)  # New OSDs default Off.
+        m.call("Settings_Set",14,27,1)
+        run(10)
+        self.assertEqual(m.call("TestWaitFrame"),2)
+        self.assertEqual("".join(chr(m.call("TestWaitLabelChar",i)) for i in range(5)),"Ftilt")
+        self.assertEqual(m.call("OSD_MessageSettings",m.call("TestWaitTag")),27)
+        self.assertEqual(m.call("TestStyleColor",0),0xFFFFFFFF)
+        self.assertEqual(m.call("TestStyleColor",2),0x8DFF6EFF)  # 2f is green.
+        run(20,4)
+        text,colors,_=styled_ascii(m,2)
+        self.assertEqual(text,"4hl->2f")
+        self.assertEqual(colors[-1][1],0x8DFF6EFF)
 
 
 class ShineEpisodeTests(unittest.TestCase):
@@ -2355,8 +2467,8 @@ class OSDEditorTests(unittest.TestCase):
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
         rows = [id for page in EDITOR for id in page if id != 255]
-        self.assertEqual(sorted(rows), sorted(IDS + [30, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31]))
-        self.assertTrue(set(IDS + [30]) <= set(EDITOR[0]))
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31]))
+        self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
         for page in range(2):
             for native, row in zip(PHYSICAL, range(29)):
                 self.assertEqual(self.m.call("TMSettings_EditorIDFor", page, native), EDITOR[page][row])
@@ -2392,6 +2504,8 @@ class OSDEditorTests(unittest.TestCase):
         m = self.m; m.call("TestEditorInit")
         self.assertEqual(self.label(m, editor_row(16)[1], 10), "Act OoWait")
         self.assertEqual(self.label(m, editor_row(18)[1], 10), "Act OoJump")
+        self.assertEqual(self.label(m, editor_row(27)[1], 12), "Act OoAttack")
+        self.assertEqual(EDITOR[0][8:13], [3, 16, 27, 18, 28])  # Grouped with the other Act Oo* rows.
 
     def test_native_palette_cycle_and_exit_snapshot(self):
         m = self.m

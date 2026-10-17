@@ -11,9 +11,13 @@
 #define TM_SETTINGS_LEGACY_OVERLAYS 17
 #define TM_SETTINGS_OVERLAY_CHOICES 11
 #define TM_SETTINGS_OSDS 19
-#define TM_OSD_CATEGORIES (TM_SETTINGS_OSDS + 1) /* Append-only runtime category; core palette unchanged. */
+#define TM_OSD_CATEGORIES (TM_SETTINGS_OSDS + 2) /* Append-only runtime categories; core palette unchanged. */
 #define TM_GLOBAL_ASMASH_RELEASE_ID 30
 #define TM_GLOBAL_ASMASH_RELEASE_NAME "A-Smash Release"
+#define TM_GLOBAL_ACT_OO_ATTACK_ID 27 /* TYEX byte 8 bits 4-6. */
+#define TM_GLOBAL_ACT_OO_ATTACK_NAME "Act OoAttack"
+/* OSD categories whose palette (and synthesized enable bit) live in the extension. */
+#define TM_EXTENSION_OSD(id) ((id) == TM_GLOBAL_ASMASH_RELEASE_ID || (id) == TM_GLOBAL_ACT_OO_ATTACK_ID)
 #define TM_SETTINGS_FLAGS_OFFSET 10
 #define TM_SETTINGS_OVERLAYS_OFFSET 12
 #define TM_SETTINGS_COLORS_OFFSET 30
@@ -164,7 +168,8 @@ enum TMAttackShieldPreference {
 
 extern const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS];
 static inline unsigned TMSettings_OSDCategoryID(unsigned slot) {
-    return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] : TM_GLOBAL_ASMASH_RELEASE_ID;
+    return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] :
+        slot == TM_SETTINGS_OSDS ? TM_GLOBAL_ASMASH_RELEASE_ID : TM_GLOBAL_ACT_OO_ATTACK_ID;
 }
 #define TM_EDITOR_PAGES 2
 #define TM_EDITOR_ROWS 29

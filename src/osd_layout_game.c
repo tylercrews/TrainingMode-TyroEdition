@@ -21,6 +21,7 @@ static const char *category_names[TM_OSD_CATEGORIES] = {
     "Powershield", "SDI Inputs", "Lockout Timers", "Item Throw Interrupts", "Boost Grab",
     "Act OoWait", "Act OoJump", "Jump Cancel", "Fastfall", "Frame Advantage",
     "Combo Counter", "Grab Breakout", "Ledgedash", "Act OoHitstun", TM_GLOBAL_ASMASH_RELEASE_NAME,
+    TM_GLOBAL_ACT_OO_ATTACK_NAME,
 };
 static const char *slot_name(unsigned key) {
     unsigned slot = key % TM_OSD_SLOTS;
