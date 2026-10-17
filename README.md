@@ -40,7 +40,7 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T5
-- For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?
+- ~~For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?~~ Resolved in T5: the "duplicates" were the CPU's own OSD cells, and the remembered OSD page could hide your cells. CPU cells are now tagged and matches start on page 1.
 - the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
 - see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
 - the button controls to select the color for the OSDs are really annoying and unintuitive
@@ -60,6 +60,12 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T5 (V1.4.1T5)
+
+- **Globals and all events**
+    - Fixed Grid and Practice Panel OSD cells that belong to a CPU now have a small grey **CPU** tag, so a CPU's block of cells (which never updates if the CPU doesn't wavedash, shine, etc.) can't be mistaken for frozen duplicates of your own OSDs. Turning on **Override CPU OSDs Off** still hides them entirely.
+    - Every match now starts on OSD page 1. Previously the page chosen in the global OSD menu (or left over from the last match) carried into the next match, which could hide your Wavedash/character-specific cells on a page you weren't looking at.
 
 ### T4 (V1.4.1T4)
 

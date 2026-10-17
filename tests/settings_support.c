@@ -542,6 +542,15 @@ int TestLayoutX100(GOBJ *object) { return ((MsgData *)object->userdata)->text->t
 int TestLayoutY100(GOBJ *object) { return ((MsgData *)object->userdata)->text->trans.Y * 100; }
 unsigned TestLayoutFreed(void) { return layout_freed; }
 unsigned TestLayoutRecent(void) { return layout_recent; }
+unsigned TestLayoutCPUTags(void) {
+    unsigned count=0;
+    for(unsigned i=0;i<countof(layout_texts);++i) {
+        const char *body=layout_texts[i].body[0];
+        count+=layout_texts[i].live && !layout_texts[i].text.hidden &&
+            body[0]=='C' && body[1]=='P' && body[2]=='U' && !body[3];
+    }
+    return count;
+}
 unsigned TestLayoutLiveText(void) { unsigned count=0; for(unsigned i=0;i<countof(layout_texts);++i) count+=layout_texts[i].live; return count; }
 unsigned TestLayoutFooterChar(GOBJ *object, unsigned index) {
     int i = layout_text_index(((MsgData *)object->userdata)->layout_footer);

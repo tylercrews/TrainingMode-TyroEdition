@@ -8,7 +8,7 @@ static struct {
     GOBJ *latest[TM_OSD_KEYS];
     TMOSDHistory history[TM_OSD_KEYS];
     TMOSDMap map;
-    Text *empty[TM_OSD_GRID_CELLS], *page_text;
+    Text *empty[TM_OSD_GRID_CELLS], *tag[TM_OSD_GRID_CELLS], *page_text;
     int empty_key[TM_OSD_GRID_CELLS], empty_mode[TM_OSD_GRID_CELLS];
     GOBJ *fighter[TM_OSD_PLAYERS];
     int spawn[TM_OSD_PLAYERS];
@@ -55,7 +55,10 @@ static unsigned eligible(void) {
     return owners;
 }
 static void hide_empty(void) {
-    for (unsigned i = 0; i < TM_OSD_GRID_CELLS; ++i) if (layout.empty[i]) layout.empty[i]->hidden = 1;
+    for (unsigned i = 0; i < TM_OSD_GRID_CELLS; ++i) {
+        if (layout.empty[i]) layout.empty[i]->hidden = 1;
+        if (layout.tag[i]) layout.tag[i]->hidden = 1;
+    }
     if (layout.page_text) layout.page_text->hidden = 1;
 }
 void Message_LayoutInit(int canvas) {
@@ -66,6 +69,9 @@ void Message_LayoutInit(int canvas) {
     layout.canvas = canvas;
     layout.mode = current_mode();
     layout.shown_page = layout.shown_pages = ~0u;
+    /* Every match opens on the first page; a page left over from the editor or
+     * a previous match can otherwise hide the player's cells on page 1. */
+    Settings_Set(TM_SETTING_OSD_PAGE, 0, 0);
     TMOSD_MapReset(&layout.map, Settings_Get(TM_SETTING_OSD_MASK, 0));
 }
 void Message_LayoutClear(void) {
@@ -326,6 +332,30 @@ static void footer(GOBJ *object, unsigned mode) {
     msg->layout_footer->hidden = 0;
     if (msg->layout_timing) msg->layout_timing->hidden = 0;
 }
+/* Label CPU-owned cells so a second player's block is not mistaken for a
+ * frozen copy. Layout-owned text, above the title, for results and placeholders. */
+static void cpu_tag(TMOSDCell cell, unsigned owner, unsigned mode) {
+    Playerblock *player = Fighter_GetPlayerblock(owner);
+    if (!player || player->p_kind != 1) return;
+    unsigned i = cell.cell;
+    if (!layout.tag[i]) {
+        layout.tag[i] = Text_CreateText(2, layout.canvas);
+        layout.tag[i]->kerning = 1; layout.tag[i]->color = muted;
+        Text_AddSubtext(layout.tag[i], 0, 0, "CPU");
+    }
+    Text *text = layout.tag[i];
+    text->trans.X = cell.x; text->trans.Y = -cell.y;
+    if (mode == TM_OSD_PANEL) {
+        text->align = 0; text->use_aspect = 0;
+        text->viewport_scale.X = text->viewport_scale.Y = .025f;
+        Text_SetPosition(text, 0, 0, -76); Text_SetScale(text, 0, .5f, .5f);
+    } else {
+        text->align = 1; text->use_aspect = 1; text->aspect.X = 215;
+        text->viewport_scale.X = text->viewport_scale.Y = .042f;
+        Text_SetPosition(text, 0, 0, -58); Text_SetScale(text, 0, .55f, .55f);
+    }
+    text->hidden = OSD_IsSuppressed() || Settings_Get(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF);
+}
 void Message_LayoutUpdate(void) {
     unsigned mode = current_mode();
     if (!mode) { if (layout.mode) Message_LayoutRecent(); layout.mode = mode; return; }
@@ -356,6 +386,7 @@ void Message_LayoutUpdate(void) {
             footer(object, mode); Message_LayoutGeometry(object);
         }
         TMOSDCell cell = TMOSD_Cell(&layout.map, key, mode);
+        if (cell.key >= 0 && cell.page == (int)page) cpu_tag(cell, key / TM_OSD_SLOTS, mode);
         if (cell.key < 0 || cell.page != (int)page || object) continue;
         unsigned i = cell.cell;
         if (!layout.empty[i]) {

@@ -1442,6 +1442,29 @@ class OSDLayoutTests(unittest.TestCase):
         self.assertEqual([m.call("TestLayoutX100",human),m.call("TestLayoutY100",human)],before)
         self.assertNotIn(b"CPU2",self.footer(cpu))
 
+    def test_each_match_opens_on_the_first_page(self):
+        self.start(1,IDS);m=self.m
+        m.call("Settings_Set",23,0,1);self.assertEqual(m.call("Settings_Get",23,0),1)
+        m.call("TestLayoutInit")
+        self.assertEqual(m.call("Settings_Get",23,0),0)
+
+    def test_only_cpu_owned_cells_are_tagged_in_stable_layouts(self):
+        for mode in (1,2):
+            with self.subTest(mode=mode):
+                self.m=Machine();self.m.init();self.start(mode);m=self.m
+                m.call("TestLayoutTick",1)
+                self.assertEqual(m.call("TestLayoutCPUTags"),0)  # Human-only match.
+                m.call("TestCueState",2,14,1,40,100);m.call("TestCuePlayer",1,1,1)
+                m.call("TestLayoutTick",2)
+                tags=m.call("TestLayoutCPUTags")
+                self.assertGreater(tags,0)
+                cpu=m.call("TestLayoutEmit",1,0,1,0);m.call("TestLayoutTick",3)
+                self.assertEqual(m.call("TestLayoutCPUTags"),tags)  # Results keep their tag.
+                m.call("Settings_Set",11,8,1);m.call("TestLayoutTick",4)
+                self.assertEqual(m.call("TestLayoutCPUTags"),0)  # CPU OSDs Off hides tags.
+                m.call("Settings_Set",11,8,0);m.call("Settings_Set",21,0,0);m.call("TestLayoutTick",5)
+                self.assertEqual(m.call("TestLayoutCPUTags"),0)  # Recent has no cells.
+
     def test_importing_old_recent_result_cannot_overwrite_a_fresh_native_result(self):
         self.start(0);m=self.m
         old=m.call("TestLayoutEmit",0,20,1,20)
