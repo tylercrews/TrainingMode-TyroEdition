@@ -60,6 +60,12 @@ static u8 *settings_view(void) {
 
 static const u8 extension_osds[] = { TM_GLOBAL_ASMASH_RELEASE_ID, TM_GLOBAL_ACT_OO_ATTACK_ID };
 #define EXTENSION_OSD_BITS ((1u<<TM_GLOBAL_ASMASH_RELEASE_ID)|(1u<<TM_GLOBAL_ACT_OO_ATTACK_ID))
+/* New colors keep the nearest original color in the 3-bit palette, so the OSD
+ * stays enabled and an older build still draws a close color. */
+static const u8 legacy_color[TM_COLOR_COUNT-TM_COLOR_LEGACY_COUNT] = {
+    TM_COLOR_YELLOW, TM_COLOR_MAGENTA, TM_COLOR_MAGENTA, TM_COLOR_CYAN,
+    TM_COLOR_GREEN, TM_COLOR_YELLOW, TM_COLOR_BLUE, TM_COLOR_MAGENTA,
+};
 static u8 *extension_view(void) {
     u8 *core=settings_view();
     u8 *extension=(u8 *)stc_memcard+TM_EXTENSION_OFFSET;
@@ -84,7 +90,15 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
     if (field == TM_SETTING_EDITOR_PAGE) return editor_page;
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_NATIVE_ROW && index==TM_GLOBAL_RANDALL_ROW) { field=TM_SETTING_FLAG; index=TM_FLAG_RANDALL; }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL))
+    if(field==TM_SETTING_OSD_COLOR) {
+        int slot=TMSettings_OSDCategorySlot(index);
+        u32 base=TM_EXTENSION_OSD(index)?TMExtension_Read(extension_view(),field,index):
+            TMSettings_Read(settings_view(),field,index);
+        if(slot<0 || !base) return base; /* Off wins over a retained new color. */
+        u32 extra=TMExtension_Read(extension_view(),TM_SETTING_OSD_COLOR_EXTRA,slot);
+        return extra?TM_COLOR_LEGACY_COUNT-1+extra:base;
+    }
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_COLOR_EXTRA)
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index))
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
@@ -102,6 +116,14 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
     if (field == TM_SETTING_EDITOR_PAGE) { if (value < TM_EDITOR_PAGES) editor_page = value; return; }
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_NATIVE_ROW && index==TM_GLOBAL_RANDALL_ROW) { field=TM_SETTING_FLAG; index=TM_FLAG_RANDALL; }
+    if(field==TM_SETTING_OSD_COLOR_EXTRA) return; /* Written only through OSD_COLOR. */
+    if(field==TM_SETTING_OSD_COLOR) {
+        int slot=TMSettings_OSDCategorySlot(index);
+        if(slot<0 || value>=TM_COLOR_COUNT) return;
+        int extended=value>=TM_COLOR_LEGACY_COUNT;
+        extension_set(TM_SETTING_OSD_COLOR_EXTRA,slot,extended?value-TM_COLOR_LEGACY_COUNT+1:0);
+        if(extended) value=legacy_color[value-TM_COLOR_LEGACY_COUNT];
+    }
     if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)) {
         extension_set(field,index,value); return;
     }

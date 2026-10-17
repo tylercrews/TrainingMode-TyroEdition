@@ -104,7 +104,7 @@ static void refresh_row(void *data, unsigned row) {
                                   flag < 0 ? id : (unsigned)flag);
     Text *text = *(Text **)((uint8_t *)data + (row < 15 ? 0x40 : 0x44));
     int subtext = (row < 15 ? row : row - 15) + 1;
-    const char *choice = flag < 0 ? color_names[value & 7] : (value ? "On" : "Off");
+    const char *choice = flag < 0 ? color_names[value < TM_COLOR_COUNT ? value : 0] : (value ? "On" : "Off");
     Text_SetText(text, subtext, "%s: %s", row_name(row), choice);
     /* Fit long names plus the palette value into the existing two-column layout. */
     Text_SetScale(text, subtext, 0.78f, 1.0f);
@@ -178,7 +178,7 @@ int OSD_EditorInput(void *data, unsigned buttons, unsigned row) {
     unsigned field = flag < 0 ? TM_SETTING_OSD_COLOR : TM_SETTING_FLAG;
     unsigned index = flag < 0 ? id : (unsigned)flag;
     unsigned value = Settings_Get(field, index);
-    value = flag < 0 ? (value + ((buttons & MENU_A) ? 1 : 7)) & 7 : !value;
+    value = flag < 0 ? (value + ((buttons & MENU_A) ? 1 : TM_COLOR_COUNT - 1)) % TM_COLOR_COUNT : !value;
     Settings_Set(field, index, value);
     refresh_row(data, row);
     /* Leave the row byte at its old value: native think detects this difference,

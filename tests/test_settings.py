@@ -2518,21 +2518,30 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(m.call("TestEditorInput", MENU_A, row), 1)
         self.assertEqual(m.read(14, 20), 7)
         self.assertEqual(m.call("TestEditorChoiceChar", row, 0), ord("M"))
+        # Orange..Lavender follow Magenta; the core keeps their nearest original color.
+        for color, initial, fallback in zip(range(8, 16), "OPPTLGSL", (5, 7, 7, 6, 3, 5, 4, 7)):
+            self.assertEqual(m.call("TestEditorInput", MENU_A, row), 1)
+            self.assertEqual(m.call("Settings_Get", 14, 20), color)
+            self.assertEqual(m.read(14, 20), fallback)
+            self.assertEqual(m.call("TestEditorChoiceChar", row, 0), ord(initial))
+            self.assertEqual(m.call("TestEditorColor", row), m.call("OSD_PaletteColor", color))
         self.assertEqual(m.call("TestEditorInput", MENU_A, row), 1)
         self.assertEqual(m.read(14, 20), 0)
+        self.assertEqual(m.call("Settings_Get", 14, 20), 0)
         self.assertEqual(m.call("TestEditorCache", row), 1)  # Native detects the changed Boolean.
         self.assertEqual(bytes(m.cpu.mem_read(0x804A04F4, 1)), b"\0")
         m.call("TestEditorAnimate", row)
         self.assertEqual(m.call("TestEditorCache", row), 0)
         self.assertEqual(m.call("TestEditorInput", MENU_B, row), 1)  # B steps backward.
+        self.assertEqual(m.call("Settings_Get", 14, 20), 15)
         self.assertEqual(m.read(14, 20), 7)
         self.assertEqual(m.call("TestEditorCache", row), 0)
         self.assertEqual(bytes(m.cpu.mem_read(0x804A04F4, 1)), b"\1")
         m.call("TestEditorAnimate", row)
         self.assertEqual(m.call("TestEditorCache", row), 1)
-        # The native exit pass saves Boolean rows: chosen Magenta remains Magenta.
+        # The native exit pass saves Boolean rows: chosen Lavender remains Lavender.
         m.write(16, 20, m.call("TestEditorCache", row))
-        self.assertEqual(m.read(14, 20), 7)
+        self.assertEqual(m.call("Settings_Get", 14, 20), 15)
         self.assertEqual(m.read(15, 15), 1)
 
     def test_master_and_trails_are_independent_boolean_rows(self):

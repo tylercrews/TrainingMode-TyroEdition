@@ -74,6 +74,10 @@ enum TMSettingsStatus {
 enum TMSettingsColor {
     TM_COLOR_OFF, TM_COLOR_WHITE, TM_COLOR_RED, TM_COLOR_GREEN,
     TM_COLOR_BLUE, TM_COLOR_YELLOW, TM_COLOR_CYAN, TM_COLOR_MAGENTA,
+    TM_COLOR_LEGACY_COUNT, /* The saved 3-bit palettes hold Off..Magenta. */
+    TM_COLOR_ORANGE = TM_COLOR_LEGACY_COUNT, TM_COLOR_PINK, TM_COLOR_PURPLE, TM_COLOR_TEAL,
+    TM_COLOR_LIME, TM_COLOR_GOLD, TM_COLOR_SKY_BLUE, TM_COLOR_LAVENDER,
+    TM_COLOR_COUNT, /* Orange..Lavender also use a TYEX nibble per category. */
 };
 
 enum TMSettingsFlag {
@@ -114,6 +118,7 @@ enum TMSettingsField {
     TM_SETTING_REVERSAL,
     TM_SETTING_ATTACK_SHIELD,
     TM_SETTING_EDITOR_PAGE, /* Runtime-only Global Settings page; never saved. */
+    TM_SETTING_OSD_COLOR_EXTRA, /* Internal: TYEX nibble by category slot. Use OSD_COLOR. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -170,6 +175,11 @@ extern const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS];
 static inline unsigned TMSettings_OSDCategoryID(unsigned slot) {
     return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] :
         slot == TM_SETTINGS_OSDS ? TM_GLOBAL_ASMASH_RELEASE_ID : TM_GLOBAL_ACT_OO_ATTACK_ID;
+}
+static inline int TMSettings_OSDCategorySlot(unsigned id) {
+    for (unsigned slot = 0; slot < TM_OSD_CATEGORIES; ++slot)
+        if (TMSettings_OSDCategoryID(slot) == id) return slot;
+    return -1;
 }
 #define TM_EDITOR_PAGES 2
 #define TM_EDITOR_ROWS 29
