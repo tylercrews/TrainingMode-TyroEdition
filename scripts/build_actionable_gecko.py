@@ -10,7 +10,7 @@ import struct
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "gecko/actionable"
+SOURCE = ROOT / "slippi-gecko-codes/actionable"
 BUILD = ROOT / "build/actionable-gecko"
 
 

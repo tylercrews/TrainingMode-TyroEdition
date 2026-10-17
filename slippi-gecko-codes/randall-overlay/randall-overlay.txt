@@ -1,4 +1,6 @@
-$Randall Overlay [TM Tyro]
+$Randall Overlay (Slippi NTSC 1.02)
+*Yoshi's Story: always shows Randall's platform and cloud, even behind the stage.
+*Visual only; reads stage collision and never changes game state.
 C216E8C8 000000CA
 7C0802A6 90010004
 9421FF80 BC610008

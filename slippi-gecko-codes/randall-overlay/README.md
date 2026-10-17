@@ -4,13 +4,13 @@ A standalone version of Tyro Edition's **Randall Overlay** for vanilla NTSC 1.02
 
 It only draws: it reads the stage's collision data and never changes game state, so it can't cause a desync. Your opponent doesn't need it.
 
-## Install (Slippi Dolphin)
+## Install
 
-1. In Slippi Dolphin, right-click your Melee ISO and choose **Properties**, then the **Gecko Codes** tab.
-2. Click **Add New Code**, set the name to `Randall Overlay`, and paste every line of [randall-overlay.txt](randall-overlay.txt) **except** the first `$Randall Overlay [TM Tyro]` line into the code box.
-3. Tick the new code's checkbox and close the window.
+1. Open Slippi Launcher → Settings → Netplay → Manage Gecko Codes → Add.
+2. Use `Randall Overlay (Slippi NTSC 1.02)` as the name. Paste the hex lines from [randall-overlay.txt](randall-overlay.txt) into the code field, then save and enable it. The `$` title and `*` description lines are metadata, not hex code.
+3. Keep Slippi's standard required codes enabled and restart the game.
 
-On other stages it does nothing.
+On other stages it does nothing. It can run alongside [Actionable Yellow-Green](../actionable/README.md): that code hooks `800805C8` and `8006D9EC`, this one `8016E8C8`.
 
 ## How it works
 
@@ -26,7 +26,7 @@ The source is [Randall Overlay.asm](Randall%20Overlay.asm). This folder sits out
 Run from the repository root in devkitPro's MSYS2 shell:
 
 ```sh
-./bin/hgecko.exe slippi/randall-overlay build/randall-overlay.gct
+./bin/hgecko.exe slippi-gecko-codes/randall-overlay build/randall-overlay.gct
 ```
 
 Then convert the `.gct` to text lines: drop the 8-byte `00D0C0DE00D0C0DE` header and the `F000000000000000` footer, and print the rest as `XXXXXXXX XXXXXXXX` pairs under the `$Randall Overlay [TM Tyro]` name line.
