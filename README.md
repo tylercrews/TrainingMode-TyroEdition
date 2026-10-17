@@ -14,12 +14,28 @@ Please read [DEVELOPMENT.md](DEVELOPMENT.md).
 
 The Tyro version and stable game/save identity live in [version.h](version.h). Update `TM_VERSION` for a new release; keep `TM_GAME_ID` stable. Run `./build.sh --version` to see the version, game ID, and output filename.
 
-## Tyro branch changelog
+## My Settings
+<img width="758" height="590" alt="current training mode settings" src="https://github.com/user-attachments/assets/8df76fc7-5b86-49c0-b75d-ba3ad1ec764d" />
+<img width="783" height="607" alt="current training mode settings 2" src="https://github.com/user-attachments/assets/d569c00f-e3e6-44c0-9b34-23fe8f2e1e1c" />
+So here's what I have turned on as an aspiring fox player:
+- OSD Display is set to Fixed Grid, which is a display that I came up with where all of the OSDs are permanently in a fixed position at the top so you don't have to figure out which is which when they're popping up, and you can always look to the same place to see the one you're currently working on.
+- Wavedash - Red - still trying to make sure that I'm getting short hops when I wavedash instead of full hops.
+- Fighter Specific Tech - Cyan - cyan for shine, I split it into two visible OSDs, and then a third for the spaceys (side b shorten) doesn't come up as much so I don't mind that one sharing the shine one as much. But acting out of shine is a must of course
+- Act OOLag - Magenta - The Act Out of Wait is crucial because it pairs with the Actionable Yellow -> Green Overlay. The overlay tells you when to go and then the act out of wait tells you how well you did at that. I'm always trying to act faster out of landing and out of wavedash back in particular.
+- Act OOAirborne - White - This one will tell you how quickly you're putting out your aerials, trying to hit those F1 nairs, but this one is a more recent addition for me tbh. I'm not a zumper so I haven't been trying to force the f1 upair tech.
+- Fastfall Timing - Blue - as a newbie fox this is integral in my shffl practice, just trying to get my short hop nairs to fastfall, especially in eggsercise to see how well I'm fastfalling after hitlag
+- A-Smash Release - Yellow - There are sometimes where I like JC Upsmash with the cstick and sometimes I like it with A. But I've noticed glowey frames when I put out my upsmashes so I needed to make this OSD to be sure. Going into slow-mo I saw that glow starts on frame 3, but once I made this it turned out I was really doing it more often at frame 5 or frame 4, which was a real eye opener. This is a new change but I think it's going to be a permanent mainstay for me for my run up upsmash practice.
+- Hitbox Trails Very Fast - I think this might be the most useful setting for a new player of anything. Being able to see where moves are hitting at all times gives you a much better idea of spacing, of placing where you're hitting, and visibility into how you're making mistakes. You also notice little quirks of the game better, like when you're running around on FD upsmashing eggs in eggsercise, seeing how much narrower the running upsmash hitbox is compared to standing hitbox, and where it actually hits on the ground is so important. I could not recommend this setting more highly. I made it a global so that you can play friends locally in vs mode and every player slot has their own hitbox trail color.
+- Missed L Cancel - tried to make this work like the stock slippi overlay. just a classic.
+- Run Turnaround - this one blinks you red when you go into turnaround, I think it's just good to have the negative reinforcement similar to the missed L Cancel to remind yourself that you messed up that dashdance/whatever.
+- Actionable Yellow>Green - This was one of my favorite ideas, and I'm really glad I got it working. There's even slippi code in here to add it to netplay if you end up liking it. At the end of any time that you are inactionable the last two frames will be yellow, and then the first two frames you are actionable you turn green. Kind of like a drag race go signal: it's time to MOVE. And it's just a blink so you don't have to deal with the constant green overlay when your character is standing around, I feel like that didn't really help me much. This one helps you get an idea of when you need to start pushing your stick again after wavedashing and L canceling. It doesn't do hitstun though, I feel like that's a slightly different thing that shouldn't be bundled together with this, but I'll probably do that eventually too.
+- Infinite Shields - I suck at shield drops and I'm working on them now. Recently a friend was trying to help me out showing me in vs mode, but I'm so slow that it was driving me crazy trying to wait for my shield to regenerate so we could keep practicing. So this fixes that.
+- Invincibility Overlay - I think the biggest problem smash players have is that they can't count to 3. Knowing how long invincibility lasts when your opponent comes off the angel platform is crucial, knowing how long before they're damageable from roll, from spotdodge, from the ledge, it's important stuff. I'm also trying to learn how yoshi's power armor works so that's baked in here, and it also covers some moves like marth+roy's counter, and ofc it covers actual invincible moves like the startup of Bowser UpB.
 
-This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+So hopefully that gives you a better idea of how I practice! 
+Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-
-### BUGS TO INVESTIGATE FOR T5
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T5
 - For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?
 - the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
 - see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
@@ -30,9 +46,13 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
 - make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily
 - the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically
+- Similar Actionable X>Green for hitstun ending?
+
+## Tyro branch changelog
+
+This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
 ### T4 (V1.4.1T4)
-#### ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra use)
 
 - **Program changes**
     - Change the game/save ID from `TYRE01` to `TMTE01`, for Training Mode Tyro Edition :3
@@ -87,6 +107,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Created a setting to hide move animations, so that when you're trying to refresh with Fox/Falco you can see your character model more clearly instead of the flames.
         - You can now switch from the left side ledge to the right side ledge! It wasn't possible to practice refreshing on both sides in this event before. Works like ledgedash event where you can either change the setting manually or use the Dpad left-right. Also works as a nice shortcut to reset the event faster.
         - Added two event-specific OSDs to show what frame you drop off ledge (telling you if you hit the frame-perfect you need), and show you how close you were to getting a perfect refresh.
+
+For T4 I was working with ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra use)
 
 ### T3 (V1.4.1T3)
 
