@@ -47,6 +47,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily
 - the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically
 - Similar Actionable X>Green for hitstun ending?
+- maybe instead of a full octagon for the wavedash angle display I should have a half-octagon. It would make the display a little larger relatively, but might make a little less sense. But I think it's only being used for wavedash OSDs so there's no need to worry about reusability
 
 ## Tyro branch changelog
 
