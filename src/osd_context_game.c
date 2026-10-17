@@ -64,7 +64,7 @@ static const char *wait_source(FighterData *data, int index) {
         return c && c->cancelled ? "L-cancel" : "Missed L-cancel";
     }
     if (state == ASID_LANDINGFALLSPECIAL) return before == ASID_ESCAPEAIR ? "Waveland" : "Special landing";
-    if (state >= ASID_THROWF && state <= ASID_THROWLW) return "Throw";
+    /* Throws, including through Wait, belong to Act OoAttack. */
     if (state == ASID_PASSIVE) return "Tech";
     if (state == ASID_PASSIVESTANDF || state == ASID_PASSIVESTANDB) return "Tech roll";
     if (state == ASID_DOWNATTACKU || state == ASID_DOWNATTACKD) return "Getup attack";

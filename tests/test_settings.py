@@ -1823,6 +1823,12 @@ class OSDContextTests(unittest.TestCase):
         m.cpu.mem_write(data+0x2408, struct.pack(">6H",1,10,20,0,0,0))
         m.call("TestWaitDisplay", 0)
         self.assertEqual(bytes(m.call("TestWaitLabelChar", i) for i in range(8)), b"L-cancel")
+        # Up-throw -> Wait -> action belongs to Act OoAttack only.
+        m.call("TestWaitClear")
+        m.cpu.mem_write(data+0x23FC, struct.pack(">6H",14,221,0,0,0,0))
+        m.cpu.mem_write(data+0x2408, struct.pack(">6H",1,30,0,0,0,0))
+        m.call("TestWaitDisplay", 0)
+        self.assertEqual(m.call("TestWaitFrame"), 0)
         m.call("ActionCues_Clear")
         self.assertEqual(m.call("OSDContext_MessageHitlag", 0, 8), 0)
 
@@ -1862,11 +1868,14 @@ class AttackEpisodeTests(unittest.TestCase):
         self.tick(WAIT);self.assertEqual(self.act(3,WAIT,0,WALK),0)  # Walk is not yet the action.
         self.tick(WALK);self.assertEqual(self.act(4,WALK,0,KNEEBEND),3)
 
-    def test_throws_into_wait_belong_to_act_oowait_but_throw_iasa_does_not(self):
-        self.tick(THROWF);self.act(1,THROWF,0,THROWF)
-        self.tick(WAIT);self.assertEqual(self.act(2,WAIT,0,KNEEBEND),0)
+    def test_throws_report_once_through_wait_or_iasa(self):
+        UTHROW = THROWF + 2  # Fox's up-throw ends in Wait.
+        for frame in (1,2): self.tick(UTHROW);self.act(frame,UTHROW,0,UTHROW)
+        self.tick(WAIT);self.assertEqual(self.act(3,WAIT,0,WAIT),0)
+        self.tick(WAIT);self.assertEqual(self.act(4,WAIT,0,KNEEBEND),2)
         self.assertEqual(self.fields()[1],0)
-        self.tick(THROWF,1);self.assertEqual(self.act(3,THROWF,1,KNEEBEND,0,1),1)
+        self.tick(KNEEBEND);self.assertEqual(self.act(5,KNEEBEND,0,24),0)  # Never a second report.
+        self.tick(THROWF,1);self.assertEqual(self.act(6,THROWF,1,KNEEBEND,0,1),1)
 
     def test_being_hit_or_waiting_past_the_window_reports_nothing(self):
         self.tick(FTILT);self.act(1,FTILT,0,DAMAGE)

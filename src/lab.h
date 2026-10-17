@@ -1144,7 +1144,7 @@ static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_STRING, .name = TM_GLOBAL_ACT_OO_ATTACK_NAME,
         .value_num = TM_COLOR_COUNT, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
-        .desc = {"Frames to act once a grounded attack or throw is actionable.", "1f = first frame. Throws that end in Wait use Act OoWait."},
+        .desc = {"Frames to act once a grounded attack or throw is actionable.", "1f = first frame. Includes Wait after the animation ends."},
     },
 };
 

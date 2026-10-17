@@ -75,9 +75,8 @@ void TMAttack_Before(TMAttackEpisode *a, uint32_t frame, int state, unsigned ins
         /* The animation tick normally starts the episode; cover a missed one. */
         if (state != a->state || instance != a->instance) TMAttack_Tick(a, state, instance, 0, 0);
         if (!actionable) return;
-    } else if (!TMAttack_Idle(state) ||
-               (a->state >= ASID_THROWF && a->state <= ASID_THROWLW)) {
-        /* Hit, grabbed, or a throw's Wait recovery, which Act OoWait reports. */
+    } else if (!TMAttack_Idle(state)) {
+        /* Hit or grabbed. Throws into Wait are reported here and by Act OoWait. */
         a->active = 0;
         return;
     }
