@@ -12,7 +12,10 @@ static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
     {19,2,4,0}, {21,2,4,0},
 };
 static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT] = {{18,1,2,0}, {19,1,2,0}};
-static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {{20,1,2,1}, {21,1,2,0}};
+/* Position and height occupy byte 35 (word at 32, bits 24..30). */
+static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {
+    {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0},
+};
 static const ExtensionPreference powershield_preferences[TM_PS_PREF_COUNT] = {
     {0,2,4,0}, {2,6,61,0}, {8,6,61,20}, {14,3,5,0},
     {17,1,2,0}, {18,2,4,0}, {20,1,2,1}, {21,1,2,1},
@@ -56,10 +59,12 @@ static int version14(const uint8_t *r) { return format(r,14,16); }
 #define ACT_OO_ATTACK_SHIFT 4
 #define ACT_OO_ATTACK_BITS (7u<<ACT_OO_ATTACK_SHIFT)
 /* Version 15 appends bytes 24..35: one nibble per OSD category slot, low nibble
- * first. 0 keeps the 3-bit palette; 1..8 select Orange..Lavender. Byte 35 is free. */
+ * first. 0 keeps the 3-bit palette; 1..8 select Orange..Lavender. Byte 35 holds
+ * Low Laser's position and height: every migration to 15 zeroes it, so existing
+ * version-15 records already read as the defaults (Center, Grounded). */
 #define COLOR_EXTRA_OFFSET 24
 #define COLOR_EXTRA_COUNT (TM_COLOR_COUNT-TM_COLOR_LEGACY_COUNT+1)
-typedef char TMExtension_ColorNibbles[(COLOR_EXTRA_OFFSET+(TM_OSD_CATEGORIES+1)/2<=TM_EXTENSION_SIZE) ? 1 : -1];
+typedef char TMExtension_ColorNibbles[(COLOR_EXTRA_OFFSET+(TM_OSD_CATEGORIES+1)/2<=TM_EXTENSION_SIZE-1) ? 1 : -1]; /* Byte 35 is Low Laser's. */
 static unsigned color_extra(const uint8_t *r,unsigned slot) {
     return (r[COLOR_EXTRA_OFFSET+slot/2]>>((slot&1)*4))&15;
 }
@@ -95,6 +100,7 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
 static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) return 20;
     if(field==TM_SETTING_LEDGECHASE && (index==TM_LEDGECHASE_PRESET || index==TM_LEDGECHASE_AIR_ATTACK)) return 16;
+    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION) return 32;
     return field==TM_SETTING_TECHCHASE?9:field==TM_SETTING_POWERSHIELD?16:12;
 }
 static unsigned read_bits(const uint8_t *r,unsigned offset) {
@@ -236,6 +242,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     }
     if(v11 && field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) return (r[20]&15)<14?r[20]&15:0;
     if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14) return p->initial;
+    /* Older records end before byte 35. */
+    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION && !supported(r)) return p->initial;
     if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14) return p->initial;
     if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14) {
         if(index==TM_LEDGECHASE_ENTRY || index==TM_LEDGECHASE_HOP_HEIGHT) return p->initial;

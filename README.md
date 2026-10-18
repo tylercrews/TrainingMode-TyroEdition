@@ -40,8 +40,8 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T5
-- the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
-- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
+- ~~the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile~~ **Resolved in T5:** every character can now play the event.
+- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, ~~a full hop +dj puff~~ (**T5:** Puff Height adds hop and double-jump heights; other CPU characters/poses are still open)
 - would be nice to reorder your OSDs how you want
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
@@ -73,6 +73,13 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Free Practice's count-up timer now always starts at 0:00, whether you start the event in Free Practice or switch to it from the menu. Switching mid-challenge restarts the match, which also fixes the timer getting stuck on a big **5** if you switched during the final countdown.
     - **Under Fire - Ledgestall Training**
         - Renamed the **Under Fire** event to **Under Fire - Ledgestall Training** on the event select screen and in its pause menu, so it's clear the event is about refreshing ledge invincibility.
+    - **Low Laser Puff Practice** ([details](docs/LOW-LASER-PUFF.md))
+        - Every character can play it now, not just Fox and Falco. For characters other than Fox/Falco, the timing readout is named **Neutral-B Start** and times your first aerial neutral-B.
+        - It opens the stage select instead of always using FD. Positions are worked out from each stage's own floor and platforms, and they're built for the six legal stages (FD, Battlefield, Dream Land, Yoshi's Story, Fountain of Dreams, Pokémon Stadium).
+        - **Puff Position** adds **On Left/Top/Right Plat** and **Under Left/Right Plat**. Platforms a stage doesn't have show as (N/A) and get skipped. Far/Center Left/Right scale to the stage's width (FD keeps its exact old spots), and on Fountain, Puff rides the moving platform.
+        - New **Puff Height** setting: **Grounded** (default), **Short Hop**, **Full Hop**, **Short Hop + Double Jump**, **Full Hop + Double Jump**. It lifts Puff above whichever position you picked, using heights worked out from Puff's own jump values.
+        - Puff Position and Puff Height are both saved to the memory card.
+        - Saved the on/under-platform coordinates for each legal stage as a reference in [notes/LEGAL-STAGE-PLATFORMS.md](notes/LEGAL-STAGE-PLATFORMS.md), with a script to regenerate them from the ISO.
 
 ### T4 (V1.4.1T4) - 2026-10-15
 

@@ -99,7 +99,7 @@ class LowLaserTests(unittest.TestCase):
             self.m.call('TestLaserChoice',0,index)
             self.assertEqual((self.info(4),self.info(5),self.info(3)),(x,50 if x<0 else -50,18))
         position = (self.info(4), self.info(5))
-        self.m.call('TestLaserChoice',4,0)
+        self.m.call('TestLaserChoice',5,0)
         self.assertEqual((self.info(3), self.info(16)),(0,0))
         self.assertEqual((self.info(4),self.info(5)),position)
 
@@ -153,16 +153,16 @@ class LowLaserTests(unittest.TestCase):
 
     def test_saved_toggles_are_independent_and_timing_is_always_white(self):
         self.assertEqual((self.info(11),self.info(12)),(0,0))
-        self.m.call('TestLaserChoice',2,1); self.step()
+        self.m.call('TestLaserChoice',3,1); self.step()
         self.assertEqual((self.info(11),self.info(12)),(1,0))
-        self.m.call('TestLaserChoice',1,0); self.step()
+        self.m.call('TestLaserChoice',2,0); self.step()
         self.assertEqual((self.info(11),self.info(12)),(1,1))
         self.m.call('TestLaserReenter'); self.step()
         self.assertEqual((self.info(11),self.info(12),self.info(15)),(1,1,2))
-        self.m.call('TestLaserChoice',1,1)
+        self.m.call('TestLaserChoice',2,1)
         self.sample(344,fastfall=1,eligible=1)
         self.assertEqual((self.info(13),self.info(14)),(-1,-1))
-        self.m.call('TestLaserChoice',3,0)
+        self.m.call('TestLaserChoice',4,0)
         self.assertEqual((self.info(11),self.info(17)),(0,1))
 
     def test_real_relocated_dat_initializes_places_and_measures(self):
@@ -199,22 +199,222 @@ class LowLaserTests(unittest.TestCase):
         self.assertEqual((m.call('TestLaserInfo',0),m.call('TestLaserInfo',1)),(1,3))
         menu_ptr=struct.unpack('>I',m.cpu.mem_read(base+entries[3],4))[0]
         rows=struct.unpack('>I',m.cpu.mem_read(menu_ptr+8,4))[0]
-        self.assertEqual(m.cpu.mem_read(menu_ptr+4,1)[0],5)
-        reset_name=struct.unpack('>I',m.cpu.mem_read(rows+4*44+12,4))[0]
+        self.assertEqual(m.cpu.mem_read(menu_ptr+4,1)[0],6)
+        reset_name=struct.unpack('>I',m.cpu.mem_read(rows+5*44+12,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(reset_name,8)).split(b'\0',1)[0],b'Reset %')
 
 
+FD_EDGE = struct.unpack('>f', struct.pack('>f', 85.5656967))[0]
+MARIO, FOX = 0, 1
+# Expected apex rises: gravity before movement, from Puff's PlPr.dat values.
+def rise(velocity, gravity=.064):
+    height = 0
+    while True:
+        velocity -= gravity
+        if velocity <= 0: return height
+        height += velocity
+HEIGHTS = (0, rise(1.05), rise(1.6), rise(1.05) + rise(1.65), rise(1.6) + rise(1.65))
+LEGAL = [('GrNLa.dat', 32, None), ('GrNBa.dat', 31, None), ('GrOp.dat', 28, None),
+         ('GrSt.dat', 8, {1, 2, 3, 4, 5, 6}), ('GrPs.dat', 3, {34, 35, 36, 51, 52, 53, 54})]
+
+
+class LowLaserStageTests(unittest.TestCase):
+    """Production placement against each legal stage's native collision lines."""
+    @classmethod
+    def setUpClass(cls):
+        build()
+        import test_techchase
+        cls.floors = {name: test_techchase.native_floors(name) for name, _, _ in LEGAL}
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m)
+        self.m.call('TestLaserThink')
+
+    def info(self, key):
+        value = self.m.call('TestLaserInfo', key)
+        return value if value < 0x80000000 else value - 0x100000000
+    def puff(self): return (self.info(26) / 1000, self.info(27) / 1000)
+    def player(self): return (self.info(28) / 1000, self.info(29) / 1000)
+    def line(self, ax, ay, bx, by, flags=0, enabled=1):
+        return self.m.call('TestLaserAddLine', *[round(v * 1000) for v in (ax, ay, bx, by)], flags, enabled)
+    def stage(self, filename, stage, normal):
+        self.m.call('TestLaserStage', stage)
+        lines = []
+        for index, ax, ay, bx, by, flags in self.floors[filename]:
+            enabled = normal is None or index in normal
+            self.line(ax, ay, bx, by, flags, enabled)
+            if enabled:
+                a, b = sorted(((round(ax * 1000) / 1000, round(ay * 1000) / 1000), (round(bx * 1000) / 1000, round(by * 1000) / 1000)))
+                lines.append((a[0], a[1], b[0], b[1], flags & 0x100))
+        return lines
+    def choose(self, row, value):
+        self.m.call('TestLaserChoice', row, value)
+        self.m.call('TestLaserThink')
+
+    @staticmethod
+    def ground_y(lines, x):
+        return max(ay + (by - ay) * (x - ax) / (bx - ax) for ax, ay, bx, by, platform in lines
+                   if not platform and ax <= x <= bx)
+
+    def test_every_legal_stage_places_ground_and_platform_positions_from_live_geometry(self):
+        for filename, stage, normal in LEGAL:
+            with self.subTest(stage=filename):
+                lines = self.stage(filename, stage, normal)
+                left = min(l[0] for l in lines if not l[4]); right = max(l[2] for l in lines if not l[4])
+                platforms = [((l[0] + l[2]) / 2, l[1]) for l in lines if l[4]]
+                sides = {-1: [p for p in platforms if p[0] < -10], 1: [p for p in platforms if p[0] > 10],
+                         0: [p for p in platforms if abs(p[0]) < 10]}
+                self.choose(0, 0)
+                available = self.info(39)
+                self.assertEqual(available, {'GrNLa.dat': 0x1F, 'GrPs.dat': 0x3BF}.get(filename, 0x3FF))
+                for choice in range(10):
+                    if not available >> choice & 1: continue
+                    self.choose(0, choice)
+                    self.assertEqual(self.info(32), choice)
+                    self.assertEqual(self.info(34), choice)  # Saved.
+                    puff = self.puff()
+                    if choice < 5:
+                        fd_x = (0, -70, -35, 35, 70)[choice]
+                        x = fd_x * ((-left if fd_x < 0 else right) / FD_EDGE)
+                        self.assertAlmostEqual(puff[0], x, delta=.002)
+                        self.assertAlmostEqual(puff[1], self.ground_y(lines, x), delta=.002)
+                    else:
+                        side = (-1, 0, 1, -1, 1)[choice - 5]
+                        target = max(sides[side], key=lambda p: p[1]) if side == 0 else min(sides[side], key=lambda p: abs(p[0]))
+                        self.assertAlmostEqual(puff[0], target[0], delta=.002)
+                        y = target[1] if choice < 8 else self.ground_y(lines, target[0])
+                        self.assertAlmostEqual(puff[1], y, delta=.002)
+                    self.assertEqual((self.info(42), self.info(30)), (1, 0))  # Grounded Squat.
+                    hmn = self.player()
+                    on_right = puff[0] < -1
+                    x = 50 * (right / FD_EDGE) if on_right else -50 * (-left / FD_EDGE)
+                    self.assertAlmostEqual(hmn[0], x, delta=.002)
+                    self.assertAlmostEqual(hmn[1], self.ground_y(lines, x), delta=.002)
+                    self.assertEqual(self.info(38), -1 if on_right else 1)  # Faces Puff.
+                    self.assertEqual(self.info(43), 0)
+                if filename == 'GrNLa.dat':
+                    # FD keeps the original exact coordinates.
+                    for choice, x in enumerate((0, -70, -35, 35, 70)):
+                        self.choose(0, choice)
+                        self.assertEqual((self.puff()[0], self.player()[0]), (x, 50 if x < 0 else -50))
+
+    def test_missing_platforms_are_skipped_in_selector_direction_and_marked(self):
+        self.stage('GrNLa.dat', 32, None)
+        self.choose(0, 4); self.choose(0, 5)  # Right past all five platform choices wraps to Center.
+        self.assertEqual((self.info(32), self.info(34)), (0, 0))
+        self.choose(0, 9)  # Left from Center skips back to Far Right.
+        self.assertEqual(self.info(32), 4)
+        menu = self.m.symbols['positions_display']
+        names = [bytes(self.m.cpu.mem_read(struct.unpack('>I', self.m.cpu.mem_read(menu + 4 * i, 4))[0], 24)).split(b'\0')[0]
+                 for i in (4, 5, 9)]
+        self.assertEqual(names, [b'Far Right', b'On Left Plat (N/A)', b'Under Right Plat (N/A)'])
+        self.stage('GrPs.dat', 3, {34, 35, 36, 51, 52, 53, 54})
+        self.choose(0, 5); self.choose(0, 6)  # Stadium has no top platform.
+        self.assertEqual(self.info(32), 7)
+
+    def test_saved_platform_missing_on_this_stage_uses_center_without_overwriting_save(self):
+        self.stage('GrPs.dat', 3, {34, 35, 36, 51, 52, 53, 54})
+        self.m.call('TestLaserSetPreference', 2, 6)  # On Top Plat, saved on another stage.
+        self.m.call('TestLaserSetPreference', 3, 2)
+        self.m.call('TestLaserReenter'); self.m.call('TestLaserThink')
+        self.assertEqual((self.info(32), self.info(33), self.info(34), self.info(35)), (0, 2, 6, 2))
+        self.assertAlmostEqual(self.puff()[0], 0, delta=.002)
+        self.assertAlmostEqual(self.puff()[1], HEIGHTS[2], delta=.01)
+        self.stage('GrNBa.dat', 31, None)
+        self.m.call('TestLaserReenter'); self.m.call('TestLaserThink')
+        self.assertEqual(self.info(32), 6)
+        self.assertAlmostEqual(self.puff()[1], 54.4 + HEIGHTS[2], delta=.01)
+
+    def test_heights_raise_puff_above_every_position_and_are_saved(self):
+        self.assertEqual([round(h, 3) for h in HEIGHTS], [0, 8.096, 19.2, 28.546, 39.65])
+        self.stage('GrNBa.dat', 31, None)
+        for choice in range(10):
+            self.choose(1, 0); self.choose(0, choice)
+            base = self.puff()
+            for height, rise_units in enumerate(HEIGHTS):
+                self.choose(1, height)
+                self.assertEqual((self.info(33), self.info(35)), (height, height))
+                self.assertAlmostEqual(self.info(40) / 1000, rise_units, delta=.002)
+                for _ in range(30): self.m.call('TestLaserThink')  # Held in place.
+                puff = self.puff()
+                self.assertAlmostEqual(puff[0], base[0], delta=.002)
+                self.assertAlmostEqual(puff[1], base[1] + rise_units, delta=.002)
+                airborne = height > 0
+                self.assertEqual((self.info(30), self.info(41), self.info(42), self.info(31)),
+                                 (1, 1, 0, 1) if airborne else (0, 0, 1, 0))
+                self.assertEqual(self.info(8), 0)  # Pose stays frozen.
+        self.choose(1, 4)
+        self.m.call('TestLaserHit', 9); self.m.call('TestLaserThink')
+        self.assertEqual((self.info(3), self.info(18)), (9, 1))
+        self.assertAlmostEqual(self.puff()[1], base[1] + HEIGHTS[4], delta=.002)
+        self.m.call('TestLaserRestore'); self.m.call('TestLaserThink')
+        self.assertEqual((self.info(30), self.info(41)), (1, 1))
+
+    def test_fountain_platform_carries_puff_and_falls_back_to_ground_while_gone(self):
+        self.m.call('TestLaserStage', 2)
+        ground = self.line(-63.35, 0, 63.35, 0)
+        left = self.line(-49, 11, -21, 11, 0x100)
+        self.line(21, 35, 49, 35, 0x100)
+        self.line(-14, 43, 14, 43, 0x100)
+        self.choose(0, 5)
+        self.assertEqual(self.puff(), (-35, 11))
+        self.assertEqual(self.info(37), left)
+        self.m.call('TestLaserMoveLine', left, 5000, 1); self.m.call('TestLaserThink')
+        self.assertAlmostEqual(self.puff()[1], 16, delta=.002)
+        self.choose(1, 2)
+        self.assertAlmostEqual(self.puff()[1], 16 + HEIGHTS[2], delta=.002)
+        self.m.call('TestLaserMoveLine', left, -3000, 1); self.m.call('TestLaserThink')
+        self.assertAlmostEqual(self.puff()[1], 13 + HEIGHTS[2], delta=.002)
+        self.m.call('TestLaserMoveLine', left, 0, 0); self.m.call('TestLaserThink')
+        self.assertAlmostEqual(self.puff()[1], HEIGHTS[2], delta=.002)  # Main floor while the platform is gone.
+        self.m.call('TestLaserMoveLine', left, 0, 1); self.m.call('TestLaserThink')
+        self.assertAlmostEqual(self.puff()[1], 13 + HEIGHTS[2], delta=.002)
+        self.choose(1, 0)
+        self.assertEqual(self.info(37), left)
+        self.m.call('TestLaserMoveLine', left, 0, 0); self.m.call('TestLaserThink')
+        self.assertEqual((self.puff()[1], self.info(37)), (0, ground))
+        self.m.call('TestLaserMoveLine', left, 0, 1); self.m.call('TestLaserThink')
+        self.assertAlmostEqual(self.puff()[1], 13, delta=.002)
+        self.assertEqual(self.info(37), left)
+        self.choose(0, 8)  # Under Left Plat stays on the main floor.
+        self.assertEqual(self.puff(), (-35, 0))
+
+    def test_every_character_times_first_aerial_neutral_b_by_native_move_transition(self):
+        m = self.m
+        def sample(state, airborne=1):
+            m.call('TestLaserSample', state, airborne, 0, 0, 0); m.call('TestLaserThink')
+        m.call('TestLaserMove', MARIO, 1); m.call('TestLaserReenter'); m.call('TestLaserThink')
+        self.assertEqual(self.info(36), 1)  # Neutral-B Start label for non-blasters.
+        sample(360, 0)
+        m.call('TestLaserMove', MARIO, 18); sample(361, 0)  # Grounded neutral-B is ignored.
+        self.assertEqual(self.info(0), -1)
+        for _ in range(3): sample(25)
+        sample(362)
+        self.assertEqual(self.info(0), 4)
+        sample(14, 0); sample(25)  # atk_kind still 18 after the move: not a new neutral-B.
+        self.assertEqual(self.info(0), -1)
+        m.call('TestLaserMove', MARIO, 20); sample(363)  # Up-B.
+        self.assertEqual(self.info(0), -1)
+        m.call('TestLaserMove', MARIO, 18); sample(363)  # No state transition.
+        self.assertEqual(self.info(0), -1)
+        sample(364)
+        self.assertEqual(self.info(0), 4)
+        m.call('TestLaserMove', FOX, 0); m.call('TestLaserReenter'); m.call('TestLaserThink')
+        self.assertEqual(self.info(36), 0)  # Fox and Falco keep Laser Start.
+
+
 class LowLaserCatalogueTests(unittest.TestCase):
-    def test_eighth_character_event_limits_css_and_does_not_claim_preference_score_bytes(self):
+    def test_eighth_character_event_allows_every_character_and_stage_select_without_score_bytes(self):
         m=NativeMachine(); functions=m.load_services()
         desc=m.call(functions[1],2,7)
         word=lambda at: struct.unpack('>I',m.cpu.mem_read(at,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(word(desc),80)).split(b'\0',1)[0],b'Low Laser Puff Practice\n')
         self.assertEqual(bytes(m.cpu.mem_read(word(desc+8),12)).split(b'\0',1)[0],b'lowlaser')
         whitelist=m.call(functions[25],7,2)
-        self.assertEqual(word(whitelist),(1<<9)|(1<<10))
+        self.assertEqual(word(whitelist),0xFFFFFFFF)  # Every human character.
         self.assertEqual(m.call(functions[12],2,7),15)  # External Jigglypuff ID.
-        self.assertEqual(m.call(functions[13],2,7),32)  # FD.
+        self.assertEqual(m.call(functions[13],2,7)&0xFFFF,0xFFFF)  # -1: stage select.
         m.call(functions[28],2,0,2)
         self.assertEqual(m.call(functions[43],7),0)
 

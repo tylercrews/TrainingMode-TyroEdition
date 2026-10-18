@@ -294,8 +294,8 @@ EventDesc LowLaser = {
     .eventDescription = "Practice low lasers against a frozen crouching Puff.\nMeasure laser-start and fastfall timing.",
     .eventFile = "lowlaser", .jumpTableIndex = -1,
     .CSSType = SLCHRKIND_EVENT,
-    .allowed_characters = {.hmn = CSSID_FALCO | CSSID_FOX, .cpu = -1},
-    .playerKind = -1, .cpuKind = CKIND_JIGGLYPUFF, .stage = 32, /* External FD ID. */
+    .allowed_characters = {.hmn = -1, .cpu = -1},
+    .playerKind = -1, .cpuKind = CKIND_JIGGLYPUFF, .stage = -1, /* Stage select; positions use live geometry. */
     .disable_hazards = true, .scoreType = SCORETYPE_KO, .callbackPriority = 16,
     .matchData = &LowLaser_MatchData,
 };

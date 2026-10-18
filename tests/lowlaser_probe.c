@@ -9,7 +9,14 @@ static JOBJ model_joints[2];
 static LowLaserData data;
 static MenuData menu_data;
 static Text texts[2];
-static unsigned preferences[2] = {1, 0}, serial;
+static unsigned preferences[TM_LOW_LASER_PREF_COUNT] = {1, 0, 0, 0}, serial;
+static CollDataStage test_stage;
+static CollLine test_lines[180];
+static CollLineDesc test_descriptors[180];
+static CollVert test_vertices[360];
+static int test_enabled[180], test_stage_id = GRKINDEXT_FD;
+static FtMultiJumpDesc puff_jumps;
+static int label_neutral_b;
 static int paused, text_count, text_rows[2], text_result[2], writes;
 static u32 text_colors[2][2];
 static const s16 *suppression;
@@ -32,6 +39,9 @@ void JOBJ_SetupMtxSub(JOBJ *joint) {
 }
 void Fighter_SetPosition(int ply, int ms, Vec3 *pos) { }
 void Fighter_SetGrounded(FighterData *f) { f->phys.air_state = 0; }
+void Fighter_SetAirborne(FighterData *f) { f->phys.air_state = 1; }
+int GrColl_CheckIfLineEnabled(int line) { return test_enabled[line]; }
+int Stage_GetExternalID(void) { return test_stage_id; }
 void Fighter_SetAllHurtboxState(GOBJ *f, int kind) { }
 void Fighter_UpdateCameraBox(GOBJ *f) { }
 void EnvironmentCollision_WaitLanding(GOBJ *f) { }
@@ -42,6 +52,7 @@ void Fighter_ZeroCPUInputs(FighterData *f) { memset(&f->input, 0, sizeof(f->inpu
 void ActionStateChange(float frame, float speed, float blend, GOBJ *f, int state, int flags, GOBJ *source) {
     FighterData *p = f->userdata;
     p->state_id = state; p->state.frame = frame; p->state.rate = speed;
+    p->cb.Coll = 0; /* Native ActionStateChange installs the new state's callbacks. */
     /* Record the native blend choice; visual cache invalidation is separate. */
     p->state.blend = blend == -1 ? 0 : blend == 0 ? 6 : blend;
     if (p->state.blend == 0) ((JOBJ *)f->hsd_object)->child->trans.Y = 0;
@@ -62,6 +73,7 @@ int Text_AddSubtext(Text *text, float x, float y, char *fmt, ...) { return text_
 void Text_SetColor(Text *text, int row, GXColor *color) { text_colors[text - texts][row] = *(u32 *)color; }
 void Text_SetText(Text *text, int row, const char *fmt, ...) {
     va_list args; va_start(args, fmt);
+    if (row == 0) { label_neutral_b = fmt[0] == 'N'; va_end(args); return; }
     text_result[text - texts] = fmt[0] == '-' ? -1 : va_arg(args, int);
     va_end(args);
 }
@@ -74,6 +86,13 @@ int TestLaserInit(void) {
         fighters[i].userdata = &ft[i]; fighters[i].hsd_object = &joints[i]; ft[i].ply = i;
         joints[i].child = &model_joints[i];
     }
+    *stc_colldata = &test_stage; *stc_collline = test_lines; *stc_collvert = test_vertices;
+    /* Jigglypuff's PlPr.dat values: gravity, hop, jump, generic air multiplier 0,
+     * and the first entry of its multi-jump table at special attributes 0x14. */
+    ft[0].kind = FTKIND_FOX; ft[1].kind = FTKIND_JIGGLYPUFF;
+    ft[1].attr.gravity = .064f; ft[1].attr.hop_v_initial_velocity = 1.05f;
+    ft[1].attr.jump_v_initial_velocity = 1.6f; ft[1].attr.air_jump_v_multiplier = 0;
+    puff_jumps.jump_vel_y[0] = 1.65f; ft[1].special_attributes = &puff_jumps;
     Event_Init(&event);
     return (unsigned)&event;
 }
@@ -91,6 +110,30 @@ void TestLaserSample(int state, int airborne, int fastfall, int eligible, int fr
     ft[0].flags.is_fastfall = fastfall; ft[0].TM.can_fastfall_frames = eligible;
     ft[0].flags.freeze = frozen;
 }
+void TestLaserMove(int kind, int atk) { ft[0].kind = kind; ft[0].atk_kind = atk; }
+int TestLaserStage(int stage) { test_stage_id = stage; test_stage.line_num = test_stage.vert_num = 0; return stage; }
+int TestLaserAddLine(int ax, int ay, int bx, int by, int native_flags, int enabled) {
+    int i = test_stage.line_num++;
+    test_stage.vert_num += 2;
+    test_lines[i].desc = &test_descriptors[i];
+    memset(&test_descriptors[i], 0, sizeof(test_descriptors[i]));
+    test_descriptors[i].vert_prev = 2 * i;
+    test_descriptors[i].vert_next = 2 * i + 1;
+    test_descriptors[i].is_floor = 1;
+    ((u8 *)&test_descriptors[i])[0xE] = native_flags >> 8;
+    ((u8 *)&test_descriptors[i])[0xF] = native_flags;
+    test_enabled[i] = enabled;
+    test_vertices[2 * i].pos_curr = (Vec2){ax / 1000.f, ay / 1000.f};
+    test_vertices[2 * i + 1].pos_curr = (Vec2){bx / 1000.f, by / 1000.f};
+    return i;
+}
+/* Move a live line, as Fountain's platforms do between frames. */
+void TestLaserMoveLine(int line, int dy, int enabled) {
+    test_vertices[2 * line].pos_curr.Y += dy / 1000.f;
+    test_vertices[2 * line + 1].pos_curr.Y += dy / 1000.f;
+    test_enabled[line] = enabled;
+}
+void TestLaserSetPreference(int index, int value) { preferences[index] = value; }
 void TestLaserPause(int value) { paused = value ? 2 : 0; menu_data.mode = value ? MenuMode_Paused : 0; }
 void TestLaserChoice(int row, int value) {
     options[row].val = value;
@@ -102,7 +145,7 @@ void TestLaserHit(int percent) {
     ft[1].dmg.percent += percent;
     ft[1].phys.pos.X += 12; ft[1].phys.kb_vel.X = 9; ft[1].phys.nudge_vel.X = 3;
 }
-void TestLaserReenter(void) { text_count = 0; Event_Init(&event); }
+void TestLaserReenter(void) { text_count = 0; label_neutral_b = 0; Event_Init(&event); }
 void TestLaserPrepare(void) { text_count = 0; text_rows[0] = text_rows[1] = 0; }
 void TestLaserRestore(void) { ++serial; }
 void TestLaserNativeInput(int down) {
@@ -144,6 +187,27 @@ int TestLaserInfo(int key) {
     case 23: return ft[1].state.blend * 100;
     case 24: return !!(joints[1].flags & JOBJ_MTX_DIRTY);
     case 25: return !!(model_joints[1].flags & JOBJ_MTX_DIRTY);
+    case 26: return ft[1].phys.pos.X * 1000;
+    case 27: return ft[1].phys.pos.Y * 1000;
+    case 28: return ft[0].phys.pos.X * 1000;
+    case 29: return ft[0].phys.pos.Y * 1000;
+    case 30: return ft[1].phys.air_state;
+    case 31: return ft[1].cb.Coll == HoldPuffCollision;
+    case 32: return options[OPT_POSITION].val;
+    case 33: return options[OPT_HEIGHT].val;
+    case 34: return preferences[TM_LOW_LASER_POSITION];
+    case 35: return preferences[TM_LOW_LASER_HEIGHT];
+    case 36: return label_neutral_b;
+    case 37: return ft[1].coll_data.ground_index;
+    case 38: return ft[0].facing_direction;
+    case 39: return position_available[0] | position_available[1] << 1 | position_available[2] << 2 |
+        position_available[3] << 3 | position_available[4] << 4 | position_available[5] << 5 |
+        position_available[6] << 6 | position_available[7] << 7 | position_available[8] << 8 |
+        position_available[9] << 9;
+    case 40: return data.puff_height * 1000;
+    case 41: return ft[1].state_id == ASID_FALL;
+    case 42: return ft[1].state_id == ASID_SQUAT;
+    case 43: return ft[0].phys.air_state;
     }
     return -999;
 }

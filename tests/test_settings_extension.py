@@ -35,7 +35,7 @@ def upgraded(raw):
     value[8] &= ~NEW_BITS
     return bytes(value)
 
-FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2), (1,0)), (31, PS_COUNTS, PS_DEFAULTS))
+FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
 REGION_SIZE, OWNED_SIZE = 88, 36
 
 class ExtensionTests(unittest.TestCase):
@@ -440,7 +440,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field == 31: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                tuple(6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else n-1 for i,n in enumerate(counts)))
+                tuple(6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
         self.assertEqual(m.record(),core)
 
     def test_opaque_future_extension_cannot_be_claimed_by_powershield(self):
@@ -526,7 +526,7 @@ class ExtensionTests(unittest.TestCase):
         expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD));expected[20:24]=SHIELD_DEFAULT_BYTES;expected[24:OWNED_SIZE]=COLOR_BYTES; expected[8] &= ~NEW_BITS
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
         for field, counts, _ in FIELDS:
-            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(n-1 for n in counts))
+            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15
         for field, counts, defaults in SHIELD_FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),defaults)
 
@@ -544,7 +544,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('TMExtension_Read',EXT,34,4),0)
             self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
             self.assertEqual(m.call('Settings_Get',34,0),action if action<10 else 0)
-            expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD)); expected[8] &= ~NEW_BITS
+            expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD)); expected[8] &= ~NEW_BITS; expected[35]=0  # Version 15 claims byte 35
             expected[20]=(expected[20]&0xF0) # Version-11 invalid attack padding repairs to choice zero.
             word=int.from_bytes(expected[20:24],'little')&~((1<<19)|(1<<20))
             if action>=10:word&=~(15<<9)
@@ -570,6 +570,50 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get',33,1),3)
 
 
+    def test_low_laser_position_and_height_own_only_byte_35_of_version_15(self):
+        m = self.m
+        self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (0,0))  # Center, Grounded.
+        m.call('Settings_Set',30,1,1)  # Create a current extension through an existing field.
+        before = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[35], 0)
+        for position in range(10):
+            for height in range(5):
+                m.call('Settings_Set',30,2,position); m.call('Settings_Set',30,3,height)
+                self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (position,height))
+                expected = bytearray(before); expected[35] = position | height << 4
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        m.call('Settings_Set',30,2,10); m.call('Settings_Set',30,3,5)  # Out of range is ignored.
+        self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (9,4))
+        self.assertEqual((m.call('Settings_Get',30,0), m.call('Settings_Get',30,1)), (1,1))
+
+    def test_low_laser_byte_35_invalid_values_read_and_repair_to_defaults(self):
+        m = self.m
+        m.call('Settings_Set',30,1,1)
+        record = bytearray(m.cpu.mem_read(EXT, REGION_SIZE)); record[35] = 0xFF  # Position 15, height 7, spare bit 7.
+        m.cpu.mem_write(EXT, bytes(record))
+        self.assertEqual((m.call('TMExtension_Read',EXT,30,2), m.call('TMExtension_Read',EXT,30,3)), (0,0))
+        m.call('Settings_Set',30,0,0)  # Any edit validates the record.
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(after[35], 0x80)
+        expected = bytearray(record); expected[35] = 0x80; expected[14] &= ~0x10
+        self.assertEqual(after, bytes(expected))
+
+    def test_older_records_never_read_byte_35_and_migration_claims_it_as_defaults(self):
+        for version, payload in ((14,16), (10,12), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',30,1,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload)); old[35] = 0x23  # Valid-looking spare score bytes.
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual((m.call('TMExtension_Read',EXT,30,2), m.call('TMExtension_Read',EXT,30,3)), (0,0))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+            m.call('Settings_Set',30,2,5)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((after[4], after[35]), (CURRENT, 0x05))
+            self.assertEqual(after[OWNED_SIZE:], bytes(old[OWNED_SIZE:]))
+            self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (5,0))
+
 class RelocatedExtensionTests(unittest.TestCase):
     dat_path = fixtures.RelocatedDATSettingsTests.dat_path
     def setUp(self): fixtures.RelocatedDATSettingsTests.setUp(self)
@@ -592,6 +636,16 @@ class RelocatedExtensionTests(unittest.TestCase):
             self.assertEqual(tuple(fixture.m.call('DAT_Get', field, i) for i in range(len(counts))),
                              tuple(count - 1 for count in counts))
         self.assertEqual(fixture.m.call('DAT_Get', 14, 30), 7)
+
+    def test_low_laser_position_and_height_roundtrip_in_optimized_production_dat(self):
+        m = self.m
+        m.init()
+        m.call('DAT_Set', 30, 2, 9); m.call('DAT_Set', 30, 3, 4)
+        saved = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(saved[35], 9 | 4 << 4)
+        fixture = fixtures.RelocatedDATSettingsTests(); fixture.setUp()
+        fixture.m.put(m.record()); fixture.m.cpu.mem_write(EXT, saved)
+        self.assertEqual((fixture.m.call('DAT_Get', 30, 2), fixture.m.call('DAT_Get', 30, 3)), (9, 4))
 
     def test_v1_migration_uses_real_production_dat_relocations(self):
         m = self.m; m.init()
