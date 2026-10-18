@@ -49,7 +49,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
-### T5 (V1.4.1T5)
+### T5 (V1.4.1T5) - 10/18/2026
 
 - **Program changes**
     - Moved the investigation, audit and guide notes from the repo root into [notes/](notes/), and added [a deferred design for custom OSD ordering](notes/ORDERING-GLOBAL-OSDS.md).
@@ -60,7 +60,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - Split the Global Settings menu into two pages, **Global OSDs** and **Global Overlays & Gameplay**, switched with L/R. The OSD page is regrouped (movement/tech, Act Oo*, shield/escape, punish, ledge/items) with the two OVERRIDE rows in the bottom-right corner below a blank line.
     - New Global Settings controls: **A** steps a setting forward, **B** steps it backward, **Start** saves and exits, X/Y still change the OSD display. (Previously Start stepped backward and B exited, and R didn't actually turn the page.)
     - Renamed the **Act OoLag** and **Act OoAirborne** menu entries to **Act OoWait** and **Act OoJump**, matching how they show up in game.
-    - Added a **Randall Overlay** (Global Overlays & Gameplay page, and Training Lab > Stage Options on Yoshi's Story). It draws Randall's platform and a cloud outline on top of everything, so you can always see where he is on his track, even while he's behind the stage. The platform line comes from Randall's live collision, so it matches exactly where you can land.
+    - Added a **Randall Overlay** (Global Overlays & Gameplay page, and Training Lab > Stage Options on Yoshi's Story). It draws Randall's platform and a cloud outline on top of everything, so you can always see where he is on his track, even while he's behind the stage. The platform line comes from Randall's live collision, so it matches exactly where you can land. It will not work with stage hazards off.
     - Randall Overlay is also available as a standalone **Slippi Gecko code** for netplay/vanilla Melee: see [slippi-gecko-codes/randall-overlay](slippi-gecko-codes/randall-overlay/README.md). It's visual only, so it can't desync.
     - Fixed Global Settings checkboxes keeping the other page's ON/OFF state after an L/R page switch (for example Randall Overlay showing ON next to "Off" until first pressed). Every checkbox is now set from its own setting whenever the page is drawn.
     - The Global Overlays & Gameplay page is grouped into **character overlays**, **character gameplay** (Infinite Shields) and **stage overlays** (Randall Overlay), separated by blank rows.
