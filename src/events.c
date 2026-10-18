@@ -741,7 +741,7 @@ EventDesc Reaction = {
 
 EventDesc Ledgestall = {
     .tyro_edited = true,
-    .eventName = "Under Fire\n",
+    .eventName = "Under Fire - Ledgestall Training\n",
     .eventDescription = "Count perfect ledge refreshes\nwhile the lava rises!\n",
     .eventFile = 0,
     .jumpTableIndex = JUMP_LEDGESTALL,
@@ -964,7 +964,7 @@ static EventOption under_fire_options[] = {
 };
 static EventMenu under_fire_menu = {
     .on_exit = UnderFire_Exit,
-    .name = "Under Fire", .option_num = countof(under_fire_options),
+    .name = "Under Fire - Ledgestall Training", .option_num = countof(under_fire_options),
     .options = under_fire_options,
 };
 static void UnderFire_UpdateCamera(void) {

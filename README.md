@@ -44,7 +44,6 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
 - would be nice to reorder your OSDs how you want
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
-- rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
 - Similar Actionable X>Green for hitstun ending?
 
 ## Tyro branch changelog
@@ -72,6 +71,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - **Event-specific changes**
     - **Eggs-ercise**
         - Free Practice's count-up timer now always starts at 0:00, whether you start the event in Free Practice or switch to it from the menu. Switching mid-challenge restarts the match, which also fixes the timer getting stuck on a big **5** if you switched during the final countdown.
+    - **Under Fire - Ledgestall Training**
+        - Renamed the **Under Fire** event to **Under Fire - Ledgestall Training** on the event select screen and in its pause menu, so it's clear the event is about refreshing ledge invincibility.
 
 ### T4 (V1.4.1T4)
 
