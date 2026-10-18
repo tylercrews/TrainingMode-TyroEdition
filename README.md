@@ -43,10 +43,9 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
 - see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
 - would be nice to reorder your OSDs how you want
-- set up the Training Lab settings to save now that we have the memory available to use
+- set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
 - Similar Actionable X>Green for hitstun ending?
-- the Green>Yellow when actionable overlay does not tell you when you're actionable out of grabs. This would be tremendously helpful when learning to chaingrab/upthrow different characters with fox
 
 ## Tyro branch changelog
 
