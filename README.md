@@ -17,7 +17,8 @@ The Tyro version and stable game/save identity live in [version.h](version.h). U
 ## My Settings
 <img width="747" height="587" alt="tm-te settings pg 1" src="https://github.com/user-attachments/assets/93f3f656-36ba-43ca-abdb-62522e2b907e" /> 
 <img width="749" height="615" alt="tm-te settings pg 2" src="https://github.com/user-attachments/assets/75197645-145d-495b-8f2f-efd4fcae1f79" />
-<img width="744" height="611" alt="tm-te settings osds" src="https://github.com/user-attachments/assets/89f36e6e-de17-454e-a41d-ca4b70201268" />
+<img width="745" height="619" alt="tm-te settings osds 2" src="https://github.com/user-attachments/assets/1fb33b7a-d1ba-448a-bbf7-82d14302563b" />
+
 
 So here's what I have turned on as an aspiring fox player:
 
