@@ -40,21 +40,12 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T5
-- ~~For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?~~ Resolved in T5: the "duplicates" were the CPU's own OSD cells, and the remembered OSD page could hide your cells. CPU cells are now tagged and matches start on page 1.
 - the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
 - see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
-- ~~the button controls to select the color for the OSDs are really annoying and unintuitive~~ Resolved in T5: A/B step forward/back, Start saves and exits, L/R switch pages.
 - would be nice to reorder your OSDs how you want
 - set up the Training Lab settings to save now that we have the memory available to use
-- ~~Act OOWait is listed as Act OOLag in the menu~~ Resolved in T5.
 - rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
-- ~~make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily~~ Resolved in T5: **Randall Overlay** in Global Overlays & Gameplay and in Training Lab's Yoshi's Story stage options.
-- ~~the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically~~ Resolved in T5: regrouped on the new Global OSDs page.
 - Similar Actionable X>Green for hitstun ending?
-- ~~maybe instead of a full octagon for the wavedash angle display I should have a half-octagon. It would make the display a little larger relatively, but might make a little less sense. But I think it's only being used for wavedash OSDs so there's no need to worry about reusability~~ Resolved in T5: the Wavedash OSD and Wavedash/Ledgedash HUDs now draw a larger half octagon.
-- ~~eggsercise when you have infinite mode on has a wonky timer - starts counting up from wherever the timer was when you switched. If you switch during the last 5 seconds when the timer swaps over to the large 5 4 3 2 1 numbers, it will get stuck at 5 forever. Should probably make it so when you start on infinite mode it starts at 0 just because I like to take screenshots of how long I practice~~ Resolved in T5: Free Practice always counts up from 0:00, and switching to it restarts the match.
-- ~~Act OOAirborne in menu is Act OOJump in game~~ Resolved in T5: renamed to Act OoJump.
-- ~~There should be an Act OOAttack OSD~~ Resolved in T5: new **Act OoAttack** OSD.
 - the Green>Yellow when actionable overlay does not tell you when you're actionable out of grabs. This would be tremendously helpful when learning to chaingrab/upthrow different characters with fox
 
 ## Tyro branch changelog
