@@ -11,9 +11,13 @@
 #define TM_SETTINGS_LEGACY_OVERLAYS 17
 #define TM_SETTINGS_OVERLAY_CHOICES 11
 #define TM_SETTINGS_OSDS 19
-#define TM_OSD_CATEGORIES (TM_SETTINGS_OSDS + 1) /* Append-only runtime category; core palette unchanged. */
+#define TM_OSD_CATEGORIES (TM_SETTINGS_OSDS + 2) /* Append-only runtime categories; core palette unchanged. */
 #define TM_GLOBAL_ASMASH_RELEASE_ID 30
 #define TM_GLOBAL_ASMASH_RELEASE_NAME "A-Smash Release"
+#define TM_GLOBAL_ACT_OO_ATTACK_ID 27 /* TYEX byte 8 bits 4-6. */
+#define TM_GLOBAL_ACT_OO_ATTACK_NAME "Act OoAttack"
+/* OSD categories whose palette (and synthesized enable bit) live in the extension. */
+#define TM_EXTENSION_OSD(id) ((id) == TM_GLOBAL_ASMASH_RELEASE_ID || (id) == TM_GLOBAL_ACT_OO_ATTACK_ID)
 #define TM_SETTINGS_FLAGS_OFFSET 10
 #define TM_SETTINGS_OVERLAYS_OFFSET 12
 #define TM_SETTINGS_COLORS_OFFSET 30
@@ -49,6 +53,8 @@
 #define TM_GLOBAL_INFINITE_SHIELDS_ROW 23
 #define TM_GLOBAL_INVINCIBILITY_ROW 25
 #define TM_GLOBAL_INVINCIBILITY_NAME "Invincibility Overlay"
+#define TM_GLOBAL_RANDALL_ROW 31 /* Editor-only logical row; never an OSD enable bit. */
+#define TM_GLOBAL_RANDALL_NAME "Randall Overlay"
 #define TM_GLOBAL_MISSED_LCANCEL_NAME "Missed L Cancel"
 #define TM_GLOBAL_ACTION_CUES_NAME "Actionable Yellow>Green"
 #define TM_GLOBAL_RUN_TURN_NAME "Run Turnaround"
@@ -68,6 +74,10 @@ enum TMSettingsStatus {
 enum TMSettingsColor {
     TM_COLOR_OFF, TM_COLOR_WHITE, TM_COLOR_RED, TM_COLOR_GREEN,
     TM_COLOR_BLUE, TM_COLOR_YELLOW, TM_COLOR_CYAN, TM_COLOR_MAGENTA,
+    TM_COLOR_LEGACY_COUNT, /* The saved 3-bit palettes hold Off..Magenta. */
+    TM_COLOR_ORANGE = TM_COLOR_LEGACY_COUNT, TM_COLOR_PINK, TM_COLOR_PURPLE, TM_COLOR_TEAL,
+    TM_COLOR_LIME, TM_COLOR_GOLD, TM_COLOR_SKY_BLUE, TM_COLOR_LAVENDER,
+    TM_COLOR_COUNT, /* Orange..Lavender also use a TYEX nibble per category. */
 };
 
 enum TMSettingsFlag {
@@ -76,7 +86,8 @@ enum TMSettingsFlag {
     TM_FLAG_RUN_TURNAROUND,
     TM_FLAG_INVINCIBILITY,
     TM_FLAG_CPU_OSDS_OFF,
-    TM_FLAG_COUNT,
+    TM_FLAG_COUNT, /* Core-record flags end here. */
+    TM_FLAG_RANDALL = TM_FLAG_COUNT, /* TYEX byte 8 bit 3; routed by Settings_Get/Set. */
 };
 
 /* These field numbers are mirrored in ASM/Globals.s. Append; never reorder. */
@@ -101,11 +112,13 @@ enum TMSettingsField {
     TM_SETTING_TECHCHASE, /* Separate extension; manual chances are session-only. */
     TM_SETTING_LEDGECHASE, /* Separate extension; manual ledge chances are session-only. */
     TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
-    TM_SETTING_LOW_LASER, /* Event OSDs and global suppression in the extension. */
+    TM_SETTING_LOW_LASER, /* Event OSDs, suppression, Puff position/height in the extension. */
     TM_SETTING_POWERSHIELD, /* Powershield event menu, append-only identity. */
     TM_SETTING_SWEETSPOT_CAMERA, /* Index 0 only: Normal (0) / Zoomed Out (1). */
     TM_SETTING_REVERSAL,
     TM_SETTING_ATTACK_SHIELD,
+    TM_SETTING_EDITOR_PAGE, /* Runtime-only Global Settings page; never saved. */
+    TM_SETTING_OSD_COLOR_EXTRA, /* Internal: TYEX nibble by category slot. Use OSD_COLOR. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -138,7 +151,9 @@ enum TMUnderFirePreference {
     TM_UNDERFIRE_PREF_COUNT
 };
 enum TMLowLaserPreference {
-    TM_LOW_LASER_OSDS, TM_LOW_LASER_SUPPRESS_GLOBAL, TM_LOW_LASER_PREF_COUNT
+    TM_LOW_LASER_OSDS, TM_LOW_LASER_SUPPRESS_GLOBAL,
+    TM_LOW_LASER_POSITION, TM_LOW_LASER_HEIGHT, /* TYEX byte 35, still version 15. */
+    TM_LOW_LASER_PREF_COUNT
 };
 enum TMPowershieldPreference {
     TM_PS_FIRE_SPEED, TM_PS_DELAY_MIN, TM_PS_DELAY_MAX, TM_PS_HEIGHT,
@@ -160,10 +175,20 @@ enum TMAttackShieldPreference {
 
 extern const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS];
 static inline unsigned TMSettings_OSDCategoryID(unsigned slot) {
-    return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] : TM_GLOBAL_ASMASH_RELEASE_ID;
+    return slot < TM_SETTINGS_OSDS ? TMSettings_OSDIDs[slot] :
+        slot == TM_SETTINGS_OSDS ? TM_GLOBAL_ASMASH_RELEASE_ID : TM_GLOBAL_ACT_OO_ATTACK_ID;
 }
-extern const uint8_t TMSettings_EditorIDs[29];
-int TMSettings_EditorID(unsigned native_row);
+static inline int TMSettings_OSDCategorySlot(unsigned id) {
+    for (unsigned slot = 0; slot < TM_OSD_CATEGORIES; ++slot)
+        if (TMSettings_OSDCategoryID(slot) == id) return slot;
+    return -1;
+}
+#define TM_EDITOR_PAGES 2
+#define TM_EDITOR_ROWS 29
+extern const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS];
+/* Physical RSS row -> setting binding on one Global Settings page. */
+int TMSettings_EditorIDFor(unsigned page, unsigned native_row);
+int TMSettings_EditorID(unsigned native_row); /* Page 0. */
 int TMSettings_NativeFlag(unsigned row);
 void TMSettings_Init(uint8_t record[TM_SETTINGS_SIZE]);
 int TMSettings_Prepare(uint8_t record[TM_SETTINGS_SIZE], int owns_save);

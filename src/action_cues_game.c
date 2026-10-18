@@ -208,7 +208,10 @@ int ActionCues_Remaining(GOBJ *gobj) {
     int landing = state == ASID_LANDING || state == ASID_LANDINGFALLSPECIAL ||
         (state >= ASID_LANDINGAIRN && state <= ASID_LANDINGAIRLW);
     int attack = state >= ASID_ATTACK11 && state <= ASID_ATTACKAIRLW;
-    if ((!landing && !attack) || state == ASID_ATTACK100START ||
+    /* Ordinary throws recover at their animation end; weight-scaled rates are
+     * already in state.rate. Character-special throws (cargo, swallow) are not. */
+    int thrown = state >= ASID_THROWF && state <= ASID_THROWLW;
+    if ((!landing && !attack && !thrown) || state == ASID_ATTACK100START ||
         state == ASID_ATTACK100LOOP || data->action_flags.loop_anim || !(data->state.rate > 0))
         return -1;
     float end = Fighter_GetCurrentAnimLength(gobj);
@@ -220,6 +223,14 @@ int ActionCues_Remaining(GOBJ *gobj) {
     int remaining = TMCue_Remaining(data->state.frame, data->state.rate, boundary);
     if (attack && !(data->kind == FTKIND_KIRBY && data->state_id == 352)) {
         if (data->flags.past_iasa) return 0; /* These attack entries clear the bit themselves. */
+        TMCueScript script;
+        memcpy(&script, &data->script, sizeof(script));
+        int iasa = TMCue_ScriptIASA(&script, data->state.rate);
+        if (iasa >= 0 && iasa < remaining) remaining = iasa;
+    }
+    if (thrown) {
+        /* past_iasa can be stale from an earlier attack; use the tracked IASA. */
+        if (data->TM.iasa_frames && data->TM.iasa_frames <= data->TM.state_frame) return 0;
         TMCueScript script;
         memcpy(&script, &data->script, sizeof(script));
         int iasa = TMCue_ScriptIASA(&script, data->state.rate);

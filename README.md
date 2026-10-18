@@ -39,29 +39,54 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T5
-- For some reason my OSDs have started duplicating after a couple events, I think it's from accidentally pushing a shield button or maybe x or y in the OSD global menu?
-- the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile
-- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, a full hop +dj puff
-- the button controls to select the color for the OSDs are really annoying and unintuitive
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T6
+- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, ~~a full hop +dj puff~~ (**T5:** Puff Height adds hop and double-jump heights; other CPU characters/poses are still open; see [the mid-event swap investigation](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md))
 - would be nice to reorder your OSDs how you want
-- set up the Training Lab settings to save now that we have the memory available to use
-- Act OOWait is listed as Act OOLag in the menu
-- rename the Under Fire event to let users know that it's about refreshing ledge invulnerability
-- make a stage setting in Training Lab that draws randall or an overlay overtop of randall so that the players can see where he is no matter what and start learning the rotation more easily
-- the order of the OSDs in the global settings menu is retained from the old Community Edition, but it really doesn't make any sense and is harder to understand now that they're all squished together. Could be re-grouped to make more sense semantically
+- set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
-- maybe instead of a full octagon for the wavedash angle display I should have a half-octagon. It would make the display a little larger relatively, but might make a little less sense. But I think it's only being used for wavedash OSDs so there's no need to worry about reusability
-- eggsercise when you have infinite mode on has a wonky timer - starts counting up from wherever the timer was when you switched. If you switch during the last 5 seconds when the timer swaps over to the large 5 4 3 2 1 numbers, it will get stuck at 5 forever. Should probably make it so when you start on infinite mode it starts at 0 just because I like to take screenshots of how long I practice
-- Act OOAirborne in menu is Act OOJump in game
-- There should be an Act OOAttack OSD
-- the Green>Yellow when actionable overlay does not tell you when you're actionable out of grabs. This would be tremendously helpful when learning to chaingrab/upthrow different characters with fox
 
 ## Tyro branch changelog
 
-This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
-### T4 (V1.4.1T4)
+### T5 (V1.4.1T5) - 2026-10-18
+
+- **Program changes**
+    - Moved the investigation, audit and guide notes from the repo root into [notes/](notes/), and added [a deferred design for custom OSD ordering](notes/ORDERING-GLOBAL-OSDS.md).
+    - Added [an investigation of swapping characters or stages mid-event](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md): a quick restart straight back into the event works for any character or stage; an instant in-match swap is only practical for one pair (e.g. Fox↔Falco) using Melee's Zelda/Sheik transform.
+- **Globals and all events**
+    - Fixed Grid and Practice Panel OSD cells that belong to a CPU now have a small grey **CPU** tag, so a CPU's block of cells (which never updates if the CPU doesn't wavedash, shine, etc.) can't be mistaken for frozen duplicates of your own OSDs. Turning on **Override CPU OSDs Off** still hides them entirely.
+    - Every match now starts on OSD page 1. Previously the page chosen in the global OSD menu (or left over from the last match) carried into the next match, which could hide your Wavedash/character-specific cells on a page you weren't looking at.
+    - Split the Global Settings menu into two pages, **Global OSDs** and **Global Overlays & Gameplay**, switched with L/R. The OSD page is regrouped (movement/tech, Act Oo*, shield/escape, punish, ledge/items) with the two OVERRIDE rows in the bottom-right corner below a blank line.
+    - New Global Settings controls: **A** steps a setting forward, **B** steps it backward, **Start** saves and exits, X/Y still change the OSD display. (Previously Start stepped backward and B exited, and R didn't actually turn the page.)
+    - Renamed the **Act OoLag** and **Act OoAirborne** menu entries to **Act OoWait** and **Act OoJump**, matching how they show up in game.
+    - Added a **Randall Overlay** (Global Overlays & Gameplay page, and Training Lab > Stage Options on Yoshi's Story). It draws Randall's platform and a cloud outline on top of everything, so you can always see where he is on his track, even while he's behind the stage. The platform line comes from Randall's live collision, so it matches exactly where you can land. It will not work with stage hazards off.
+    - Randall Overlay is also available as a standalone **Slippi Gecko code** for netplay/vanilla Melee: see [slippi-gecko-codes/randall-overlay](slippi-gecko-codes/randall-overlay/README.md). It's visual only, so it can't desync.
+    - Fixed Global Settings checkboxes keeping the other page's ON/OFF state after an L/R page switch (for example Randall Overlay showing ON next to "Off" until first pressed). Every checkbox is now set from its own setting whenever the page is drawn.
+    - The Global Overlays & Gameplay page is grouped into **character overlays**, **character gameplay** (Infinite Shields) and **stage overlays** (Randall Overlay), separated by blank rows.
+    - The yellow/green actionable overlay now also covers throws: after your forward/back/up/down throw, you get the yellow warning and green flash at the exact frame the throw animation ends and you can move again (weight-dependent throw speeds included). Character-special throws like DK's cargo carry and Kirby's swallow aren't covered. The Actionable Slippi Gecko code got the same change.
+    - New **Act OoAttack** OSD (Global OSDs page next to Act OoWait, and Training Lab > Action Timing OSDs). After a grounded attack (jab, tilts, smashes, dash attack) or a throw, it shows the attack and how many frames after becoming actionable you started your next action: **1f** cyan, **2f** green, **3f** yellow, **4f+** red, with the attack's hitlag in front when it hit (e.g. `4hl->2f`). It counts acting out of IASA and out of the Wait/crouch after the animation ends, including a buffered frame of walk/turn/crouch like Act OoWait does. Every throw is covered, including ones like Fox's up-throw that end in Wait; throws were removed from Act OoWait so they only show up here. Starts Off; its color is saved in the extension save block.
+    - OSD colors went from 7 to 15: added **Orange, Pink, Purple, Teal, Lime, Gold, Sky Blue and Lavender** after Magenta, in the Global OSDs page and Training Lab. Existing color choices are unchanged. If you open the save in an older Tyro build, a new color shows as the closest original one (e.g. Teal as Cyan).
+    - The angle diagram in the Wavedash OSD and the Wavedash/Ledgedash HUDs is now the bottom half of the octagon, drawn bigger, since a wavedash always points down and the top half never got used.
+- **Event-specific changes**
+    - **Eggs-ercise**
+        - Free Practice's count-up timer now always starts at 0:00, whether you start the event in Free Practice or switch to it from the menu. Switching mid-challenge restarts the match, which also fixes the timer getting stuck on a big **5** if you switched during the final countdown.
+        - New **Change Stage** menu (under Retry): restart on any of the six tournament-legal stages without going back through the character and stage select. A timed run starts over; Free Practice stays on with its saved egg settings.
+    - **Under Fire - Ledgestall Training**
+        - Renamed the **Under Fire** event to **Under Fire - Ledgestall Training** on the event select screen and in its pause menu, so it's clear the event is about refreshing ledge invincibility.
+    - **Low Laser Puff Practice** ([details](docs/LOW-LASER-PUFF.md))
+        - Every character can play it now, not just Fox and Falco. For characters other than Fox/Falco, the timing readout is named **Neutral-B Start** and times your first aerial neutral-B.
+        - It opens the stage select instead of always using FD. Positions are worked out from each stage's own floor and platforms, and they're built for the six legal stages (FD, Battlefield, Dream Land, Yoshi's Story, Fountain of Dreams, Pokémon Stadium).
+        - **Puff Position** adds **On Left/Top/Right Plat** and **Under Left/Right Plat**. Platforms a stage doesn't have show as (N/A) and get skipped. Far/Center Left/Right scale to the stage's width (FD keeps its exact old spots), and on Fountain, Puff rides the moving platform.
+        - New **Puff Height** setting: **Grounded** (default), **Short Hop**, **Full Hop**, **Short Hop + Double Jump**, **Full Hop + Double Jump**. It lifts Puff above whichever position you picked, using heights worked out from Puff's own jump values.
+        - Puff Position and Puff Height are both saved to the memory card.
+        - Saved the on/under-platform coordinates for each legal stage as a reference in [notes/LEGAL-STAGE-PLATFORMS.md](notes/LEGAL-STAGE-PLATFORMS.md), with a script to regenerate them from the ISO.
+        - New **Change Stage** menu: restart on any of the six legal stages without going back through the character and stage select. Puff Position, Puff Height and the OSD toggles carry over (a platform position the new stage doesn't have uses Center for that match); Puff's percent resets.
+    - **Training Lab**
+        - New **Change Stage** row in the **Stage/RNG** tab: restart on any of the six legal stages without going back through the character and stage select. Your Lab settings come with you: CPU behavior, DI/SDI, tech and getup chances, counters (including Advanced Counter), shields, percents and locks, camera/HUD/model/collision displays, game speed, Info Display, Hitbox Trails, Custom TDI, Custom OSDs, Action Log, Character RNG and recovery options. Recordings and saved positions are cleared because they belong to the old stage, and the old stage's own options (Stadium transformation, Fountain platform heights) don't carry.
+        - New **Reset to Default Settings** in the **Session** and **Exit** tabs: puts every unsaved Lab setting back to how a fresh Lab starts, without leaving the match. Recordings, saved positions and saved preferences (Controls, overlays, OSD colors, Input Display) are kept.
+
+### T4 (V1.4.1T4) - 2026-10-15
 
 - **Program changes**
     - Change the game/save ID from `TYRE01` to `TMTE01`, for Training Mode Tyro Edition :3
@@ -119,14 +144,14 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 For T4 I was working with ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra use)
 
-### T3 (V1.4.1T3)
+### T3 (V1.4.1T3) - 2026-10-09
 
 - Remember the selected event and page across sessions, restoring the cursor and scroll position on boot.
 - Add numbered Fox/Falco Side-B Sweetspot distance guides that include drift, with a saved Enable Line Guides toggle defaulting to On.
 - Extend the Invincibility Overlay to Marth and Roy's active grounded and aerial counter windows.
 - Rework the Training Lab menu with eight category tabs, clearer option rows, descriptions and submenu previews, and apply/cancel value pickers; retain parent selections, shortcuts and existing saves.
 
-### T2 (V1.4.1T2)
+### T2 (V1.4.1T2) - 2026-10-07
 
 - Add saved Fixed Grid and Practice Panel OSD layouts with reserved feature positions, retained results and manual paging; Fixed Grid shows ten OSDs per page, while Practice Panel includes three previous timing results.
 - Add saved OSD title colors and previews in both editors, plus separate CPU and all-OSD overrides in reorganized Global Settings menus.
@@ -146,7 +171,7 @@ For T4 I was working with ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra
 - Centralize version metadata and give Tyro a separate disc/save identity, save caption, versioned release filenames, cross-platform patchers and matching banner/symbol-map names.
 - Make partial builds rebuild modules after version/identity changes and stop ISO updates when a C module fails to compile.
 
-### T1 (v1.4.1 T1)
+### T1 (v1.4.1 T1) - 2026-09-25
 
 - Add Eggs-ercise hitbox trails and Very Fast / Instant decay options in Eggs-ercise and Training Lab.
 - Add Tyro Edition names, version labels and banners, with corrected in-game banner colors.

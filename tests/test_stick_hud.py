@@ -84,7 +84,7 @@ class EventStickHUDTests(unittest.TestCase):
         for row in (0,1):
             batches.clear(); labels.clear(); values.clear()
             m.call('TestHUDDraw', row, 0)
-            self.assertEqual(batches, [64,16,2])  # Finish every panel vertex before starting the icon.
+            self.assertEqual(batches, [64,10,2])  # Finish every panel vertex before starting the icon.
             self.assertEqual(len(labels), 5)
             self.assertEqual([text for text,_ in labels],
                 [b'20.00',b'Timing',b'Perfect',b'Rate',b'50%'] if row == 0 else
@@ -92,7 +92,7 @@ class EventStickHUDTests(unittest.TestCase):
             self.assertTrue(all(size == struct.unpack('>Q',struct.pack('>d',.5))[0] for _,size in labels))
             cx,cy,_ = values[-6:-3]; tx,ty,_ = values[-3:]
             self.assertAlmostEqual(cx,19.65,places=4)
-            self.assertAlmostEqual(cy,11.5-row*5.5,places=4)
+            self.assertAlmostEqual(cy,12.05-row*5.5,places=4)
             self.assertLess(tx,cx); self.assertLess(ty,cy)
         batches.clear(); labels.clear(); values.clear()
         m.call('TestHUDDraw', -1, 0)

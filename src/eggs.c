@@ -4,6 +4,7 @@
 static int egg_counter = 0;
 static int high_score = 0;
 static int accumulated_damage = 0;
+static int reset_clock = 0;
 static Vec3 coll_pos, last_coll_pos;
 static GOBJ *egg_gobj;
 static CmSubject *cam;
@@ -45,6 +46,9 @@ void Exit(GOBJ *menu)
     Match_EndVS();
 }
 
+/* Free Practice and the egg settings are saved, so a restart keeps them. */
+static void StageSwap_BeforeRestart(void) { }
+
 void Retry(GOBJ *menu) 
 {
     Memcard_SaveIfChanged();
@@ -76,6 +80,13 @@ void ChangeHitDisplay(GOBJ *menu_gobj, int value) {
 
 void StartFreePractice(GOBJ *gobj) {
     TM_SetSetting(TM_SETTING_EGGS, TM_EGGS_FREE_PRACTICE, 1);
+    /* Switching mid-challenge restarts so the HUD clock drops its final 5-4-3-2-1
+     * display. Event_Init re-enters Free Practice from the saved setting. */
+    if (gobj) {
+        Retry(gobj);
+        return;
+    }
+    reset_clock = 1;
     Options_Main[OPT_FREEPRACTICE].disable = 1;
     Options_Main[OPT_DAMAGETHRESHOLD].disable = 0;
     Options_Main[OPT_SCALE].disable = 0;
@@ -188,6 +199,7 @@ void Event_Init(GOBJ *gobj)
     if (TM_GetSetting(TM_SETTING_EGGS, TM_EGGS_FREE_PRACTICE)) StartFreePractice(0);
     else ChangeHitDisplay(0, 0);
     Eggs_ChangeHitboxTrails(0, 0);
+    StageSwap_Init();
 
     // initialize egg camera subject
     cam = CameraSubject_Alloc();
@@ -258,6 +270,15 @@ void Event_Think(GOBJ *event)
             int *stale_move_table = Fighter_GetStaleMoveTable(i);
             memset(stale_move_table, 0, 0x2C);
         }
+    }
+
+    /* The match starts with the challenge's 60 second countdown loaded. Zero it
+     * here, after match setup, so Free Practice counts up from 0:00. */
+    if (reset_clock)
+    {
+        stc_match->time_seconds = 0;
+        stc_match->time_ms = 0;
+        reset_clock = 0;
     }
 
     GOBJ *hmn = Fighter_GetGObj(0);

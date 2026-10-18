@@ -15,20 +15,28 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
+CURRENT, PAYLOAD = 15, 28  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x0F\x1C\xA5\x5A'
+COLOR_BYTES = bytes(12)  # Version 15 bytes 24..35: one color nibble per OSD, all original colors.
+RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
+ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
+NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
 
 def upgraded(raw):
     value = bytearray(raw)
-    value[4:6] = bytes((12,16))
+    value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
+    value[24:36] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
     value[15] &= 0x3F
+    value[8] &= ~NEW_BITS
     return bytes(value)
 
-FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2), (1,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 24
+FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
+REGION_SIZE, OWNED_SIZE = 88, 36
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -36,6 +44,148 @@ class ExtensionTests(unittest.TestCase):
         self.m.init()
         self.m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
         self.m.call('TestClearDirty')
+
+    def test_randall_overlay_flag_lives_in_extension_byte_eight_bit_three(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+        m.call('Settings_Set', 14, 30, 5)  # A-Smash palette shares byte 8.
+        m.call('Settings_Set', 11, 9, 1)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0] & 0x0F, RANDALL | 5)
+        self.assertEqual(m.call('Settings_Get', 14, 30), 5)
+        self.assertEqual(m.record(), core)  # The full core record has no room; it is untouched.
+        m.call('Settings_Set', 11, 9, 2)  # Out of range is ignored.
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        m.call('Settings_Set', 11, 9, 0)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+        self.assertEqual(m.call('Settings_Get', 14, 30), 5)
+
+    def test_version_12_padding_never_turns_randall_on(self):
+        m = self.m
+        m.call('Settings_Set', 31, 0, 1)  # Create a current extension.
+        old = bytearray(m.cpu.mem_read(EXT, OWNED_SIZE))
+        old[4:6] = bytes((12,16)); old[8] |= RANDALL
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+        m.call('Settings_Set', 14, 30, 2)  # First edit migrates to version 13.
+        after = bytes(m.cpu.mem_read(EXT, OWNED_SIZE))
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[8] = (old[8] & ~(NEW_BITS | 7)) | 2
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+
+    def test_act_oo_attack_palette_lives_in_extension_byte_eight_bits_four_to_six(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(m.call('Settings_Get', 14, 27), 0)  # New OSDs default Off.
+        self.assertEqual(m.call('Settings_Get', 0, 0) & (1 << 27), 0)
+        m.call('Settings_Set', 14, 30, 5)
+        m.call('Settings_Set', 11, 9, 1)
+        m.call('Settings_Set', 14, 27, 6)
+        self.assertEqual(m.call('Settings_Get', 14, 27), 6)
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0], (6 << 4) | RANDALL | 5)
+        self.assertEqual((m.call('Settings_Get', 14, 30), m.call('Settings_Get', 11, 9)), (5, 1))
+        self.assertEqual(m.call('Settings_Get', 0, 0) & ((1 << 27) | (1 << 30)), (1 << 27) | (1 << 30))
+        self.assertEqual((m.call('Settings_Get', 15, 27), m.call('Settings_Get', 16, 27)), (1, 1))
+        self.assertEqual(m.record(), core)  # Neither the palette nor the enable touch the core record.
+        m.call('Settings_Set', 14, 27, 16)  # Out of range is ignored.
+        self.assertEqual(m.call('Settings_Get', 14, 27), 6)
+        m.call('Settings_Set', 16, 27, 0)  # Native row Off, then On restores White.
+        self.assertEqual(m.call('Settings_Get', 14, 27), 0)
+        m.call('Settings_Set', 16, 27, 1)
+        self.assertEqual(m.call('Settings_Get', 14, 27), 1)
+        m.call('Settings_Set', 0, 0, m.call('Settings_Get', 0, 0) & ~(1 << 27))  # Whole-mask writes too.
+        self.assertEqual(m.call('Settings_Get', 14, 27), 0)
+        self.assertEqual((m.call('Settings_Get', 14, 30), m.call('Settings_Get', 11, 9)), (5, 1))
+        self.assertEqual(m.record()[:4], core[:4])
+
+    def test_version_13_keeps_randall_and_never_turns_act_oo_attack_on(self):
+        m = self.m
+        m.call('Settings_Set', 31, 0, 1)  # Create a current extension.
+        old = bytearray(m.cpu.mem_read(EXT, OWNED_SIZE))
+        old[4:6] = bytes((13,16)); old[8] = (old[8] & ~0x7F) | ATTACK | RANDALL | 3
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', 14, 27), 0)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        self.assertEqual(m.call('Settings_Get', 14, 30), 3)
+        m.call('Settings_Set', 14, 27, 2)  # First edit migrates to version 14.
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[8] = (old[8] & ~ATTACK) | (2 << 4)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, OWNED_SIZE)), bytes(expected))
+        self.assertEqual((m.call('Settings_Get', 14, 27), m.call('Settings_Get', 11, 9)), (2, 1))
+
+    def test_act_oo_attack_editor_row_cycles_its_extension_palette(self):
+        m = self.m
+        fixtures.open_editor(m)
+        row = fixtures.editor_row(27)[1]
+        for expected in (1, 2):
+            m.call('TestEditorInput', fixtures.MENU_A, row)
+            self.assertEqual(m.call('Settings_Get', 14, 27), expected)
+        m.call('TestEditorInput', fixtures.MENU_B, row)
+        self.assertEqual(m.call('Settings_Get', 14, 27), 1)
+        m.call('TestEditorAnimate', row)
+        m.call('TestSettingsEditorWrite', fixtures.PHYSICAL[row], m.call('TestEditorCache', row))
+        self.assertEqual(m.call('Settings_Get', 14, 27), 1)  # Native exit keeps the chosen palette.
+
+    def test_new_colors_use_nibbles_by_category_and_keep_a_close_original_color(self):
+        m = self.m
+        core = bytearray(m.record())
+        fallback = (5, 7, 7, 6, 3, 5, 4, 7)  # Orange..Lavender -> nearest original color.
+        for slot, id in enumerate(fixtures.IDS + [30, 27]):
+            color = 8 + slot % 8
+            m.call('Settings_Set', 14, id, color)
+            self.assertEqual(m.call('Settings_Get', 14, id), color)
+            self.assertEqual(m.call('Settings_Get', 0, 0) >> id & 1, 1)
+            nibble = m.cpu.mem_read(EXT + 24 + slot // 2, 1)[0] >> (slot & 1) * 4 & 15
+            self.assertEqual(nibble, color - 7)
+            if id < 30 and id != 27: self.assertEqual(m.read(14, id), fallback[color - 8])
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0] & 0x77, (fallback[4] << 4) | fallback[3])
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)
+        m.call('Settings_Set', 14, 20, 16)  # Out of range is ignored.
+        self.assertEqual(m.call('Settings_Get', 14, 20), 8 + fixtures.IDS.index(20) % 8)
+        m.call('Settings_Set', 14, 20, 3)  # An original color clears the nibble.
+        self.assertEqual((m.call('Settings_Get', 14, 20), m.read(14, 20)), (3, 3))
+        slot = fixtures.IDS.index(20)
+        self.assertEqual(m.cpu.mem_read(EXT + 24 + slot // 2, 1)[0] >> (slot & 1) * 4 & 15, 0)
+        # Off wins over a retained new color; turning the OSD back on restores it.
+        m.call('Settings_Set', 14, 1, 14)
+        m.call('Settings_Set', 15, 1, 0)
+        self.assertEqual(m.call('Settings_Get', 14, 1), 0)
+        m.call('Settings_Set', 15, 1, 1)
+        self.assertEqual(m.call('Settings_Get', 14, 1), 14)
+        fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, bytes(m.cpu.mem_read(EXT, REGION_SIZE)))
+        self.assertEqual(fresh.call('Settings_Get', 14, 1), 14)
+        self.assertEqual(fresh.call('Settings_Get', 14, 27), 8 + 20 % 8)
+
+    def test_version_14_migration_keeps_every_byte_and_starts_all_original_colors(self):
+        m = self.m
+        m.call('Settings_Set', 14, 27, 4); m.call('Settings_Set', 11, 9, 1); m.call('Settings_Set', 14, 30, 6)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((14,16)); old[24:36] = b'\xFF' * 12  # Version 14 never owned these bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('Settings_Get', 14, id) for id in (27, 30)), (4, 6))
+        self.assertEqual(m.call('Settings_Get', 14, 20), m.read(14, 20))  # Garbage is not a new color.
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[24:36] = COLOR_BYTES
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        m.cpu.mem_write(EXT + 24, b'\x9F')  # Invalid nibbles repair to the original color.
+        for id in (0, 1): self.assertEqual(m.call('Settings_Get', 14, id), m.read(14, id))
+        m.call('Settings_Get', 28, 0)  # Any extension access validates the record.
+        self.assertEqual(m.cpu.mem_read(EXT + 24, 1)[0], 0)
+
+    def test_randall_overlay_editor_row_and_lab_share_the_global_flag(self):
+        m = self.m
+        fixtures.open_editor(m, 1)
+        row = fixtures.editor_row(31)[1]
+        label = 'Randall Overlay'
+        self.assertEqual(''.join(chr(m.call('TestEditorLabelChar', row, i)) for i in range(len(label))), label)
+        m.call('TestEditorInput', fixtures.MENU_A, row)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        m.call('TestEditorAnimate', row)
+        m.call('TestSettingsEditorWrite', fixtures.PHYSICAL[row], m.call('TestEditorCache', row))
+        self.assertEqual(m.call('Settings_Get', 11, 9), 1)
+        self.assertEqual(m.call('TestSettingsEditorRow', fixtures.PHYSICAL[row]), 1)
+        m.call('Settings_Set', 16, 31, 0)  # Logical row write, as the Lab and native hooks use.
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)
 
     def test_absent_defaults_are_read_only_and_first_edit_only_owns_twenty_bytes(self):
         m = self.m
@@ -54,8 +204,8 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('TestDirty'), 1)
         self.assertEqual(m.record(), core)
         self.assertEqual(bytes(m.cpu.mem_read(EXT - 4, 4)), b'\xA5' * 4)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, 72)), b'\xA5' * 72)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), b'TYEX\x0C\x10\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, 96 - OWNED_SIZE)), b'\xA5' * (96 - OWNED_SIZE))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)
 
     def test_every_value_and_invalid_write_preserve_neighbors_and_reloaded_preferences(self):
         m = self.m
@@ -91,11 +241,11 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(bool(m.call('Settings_Get', 0, 0) & (1 << 30)), bool(color))
             self.assertEqual(m.record(), core)
         m.call('Settings_Set', 14, 30, 7)
-        m.call('Settings_Set', 17, 16, 1)  # Native Boolean exit pass retains chosen palette.
+        m.call('Settings_Set', 17, 6, 1)  # Native Boolean exit pass (A-Smash physical row 6) retains chosen palette.
         self.assertEqual(m.call('Settings_Get', 14, 30), 7)
-        m.call('Settings_Set', 17, 16, 0)
+        m.call('Settings_Set', 17, 6, 0)
         self.assertEqual(m.call('Settings_Get', 14, 30), 0)
-        m.call('TestEditorInit'); m.call('TestEditorInput', 0x200, 19)
+        m.call('TestEditorInit'); m.call('TestEditorInput', 0x200, 6)  # A-Smash Release row
         self.assertEqual(m.call('Settings_Get', 14, 30), 1)
         self.assertEqual(m.record(), core)
         m.call('Settings_Set', 0, 0, m.call('Settings_Get', 0, 0) & ~(1 << 30))
@@ -149,7 +299,7 @@ class ExtensionTests(unittest.TestCase):
                          (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0))
         self.assertEqual(tuple(m.call('Settings_Get', 28, i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, OWNED_SIZE)),
-                         b'TYEX\x0C\x10\xA5\x5A\xFD\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES)
+                         HEADER + b'\x85\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES + COLOR_BYTES)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, REGION_SIZE - OWNED_SIZE)),
                          b'\xE5' * (REGION_SIZE - OWNED_SIZE))
         self.assertEqual(m.record(), core)
@@ -182,8 +332,11 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', 28, 6), (1,13,31,11)[action])
             after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
             self.assertEqual(after[:4], legacy[:4])
-            self.assertEqual(after[4:6], bytes((12,16)))
-            self.assertEqual(after[6:11], legacy[6:11])
+            self.assertEqual(after[4:6], bytes((CURRENT,PAYLOAD)))
+            self.assertEqual(after[24:OWNED_SIZE], COLOR_BYTES)
+            self.assertEqual(after[6:8], legacy[6:8])
+            self.assertEqual(after[8], legacy[8] & ~NEW_BITS)  # Newly owned bits are cleared.
+            self.assertEqual(after[9:11], legacy[9:11])
             self.assertEqual(after[11], legacy[11] & 0x87)
             mask = ~((15 << 18) | (3 << 22)) & 0xFFFFFF
             self.assertEqual(int.from_bytes(after[12:15], 'little') & mask, int.from_bytes(legacy[12:15], 'little') & mask)
@@ -287,7 +440,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field == 31: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                tuple(6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else n-1 for i,n in enumerate(counts)))
+                tuple(6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
         self.assertEqual(m.record(),core)
 
     def test_opaque_future_extension_cannot_be_claimed_by_powershield(self):
@@ -314,7 +467,7 @@ class ExtensionTests(unittest.TestCase):
                              tuple(n-1 for n in PS_COUNTS))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
-            expected = bytearray(old); expected[4:6] = bytes((12,16)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[19] = preset
+            expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[24:OWNED_SIZE] = COLOR_BYTES; expected[19] = preset; expected[8] &= ~NEW_BITS
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 0)
@@ -345,7 +498,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual((m.call('TMExtension_Read', EXT, 28, 8),m.call('TMExtension_Read', EXT, 28, 9)), (2,0))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
-            expected = bytearray(old); expected[4:6] = bytes((12,16)); expected[20:24] = SHIELD_DEFAULT_BYTES
+            expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[24:OWNED_SIZE] = COLOR_BYTES; expected[8] &= ~NEW_BITS
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 11)
@@ -370,10 +523,10 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(tuple(m.call('TMExtension_Read',EXT,field,i) for i in range(len(counts))),defaults)
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
         self.assertEqual(m.call('Settings_Get',28,8),2)
-        expected=bytearray(old);expected[4:6]=bytes((12,16));expected[20:24]=SHIELD_DEFAULT_BYTES
+        expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD));expected[20:24]=SHIELD_DEFAULT_BYTES;expected[24:OWNED_SIZE]=COLOR_BYTES; expected[8] &= ~NEW_BITS
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
         for field, counts, _ in FIELDS:
-            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(n-1 for n in counts))
+            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15
         for field, counts, defaults in SHIELD_FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),defaults)
 
@@ -391,7 +544,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('TMExtension_Read',EXT,34,4),0)
             self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
             self.assertEqual(m.call('Settings_Get',34,0),action if action<10 else 0)
-            expected=bytearray(old);expected[4]=12
+            expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD)); expected[8] &= ~NEW_BITS; expected[35]=0  # Version 15 claims byte 35
             expected[20]=(expected[20]&0xF0) # Version-11 invalid attack padding repairs to choice zero.
             word=int.from_bytes(expected[20:24],'little')&~((1<<19)|(1<<20))
             if action>=10:word&=~(15<<9)
@@ -403,7 +556,7 @@ class ExtensionTests(unittest.TestCase):
     def test_v11_reversal_migration_keeps_fourteen_choices_and_rejects_old_invalid_values(self):
         for attack in range(16):
             m=Machine();m.init();m.call('Settings_Set',33,1,3)
-            old=bytearray(m.cpu.mem_read(EXT,REGION_SIZE));old[4]=11
+            old=bytearray(m.cpu.mem_read(EXT,REGION_SIZE));old[4:6]=bytes((11,16))
             old[20]=(old[20]&0xF0)|attack
             old[22]|=0xF8;old[23]=0xA5
             m.cpu.mem_write(EXT,bytes(old))
@@ -416,6 +569,50 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(after[23:],bytes(old[23:]))
             self.assertEqual(m.call('Settings_Get',33,1),3)
 
+
+    def test_low_laser_position_and_height_own_only_byte_35_of_version_15(self):
+        m = self.m
+        self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (0,0))  # Center, Grounded.
+        m.call('Settings_Set',30,1,1)  # Create a current extension through an existing field.
+        before = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[35], 0)
+        for position in range(10):
+            for height in range(5):
+                m.call('Settings_Set',30,2,position); m.call('Settings_Set',30,3,height)
+                self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (position,height))
+                expected = bytearray(before); expected[35] = position | height << 4
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        m.call('Settings_Set',30,2,10); m.call('Settings_Set',30,3,5)  # Out of range is ignored.
+        self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (9,4))
+        self.assertEqual((m.call('Settings_Get',30,0), m.call('Settings_Get',30,1)), (1,1))
+
+    def test_low_laser_byte_35_invalid_values_read_and_repair_to_defaults(self):
+        m = self.m
+        m.call('Settings_Set',30,1,1)
+        record = bytearray(m.cpu.mem_read(EXT, REGION_SIZE)); record[35] = 0xFF  # Position 15, height 7, spare bit 7.
+        m.cpu.mem_write(EXT, bytes(record))
+        self.assertEqual((m.call('TMExtension_Read',EXT,30,2), m.call('TMExtension_Read',EXT,30,3)), (0,0))
+        m.call('Settings_Set',30,0,0)  # Any edit validates the record.
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(after[35], 0x80)
+        expected = bytearray(record); expected[35] = 0x80; expected[14] &= ~0x10
+        self.assertEqual(after, bytes(expected))
+
+    def test_older_records_never_read_byte_35_and_migration_claims_it_as_defaults(self):
+        for version, payload in ((14,16), (10,12), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',30,1,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload)); old[35] = 0x23  # Valid-looking spare score bytes.
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual((m.call('TMExtension_Read',EXT,30,2), m.call('TMExtension_Read',EXT,30,3)), (0,0))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+            m.call('Settings_Set',30,2,5)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((after[4], after[35]), (CURRENT, 0x05))
+            self.assertEqual(after[OWNED_SIZE:], bytes(old[OWNED_SIZE:]))
+            self.assertEqual((m.call('Settings_Get',30,2), m.call('Settings_Get',30,3)), (5,0))
 
 class RelocatedExtensionTests(unittest.TestCase):
     dat_path = fixtures.RelocatedDATSettingsTests.dat_path
@@ -440,6 +637,16 @@ class RelocatedExtensionTests(unittest.TestCase):
                              tuple(count - 1 for count in counts))
         self.assertEqual(fixture.m.call('DAT_Get', 14, 30), 7)
 
+    def test_low_laser_position_and_height_roundtrip_in_optimized_production_dat(self):
+        m = self.m
+        m.init()
+        m.call('DAT_Set', 30, 2, 9); m.call('DAT_Set', 30, 3, 4)
+        saved = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(saved[35], 9 | 4 << 4)
+        fixture = fixtures.RelocatedDATSettingsTests(); fixture.setUp()
+        fixture.m.put(m.record()); fixture.m.cpu.mem_write(EXT, saved)
+        self.assertEqual((fixture.m.call('DAT_Get', 30, 2), fixture.m.call('DAT_Get', 30, 3)), (9, 4))
+
     def test_v1_migration_uses_real_production_dat_relocations(self):
         m = self.m; m.init()
         legacy = b'TYEX\x01\x04\xA5\x5A\x06\x98\x7A\xA0'
@@ -449,7 +656,7 @@ class RelocatedExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('DAT_Get',27,i) for i in range(len(COUNTS))),
                          (8,1,0,2,2,2,3,1,7,0,0))
         self.assertEqual(tuple(m.call('DAT_Get',28,i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), b'TYEX\x0C\x10\xA5\x5A')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), HEADER)
         self.assertEqual(bytes(m.cpu.mem_read(EXT+OWNED_SIZE,REGION_SIZE-OWNED_SIZE)),
                          b'\xE5'*(REGION_SIZE-OWNED_SIZE))
         self.assertEqual(m.record(),core)

@@ -255,6 +255,11 @@ class MenuTests(unittest.TestCase):
             walk(word(tabs + i * 8 + 4), 1)
         self.assertEqual(observed["Boost Grab"], ["Combat & Defense OSDs"])
         self.assertEqual(observed["Frame Advance"], ["Session"])
+        self.assertEqual(observed["Reset to Default Settings"], ["Session", "Exit"])
+        self.assertEqual(ordered["Exit"], ["Exit", "Reset to Default Settings", "Resume Practice"])
+        self.assertEqual(ordered["Stage & RNG"], ["Change Stage", "Stage Options", "Character RNG"])
+        self.assertEqual(ordered["Change Stage"], ["Final Destination", "Battlefield", "Dream Land",
+                                                  "Yoshi's Story", "Fountain of Dreams", "Pokemon Stadium"])
         self.assertIn("Recording", observed["Save Positions"])
         self.assertEqual(ordered['Global Settings'][:3],
                          ['A-Smash Release', 'OVERRIDE ALL OSDS OFF', 'OVERRIDE CPU OSDS OFF'])

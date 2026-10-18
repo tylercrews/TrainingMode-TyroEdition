@@ -822,6 +822,29 @@ static EventMenu LabMenu_Stage_FOD = {
     .options = LabOptions_Stage_FOD,
 };
 
+// STAGE MENU YOSHI'S STORY -------------------------------------------------
+
+enum stage_story_option
+{
+    OPTSTAGE_STORY_RANDALL,
+    OPTSTAGE_STORY_COUNT,
+};
+
+static EventOption LabOptions_Stage_Story[OPTSTAGE_STORY_COUNT] = {{
+    .kind = OPTKIND_TOGGLE,
+    .name = TM_GLOBAL_RANDALL_NAME,
+    .desc = {"Always show Randall's platform and cloud,",
+             "even while it passes behind the stage.",
+             "Shares the Global Overlays & Gameplay setting."},
+    .OnChange = Lab_ChangeRandallOverlay,
+}};
+
+static EventMenu LabMenu_Stage_Story = {
+    .name = "Stage Options",
+    .option_num = sizeof(LabOptions_Stage_Story) / sizeof(EventOption),
+    .options = LabOptions_Stage_Story,
+};
+
 // STAGE MENU TABLE --------------------------------------------------------
 
 static EventMenu *stage_menus[] = {
@@ -833,7 +856,7 @@ static EventMenu *stage_menus[] = {
     0,                          // GRKINDEXT_KONGO,
     0,                          // GRKINDEXT_ZEBES,
     0,                          // GRKINDEXT_CORNERIA,
-    0,                          // GRKINDEXT_STORY,
+    &LabMenu_Stage_Story,       // GRKINDEXT_STORY,
     0,                          // GRKINDEXT_ONETT,
     0,                          // GRKINDEXT_MUTECITY,
     0,                          // GRKINDEXT_RCRUISE,
@@ -919,143 +942,145 @@ static u8 LabOSD_ID[] = {
 
 // Must match LabOSD_ID order
 static const char *LabOSD_ColorNames[] = { TM_OSD_COLOR_NAMES };
+// Appended after OSD Display so the existing TM_SETTINGS_OSDS + N rows keep their indices.
+#define LABOSD_ACT_OO_ATTACK (TM_SETTINGS_OSDS + 11)
 static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Wavedash",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "L-Cancel",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Act OoS Frame",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Dashback",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Fighter-specific Tech",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Powershield Frame",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "SDI Inputs",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Lockout Timers",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Item Throw Interrupts",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Boost Grab",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
-        .name = "Act OoLag",
+        .name = "Act OoWait",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
-        .name = "Act OoAirborne",
+        .name = "Act OoJump",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Jump Cancel Timing",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Fastfall Timing",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Frame Advantage",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Combo Counter",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Grab Breakout",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Ledgedash Info",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = 8,
+        .value_num = TM_COLOR_COUNT,
         .values = LabOSD_ColorNames,
         .name = "Act OoHitstun",
         .OnChange = Lab_ChangeOSDs,
     },
     {
         .kind = OPTKIND_STRING, .name = TM_GLOBAL_ASMASH_RELEASE_NAME,
-        .value_num = 8, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
+        .value_num = TM_COLOR_COUNT, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
         .desc = {"Time your A-button release after starting a smash.", "1f is fastest; C-stick and automatic full charge are excluded."},
     },
     {
@@ -1115,6 +1140,11 @@ static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_MENU, .name = "OSD Display", .menu = &LabMenu_OSDDisplay,
         .desc = {"Choose Recent, Fixed Grid or Practice Panel.", "Stable styles retain results; paused L/R changes page."},
+    },
+    {
+        .kind = OPTKIND_STRING, .name = TM_GLOBAL_ACT_OO_ATTACK_NAME,
+        .value_num = TM_COLOR_COUNT, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
+        .desc = {"Frames to act once a grounded attack or throw is actionable.", "1f = first frame. Includes Wait after the animation ends."},
     },
 };
 

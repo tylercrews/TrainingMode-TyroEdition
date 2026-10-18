@@ -1,41 +1,96 @@
 #include "events.h"
 #include "osd_layout.h"
 
-/* Native RSS cursor order, not sparse OSD ID order. The first 15 rows are left. */
-#define row_ids TMSettings_EditorIDs
-static const char *row_names[] = {
-    "Wavedash Info", "L-Cancel", "Act OoS Frame", "Dashback", "Fighter-specific Tech",
-    "Powershield Frame", "SDI Inputs", "Lockout Timers", "Item Throw Interrupts", "Boost Grab",
-    "Act OoLag", "Act OoAirborne", "Jump Cancel Timing", "Fastfall Timing", "Frame Advantage",
-    "Combo Counter", "Grab Breakout", "Ledgedash Info", "Act OoHitstun",
-    TM_GLOBAL_ASMASH_RELEASE_NAME, TM_GLOBAL_CPU_OSDS_OFF_NAME, TM_GLOBAL_OSDS_OFF_NAME, TM_GLOBAL_TRAIL_VERY_FAST_NAME, TM_GLOBAL_TRAIL_INSTANT_NAME,
-    TM_GLOBAL_MISSED_LCANCEL_NAME, TM_GLOBAL_RUN_TURN_NAME, TM_GLOBAL_ACTION_CUES_NAME,
-    TM_GLOBAL_INFINITE_SHIELDS_NAME, TM_GLOBAL_INVINCIBILITY_NAME,
+/* Labels by stable OSD/flag identity; TMSettings_EditorIDs places them on a page. */
+static const char *row_names[32] = {
+    [0] = "Wavedash Info", [1] = "L-Cancel", [3] = "Act OoS Frame", [5] = "Dashback",
+    [8] = "Fighter-specific Tech", [9] = "Powershield Frame", [10] = "SDI Inputs",
+    [12] = "Lockout Timers", [13] = "Item Throw Interrupts", [14] = "Boost Grab",
+    [16] = "Act OoWait", [18] = "Act OoJump", [19] = "Jump Cancel Timing",
+    [20] = "Fastfall Timing", [21] = "Frame Advantage", [22] = "Combo Counter",
+    [24] = "Grab Breakout", [26] = "Ledgedash Info", [28] = "Act OoHitstun",
+    [TM_GLOBAL_ASMASH_RELEASE_ID] = TM_GLOBAL_ASMASH_RELEASE_NAME,
+    [TM_GLOBAL_ACT_OO_ATTACK_ID] = TM_GLOBAL_ACT_OO_ATTACK_NAME,
+    [TM_GLOBAL_CPU_OSDS_OFF_ROW] = TM_GLOBAL_CPU_OSDS_OFF_NAME,
+    [TM_GLOBAL_OSDS_OFF_ROW] = TM_GLOBAL_OSDS_OFF_NAME,
+    [TM_GLOBAL_TRAIL_VERY_FAST_ROW] = TM_GLOBAL_TRAIL_VERY_FAST_NAME,
+    [TM_GLOBAL_TRAIL_INSTANT_ROW] = TM_GLOBAL_TRAIL_INSTANT_NAME,
+    [TM_GLOBAL_MISSED_LCANCEL_ROW] = TM_GLOBAL_MISSED_LCANCEL_NAME,
+    [TM_GLOBAL_RUN_TURN_ROW] = TM_GLOBAL_RUN_TURN_NAME,
+    [TM_GLOBAL_ACTION_CUES_ROW] = TM_GLOBAL_ACTION_CUES_NAME,
+    [TM_GLOBAL_INFINITE_SHIELDS_ROW] = TM_GLOBAL_INFINITE_SHIELDS_NAME,
+    [TM_GLOBAL_INVINCIBILITY_ROW] = TM_GLOBAL_INVINCIBILITY_NAME,
+    [TM_GLOBAL_RANDALL_ROW] = TM_GLOBAL_RANDALL_NAME,
 };
+static const char *page_titles[TM_EDITOR_PAGES] = { "Global OSDs (1/2)", "Global Overlays & Gameplay (2/2)" };
 static const char *color_names[] = { TM_OSD_COLOR_NAMES };
 static const char *display_names[] = { TM_OSD_DISPLAY_NAMES };
-static int editor_armed;
+/* Native RSS state shared with the ASM hooks (see "Toggle UI"). */
+#define RSS_CURSOR (*(volatile u16 *)0x804A04F2)
+#define RSS_SELECTED (*(volatile u8 *)0x804A04F4) /* Cursor row's live Boolean. */
+#define RSS_BUSY R13_U8(-0x4AAC)                  /* Think ignores input while set. */
+#define RSS_ENTER_END (*(float *)0x803ED498)      /* Entry animation's final frame. */
+#define RSS_CHECKBOX_FRAMES ((float *)R13_OFFSET(-0x6AE8)) /* Off/On frames, as in 0x802368DC. */
+#define RSS_TITLE_SUBTEXT 16
+/* RSS think receives remapped menu bits, not raw pad bits. Start also sets
+ * 0x10 (confirm) but exits first via "Start Exits Custom RSS". */
+#define MENU_A 0x200
+#define MENU_B 0x20
+#define MENU_L 0x40
+#define MENU_R 0x80
+static int editor_armed, editor_switching;
+
+static unsigned editor_page(void) { return Settings_Get(TM_SETTING_EDITOR_PAGE, 0); }
+static unsigned row_id(unsigned row) {
+    return row < TM_EDITOR_ROWS ? TMSettings_EditorIDs[editor_page()][row] : 255;
+}
+static const char *row_name(unsigned row) {
+    unsigned id = row_id(row);
+    return id < countof(row_names) ? row_names[id] : 0;
+}
 static void refresh_display(void *data) {
     Text *text = *(Text **)((uint8_t *)data + 0x40);
     unsigned subtext = ((uint8_t *)data)[0x48];
-    Text_SetText(text, subtext, "OSD Display: %s | page %d", display_names[Settings_Get(TM_SETTING_OSD_DISPLAY, 0)],
-        Settings_Get(TM_SETTING_OSD_PAGE, 0) + 1);
+    Text_SetText(text, subtext, "OSD Display: %s", display_names[Settings_Get(TM_SETTING_OSD_DISPLAY, 0)]);
+}
+static void refresh_title(void *data) {
+    Text *text = *(Text **)((uint8_t *)data + 0x40);
+    unsigned page = editor_page();
+    Text_SetText(text, RSS_TITLE_SUBTEXT, "%s", page_titles[page]);
+    /* The longer second title must not reach the left-aligned display line. */
+    float scale = page ? 0.8f : 1.0f;
+    Text_SetScale(text, RSS_TITLE_SUBTEXT, scale, scale);
 }
 static void hide_tree(JOBJ *joint) {
     joint->flags |= JOBJ_HIDDEN;
     for (JOBJ *child = joint->child; child; child = child->sibling) hide_tree(child);
 }
+/* Same column-root/child/sibling layout as native RSS at 0x802364A0. */
+static JOBJ *row_joint(void *data, unsigned row) {
+    JOBJ *root = *(JOBJ **)((uint8_t *)data + (row < 15 ? 0x2C : 0x34));
+    JOBJ *joint = root ? root->child : 0;
+    unsigned index = row < 15 ? row : row - 15;
+    while (index-- && joint) joint = joint->sibling;
+    return joint;
+}
 static void hide_gaps(void *data) {
-    /* Same column-root/child/sibling layout as native RSS at 0x802364A0.
-     * Do not follow a row's next sibling when hiding its subtree. */
-    for (unsigned row = 0; row < sizeof(row_ids); ++row) {
-        if (row_ids[row] != 255) continue;
-        JOBJ *root = *(JOBJ **)((uint8_t *)data + (row < 15 ? 0x2C : 0x34));
-        JOBJ *joint = root ? root->child : 0;
-        unsigned index = row < 15 ? row : row - 15;
-        while (index-- && joint) joint = joint->sibling;
+    /* Do not follow a row's next sibling when hiding its subtree. */
+    for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row) {
+        if (row_name(row)) continue;
+        JOBJ *joint = row_joint(data, row);
         if (joint) hide_tree(joint);
     }
+}
+/* Pose a row's checkbox (child 2) for its Boolean, exactly as the native toggle
+ * path does for the cursor row. Native RSS never re-poses other rows, so a page
+ * switch would otherwise keep the previous page's ON/OFF boxes. */
+static void pose_checkbox(void *data, unsigned row, unsigned on) {
+    JOBJ *joint = row_joint(data, row), *box = 0;
+    if (!joint) return;
+    JOBJ_GetChild(joint, &box, 2, -1);
+    if (!box) return;
+    JOBJ_ReqAnimAll(box, RSS_CHECKBOX_FRAMES[!!on]);
+    JOBJ_AnimAll(box);
 }
 
 static int flag_for(unsigned id) {
@@ -43,14 +98,14 @@ static int flag_for(unsigned id) {
 }
 
 static void refresh_row(void *data, unsigned row) {
-    unsigned id = row_ids[row];
+    unsigned id = row_id(row);
     int flag = flag_for(id);
     unsigned value = Settings_Get(flag < 0 ? TM_SETTING_OSD_COLOR : TM_SETTING_FLAG,
                                   flag < 0 ? id : (unsigned)flag);
     Text *text = *(Text **)((uint8_t *)data + (row < 15 ? 0x40 : 0x44));
     int subtext = (row < 15 ? row : row - 15) + 1;
-    const char *choice = flag < 0 ? color_names[value & 7] : (value ? "On" : "Off");
-    Text_SetText(text, subtext, "%s: %s", row_names[row], choice);
+    const char *choice = flag < 0 ? color_names[value < TM_COLOR_COUNT ? value : 0] : (value ? "On" : "Off");
+    Text_SetText(text, subtext, "%s: %s", row_name(row), choice);
     /* Fit long names plus the palette value into the existing two-column layout. */
     Text_SetScale(text, subtext, 0.78f, 1.0f);
     uint32_t rgba = value ? (flag < 0 ? OSD_PaletteColor(value) : 0x8DFF6EFF) : 0xB4B4B4FF;
@@ -59,52 +114,75 @@ static void refresh_row(void *data, unsigned row) {
 }
 
 void OSD_EditorInit(void *data) {
-    editor_armed = 0;
-    for (unsigned row = 0; row < sizeof(row_ids); ++row)
-        if (row_names[row]) {
+    /* Opening the menu always starts on Global OSDs; a page switch re-enters
+     * here through the native end-of-entry path with its page already chosen. */
+    if (!editor_switching) { Settings_Set(TM_SETTING_EDITOR_PAGE, 0, 0); editor_armed = 0; }
+    editor_switching = 0;
+    for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row)
+        if (row_name(row)) {
             refresh_row(data, row);
-            ((uint8_t *)data)[row + 2] = !!Settings_Get(TM_SETTING_NATIVE_ROW, row_ids[row]);
+            ((uint8_t *)data)[row + 2] = !!Settings_Get(TM_SETTING_NATIVE_ROW, row_id(row));
         } else {
             Text *text = *(Text **)((uint8_t *)data + (row < 15 ? 0x40 : 0x44));
             Text_SetText(text, (row < 15 ? row : row - 15) + 1, "");
             ((uint8_t *)data)[row + 2] = 0;
         }
+    /* Native think animates the cursor row whenever its snapshot differs from
+     * the live Boolean; match them so a new page does not fake a toggle. */
+    if (RSS_CURSOR < TM_EDITOR_ROWS) RSS_SELECTED = ((uint8_t *)data)[RSS_CURSOR + 2];
+    for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row) pose_checkbox(data, row, ((uint8_t *)data)[row + 2]);
     hide_gaps(data);
     refresh_display(data);
+    refresh_title(data);
 }
 
-/* Return whether B/Z was consumed, including on unused rows. A/Start still exit,
- * D-pad/stick still navigate and X/Y still choose the screen position. */
+static void switch_page(void *data) {
+    /* Save this page exactly as the native exit pass would, including the
+     * cursor row's not-yet-animated Boolean, before its rows are rebound. */
+    for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row) {
+        if (!row_name(row)) continue;
+        unsigned value = row == RSS_CURSOR ? RSS_SELECTED : ((uint8_t *)data)[row + 2];
+        Settings_Set(TM_SETTING_NATIVE_ROW, row_id(row), !!value);
+    }
+    Settings_Set(TM_SETTING_EDITOR_PAGE, 0, (editor_page() + 1) % TM_EDITOR_PAGES);
+    /* Re-run the native "entry finished" step (state 1 at its last frame): it
+     * recreates both Texts through the Load Alt Text hook, which calls
+     * OSD_EditorInit, then redraws every checkbox from the new row snapshot. */
+    for (unsigned column = 0; column < 2; ++column) {
+        Text **text = (Text **)((uint8_t *)data + 0x40 + column * 4);
+        if (*text) Text_Destroy(*text);
+        *text = 0;
+    }
+    editor_switching = 1;
+    ((uint8_t *)data)[0x1F] = 1;
+    JOBJ *menu = *(JOBJ **)((uint8_t *)data + 0x24);
+    if (menu) JOBJ_ReqAnimAll(menu, RSS_ENTER_END);
+    RSS_BUSY = 1;
+}
+
+/* Return whether input was consumed, including on unused rows. A steps a row's
+ * choice forward and B backward; L/R switch page; Start exits and saves (native,
+ * before this hook). D-pad/stick still navigate and X/Y choose the display. */
 int OSD_EditorInput(void *data, unsigned buttons, unsigned row) {
     hide_gaps(data); /* Native initialization can clear the model's hidden flags. */
     int armed = editor_armed; editor_armed = 1;
-    if (Settings_Get(TM_SETTING_OSD_LAYOUT, 0) && (buttons & (HSD_TRIGGER_L | HSD_TRIGGER_R))) {
+    if (buttons & (MENU_L | MENU_R)) {
         if (!armed) return 1; /* Do not treat the L press that opened this menu as paging. */
-        unsigned page = Settings_Get(TM_SETTING_OSD_PAGE, 0);
-        /* ESS previews one owner's selection. Additional live-player pages
-         * remain available through the common pause-menu L/R controls. */
-        unsigned count = 0, mask = Settings_Get(TM_SETTING_OSD_MASK, 0);
-        for (unsigned i = 0; i < TM_OSD_CATEGORIES; ++i) count += !!(mask & (1u << TMSettings_OSDCategoryID(i)));
-        if (mask & (1u << 8)) ++count; /* Reserve preview capacity for the Fox/Falco child before CSS. */
-        unsigned capacity = TMOSD_Capacity(Settings_Get(TM_SETTING_OSD_LAYOUT, 0));
-        unsigned pages = count ? (count + capacity - 1) / capacity : 1;
-        page = (page + ((buttons & HSD_TRIGGER_R) ? 1 : pages - 1)) % pages;
-        Settings_Set(TM_SETTING_OSD_PAGE, 0, page);
-        refresh_display(data);
+        switch_page(data);
         return 1;
     }
-    if (!(buttons & (HSD_BUTTON_B | HSD_TRIGGER_Z))) return 0;
-    if (row >= sizeof(row_ids) || !row_names[row]) return 1;
-    unsigned id = row_ids[row];
+    if (!(buttons & (MENU_A | MENU_B))) return 0;
+    if (row >= TM_EDITOR_ROWS || !row_name(row)) return 1;
+    unsigned id = row_id(row);
     int flag = flag_for(id);
     unsigned field = flag < 0 ? TM_SETTING_OSD_COLOR : TM_SETTING_FLAG;
     unsigned index = flag < 0 ? id : (unsigned)flag;
     unsigned value = Settings_Get(field, index);
-    value = flag < 0 ? (value + ((buttons & HSD_BUTTON_B) ? 1 : 7)) & 7 : !value;
+    value = flag < 0 ? (value + ((buttons & MENU_A) ? 1 : TM_COLOR_COUNT - 1)) % TM_COLOR_COUNT : !value;
     Settings_Set(field, index, value);
     refresh_row(data, row);
     /* Leave the row byte at its old value: native think detects this difference,
      * animates the checkbox, then copies the selected Boolean into that byte. */
-    *(volatile uint8_t *)0x804A04F4 = !!value;
+    RSS_SELECTED = !!value;
     return 1;
 }

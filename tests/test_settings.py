@@ -17,6 +17,23 @@ from unicorn import ppc_const as reg
 RECORD = 0x8045A6C0 + 0x1F24
 STOP = 0x100000
 IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
+# Global Settings pages, read down the left column then the right; 255 = gap.
+EDITOR = [
+    [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
+    [2,4,7,17,11,25,255,23,255,31] + [255] * 19,
+]
+PHYSICAL = [0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,12,13,14,15,16,17,18,19,20,21,22,23,25,27]
+EDITOR_PAGE = 35
+MENU_A, MENU_B, MENU_L, MENU_R = 0x200, 0x20, 0x40, 0x80
+def editor_row(id):
+    for page, rows in enumerate(EDITOR):
+        if id in rows: return page, rows.index(id)
+def open_editor(m, page=0):
+    m.call("TestEditorInit")
+    if page:
+        m.call("TestEditorInput", MENU_L, 0)  # The press that opened the menu is ignored.
+        m.call("TestEditorInput", MENU_R, 0)
+        m.call("TestEditorReload")
 
 
 def gpr(n):
@@ -414,11 +431,13 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             self.assertEqual(m.call("DAT_Get", 1, 0), 1)
         m.call("DAT_Set", 11, 7, 1)
         self.assertEqual(m.call("DAT_Get", 11, 7), 1)
-        m.call("DAT_Set", 17, 19, 1)  # Grouped Very Fast row; native physical ID 19.
+        m.call("DAT_Set", EDITOR_PAGE, 0, 1)  # Global Overlays & Gameplay.
+        m.call("DAT_Set", 17, 0, 1)  # Very Fast row; native physical ID 0.
         self.assertEqual(m.call("DAT_Get", 11, 1), 1)
-        self.assertEqual(m.call("DAT_Get", 17, 19), 1)
+        self.assertEqual(m.call("DAT_Get", 17, 0), 1)
+        m.call("DAT_Set", EDITOR_PAGE, 0, 0)
         before = m.record()
-        m.call("DAT_Set", 17, 16, 1)  # A-Smash palette uses the separate extension.
+        m.call("DAT_Set", 17, 6, 1)  # A-Smash palette uses the separate extension.
         self.assertEqual(m.record(), before)
 
     def test_relocated_dat_migration_and_foreign_identity_preserve_records(self):
@@ -1238,14 +1257,14 @@ class OSDLayoutTests(unittest.TestCase):
         for player in range(6):
             for slot, category in enumerate(IDS):
                 key = m.call("TMOSD_Key",player,category)
-                self.assertEqual(key,player*21+slot)
+                self.assertEqual(key,player*22+slot)
                 self.assertEqual(m.call("TMOSD_Category",key),category)
                 for mode, capacity in [(1,10),(2,9)]:
                     index=player*19+slot
                     self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,0),index//capacity)
                     self.assertEqual(m.call("TestLayoutCell",ptr,key,mode,1),index%capacity)
-        self.assertEqual(m.call("TMOSD_Key",0,64),20)
-        self.assertEqual(m.call("TestLayoutCell",ptr,20,1,0),0xFFFFFFFF) # Non-space-animal roster has no JC slot.
+        self.assertEqual(m.call("TMOSD_Key",0,64),21)
+        self.assertEqual(m.call("TestLayoutCell",ptr,21,1,0),0xFFFFFFFF) # Non-space-animal roster has no JC slot.
         for player, category in [(-1,0),(6,0),(0,2)]:
             self.assertEqual(m.call("TMOSD_Key",player,category),0xFFFFFFFF)
 
@@ -1269,7 +1288,7 @@ class OSDLayoutTests(unittest.TestCase):
             self.assertEqual(m.call("TMOSD_Count",ptr),6*(20+enabled))
             for player in range(6):
                 key=m.call("TMOSD_Key",player,30)
-                self.assertEqual(key,player*21+19)
+                self.assertEqual(key,player*22+19)
                 self.assertEqual(m.call("TMOSD_Category",key),30)
                 for mode,capacity in ((1,10),(2,9)):
                     if enabled:
@@ -1284,6 +1303,27 @@ class OSDLayoutTests(unittest.TestCase):
                             self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,0),index//capacity)
                             self.assertEqual(m.call("TestLayoutCell",ptr,old_key,mode,1),index%capacity)
 
+    def test_additive_act_oo_attack_category_follows_asmash_without_moving_old_cells(self):
+        m=self.m;ptr=0x80406000
+        old_mask=sum(1<<id for id in IDS)
+        for enabled in (0,1):
+            m.call("TMOSD_MapReset",ptr,old_mask|(1<<30)|((1<<27) if enabled else 0))
+            m.call("TMOSD_MapOwners",ptr,63)
+            self.assertEqual(m.call("TMOSD_Count",ptr),6*(20+enabled))
+            for player in range(6):
+                key=m.call("TMOSD_Key",player,27)
+                self.assertEqual(key,player*22+20)
+                self.assertEqual(m.call("TMOSD_Category",key),27)
+                asmash=m.call("TMOSD_Key",player,30)
+                index=player*(20+enabled)+19
+                self.assertEqual(m.call("TestLayoutCell",ptr,asmash,1,0),index//10)
+                self.assertEqual(m.call("TestLayoutCell",ptr,asmash,1,1),index%10)
+                if enabled:
+                    self.assertEqual(m.call("TestLayoutCell",ptr,key,1,0),(index+1)//10)
+                    self.assertEqual(m.call("TestLayoutCell",ptr,key,1,1),(index+1)%10)
+                else:
+                    self.assertEqual(m.call("TestLayoutCell",ptr,key,1,0),0xFFFFFFFF)
+
     def test_wavedash_stick_symbol_follows_banked_layout_and_live_visibility(self):
         for mode in (1,2):
             self.m = Machine(); self.m.init(); self.start(mode,ids=(0,)); m = self.m
@@ -1291,7 +1331,7 @@ class OSDLayoutTests(unittest.TestCase):
             m.call("TestLayoutStick",obj); m.call("TestLayoutTick",1)
             m.call("OSD_MessageGX",obj,2)
             self.assertEqual(m.call("TestStickDraws"),1)
-            self.assertEqual(m.call("TestStickPosition",0),(12 if mode == 2 else -38)&0xFFFFFFFF)
+            self.assertEqual(m.call("TestStickPosition",0),(15 if mode == 2 else -38)&0xFFFFFFFF)
             self.assertEqual(m.call("TestStickPosition",1),14)
             m.call("Settings_Set",11,0,1); m.call("OSD_MessageGX",obj,2)
             self.assertEqual(m.call("TestStickDraws"),1)
@@ -1442,6 +1482,29 @@ class OSDLayoutTests(unittest.TestCase):
         self.assertEqual([m.call("TestLayoutX100",human),m.call("TestLayoutY100",human)],before)
         self.assertNotIn(b"CPU2",self.footer(cpu))
 
+    def test_each_match_opens_on_the_first_page(self):
+        self.start(1,IDS);m=self.m
+        m.call("Settings_Set",23,0,1);self.assertEqual(m.call("Settings_Get",23,0),1)
+        m.call("TestLayoutInit")
+        self.assertEqual(m.call("Settings_Get",23,0),0)
+
+    def test_only_cpu_owned_cells_are_tagged_in_stable_layouts(self):
+        for mode in (1,2):
+            with self.subTest(mode=mode):
+                self.m=Machine();self.m.init();self.start(mode);m=self.m
+                m.call("TestLayoutTick",1)
+                self.assertEqual(m.call("TestLayoutCPUTags"),0)  # Human-only match.
+                m.call("TestCueState",2,14,1,40,100);m.call("TestCuePlayer",1,1,1)
+                m.call("TestLayoutTick",2)
+                tags=m.call("TestLayoutCPUTags")
+                self.assertGreater(tags,0)
+                cpu=m.call("TestLayoutEmit",1,0,1,0);m.call("TestLayoutTick",3)
+                self.assertEqual(m.call("TestLayoutCPUTags"),tags)  # Results keep their tag.
+                m.call("Settings_Set",11,8,1);m.call("TestLayoutTick",4)
+                self.assertEqual(m.call("TestLayoutCPUTags"),0)  # CPU OSDs Off hides tags.
+                m.call("Settings_Set",11,8,0);m.call("Settings_Set",21,0,0);m.call("TestLayoutTick",5)
+                self.assertEqual(m.call("TestLayoutCPUTags"),0)  # Recent has no cells.
+
     def test_importing_old_recent_result_cannot_overwrite_a_fresh_native_result(self):
         self.start(0);m=self.m
         old=m.call("TestLayoutEmit",0,20,1,20)
@@ -1562,10 +1625,11 @@ class OSDLayoutTests(unittest.TestCase):
         for id in IDS:m.write(14,id,6)
         m.call("Settings_Set",21,0,1);m.call("TestEditorInit")
         saved=m.record()
-        m.call("TestEditorInput",0x40,0)  # Opening L is consumed without paging.
-        self.assertEqual(m.call("Settings_Get",23,0),0)
-        m.call("TestEditorInput",0x20,0)
-        self.assertEqual(m.call("Settings_Get",23,0),1)
+        m.call("TestEditorInput",MENU_L,0)  # Opening L is consumed without paging.
+        self.assertEqual(m.call("Settings_Get",EDITOR_PAGE,0),0)
+        m.call("TestEditorInput",MENU_R,0)
+        self.assertEqual(m.call("Settings_Get",EDITOR_PAGE,0),1)
+        self.assertEqual(m.call("Settings_Get",23,0),0)  # In-match OSD page is separate.
         self.assertEqual(m.record(),saved)
 
 
@@ -1759,8 +1823,108 @@ class OSDContextTests(unittest.TestCase):
         m.cpu.mem_write(data+0x2408, struct.pack(">6H",1,10,20,0,0,0))
         m.call("TestWaitDisplay", 0)
         self.assertEqual(bytes(m.call("TestWaitLabelChar", i) for i in range(8)), b"L-cancel")
+        # Up-throw -> Wait -> action belongs to Act OoAttack only.
+        m.call("TestWaitClear")
+        m.cpu.mem_write(data+0x23FC, struct.pack(">6H",14,221,0,0,0,0))
+        m.cpu.mem_write(data+0x2408, struct.pack(">6H",1,30,0,0,0,0))
+        m.call("TestWaitDisplay", 0)
+        self.assertEqual(m.call("TestWaitFrame"), 0)
         m.call("ActionCues_Clear")
         self.assertEqual(m.call("OSDContext_MessageHitlag", 0, 8), 0)
+
+
+FTILT, JAB1, JAB2, THROWF, WAIT, WALK, KNEEBEND, DAMAGE = 53, 44, 45, 219, 14, 15, 24, 75
+
+class AttackEpisodeTests(unittest.TestCase):
+    """Act OoAttack counts native IASA calls that could have accepted an action."""
+    def setUp(self):
+        self.m=Machine(); self.episode=0x80403000
+        self.m.cpu.mem_write(self.episode,bytes(36))
+
+    def tick(self,state,instance=0,hitlag=0,dead=0):
+        self.m.call("TMAttack_Tick",self.episode,state,instance,hitlag,dead)
+
+    def act(self,frame,before,actionable,after,frozen=0,instance=0,after_instance=None):
+        self.m.call("TMAttack_Before",self.episode,frame,before,instance,actionable,frozen)
+        return self.m.call("TMAttack_After",self.episode,frame,after,
+                           instance if after_instance is None else after_instance,frozen)
+
+    def fields(self):  # state, active, instance, hitlag, opportunity
+        return struct.unpack(">5I",self.m.cpu.mem_read(self.episode,20))
+
+    def test_iasa_interrupt_counts_actionable_frames_once(self):
+        for frame in range(1,4):
+            self.tick(FTILT);self.assertEqual(self.act(frame,FTILT,0,FTILT),0)
+        self.tick(FTILT);self.assertEqual(self.act(4,FTILT,1,FTILT),0)  # First actionable frame missed.
+        self.tick(FTILT);self.assertEqual(self.act(5,FTILT,1,KNEEBEND),2)
+        self.assertEqual(self.act(5,FTILT,1,KNEEBEND),0)  # No duplicate on the same update.
+        self.assertEqual(self.fields()[1],0)
+        self.m.cpu.mem_write(self.episode,bytes(36))
+        self.tick(FTILT);self.assertEqual(self.act(1,FTILT,1,KNEEBEND),1)
+
+    def test_wait_and_buffered_walk_after_animation_end_count_until_the_action(self):
+        self.tick(FTILT);self.act(1,FTILT,0,FTILT)
+        self.tick(WAIT);self.assertEqual(self.act(2,WAIT,0,WAIT),0)
+        self.tick(WAIT);self.assertEqual(self.act(3,WAIT,0,WALK),0)  # Walk is not yet the action.
+        self.tick(WALK);self.assertEqual(self.act(4,WALK,0,KNEEBEND),3)
+
+    def test_throws_report_once_through_wait_or_iasa(self):
+        UTHROW = THROWF + 2  # Fox's up-throw ends in Wait.
+        for frame in (1,2): self.tick(UTHROW);self.act(frame,UTHROW,0,UTHROW)
+        self.tick(WAIT);self.assertEqual(self.act(3,WAIT,0,WAIT),0)
+        self.tick(WAIT);self.assertEqual(self.act(4,WAIT,0,KNEEBEND),2)
+        self.assertEqual(self.fields()[1],0)
+        self.tick(KNEEBEND);self.assertEqual(self.act(5,KNEEBEND,0,24),0)  # Never a second report.
+        self.tick(THROWF,1);self.assertEqual(self.act(6,THROWF,1,KNEEBEND,0,1),1)
+
+    def test_being_hit_or_waiting_past_the_window_reports_nothing(self):
+        self.tick(FTILT);self.act(1,FTILT,0,DAMAGE)
+        self.tick(DAMAGE);self.assertEqual(self.act(2,DAMAGE,0,KNEEBEND),0)
+        for limit,expected in ((13,13),(14,0)):
+            self.m.cpu.mem_write(self.episode,bytes(36));self.tick(FTILT)
+            for frame in range(1,limit):self.assertEqual(self.act(frame,FTILT,1,FTILT),0)
+            self.assertEqual(self.act(limit,FTILT,1,KNEEBEND),expected)
+
+    def test_hitlag_is_kept_for_the_attack_and_frozen_updates_are_not_opportunities(self):
+        for frame in range(1,4):
+            self.tick(FTILT,0,1);self.assertEqual(self.act(frame,FTILT,1,FTILT,1),0)
+        self.assertEqual(self.fields()[3:5],(3,0))
+        self.tick(FTILT);self.assertEqual(self.act(4,FTILT,1,KNEEBEND),1)
+        self.assertEqual(self.fields()[3],3)
+        self.tick(FTILT,0,0,1);self.assertEqual(self.fields(),(0,0,0,0,0))  # Death clears.
+
+    def test_attack_out_of_attack_reports_and_starts_a_new_episode(self):
+        self.tick(JAB1,1);self.assertEqual(self.act(1,JAB1,1,JAB2,0,1,2),1)
+        self.tick(JAB2,2);self.assertEqual(self.fields(),(JAB2,1,2,0,0))
+        self.assertEqual(self.act(2,JAB2,0,JAB2,0,2),0)
+        self.tick(FTILT,3);self.act(3,FTILT,1,FTILT,0,3)
+        self.assertEqual(self.act(4,FTILT,1,FTILT,0,3,4),2)  # Same attack, new instance.
+
+    def test_native_adapter_reports_title_label_and_timing_colors(self):
+        m=self.m;m.init();m.call("TestCueInit");m.call("TestCueKind",0,2)
+        def frame(f,state,iasa,after,frozen=0):
+            m.call("TestCueState",0,state,f,40,100);m.call("TestCueIASA",0,iasa)
+            m.call("TestCueFrozen",0,frozen);m.call("TestContextTick",0,f)
+            m.call("TestShineBefore",0)
+            m.call("TestCueState",0,after,f,40,100);m.call("TestShineAfter",0)
+        def run(start,hitlag=0):
+            m.call("TestWaitClear");m.call("TestCueInstance",0,start)
+            for f in range(start,start+hitlag):frame(f,FTILT,0,FTILT,1)
+            f=start+hitlag
+            frame(f,FTILT,0,FTILT);frame(f+1,FTILT,1,FTILT);frame(f+2,FTILT,1,KNEEBEND)
+        run(1)
+        self.assertEqual(m.call("TestWaitFrame"),0)  # New OSDs default Off.
+        m.call("Settings_Set",14,27,1)
+        run(10)
+        self.assertEqual(m.call("TestWaitFrame"),2)
+        self.assertEqual("".join(chr(m.call("TestWaitLabelChar",i)) for i in range(5)),"Ftilt")
+        self.assertEqual(m.call("OSD_MessageSettings",m.call("TestWaitTag")),27)
+        self.assertEqual(m.call("TestStyleColor",0),0xFFFFFFFF)
+        self.assertEqual(m.call("TestStyleColor",2),0x8DFF6EFF)  # 2f is green.
+        run(20,4)
+        text,colors,_=styled_ascii(m,2)
+        self.assertEqual(text,"4hl->2f")
+        self.assertEqual(colors[-1][1],0x8DFF6EFF)
 
 
 class ShineEpisodeTests(unittest.TestCase):
@@ -2282,48 +2446,111 @@ class OSDEditorTests(unittest.TestCase):
         self.m = Machine()
         self.m.init()
 
+    def label(self, m, row, length):
+        return ''.join(chr(m.call("TestEditorLabelChar", row, i)) for i in range(length))
+
     def test_cpu_override_editor_row_and_saved_bit_are_independent(self):
         m=self.m
+        cpu = editor_row(29)[1]
         m.write(14,20,6); m.write(15,29,1)  # An unknown old enable bit must survive this row allocation.
         reserved=bytearray(m.record()); reserved[40:44]=b"\xf0ABC"; m.put(reserved)
-        m.call("TestEditorInit"); m.call("TestEditorInput",0x200,20)
+        m.call("TestEditorInit"); m.call("TestEditorInput",MENU_A,cpu)
         self.assertEqual(m.read(11,8),1)
         self.assertEqual(m.record()[40:44],b"\xf4ABC")
         self.assertEqual(m.read(15,29),1)
         self.assertEqual(m.read(14,20),6)
-        self.assertEqual(m.call("TestEditorHidden",20),0)
-        m.call("TestEditorAnimate",20); m.call("TestSettingsEditorWrite",17,m.call("TestEditorCache",20))
+        self.assertEqual(m.call("TestEditorHidden",cpu),0)
+        m.call("TestEditorAnimate",cpu); m.call("TestSettingsEditorWrite",PHYSICAL[cpu],m.call("TestEditorCache",cpu))
         saved=m.record(); fresh=Machine(); fresh.put(saved); fresh.call("TestEditorInit")
         self.assertEqual(fresh.call("Settings_Get",11,8),1)
-        for row,label in [(19,"A-Smash Release"),(20,"OVERRIDE CPU OSDS OFF"),(21,"OVERRIDE ALL OSDS OFF")]:
-            self.assertEqual(''.join(chr(fresh.call("TestEditorLabelChar",row,i)) for i in range(len(label))),label)
+        for id,label in [(30,"A-Smash Release"),(29,"OVERRIDE CPU OSDS OFF"),(6,"OVERRIDE ALL OSDS OFF")]:
+            self.assertEqual(self.label(fresh,editor_row(id)[1],len(label)),label)
         self.assertEqual(fresh.record(),saved)
+
+    def test_overrides_sit_in_the_bottom_right_below_a_blank_row(self):
+        self.assertEqual(EDITOR[0][26:], [255, 29, 6])
+        m = self.m; m.call("TestEditorInit")
+        self.assertEqual(m.call("TestEditorHidden", 26), 1)
+        self.assertEqual(self.label(m, 27, 8), "OVERRIDE")
+        self.assertEqual(self.label(m, 28, 8), "OVERRIDE")
+
+    def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
+        rows = [id for page in EDITOR for id in page if id != 255]
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31]))
+        self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
+        for page in range(2):
+            for native, row in zip(PHYSICAL, range(29)):
+                self.assertEqual(self.m.call("TMSettings_EditorIDFor", page, native), EDITOR[page][row])
+        self.assertEqual(self.m.call("TMSettings_EditorIDFor", 2, 0), 255)
+
+    def test_overlay_page_groups_character_overlays_gameplay_and_stage(self):
+        character, gameplay, stage = [2, 4, 7, 17, 11, 25], [23], [31]
+        self.assertEqual(EDITOR[1][:10], character + [255] + gameplay + [255] + stage)
+        m = self.m; open_editor(m, 1)
+        m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
+        for row in (6, 8): self.assertEqual(m.call("TestEditorHidden", row), 1)
+        label = "Randall Overlay"
+        self.assertEqual(self.label(m, 9, len(label)), label)
+
+    def test_checkboxes_are_posed_from_the_page_shown_not_the_previous_page(self):
+        m = self.m
+        frames = 0x804DB6A0 - 0x6AE8
+        m.cpu.mem_write(frames, struct.pack(">ff", 3.0, 9.0))  # Off, On
+        m.write(14, 16, 7)  # Act OoWait On at page 1 row 9, where Randall sits on page 2.
+        m.call("TestEditorInit")
+        row = editor_row(16)[1]
+        self.assertEqual(m.call("TestEditorBoxFrame", row), 9)
+        self.assertEqual(m.call("TestEditorBoxFrame", 7), 3)  # Gap rows are posed Off.
+        m.call("TestEditorInput", MENU_L, 0); m.call("TestEditorInput", MENU_R, 0)
+        m.call("TestEditorReload")
+        self.assertEqual(editor_row(31), (1, row))
+        self.assertEqual(m.call("Settings_Get", 11, 9), 0)  # No saved Randall setting.
+        self.assertEqual(m.call("TestEditorBoxFrame", row), 3)
+        for r in range(29):
+            self.assertEqual(m.call("TestEditorBoxFrame", r), 9 if m.call("TestEditorCache", r) else 3)
+
+    def test_renamed_rows_match_in_game_titles(self):
+        m = self.m; m.call("TestEditorInit")
+        self.assertEqual(self.label(m, editor_row(16)[1], 10), "Act OoWait")
+        self.assertEqual(self.label(m, editor_row(18)[1], 10), "Act OoJump")
+        self.assertEqual(self.label(m, editor_row(27)[1], 12), "Act OoAttack")
+        self.assertEqual(EDITOR[0][8:13], [3, 16, 27, 18, 28])  # Grouped with the other Act Oo* rows.
 
     def test_native_palette_cycle_and_exit_snapshot(self):
         m = self.m
+        row = editor_row(20)[1]  # Fastfall Timing.
         m.write(14, 20, 6)
         m.write(15, 15, 1)  # Reserved event bit must survive.
         m.call("TestEditorInit")
-        self.assertEqual(m.call("TestEditorChoiceChar", 13, 0), ord("C"))
-        self.assertEqual(m.call("TestEditorColor", 13), 0x00FFFFFF)
-        self.assertEqual(m.call("TestEditorInput", 0x200, 13), 1)
+        self.assertEqual(m.call("TestEditorChoiceChar", row, 0), ord("C"))
+        self.assertEqual(m.call("TestEditorColor", row), 0x00FFFFFF)
+        self.assertEqual(m.call("TestEditorInput", MENU_A, row), 1)
         self.assertEqual(m.read(14, 20), 7)
-        self.assertEqual(m.call("TestEditorChoiceChar", 13, 0), ord("M"))
-        self.assertEqual(m.call("TestEditorInput", 0x200, 13), 1)
+        self.assertEqual(m.call("TestEditorChoiceChar", row, 0), ord("M"))
+        # Orange..Lavender follow Magenta; the core keeps their nearest original color.
+        for color, initial, fallback in zip(range(8, 16), "OPPTLGSL", (5, 7, 7, 6, 3, 5, 4, 7)):
+            self.assertEqual(m.call("TestEditorInput", MENU_A, row), 1)
+            self.assertEqual(m.call("Settings_Get", 14, 20), color)
+            self.assertEqual(m.read(14, 20), fallback)
+            self.assertEqual(m.call("TestEditorChoiceChar", row, 0), ord(initial))
+            self.assertEqual(m.call("TestEditorColor", row), m.call("OSD_PaletteColor", color))
+        self.assertEqual(m.call("TestEditorInput", MENU_A, row), 1)
         self.assertEqual(m.read(14, 20), 0)
-        self.assertEqual(m.call("TestEditorCache", 13), 1)  # Native detects the changed Boolean.
+        self.assertEqual(m.call("Settings_Get", 14, 20), 0)
+        self.assertEqual(m.call("TestEditorCache", row), 1)  # Native detects the changed Boolean.
         self.assertEqual(bytes(m.cpu.mem_read(0x804A04F4, 1)), b"\0")
-        m.call("TestEditorAnimate", 13)
-        self.assertEqual(m.call("TestEditorCache", 13), 0)
-        self.assertEqual(m.call("TestEditorInput", 0x10, 13), 1)
+        m.call("TestEditorAnimate", row)
+        self.assertEqual(m.call("TestEditorCache", row), 0)
+        self.assertEqual(m.call("TestEditorInput", MENU_B, row), 1)  # B steps backward.
+        self.assertEqual(m.call("Settings_Get", 14, 20), 15)
         self.assertEqual(m.read(14, 20), 7)
-        self.assertEqual(m.call("TestEditorCache", 13), 0)
+        self.assertEqual(m.call("TestEditorCache", row), 0)
         self.assertEqual(bytes(m.cpu.mem_read(0x804A04F4, 1)), b"\1")
-        m.call("TestEditorAnimate", 13)
-        self.assertEqual(m.call("TestEditorCache", 13), 1)
-        # The native exit pass saves Boolean rows: chosen Magenta remains Magenta.
-        m.write(16, 20, m.call("TestEditorCache", 13))
-        self.assertEqual(m.read(14, 20), 7)
+        m.call("TestEditorAnimate", row)
+        self.assertEqual(m.call("TestEditorCache", row), 1)
+        # The native exit pass saves Boolean rows: chosen Lavender remains Lavender.
+        m.write(16, 20, m.call("TestEditorCache", row))
+        self.assertEqual(m.call("Settings_Get", 14, 20), 15)
         self.assertEqual(m.read(15, 15), 1)
 
     def test_master_and_trails_are_independent_boolean_rows(self):
@@ -2332,27 +2559,32 @@ class OSDEditorTests(unittest.TestCase):
             m.write(14, id, (id % 7) + 1)
         before = m.record()
         m.call("TestEditorInit")
-        for row, flag in [(22, 1), (23, 2), (21, 0)]:
-            m.call("TestEditorInput", 0x200, row)
+        master = editor_row(6)[1]
+        m.call("TestEditorInput", MENU_A, master)
+        self.assertEqual(m.read(11, 0), 1)
+        m.call("TestEditorInput", MENU_R, master)
+        m.call("TestEditorReload")
+        for id, flag in [(2, 1), (4, 2)]:
+            row = editor_row(id)[1]
+            m.call("TestEditorInput", MENU_A, row)
             self.assertEqual(m.read(11, flag), 1)
             self.assertEqual(m.call("TestEditorChoiceChar", row, 1), ord("n"))
+            m.call("TestEditorAnimate", row)
         self.assertEqual(m.record()[:10], before[:10])
         self.assertEqual(m.record()[11:], before[11:])
-        self.assertEqual(m.read(11, 1), 1)
-        self.assertEqual(m.read(11, 2), 1)
-        m.call("TestEditorInput", 0x10, 21)
-        self.assertEqual(m.read(11, 0), 0)
-        self.assertEqual(m.read(11, 1), 1)
-        self.assertEqual(m.read(11, 2), 1)
+        self.assertEqual([m.read(11, flag) for flag in range(3)], [1, 1, 1])
+        m.call("TestEditorInput", MENU_L, 0); m.call("TestEditorReload")
+        m.call("TestEditorInput", MENU_B, master)
+        self.assertEqual([m.read(11, flag) for flag in range(3)], [0, 1, 1])
 
     def test_unused_rows_and_navigation_do_not_edit_settings(self):
         m = self.m
         m.call("TestEditorInit")
         before = m.record()
-        for row in [29, 65535]:
-            self.assertEqual(m.call("TestEditorInput", 0x200, row), 1)
-            self.assertEqual(m.call("TestEditorInput", 0x10, row), 1)
-        for button in [1, 2, 4, 8, 0x100, 0x400, 0x800, 0x1000]:
+        for row in [7, 26, 29, 65535]:
+            self.assertEqual(m.call("TestEditorInput", MENU_A, row), 1)
+            self.assertEqual(m.call("TestEditorInput", MENU_B, row), 1)
+        for button in [1, 2, 4, 8, 0x10, 0x100, 0x400, 0x800, 0x1000]:
             self.assertEqual(m.call("TestEditorInput", button, 0), 0)
         self.assertEqual(m.record(), before)
 
@@ -2362,60 +2594,85 @@ class OSDEditorTests(unittest.TestCase):
         future[10] = 0
         m.put(future)
         m.call("TestEditorInit")
-        m.call("TestEditorInput", 0x200, 13)
+        m.call("TestEditorInput", MENU_A, editor_row(20)[1])
         self.assertEqual(m.call("Settings_Get", 14, 20), 1)
-        m.call("TestEditorInput", 0x200, 21)
+        m.call("TestEditorInput", MENU_A, editor_row(6)[1])
         self.assertEqual(m.call("Settings_Get", 11, 0), 1)
         self.assertEqual(m.record(), bytes(future))
 
     def test_native_palette_and_master_round_trip_into_fresh_service(self):
         m = self.m
+        fastfall, master = editor_row(20)[1], editor_row(6)[1]
         m.call("TestEditorInit")
         for _ in range(6):
-            m.call("TestEditorInput", 0x200, 13)
-        m.call("TestEditorAnimate", 13)
-        m.call("TestEditorInput", 0x200, 21)
-        m.call("TestEditorAnimate", 21)
-        m.write(16, 20, m.call("TestEditorCache", 13))
-        m.write(16, 6, m.call("TestEditorCache", 21))
+            m.call("TestEditorInput", MENU_A, fastfall)
+        m.call("TestEditorAnimate", fastfall)
+        m.call("TestEditorInput", MENU_A, master)
+        m.call("TestEditorAnimate", master)
+        m.write(16, 20, m.call("TestEditorCache", fastfall))
+        m.write(16, 6, m.call("TestEditorCache", master))
         fresh = Machine()
         fresh.put(m.record())
         fresh.call("TestEditorInit")
         self.assertEqual(fresh.call("Settings_Get", 14, 20), 6)
         self.assertEqual(fresh.call("Settings_Get", 11, 0), 1)
-        self.assertEqual(fresh.call("TestEditorChoiceChar", 13, 0), ord("C"))
-        fresh.call("TestEditorInput", 0x200, 21)
+        self.assertEqual(fresh.call("TestEditorChoiceChar", fastfall, 0), ord("C"))
+        fresh.call("TestEditorInput", MENU_A, master)
         self.assertEqual(fresh.call("Settings_Get", 14, 20), 6)
         self.assertEqual(fresh.call("Settings_Get", 11, 0), 0)
 
     def test_grouped_editor_gaps_and_native_exit_keep_every_preference(self):
         m = self.m
-        physical = [0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,12,13,14,15,16,17,18,19,20,21,22,23,25,27]
-        expected = IDS + [30,29,6,2,4,7,17,11,23,25]
         for i, id in enumerate(IDS):
             m.write(14, id, (i % 7) + 1)
         for flag in range(8):
             m.write(11, flag, flag & 1)
         m.write(15, 15, 1)  # Reserved event preference survives menu exit.
+        for page in range(2):
+            open_editor(m, page)
+            for row, native in enumerate(PHYSICAL):
+                id = EDITOR[page][row]
+                if page == 0: self.assertEqual(m.call("TMSettings_EditorID", native), id)
+                self.assertEqual(m.call("TestEditorHidden", row), int(id == 255))
+                self.assertEqual(m.call("TestSettingsEditorRow", native), m.call("TestEditorCache", row))
+            # Lockout Timers palette on page 1, Run Turnaround flag on page 2.
+            row = editor_row(12)[1] if page == 0 else editor_row(17)[1]
+            m.call("TestEditorInput", MENU_A, row)
+            m.call("TestEditorAnimate", row)
+            before = m.record()
+            for row, native in enumerate(PHYSICAL):
+                m.call("TestSettingsEditorWrite", native, m.call("TestEditorCache", row))
+            self.assertEqual(m.record(), before)
+            self.assertEqual(m.read(15, 15), 1)
+        self.assertEqual(m.read(11, 6), 1)  # Run Turnaround started Off (even flag).
+
+    def test_page_switch_saves_the_pending_cursor_row_and_rebinds_rows(self):
+        m = self.m
+        master = editor_row(6)[1]
         m.call("TestEditorInit")
-        for row, native in enumerate(physical):
-            self.assertEqual(m.call("TMSettings_EditorID", native), expected[row])
-            self.assertEqual(m.call("TestEditorHidden", row), 0)
-            self.assertEqual(m.read(17, native), m.call("TestEditorCache", row))
-            self.assertEqual(m.call("TestSettingsEditorRow", native), m.call("TestEditorCache", row))
-        label = "OVERRIDE ALL OSDS OFF"
-        self.assertEqual(''.join(chr(m.call("TestEditorLabelChar", 21, i)) for i in range(len(label))), label)
-        m.call("TestEditorInput", 0x200, 7)  # Lockout Timers palette.
-        m.call("TestEditorAnimate", 7)
-        m.call("TestEditorInput", 0x200, 25)  # Run Turnaround flag.
-        m.call("TestEditorAnimate", 25)
-        before = m.record()
-        for row, native in enumerate(physical):
-            m.call("TestSettingsEditorWrite", native, m.call("TestEditorCache", row))
-        self.assertEqual(m.record(), before)
-        self.assertEqual(m.read(15, 15), 1)
-        self.assertEqual(m.call("TestEditorLabelChar", 19, 0), ord("A"))
-        self.assertEqual(m.call("TestEditorLabelChar", 20, 0), ord("O"))
+        m.call("TestEditorInput", MENU_L, 0)
+        m.call("TestEditorInput", MENU_A, master)  # Not yet copied by the native animation.
+        m.call("TestEditorInput", MENU_R, master)
+        self.assertEqual(m.read(11, 0), 1)
+        self.assertEqual(m.call("Settings_Get", EDITOR_PAGE, 0), 1)
+        # Native end-of-entry state, busy input gate and Text recreation.
+        self.assertEqual(m.call("TestEditorByte", 0x1F), 1)
+        self.assertEqual(bytes(m.cpu.mem_read(0x804DB6A0 - 0x4AAC, 1)), b"\1")
+        self.assertEqual([m.call("TestEditorTextPtr", c) for c in range(2)], [0, 0])
+        m.write(11, 1, 1)
+        m.call("TestEditorReload")
+        self.assertEqual(self.label(m, 0, 23), "Hitbox Trails Very Fast")
+        self.assertEqual(m.call("TestEditorCache", 0), 1)
+        self.assertEqual(m.call("TestEditorHidden", 6), 1)
+        self.assertEqual(m.call("TestEditorLabelChar", master, 0), 0)
+        # Exit saving through the native row hook now binds Global Overlays rows.
+        m.call("TestSettingsEditorWrite", PHYSICAL[0], 0)
+        self.assertEqual(m.read(11, 1), 0)
+        self.assertEqual(m.read(11, 0), 1)
+        # Reopening the menu always starts on Global OSDs.
+        m.call("TestEditorInit")
+        self.assertEqual(m.call("Settings_Get", EDITOR_PAGE, 0), 0)
+        self.assertEqual(self.label(m, master, 8), "OVERRIDE")
 
 
 class SweetspotCameraTests(unittest.TestCase):
@@ -3012,17 +3269,18 @@ class ActionCueTests(unittest.TestCase):
         m = self.m
         for flag in [3, 4, 5, 6]:
             m.call("Settings_Set", 11, flag, 0)
-        m.call("TestEditorInit")
+        open_editor(m, 1)
         m.write(14, 20, 6)
-        for cursor, row, flag in [(24, 7, 3), (26, 11, 4), (25, 17, 6), (27, 23, 5)]:
-            m.call("TestEditorInput", 0x200, cursor)
+        for row, flag in [(7, 3), (11, 4), (17, 6), (23, 5)]:
+            cursor = editor_row(row)[1]
+            m.call("TestEditorInput", MENU_A, cursor)
             self.assertEqual(m.read(11, flag), 1)
             m.call("TestEditorAnimate", cursor)
             m.write(16, row, m.call("TestEditorCache", cursor))
         fresh = Machine()
         fresh.put(m.record())
         fresh.call("TestEditorInit")
-        for cursor, flag in [(24, 3), (26, 4), (25, 6), (27, 5)]:
+        for flag in [3, 4, 6, 5]:
             self.assertEqual(fresh.call("Settings_Get", 11, flag), 1)
         self.assertEqual(fresh.read(14, 20), 6)
 
@@ -3266,10 +3524,11 @@ class ActionCueTests(unittest.TestCase):
         self.assertEqual(m.read(11, 6), 1)
         self.assertEqual(m.read(11, 7), 0)
         self.assertEqual(m.call("TMSettings_Prepare", RECORD, 1), 0)
-        m.call("TestEditorInit")
-        m.call("TestEditorInput", 0x200, 28)  # Protection at final grouped row.
-        m.call("TestEditorAnimate", 28)
-        m.write(16, 25, m.call("TestEditorCache", 28))
+        open_editor(m, 1)
+        cursor = editor_row(25)[1]  # Protection on Global Overlays & Gameplay.
+        m.call("TestEditorInput", MENU_A, cursor)
+        m.call("TestEditorAnimate", cursor)
+        m.write(16, 25, m.call("TestEditorCache", cursor))
         self.assertEqual(m.record()[40:44], b"\x73AB\x03")
         fresh = Machine()
         fresh.put(m.record())

@@ -294,8 +294,8 @@ EventDesc LowLaser = {
     .eventDescription = "Practice low lasers against a frozen crouching Puff.\nMeasure laser-start and fastfall timing.",
     .eventFile = "lowlaser", .jumpTableIndex = -1,
     .CSSType = SLCHRKIND_EVENT,
-    .allowed_characters = {.hmn = CSSID_FALCO | CSSID_FOX, .cpu = -1},
-    .playerKind = -1, .cpuKind = CKIND_JIGGLYPUFF, .stage = 32, /* External FD ID. */
+    .allowed_characters = {.hmn = -1, .cpu = -1},
+    .playerKind = -1, .cpuKind = CKIND_JIGGLYPUFF, .stage = -1, /* Stage select; positions use live geometry. */
     .disable_hazards = true, .scoreType = SCORETYPE_KO, .callbackPriority = 16,
     .matchData = &LowLaser_MatchData,
 };
@@ -741,7 +741,7 @@ EventDesc Reaction = {
 
 EventDesc Ledgestall = {
     .tyro_edited = true,
-    .eventName = "Under Fire\n",
+    .eventName = "Under Fire - Ledgestall Training\n",
     .eventDescription = "Count perfect ledge refreshes\nwhile the lava rises!\n",
     .eventFile = 0,
     .jumpTableIndex = JUMP_LEDGESTALL,
@@ -846,6 +846,30 @@ static unsigned restore_serial;
 static unsigned Events_RestoreSerial(void) { return restore_serial; }
 void Events_NotifyRestore(void) { restore_serial++; Message_LayoutClear(); }
 
+/* In-event stage changes. The event's .dat reloads with the new match, so the
+ * pending stage and any carried state live here, in the boot-loaded code. */
+static int restart_stage = -1;
+static struct { u32 tag, size; u8 data[TM_EVENT_CARRY_SIZE]; } event_carry;
+static void Events_RestartOnStage(int stage) {
+    if (!event_vars->event_desc || event_vars->event_desc->stage != -1) return;
+    restart_stage = stage;
+    Memcard_SaveIfChanged();
+    stc_match->end_kind = MATCHENDKIND_RETRY;
+    stc_match->state = 3;
+    Match_EndVS();
+}
+static void *Events_CarryStore(u32 tag, u32 size) {
+    if (!tag || size > sizeof(event_carry.data)) return 0;
+    event_carry.tag = tag;
+    event_carry.size = size;
+    return event_carry.data;
+}
+static const void *Events_CarryTake(u32 tag, u32 size) {
+    if (!tag || event_carry.tag != tag || event_carry.size != size) return 0;
+    event_carry.tag = 0;
+    return event_carry.data;
+}
+
 EventVars stc_event_vars = {
     .event_desc = 0,
     .menu_assets = 0,
@@ -879,6 +903,9 @@ EventVars stc_event_vars = {
     .set_timing_overlay = ActionCues_SetTimingOverlay,
     .HUD_DrawInfoPanelWithStick = HUD_DrawInfoPanelWithStick,
     .shield_training = ShieldTraining_Control,
+    .restart_on_stage = Events_RestartOnStage,
+    .carry_store = Events_CarryStore,
+    .carry_take = Events_CarryTake,
 };
 
 static GOBJ *stc_msgmgr;
@@ -964,7 +991,7 @@ static EventOption under_fire_options[] = {
 };
 static EventMenu under_fire_menu = {
     .on_exit = UnderFire_Exit,
-    .name = "Under Fire", .option_num = countof(under_fire_options),
+    .name = "Under Fire - Ledgestall Training", .option_num = countof(under_fire_options),
     .options = under_fire_options,
 };
 static void UnderFire_UpdateCamera(void) {
@@ -1356,13 +1383,44 @@ static void DrawStickDiagram(float cx, float cy, float rx, float ry, Vec2 direct
     GFX_AddVtx(cx + tx * rx, cy + ty * ry, 0, stick);
 }
 
+/* Bottom half of the octagonal gate, closed by a flat top edge through the
+ * pivot (cx, cy). Wavedashes always point down, so the top half is never used;
+ * any upward component is flattened onto the top edge. */
+static void DrawHalfStickDiagram(float cx, float cy, float rx, float ry, Vec2 direction)
+{
+    static const Vec2 gate[5] = {
+        {1, 0}, {.70710678f, -.70710678f}, {0, -1}, {-.70710678f, -.70710678f}, {-1, 0},
+    };
+    if (rx <= 0 || ry <= 0) return;
+    GXColor outline = {180, 190, 205, 255}, stick = {255, 255, 255, 255};
+    GFX_Start(10, (GFX_Params){.shape = GX_LINES, .size = 6});
+    for (unsigned i = 0; i < countof(gate); ++i) {
+        Vec2 a = gate[i], b = gate[(i + 1) % countof(gate)];
+        GFX_AddVtx(cx + a.X * rx, cy + a.Y * ry, 0, outline);
+        GFX_AddVtx(cx + b.X * rx, cy + b.Y * ry, 0, outline);
+    }
+    float tx, ty;
+    OSD_StickTip(direction.X, direction.Y > 0 ? 0 : direction.Y, &tx, &ty);
+    GFX_Start(2, (GFX_Params){.shape = GX_LINES, .size = 12});
+    GFX_AddVtx(cx, cy, 0, stick);
+    GFX_AddVtx(cx + tx * rx, cy + ty * ry, 0, stick);
+}
+
 /* Draw in text-local coordinates so queue animation, layout and deletion all
- * use the same transform as the number. No texture or font glyph is needed. */
+ * use the same transform as the number. No texture or font glyph is needed.
+ * (x, y) is the diagram's visual center. */
 void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction)
 {
     float sx = text->viewport_scale.X, sy = text->viewport_scale.Y;
+    /* Full octagon (24x24), kept for swapping back:
     DrawStickDiagram(text->trans.X + x * sx, -text->trans.Y - y * sy,
         12.f * sx, 12.f * sy, direction);
+    */
+    /* Half octagon (30x15): larger radius in less height, with the pivot raised
+     * half a radius so the shape stays centered on the angle row. */
+    const float r = 15.f;
+    DrawHalfStickDiagram(text->trans.X + x * sx, -text->trans.Y - (y - r / 2) * sy,
+        r * sx, r * sy, direction);
 }
 
 void HUD_DrawTris(Tri *tris, GXColor *colors, int count)
@@ -1595,7 +1653,13 @@ void HUD_DrawInfoPanelWithStick(const char **label, const char **info, int count
 
     if (stick_row >= 0 && stick_row < count) {
         Vec2 stick = direction ? *direction : (Vec2){0, 0};
+        /* Full octagon (1.8x1.8), kept for swapping back:
         DrawStickDiagram(x + 1.65f, y - stick_row * 5.5f + 2.5f, .9f, .9f, stick);
+        */
+        /* Half octagon (2.2x1.1), pivot raised half a radius to stay centered
+         * on the row; 2.2 wide still clears the number at +2.4. */
+        const float r = 1.1f;
+        DrawHalfStickDiagram(x + 1.65f, y - stick_row * 5.5f + 2.5f + r / 2, r, r, stick);
     }
     CObj_SetCurrent(prev_camera);
 }
@@ -1772,10 +1836,20 @@ void EventInit(int page, int eventID, MatchInit *matchData)
 
     // Determine the Stage
     if (event->stage == -1) {
+        /* An in-event stage change retries straight into this scene, without
+         * the SSS. Queue the new stage here, during match prep, as native event
+         * prep does; TM's EventInit hook skips that native code. */
+        if (restart_stage >= 0) {
+            preload->queued.stage = restart_stage;
+            Preload_Update();
+        }
         matchData->stage = preload->queued.stage;
     } else {
         matchData->stage = event->stage;
     }
+    // Carried state is only for the event restarted by that stage change.
+    if (restart_stage < 0) event_carry.tag = 0;
+    restart_stage = -1;
 };
 
 static void LegacyEventUpdate(void)
@@ -2005,6 +2079,7 @@ void OnSceneChange(void)
     under_fire_camera = 0;
     OSD_SetEventSuppression(0);
     Trails_SceneChange();
+    StageOverlay_SceneChange();
     ActionCues_SceneChange();
     // Hook exists at 801a4c94
     TM_CreateWatermark();
@@ -2024,6 +2099,7 @@ void OnStartMelee(void)
     Powershield_SceneChange();
     Settings_Status();
     Trails_MatchStart();
+    StageOverlay_MatchStart();
     ActionCues_MatchStart();
     Message_Init();
     Tip_Init();

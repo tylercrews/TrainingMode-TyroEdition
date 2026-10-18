@@ -24,7 +24,7 @@ int OSD_MessageKind(int kind) {
 int OSD_MessageSettings(int kind) {
     if (!tagged(kind)) return -1;
     unsigned id = ((uint32_t)kind >> 8) & 31;
-    if (id == TM_GLOBAL_ASMASH_RELEASE_ID) return id;
+    if (TM_EXTENSION_OSD(id)) return id;
     for (unsigned i = 0; i < TM_SETTINGS_OSDS; ++i)
         if (TMSettings_OSDIDs[i] == id) return id;
     return -1;
@@ -41,8 +41,10 @@ uint32_t OSD_PaletteColor(unsigned choice) {
     static const uint32_t palette[] = {
         0x00000000, 0xFFFFFFFF, 0xFF4646FF, 0x8DFF6EFF,
         0x4691FFFF, 0xFFF000FF, 0x00FFFFFF, 0xFF50FFFF,
+        0xFF9628FF, 0xFF8CC8FF, 0xA064FFFF, 0x00B4A0FF,
+        0xC8FF32FF, 0xFFC832FF, 0x78C8FFFF, 0xC8A0FFFF,
     };
-    return choice < 8 ? palette[choice] : palette[1];
+    return choice < TM_COLOR_COUNT ? palette[choice] : palette[1];
 }
 uint32_t OSD_TimingColor(int frame) {
     return OSD_TimingColorFor(frame, 1);

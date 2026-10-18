@@ -25,6 +25,7 @@ void OSD_Think(GOBJ *event);
 #define OSD_ComboCounter 22
 #define OSD_GrabBreakout 24
 #define OSD_Ledge 26
+#define OSD_ActOoAttack 27 // Palette lives in the TYEX extension, like A-Smash Release.
 #define OSD_ActOoHitstun 28
 #define OSD_ASmashRelease 30
 

@@ -72,7 +72,7 @@ Attack on Shield catalogue still fits its existing four-bit field. Version 11
 keeps valid old choices, clears the two newly owned padding bits, and repairs old
 invalid action codes instead of interpreting them as new actions. Versions 1–10
 retain their established migrations and receive the event defaults.
-Unknown/foreign records are preserved. See [the storage audit](../SCORE-STORAGE-AUDIT.md).
+Unknown/foreign records are preserved. See [the storage audit](../notes/SCORE-STORAGE-AUDIT.md).
 
 Run `bash tests/run_settings_tests.sh` with Unicorn on `PYTHONPATH`; it includes
 the optimized relocated-DAT tests in `tests/test_shield_training.py` and executes

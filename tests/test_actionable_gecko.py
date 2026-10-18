@@ -41,7 +41,7 @@ class Machine:
         self.boundary = 5
         self.native_length = False
         self.cpu.hook_add(UC_HOOK_CODE, self.native)
-        code = (ROOT / "gecko/actionable/actionable.gct").read_bytes()
+        code = (ROOT / "slippi-gecko-codes/actionable/actionable.gct").read_bytes()
         at = 8
         self.allocations = {}
         while at < len(code):

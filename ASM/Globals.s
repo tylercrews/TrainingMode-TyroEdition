@@ -69,6 +69,7 @@
     .set OSD.ComboCounter, 22
     .set OSD.GrabBreakout, 24
     .set OSD.Ledge, 26
+    .set OSD.ActOoAttack, 27
     .set OSD.ActOoHitstun, 28
 
     # Special ID: always displays. Never overwrites another OSD.
@@ -997,6 +998,7 @@
 .set SettingsField_SweetspotLines, 25
 .set SettingsField_EventSelection, 26
 .set SettingsField_SweetspotCamera, 32
+.set SettingsField_EditorPage, 35
 
 # Preserve the native hook's entire register context, including volatile FPRs,
 # r0, CR, CTR and XER. Leave ABI linkage/argument space below the saves.

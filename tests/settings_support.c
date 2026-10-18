@@ -261,7 +261,20 @@ void TestEditorInit(void) {
     *(Text **)(editor_data + 0x44) = &editor_right;
     OSD_EditorInit(editor_data);
 }
-int TestEditorInput(unsigned buttons, unsigned row) { return OSD_EditorInput(editor_data, buttons, row); }
+int TestEditorInput(unsigned buttons, unsigned row) {
+    *(volatile uint16_t *)0x804A04F2 = row; /* Native input always applies to the cursor row. */
+    return OSD_EditorInput(editor_data, buttons, row);
+}
+/* Native "entry finished" pass after a page switch: Texts are recreated, then init. */
+void TestEditorReload(void) {
+    /* Native end-of-entry clears HIDDEN on both columns; the next input re-hides gaps. */
+    for (unsigned i = 0; i < 29; ++i) editor_joints[i].flags &= ~JOBJ_HIDDEN;
+    *(Text **)(editor_data + 0x40) = &editor_left;
+    *(Text **)(editor_data + 0x44) = &editor_right;
+    OSD_EditorInit(editor_data);
+}
+unsigned TestEditorByte(unsigned offset) { return editor_data[offset]; }
+unsigned TestEditorTextPtr(unsigned column) { return *(uint32_t *)(editor_data + 0x40 + column * 4); }
 unsigned TestEditorCache(unsigned row) { return editor_data[row + 2]; }
 void TestEditorAnimate(unsigned row) { editor_data[row + 2] = *(volatile uint8_t *)0x804A04F4; }
 unsigned TestEditorChoiceChar(unsigned row, unsigned offset) { return editor_choices[row][offset]; }
@@ -443,6 +456,10 @@ void TestCueLanding(unsigned slot, int lag, int allow_interrupt) {
 void TestCueFrozen(unsigned slot, int frozen) { cue_data[slot].flags.hitlag = frozen; cue_data[slot].flags.freeze = frozen; }
 void TestCueIASA(unsigned slot, int ready) { cue_data[slot].flags.past_iasa = ready; }
 void TestCueKind(unsigned slot, int kind) { cue_data[slot].kind = kind; }
+void TestCueInstance(unsigned slot, unsigned instance) { cue_data[slot].atk_instance = instance; }
+void TestCueTimers(unsigned slot, int state_frame, int iasa_frames) {
+    cue_data[slot].TM.state_frame = state_frame; cue_data[slot].TM.iasa_frames = iasa_frames;
+}
 void TestCueSpawn(unsigned slot, int spawn, int dead) {
     cue_data[slot].spawn_num = spawn; cue_data[slot].flags.dead = dead;
 }
@@ -501,7 +518,24 @@ Text *Text_CreateText(int sis, int canvas) {
 }
 void Text_Destroy(Text *text) { int i = layout_text_index(text); if (i >= 0) layout_texts[i].live = 0; }
 void JOBJ_SetMtxDirtySub(JOBJ *joint) {}
-void JOBJ_GetChild(JOBJ *joint, JOBJ **out, int index, ...) { *out = 0; }
+/* Editor rows expose a checkbox child (index 2) whose requested frame is recorded. */
+static JOBJ editor_boxes[29];
+static float editor_box_frames[29];
+static int editor_box_index(JOBJ *box) {
+    for (unsigned i = 0; i < 29; ++i) if (box == &editor_boxes[i]) return i;
+    return -1;
+}
+void JOBJ_GetChild(JOBJ *joint, JOBJ **out, int index, ...) {
+    *out = 0;
+    for (unsigned i = 0; i < 29; ++i)
+        if (joint == &editor_joints[i] && index == 2) *out = &editor_boxes[i];
+}
+void JOBJ_ReqAnimAll(JOBJ *joint, float frame) {
+    int i = editor_box_index(joint);
+    if (i >= 0) editor_box_frames[i] = frame;
+}
+void JOBJ_AnimAll(JOBJ *joint) {}
+int TestEditorBoxFrame(unsigned row) { return row < 29 ? (int)editor_box_frames[row] : -1; }
 void Message_FreeObject(GOBJ *object) {
     ++layout_freed;
     MsgData *msg = object->userdata;
@@ -542,6 +576,15 @@ int TestLayoutX100(GOBJ *object) { return ((MsgData *)object->userdata)->text->t
 int TestLayoutY100(GOBJ *object) { return ((MsgData *)object->userdata)->text->trans.Y * 100; }
 unsigned TestLayoutFreed(void) { return layout_freed; }
 unsigned TestLayoutRecent(void) { return layout_recent; }
+unsigned TestLayoutCPUTags(void) {
+    unsigned count=0;
+    for(unsigned i=0;i<countof(layout_texts);++i) {
+        const char *body=layout_texts[i].body[0];
+        count+=layout_texts[i].live && !layout_texts[i].text.hidden &&
+            body[0]=='C' && body[1]=='P' && body[2]=='U' && !body[3];
+    }
+    return count;
+}
 unsigned TestLayoutLiveText(void) { unsigned count=0; for(unsigned i=0;i<countof(layout_texts);++i) count+=layout_texts[i].live; return count; }
 unsigned TestLayoutFooterChar(GOBJ *object, unsigned index) {
     int i = layout_text_index(((MsgData *)object->userdata)->layout_footer);

@@ -225,7 +225,7 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],33,0,16)  # Split-bit Reversal action is a live preference.
         machine.call(functions[28],34,0,14)
         machine.call(functions[28],34,4,1)
-        machine.cpu.mem_write(BASE + SPARE_START + 24,bytes((index*13+3)&255 for index in range(SPARE_SIZE-24)))
+        machine.cpu.mem_write(BASE + SPARE_START + 36,bytes((index*13+3)&255 for index in range(SPARE_SIZE-36)))  # After the 36-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
         for page, count, first in ((0, 5, 0), (1, 17, 5), (2, 7, 21)):
             machine.call(functions[28], 2, 0, page)

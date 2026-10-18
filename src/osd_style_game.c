@@ -90,7 +90,8 @@ void OSD_MessageGX(GOBJ *gobj, int pass) {
         unsigned mode = msg->layout_owned ? Settings_Get(TM_SETTING_OSD_LAYOUT, 0) : TM_OSD_RECENT;
         float row_y = mode == TM_OSD_PANEL || mode == TM_OSD_FIXED ? 0 :
             (msg->line_count - 1) * (-MSGTEXT_YOFFSET / 2) + MSGTEXT_YOFFSET;
-        float icon_x = mode == TM_OSD_PANEL ? 12.f : -38.f;
+        /* Panel 15 keeps the 30-wide half octagon inside the cell (was 12 for the 24-wide octagon). */
+        float icon_x = mode == TM_OSD_PANEL ? 15.f : -38.f;
         Text_SetPosition(msg->text, 1, mode == TM_OSD_PANEL ? 38.f : 20.f, row_y);
         if (pass == 2) OSD_DrawStickDiagram(msg->text, icon_x, row_y + 14.f, msg->stick_direction);
     }

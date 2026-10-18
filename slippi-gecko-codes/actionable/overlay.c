@@ -44,15 +44,17 @@ static int remaining(GOBJ *obj) {
     int landing = state == ASID_LANDING || state == ASID_LANDINGFALLSPECIAL ||
         (state >= ASID_LANDINGAIRN && state <= ASID_LANDINGAIRLW);
     int attack = state >= ASID_ATTACK11 && state <= ASID_ATTACKAIRLW;
-    if ((!landing && !attack) || state == ASID_ATTACK100START ||
+    int thrown = state >= ASID_THROWF && state <= ASID_THROWLW;
+    if ((!landing && !attack && !thrown) || state == ASID_ATTACK100START ||
         state == ASID_ATTACK100LOOP || ft->action_flags.loop_anim || !(ft->state.rate > 0)) return -1;
     float end = ((float (*)(GOBJ *))0x8006F484)(obj);
     if (!(end > 0)) return -1;
     if ((state == ASID_LANDING || state == ASID_LANDINGFALLSPECIAL) &&
         ft->state_var.state_var1 && ft->attr.normal_landing_lag < end) end = ft->attr.normal_landing_lag;
     int result = TMCue_Remaining(ft->state.frame, ft->state.rate, end);
-    if (attack && !(ft->kind == FTKIND_KIRBY && ft->state_id == 352)) {
-        if (ft->flags.past_iasa) return 0;
+    if (thrown || (attack && !(ft->kind == FTKIND_KIRBY && ft->state_id == 352))) {
+        /* past_iasa can be stale from an earlier attack; throws use the script only. */
+        if (attack && ft->flags.past_iasa) return 0;
         TMCueScript script;
         __builtin_memcpy(&script, &ft->script, sizeof(script));
         int iasa = TMCue_ScriptIASA(&script, ft->state.rate);

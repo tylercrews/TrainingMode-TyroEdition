@@ -8,6 +8,7 @@
 typedef char settings_overlay_capacity[(OVERLAY_COUNT <= TM_SETTINGS_OVERLAYS) ? 1 : -1];
 typedef char settings_overlay_effects[(countof(LabValues_OverlayColours) == TM_SETTINGS_OVERLAY_CHOICES) ? 1 : -1];
 typedef char settings_osd_capacity[(countof(LabOSD_ID) == TM_SETTINGS_OSDS) ? 1 : -1];
+typedef char lab_act_oo_attack_row[(countof(LabOptions_OSDs) == LABOSD_ACT_OO_ATTACK + 1) ? 1 : -1];
 
 // Static Variables
 static DIDraw didraws[6];
@@ -19,6 +20,8 @@ static Savestate_v1 *rec_state;
 static const char *Lab_MenuUnavailable(EventOption *option)
 {
     if (!option || !option->disable) return 0;
+    for (int i = 0; i < STAGE_SWAP_COUNT; ++i)
+        if (option == &StageSwap_Options[i]) return "This is the current stage.";
     for (unsigned i = 0; i < countof(LabOptions_Record); ++i) {
         if (option != &LabOptions_Record[i]) continue;
         if (!rec_state || !rec_state->is_exist) return "Save Positions first to unlock recording controls.";
@@ -177,47 +180,43 @@ void Lab_ChangeActionNumber(GOBJ *menu_gobj, int value) {
     LabMenu_ActionLog.options = LabOptions_ActionLog[value - 1];
 }
 
-void Lab_RemoveActionLogState(GOBJ *menu_gobj) {
-    int action_idx = ActionLog_CurrentPage();
-    action_log_state_name_buffers[action_idx][0] = 0;
-    EventOption *opt = &LabOptions_ActionLog[action_idx][OPTACTIONLOG_STATE];
+static void ActionLog_ClearState(int page) {
+    action_log_state_name_buffers[page][0] = 0;
+    EventOption *opt = &LabOptions_ActionLog[page][OPTACTIONLOG_STATE];
     opt->val = 0;
     opt->value_string = 0;
     opt->name = LabOptions_ActionLog_Default[OPTACTIONLOG_STATE].name;
     opt->OnSelect = LabOptions_ActionLog_Default[OPTACTIONLOG_STATE].OnSelect;
 }
 
-void Lab_SetActionLogState(GOBJ *menu_gobj) {
-    GOBJ *hmn = Fighter_GetGObj(0);
-    FighterData *hmn_data = hmn->userdata;
+void Lab_RemoveActionLogState(GOBJ *menu_gobj) {
+    ActionLog_ClearState(ActionLog_CurrentPage());
+}
 
-    int action_idx = ActionLog_CurrentPage();
-
-    char *buffer = action_log_state_name_buffers[action_idx];
-    GetCurrentStateName(hmn, buffer);
-
-    EventOption *opt = &LabOptions_ActionLog[action_idx][OPTACTIONLOG_STATE];
-    opt->val = hmn_data->state_id;
-    opt->value_string = buffer;
+/* The page's name buffer must already hold the state's name. */
+static void ActionLog_SetState(int page, int state_id) {
+    EventOption *opt = &LabOptions_ActionLog[page][OPTACTIONLOG_STATE];
+    opt->val = state_id;
+    opt->value_string = action_log_state_name_buffers[page];
     opt->name = "Remove State";
     opt->OnSelect = Lab_RemoveActionLogState;
 }
 
-void Lab_AddCustomOSD(GOBJ *menu_gobj) {
-    int row = OPTCUSTOMOSD_FIRST_CUSTOM + stc_custom_osd_state_num;
-    if (row == OPTCUSTOMOSD_MAX_COUNT) {
-        SFX_PlayCommon(3);
-        return;
-    }
-
-    char state_buf[64];
+void Lab_SetActionLogState(GOBJ *menu_gobj) {
     GOBJ *hmn = Fighter_GetGObj(0);
     FighterData *hmn_data = hmn->userdata;
-    stc_custom_osd_states[stc_custom_osd_state_num++] = hmn_data->state_id;
-    GetCurrentStateName(hmn, state_buf);
+    int action_idx = ActionLog_CurrentPage();
+    GetCurrentStateName(hmn, action_log_state_name_buffers[action_idx]);
+    ActionLog_SetState(action_idx, hmn_data->state_id);
+}
+
+static const char custom_osd_prefix[] = "Remove OSD: ";
+static void Lab_AddCustomOSDRow(int state_id, const char *state_name) {
+    int row = OPTCUSTOMOSD_FIRST_CUSTOM + stc_custom_osd_state_num;
+    stc_custom_osd_states[stc_custom_osd_state_num++] = state_id;
 
     char *row_text = HSD_MemAlloc(128);
-    sprintf(row_text, "Remove OSD: %s", state_buf);
+    sprintf(row_text, "%s%s", custom_osd_prefix, state_name);
 
     LabOptions_CustomOSDs[row]= (EventOption) {
         .kind = OPTKIND_FUNC,
@@ -225,6 +224,28 @@ void Lab_AddCustomOSD(GOBJ *menu_gobj) {
         .desc = {"Remove this Custom OSD."},
         .OnSelect = Lab_RemoveCustomOSD,
     };
+}
+
+void Lab_AddCustomOSD(GOBJ *menu_gobj) {
+    if (stc_custom_osd_state_num == OPTCUSTOMOSD_MAX_ADDED) {
+        SFX_PlayCommon(3);
+        return;
+    }
+
+    char state_buf[64];
+    GOBJ *hmn = Fighter_GetGObj(0);
+    FighterData *hmn_data = hmn->userdata;
+    GetCurrentStateName(hmn, state_buf);
+    Lab_AddCustomOSDRow(hmn_data->state_id, state_buf);
+}
+
+static void Lab_ClearCustomOSDs(void) {
+    for (int i = 0; i < stc_custom_osd_state_num; ++i)
+        HSD_Free(LabOptions_CustomOSDs[OPTCUSTOMOSD_FIRST_CUSTOM + i].name);
+    for (int row = OPTCUSTOMOSD_FIRST_CUSTOM; row < OPTCUSTOMOSD_MAX_COUNT; ++row)
+        LabOptions_CustomOSDs[row] = (EventOption) { .name = 0, .disable = true };
+    stc_custom_osd_state_num = 0;
+    LabMenu_CustomOSDs.cursor = LabMenu_CustomOSDs.scroll = 0;
 }
 
 void Lab_RemoveCustomOSD(GOBJ *menu_gobj) {
@@ -265,6 +286,10 @@ void Lab_CustomOSDsThink(void) {
 
 void Lab_ChangeStadiumTransformation(GOBJ *menu_gobj, int value) {
     Stadium_Select(value);
+}
+
+void Lab_ChangeRandallOverlay(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL, value);
 }
 
 void Lab_ChangeInputDisplay(GOBJ *menu_gobj, int value) {
@@ -319,9 +344,12 @@ void Lab_ChangeOSDs(GOBJ *menu_gobj, int value) {
     for (row = 0; row < countof(LabOSD_ID); ++row)
         if (selected == &LabOptions_OSDs[row]) break;
     if (row == countof(LabOSD_ID)) {
-        if (selected != &LabOptions_OSDs[TM_SETTINGS_OSDS]) return;
-        TM_SetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID, value);
-        LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
+        unsigned extension = selected == &LabOptions_OSDs[TM_SETTINGS_OSDS] ? TM_SETTINGS_OSDS :
+            selected == &LabOptions_OSDs[LABOSD_ACT_OO_ATTACK] ? LABOSD_ACT_OO_ATTACK : 0;
+        if (!extension) return;
+        unsigned id = extension == TM_SETTINGS_OSDS ? TM_GLOBAL_ASMASH_RELEASE_ID : TM_GLOBAL_ACT_OO_ATTACK_ID;
+        TM_SetSetting(TM_SETTING_OSD_COLOR, id, value);
+        LabOptions_OSDs[extension].val = TM_GetSetting(TM_SETTING_OSD_COLOR, id);
         Memcard_SaveIfChanged();
         return;
     }
@@ -6058,6 +6086,189 @@ void Event_PostThink(GOBJ *gobj)
     Stage_Think();
 }
 
+// SESSION SETTINGS: STAGE-CHANGE CARRY AND RESET ------------------------------
+
+/* Unsaved Lab settings: every value row that a fresh Lab starts at its default.
+ * Saved preferences (Controls, overlays, Global OSDs, Input Display, Randall)
+ * and the recording setup are left alone. Stage menus belong to one stage, so
+ * Reset includes the current one but a stage change does not carry them. */
+#define LAB_SESSION_MAX 272
+#define LAB_RECOVERY_MAX 8
+typedef char lab_session_capacity[(OPTGEN_COUNT + OPTCPU_COUNT + OPTTECH_COUNT + 2 * OPTINF_COUNT +
+    OPTHITBOXTRAILS_COUNT + OPTCHARRNG_MAXCOUNT + LAB_RECOVERY_MAX + ADV_COUNTER_COUNT * OPTCTR_COUNT +
+    ACTION_LOG_MAX * OPTACTIONLOG_COUNT + OPTSTAGE_STADIUM_COUNT + OPTSTAGE_FOD_COUNT <= LAB_SESSION_MAX) ? 1 : -1];
+typedef char lab_recovery_capacity[(countof(RecOptions_Fox) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Falco) <= LAB_RECOVERY_MAX && countof(RecOptions_Sheik) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Falcon) <= LAB_RECOVERY_MAX && countof(RecOptions_Marth) <= LAB_RECOVERY_MAX) ? 1 : -1];
+
+static EventOption *lab_session[LAB_SESSION_MAX];
+static s16 lab_session_defaults[LAB_SESSION_MAX];
+static int lab_session_default_count;
+
+static int Lab_SessionAdd(int count, EventOption *options, int option_num) {
+    for (int i = 0; i < option_num && count < LAB_SESSION_MAX; ++i) {
+        EventOption *option = &options[i];
+        int value_row = option->kind == OPTKIND_STRING || option->kind == OPTKIND_INT || option->kind == OPTKIND_TOGGLE;
+        if (value_row && option != &LabOptions_General[OPTGEN_INPUT])
+            lab_session[count++] = option;
+    }
+    return count;
+}
+static int Lab_SessionList(int with_stage) {
+    int count = 0;
+    count = Lab_SessionAdd(count, LabOptions_General, OPTGEN_COUNT);
+    count = Lab_SessionAdd(count, LabOptions_CPU, OPTCPU_COUNT);
+    count = Lab_SessionAdd(count, LabOptions_Tech, OPTTECH_COUNT);
+    count = Lab_SessionAdd(count, LabOptions_InfoDisplayHMN, OPTINF_COUNT);
+    count = Lab_SessionAdd(count, LabOptions_InfoDisplayCPU, OPTINF_COUNT);
+    count = Lab_SessionAdd(count, LabOptions_HitboxTrails, OPTHITBOXTRAILS_COUNT);
+    count = Lab_SessionAdd(count, LabMenu_CharacterRng.options, LabMenu_CharacterRng.option_num);
+    EventMenu *recovery = LabOptions_CPU[OPTCPU_RECOVERY].menu;
+    if (recovery) count = Lab_SessionAdd(count, recovery->options, recovery->option_num);
+    for (int page = 0; page < ADV_COUNTER_COUNT; ++page)
+        count = Lab_SessionAdd(count, LabOptions_AdvCounter[page], OPTCTR_COUNT);
+    for (int page = 0; page < ACTION_LOG_MAX; ++page)
+        count = Lab_SessionAdd(count, LabOptions_ActionLog[page], OPTACTIONLOG_COUNT);
+    EventMenu *stage = LabOptions_Main[OPTLAB_STAGE].disable ? 0 : LabOptions_Main[OPTLAB_STAGE].menu;
+    if (with_stage && (stage == &LabMenu_Stage_Stadium || stage == &LabMenu_Stage_FOD))
+        count = Lab_SessionAdd(count, stage->options, stage->option_num);
+    return count;
+}
+
+#define LAB_IN(option, array) \
+    ((u8 *)(option) >= (u8 *)(array) && (u8 *)(option) < (u8 *)(array) + sizeof(array))
+/* These rows' callbacks rewrite sibling rows (chance rebalancing, Info Display
+ * presets, page selectors), so they are restored as plain values and their
+ * derived state is rebuilt in Lab_SessionRebuild. */
+static int Lab_SessionReplays(EventOption *option) {
+    return !LAB_IN(option, LabOptions_Tech) && !LAB_IN(option, LabOptions_InfoDisplayHMN) &&
+        !LAB_IN(option, LabOptions_InfoDisplayCPU) && !LAB_IN(option, LabOptions_AdvCounter) &&
+        !LAB_IN(option, LabOptions_ActionLog);
+}
+static int Lab_SessionValid(EventOption *option, int value) {
+    if (option->kind == OPTKIND_TOGGLE) return value == 0 || value == 1;
+    return value >= option->value_min && value - option->value_min < option->value_num;
+}
+static void Lab_SessionRebuild(void) {
+    Lab_ChangeTech(0, LabOptions_Tech[OPTTECH_TECH].val);
+    Lab_ChangeGetup(0, LabOptions_Tech[OPTTECH_GETUP].val);
+    for (int page = 0; page < ADV_COUNTER_COUNT; ++page) {
+        int disable = LabOptions_AdvCounter[page][OPTCTR_LOGIC].val != CTRLOGIC_CUSTOM;
+        for (int i = OPTCTR_CTRGRND; i < OPTCTR_COUNT; ++i)
+            LabOptions_AdvCounter[page][i].disable = disable;
+    }
+    // Every page holds the same Hit Number; the menu shows that page.
+    LabMenu_AdvCounter.options = LabOptions_AdvCounter[LabOptions_AdvCounter[0][OPTCTR_HITNUM].val - 1];
+}
+/* Restore every value first, then re-run each changed row's own effect
+ * (camera, displays, percents, CPU intangibility, trails, character RNG), so
+ * every callback sees the final values. */
+static void Lab_SessionApply(const s16 *values, int count, int with_stage) {
+    u8 changed[LAB_SESSION_MAX];
+    if (Lab_SessionList(with_stage) != count) return;
+    for (int i = 0; i < count; ++i) {
+        EventOption *option = lab_session[i];
+        changed[i] = values[i] != option->val && Lab_SessionValid(option, values[i]);
+        if (!changed[i]) continue;
+        option->val_prev = option->val;
+        option->val = values[i];
+    }
+    for (int i = 0; i < count; ++i) {
+        EventOption *option = lab_session[i];
+        if (changed[i] && option->OnChange && Lab_SessionReplays(option))
+            option->OnChange(event_vars->menu_gobj, option->val);
+    }
+    Lab_SessionRebuild();
+}
+
+/* State that survives a stage change: the values above plus the Custom TDI,
+ * Custom OSD and Action Log states, which are not option values. */
+#define LAB_CARRY_TAG 0x4C616231 /* "Lab1" */
+#define LAB_STATE_NAME 64
+typedef struct LabCarry {
+    u16 count;
+    s16 values[LAB_SESSION_MAX];
+    u8 tdi_num, osd_num;
+    CustomTDI tdi[TDI_HITNUM];
+    int osd_states[OPTCUSTOMOSD_MAX_ADDED];
+    char osd_names[OPTCUSTOMOSD_MAX_ADDED][LAB_STATE_NAME];
+    s16 log_states[ACTION_LOG_MAX];
+    char log_names[ACTION_LOG_MAX][sizeof(action_log_state_name_buffers[0])];
+} LabCarry;
+typedef char lab_carry_capacity[(sizeof(LabCarry) <= TM_EVENT_CARRY_SIZE) ? 1 : -1];
+static const LabCarry *lab_pending_carry;
+
+static void Lab_CopyName(char *dest, const char *source, int size) {
+    int i = 0;
+    for (; source && source[i] && i < size - 1; ++i) dest[i] = source[i];
+    dest[i] = 0;
+}
+static void Lab_CarryStore(void) {
+    LabCarry *carry = event_vars->carry_store(LAB_CARRY_TAG, sizeof(LabCarry));
+    if (!carry) return;
+    memset(carry, 0, sizeof(*carry));
+    carry->count = Lab_SessionList(0);
+    for (int i = 0; i < carry->count; ++i) carry->values[i] = lab_session[i]->val;
+    carry->tdi_num = stc_tdi_val_num;
+    memcpy(carry->tdi, stc_tdi_vals, sizeof(carry->tdi));
+    carry->osd_num = stc_custom_osd_state_num;
+    for (int i = 0; i < stc_custom_osd_state_num; ++i) {
+        carry->osd_states[i] = stc_custom_osd_states[i];
+        Lab_CopyName(carry->osd_names[i],
+            LabOptions_CustomOSDs[OPTCUSTOMOSD_FIRST_CUSTOM + i].name + sizeof(custom_osd_prefix) - 1, LAB_STATE_NAME);
+    }
+    for (int page = 0; page < ACTION_LOG_MAX; ++page) {
+        carry->log_states[page] = LabOptions_ActionLog[page][OPTACTIONLOG_STATE].val;
+        Lab_CopyName(carry->log_names[page], action_log_state_name_buffers[page], sizeof(carry->log_names[page]));
+    }
+}
+static void Lab_CarryApply(const LabCarry *carry) {
+    Lab_SessionApply(carry->values, carry->count, 0);
+    stc_tdi_val_num = carry->tdi_num <= TDI_HITNUM ? carry->tdi_num : 0;
+    memcpy(stc_tdi_vals, carry->tdi, sizeof(stc_tdi_vals));
+    for (int i = 0; i < carry->osd_num && i < OPTCUSTOMOSD_MAX_ADDED; ++i)
+        Lab_AddCustomOSDRow(carry->osd_states[i], carry->osd_names[i]);
+    for (int page = 0; page < ACTION_LOG_MAX; ++page) {
+        if (!carry->log_states[page]) continue;
+        Lab_CopyName(action_log_state_name_buffers[page], carry->log_names[page], sizeof(action_log_state_name_buffers[page]));
+        ActionLog_SetState(page, carry->log_states[page]);
+    }
+}
+
+/* Lab-specific cleanup before the shared stage restart. */
+static void StageSwap_BeforeRestart(void) {
+    Lab_CarryStore();
+    // A recording imported on the CSS was saved on the old stage.
+    *onload_fileno = -1;
+    // As Lab_Exit: carried Character RNG rows reapply their choices.
+    memset(event_vars->rng, 0, sizeof(*event_vars->rng));
+}
+
+/* End of Event_Init: Reset returns to this fresh Lab's values. Settings
+ * carried from a stage change apply on the first frame, once the match is live. */
+static void Lab_SessionInit(void) {
+    StageSwap_Init();
+    lab_session_default_count = Lab_SessionList(1);
+    for (int i = 0; i < lab_session_default_count; ++i)
+        lab_session_defaults[i] = lab_session[i]->val;
+    lab_pending_carry = event_vars->carry_take(LAB_CARRY_TAG, sizeof(LabCarry));
+}
+static void Lab_ApplyPendingCarry(void) {
+    if (!lab_pending_carry) return;
+    Lab_CarryApply(lab_pending_carry);
+    lab_pending_carry = 0;
+}
+
+/* Back to a fresh Lab's settings, in place: recordings, saved positions and
+ * saved preferences stay. */
+void Lab_ResetSettings(GOBJ *menu) {
+    Lab_SessionApply(lab_session_defaults, lab_session_default_count, 1);
+    stc_tdi_val_num = 0;
+    Lab_ClearCustomOSDs();
+    for (int page = 0; page < ACTION_LOG_MAX; ++page) ActionLog_ClearState(page);
+    LabMenu_ActionLog.options = LabOptions_ActionLog[0];
+}
+
 // Init Function
 void Event_Init(GOBJ *gobj)
 {
@@ -6132,6 +6343,7 @@ void Event_Init(GOBJ *gobj)
     for (int i = 0; i < (int)countof(LabOSD_ID); i++)
         LabOptions_OSDs[i].val = TM_GetSetting(TM_SETTING_OSD_COLOR, LabOSD_ID[i]);
     LabOptions_OSDs[TM_SETTINGS_OSDS].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ASMASH_RELEASE_ID);
+    LabOptions_OSDs[LABOSD_ACT_OO_ATTACK].val = TM_GetSetting(TM_SETTING_OSD_COLOR, TM_GLOBAL_ACT_OO_ATTACK_ID);
 
     LabOptions_OSDs[TM_SETTINGS_OSDS + 3].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_VERY_FAST);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 4].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_TRAILS_INSTANT);
@@ -6170,6 +6382,8 @@ void Event_Init(GOBJ *gobj)
 
     // stage options
     EventMenu *stage_menu = stage_menus[Stage_GetExternalID()];
+    LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val =
+        LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val_prev = !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL);
     if (stage_menu != NULL) {
         LabOptions_Main[OPTLAB_STAGE].disable = 0;
         LabOptions_Main[OPTLAB_STAGE].menu = stage_menu;
@@ -6226,6 +6440,8 @@ void Event_Init(GOBJ *gobj)
         // When we load rwing savestates, we don't want infinite shields by default. This would cause desyncs galore.
         LabOptions_CPU[OPTCPU_SHIELD].val = CPUINFSHIELD_OFF;
     }
+
+    Lab_SessionInit();
 
     // Aitch: VERY nice for debugging. Please don't remove.
     TMLOG("HMN: %x\tCPU: %x\n", (u32)hmn_data, (u32)cpu_data);
@@ -6571,6 +6787,9 @@ void Event_Think_LabState_Normal(GOBJ *event) {
 // Think Function
 void Event_Think(GOBJ *event)
 {
+    // Before the start savestate below, so it includes carried percents.
+    Lab_ApplyPendingCarry();
+
     // Save a minor state at event start, so people can reset if they SD.
     // This cannot be done in Event_Init, so we do it here.
     if (!event_vars->savestate->is_exist) {

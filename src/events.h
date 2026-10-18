@@ -302,7 +302,15 @@ typedef struct EventVars
     void (*HUD_DrawInfoPanelWithStick)(const char **label, const char **info, int count,
         int stick_row, const Vec2 *direction);
     void *(*shield_training)(int command, void *native_data);
+    /* Appended after shield_training (ASM uses its 0xAC offset). Restart this
+     * stage-select event on another stage (GRKINDEXT_*), skipping the CSS/SSS. */
+    void (*restart_on_stage)(int stage);
+    /* RAM that survives that restart (event .dat statics do not). A store is
+     * only taken by the restarted event; any other event start discards it. */
+    void *(*carry_store)(u32 tag, u32 size);
+    const void *(*carry_take)(u32 tag, u32 size);
 } EventVars;
+#define TM_EVENT_CARRY_SIZE 2048
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
 #define event_vars (*event_vars_ptr_loc)
 
@@ -433,6 +441,9 @@ void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color);
 void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
 void ActionCues_SetTangibilityOverlay(const s16 *enabled);
+/* Global Randall Overlay on Yoshi's Story; driven by TM_FLAG_RANDALL. */
+void StageOverlay_MatchStart(void);
+void StageOverlay_SceneChange(void);
 void ActionCues_SetCPUInvincibilityOverlay(const s16 *palette);
 void UnderFire_InitMenu(void);
 void UnderFire_UpdateScore(int perfect_refresh);

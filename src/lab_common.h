@@ -418,6 +418,7 @@ void Lab_ChangeOSDs(GOBJ *menu_gobj, int value);
 void Lab_ChangeOSDsOff(GOBJ *menu_gobj, int value);
 void Lab_ChangeGlobalCue(GOBJ *menu_gobj, int value);
 void Lab_ChangeStadiumTransformation(GOBJ *menu_gobj, int value);
+void Lab_ChangeRandallOverlay(GOBJ *menu_gobj, int value);
 void Lab_ChangeInputDisplay(GOBJ *menu_gobj, int value);
 void Lab_ChangeOverlays(GOBJ *menu_gobj, int value);
 void Lab_StartMoveCPU(GOBJ *menu_gobj);
