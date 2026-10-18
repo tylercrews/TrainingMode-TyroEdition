@@ -30,13 +30,13 @@ Primary local sources:
 
 | Source | What it establishes |
 | --- | --- |
-| [src/lab.h](src/lab.h), menu definitions beginning around line 896 | Static row order, submenu destinations, labels, value arrays, shortcuts. |
-| [src/lab.c](src/lab.c), `Event_Init`, `Record_*`, `Lab_*`, `Export_*`, `CustomTDI_*` | Runtime availability, replaced labels, saved settings, custom screens. |
-| [src/recovery.c](src/recovery.c), `RecOptions_*`, `RecoveryMenus` | Five character-specific recovery menus. |
-| [src/menu.h](src/menu.h) and [src/menu.c](src/menu.c) | Nine visible rows, four description lines, navigation, text/model drawing. |
-| [src/settings.h](src/settings.h) and [src/settings_game.c](src/settings_game.c) | Shared names, setting IDs, save service and override scope. |
-| [src/lab_css.c](src/lab_css.c) | Recording import interface outside the pause menu. |
-| [build.sh](build.sh), [scripts/project-config.sh](scripts/project-config.sh), [version.h](version.h) | Central version metadata and rebuild rules. |
+| [src/lab.h](../src/lab.h), menu definitions beginning around line 896 | Static row order, submenu destinations, labels, value arrays, shortcuts. |
+| [src/lab.c](../src/lab.c), `Event_Init`, `Record_*`, `Lab_*`, `Export_*`, `CustomTDI_*` | Runtime availability, replaced labels, saved settings, custom screens. |
+| [src/recovery.c](../src/recovery.c), `RecOptions_*`, `RecoveryMenus` | Five character-specific recovery menus. |
+| [src/menu.h](../src/menu.h) and [src/menu.c](../src/menu.c) | Nine visible rows, four description lines, navigation, text/model drawing. |
+| [src/settings.h](../src/settings.h) and [src/settings_game.c](../src/settings_game.c) | Shared names, setting IDs, save service and override scope. |
+| [src/lab_css.c](../src/lab_css.c) | Recording import interface outside the pause menu. |
+| [build.sh](../build.sh), [scripts/project-config.sh](../scripts/project-config.sh), [version.h](../version.h) | Central version metadata and rebuild rules. |
 
 This audit reads source, not a live Dolphin menu. Rows can be disabled or renamed at runtime. Disabled rows still occupy the list; navigation skips them. Blank disabled rows are counted where the current renderer reserves space for them. Order below is one-based display order, not C enum IDs. Values such as On/Off are choices within a row, not extra menu entries.
 
@@ -683,7 +683,7 @@ A layout redesign should reserve a fixed detail area: purpose, **Includes:** lis
 
 **October 7 follow-ups:** the user requested a fresh direction optimized for a joystick that moves one direction at a time, with A to enter and B to go back, followed by persistent category tabs and a split menu. The earlier mouse-oriented rail/tree comparison is superseded. Below the tabs, the new demo has two equal-width panels: selections/current values on the left, and purpose/contents/context on the right. Each submenu option occupies its own preview row; paged editors separate those rows under page headings. There is one controller cursor for tabs and the left list; the right panel is read-only and updates with the selection. On narrow browser screens the panels stack to preserve readability; native two-panel fit still needs measurement.
 
-The accompanying interactive sketch is [training-lab-menu-demo.html](docs/training-lab-menu-demo.html). Its entire menu is reachable through four directions and A/B. Keyboard arrows simulate the stick; A/Enter enters or confirms; B/Escape backs out. Six on-screen buttons simulate those same inputs for touch/mouse review. A standard browser-mapped gamepad can use its stick/D-pad and south/east A/B buttons; nonstandard adapters require external keyboard mapping. Actual hardware support remains to be tested. Illustrative values change locally; the sketch does not control the game or prove native console fit.
+The accompanying interactive sketch is [training-lab-menu-demo.html](../docs/training-lab-menu-demo.html). Its entire menu is reachable through four directions and A/B. Keyboard arrows simulate the stick; A/Enter enters or confirms; B/Escape backs out. Six on-screen buttons simulate those same inputs for touch/mouse review. A standard browser-mapped gamepad can use its stick/D-pad and south/east A/B buttons; nonstandard adapters require external keyboard mapping. Actual hardware support remains to be tested. Illustrative values change locally; the sketch does not control the game or prove native console fit.
 
 The demo retains section 4's semantic destinations and the sample Peach/Fox match on Fountain of Dreams. Exit is the eighth category-selector position, containing Return to Event Select and Resume Practice. Starting category is Session. Global scope, actor-specific settings, and the catalog of conditional variants remain unchanged. Combined zebra/block styling is the default; optional design controls compare Combined, Zebra, and Blocks. Custom TDI and Export remain destination sketches rather than native editor/card-flow emulations. Values/ranges, availability, probability balancing, and per-hit/per-action data remain illustrative.
 
@@ -781,7 +781,7 @@ Record future decisions using this format:
 
 ## 12. First native implementation — October 7, 2026
 
-The user authorized implementing the accepted prototype in Training Lab and requested moving Boost Grab into combat OSDs. The native implementation is in [src/lab_menu.h](src/lab_menu.h), with the shared renderer opt-in in [src/menu.h](src/menu.h), [src/menu.c](src/menu.c), [src/menu_controller_ui.h](src/menu_controller_ui.h), and [src/menu_controller.h](src/menu_controller.h). The README now records implemented behavior rather than only the sketch.
+The user authorized implementing the accepted prototype in Training Lab and requested moving Boost Grab into combat OSDs. The native implementation is in [src/lab_menu.h](../src/lab_menu.h), with the shared renderer opt-in in [src/menu.h](../src/menu.h), [src/menu.c](../src/menu.c), [src/menu_controller_ui.h](../src/menu_controller_ui.h), and [src/menu_controller.h](../src/menu_controller.h). The README now records implemented behavior rather than only the sketch.
 
 Implemented:
 
@@ -822,7 +822,7 @@ There is no project font-family catalog comparable to CSS `font-family`, and no 
 | **A new custom bitmap face** | Technically possible through a new glyph atlas, width/kerning data, encoding and managed SIS-bank lifetime, or a dedicated textured-glyph renderer. No such alternative face is bundled and ready to select in this checkout. TrueType/OpenType fonts would have to be converted into compatible assets, not loaded directly by the current menu API. |
 | **Pre-rendered letters/artwork in DAT models/textures** | Possible for fixed decorative text, but not a drop-in font for arbitrary state names, values and descriptions. It needs dedicated glyph/text layout work. |
 
-Local sources: [MexTK/include/text.h](MexTK/include/text.h), [src/menu_controller_ui.h](src/menu_controller_ui.h), [src/lab_css.c](src/lab_css.c), [src/events.c](src/events.c), and the native ASCII lookup/width/draw tests in [tests/test_settings.py](tests/test_settings.py). The [native SIS structure](https://github.com/doldecomp/melee/blob/master/src/sysdolphin/baselib/sislib.h) describes per-bank images and widths; the [native SIS initialization](https://github.com/doldecomp/melee/blob/master/src/sysdolphin/baselib/sislib.c) allocates five vanilla archive slots. The current C code uses identifier 0 for CSS import, 2 for match/menu text and 10 for the watermark; that usage must not be presented as three named faces or ten freely interchangeable font banks. Built-in menu glyph encodings and archive-specific glyph encodings are different paths.
+Local sources: [MexTK/include/text.h](../MexTK/include/text.h), [src/menu_controller_ui.h](../src/menu_controller_ui.h), [src/lab_css.c](../src/lab_css.c), [src/events.c](../src/events.c), and the native ASCII lookup/width/draw tests in [tests/test_settings.py](../tests/test_settings.py). The [native SIS structure](https://github.com/doldecomp/melee/blob/master/src/sysdolphin/baselib/sislib.h) describes per-bank images and widths; the [native SIS initialization](https://github.com/doldecomp/melee/blob/master/src/sysdolphin/baselib/sislib.c) allocates five vanilla archive slots. The current C code uses identifier 0 for CSS import, 2 for match/menu text and 10 for the watermark; that usage must not be presented as three named faces or ten freely interchangeable font banks. Built-in menu glyph encodings and archive-specific glyph encodings are different paths.
 
 The local vanilla ISO contains these SIS/message archives, which are **asset choices to investigate**, not a catalog of distinct typefaces: `SdClr.dat/.usd`, `SdDec.dat/.usd`, `SdIntro.dat`, `SdMenu.dat/.usd`, `SdMsgBox.dat/.usd`, `SdPrize.dat/.usd`, `SdProge.dat/.usd`, `SdRst.dat/.usd`, `SdSlChr.dat/.usd`, `SdStRoll.dat`, `SdTou.dat/.usd`, `SdToy.dat/.usd`, `SdToyExp.dat/.usd`, `SdTrain.dat/.usd`, and `SdVsCam.dat/.usd`. `SdMenu.dat` and `SdMenu.usd` were extracted into ignored investigation scratch and both expose `SIS_MenuData`; the localized archive sizes are 317,509 and 87,557 bytes. Different strings/character coverage do not prove a different Latin font.
 
@@ -852,7 +852,7 @@ Text scales increase: names `.78 → .86`, values/tabs `.72 → .80`, descriptio
 
 Preview capacity is bounded by the right panel's lower edge. Longer previews retain every entry across pages; with an unopened submenu focused, **Left/Right changes the preview page**, A enters the submenu as before, and B keeps its existing back behavior. Tab selectors and editor page selectors retain their original Left/Right behavior. Disabled included entries are dim rather than appending a long `(unavailable)` suffix to every row.
 
-The new portable layout rules are in [src/menu_controller_layout.h](src/menu_controller_layout.h), which also participates in the build fingerprint. Native text/model code remains opt-in for Lab; other events keep the old layout. The tests check the larger glyph spacing and bounded final preview row for 0–8 wrapped description lines, plus native DAT relocation and the Lab recording-help callback. A new screenshot is still needed to verify the actual visual result and overscan fit in Dolphin.
+The new portable layout rules are in [src/menu_controller_layout.h](../src/menu_controller_layout.h), which also participates in the build fingerprint. Native text/model code remains opt-in for Lab; other events keep the old layout. The tests check the larger glyph spacing and bounded final preview row for 0–8 wrapped description lines, plus native DAT relocation and the Lab recording-help callback. A new screenshot is still needed to verify the actual visual result and overscan fit in Dolphin.
 
 ### 13.4 Actual-glyph font comparison
 

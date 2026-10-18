@@ -1,6 +1,6 @@
 # Training Lab recording controls
 
-**Audited October 8, 2026 against this T3 checkout.** This guide follows the implementation in [src/lab.c](src/lab.c), particularly `Record_Think`, `Record_Update`, `Record_ChangeMode_Common`, `Record_ResaveState`, `Record_PruneState`, and `Event_Think_LabState_Normal`. The [upstream project overview](https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition#changes-from-the-original) also identifies re-recording, takeover, resaving/pruning, weighted slots and automatic restores. Local code determines the exact behavior described here.
+**Audited October 8, 2026 against this T3 checkout.** This guide follows the implementation in [src/lab.c](../src/lab.c), particularly `Record_Think`, `Record_Update`, `Record_ChangeMode_Common`, `Record_ResaveState`, `Record_PruneState`, and `Event_Think_LabState_Normal`. The [upstream project overview](https://github.com/AlexanderHarrison/TrainingMode-CommunityEdition#changes-from-the-original) also identifies re-recording, takeover, resaving/pruning, weighted slots and automatic restores. Local code determines the exact behavior described here.
 
 ## Starting state and clips
 
