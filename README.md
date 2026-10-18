@@ -49,7 +49,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
-### T5 (V1.4.1T5) - 10/18/2026
+### T5 (V1.4.1T5) - 2026-10-18
 
 - **Program changes**
     - Moved the investigation, audit and guide notes from the repo root into [notes/](notes/), and added [a deferred design for custom OSD ordering](notes/ORDERING-GLOBAL-OSDS.md).
