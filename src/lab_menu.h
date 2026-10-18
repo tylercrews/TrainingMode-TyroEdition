@@ -1,6 +1,7 @@
 /* Training Lab presentation only. Every existing setting references its
  * original option; array/value indices used by recordings and saves are intact.
  * Included after lab.h and recovery.c in the Lab translation unit. */
+#include "stage_swap.h"
 #define LR(a, i, g) { .option = &(a)[i], .group = g }
 #define LREF(o, g) { .option = &(o), .group = g }
 #define LMENU(id, title, description) \
@@ -33,11 +34,18 @@ LLINK(LabLink_Movement, "Movement & Landing OSDs", LabUI_Movement, "Choose movem
 LLINK(LabLink_Combat, "Combat & Defense OSDs", LabUI_Combat, "Choose combat, grab and defense OSD colors.");
 LLINK(LabLink_Timing, "Action Timing OSDs", LabUI_Timing, "Choose action and interrupt OSD colors.");
 LLINK(LabLink_GlobalVisuals, "Global Visuals & Shields", LabUI_GlobalVisuals, "Shared trails, fighter cues and shield refill.");
+static EventOption LabLink_ChangeStage = { .kind = OPTKIND_MENU, .name = "Change Stage", .menu = &StageSwap_Menu,
+    .desc = { "Restart on another tournament-legal stage.", "Lab settings are kept; recordings and saved positions are cleared." } };
+
+void Lab_ResetSettings(GOBJ *menu);
+static EventOption LabResetSettings = { .kind = OPTKIND_FUNC, .name = "Reset to Default Settings",
+    .desc = { "Return every unsaved Lab setting to its default.", "Recordings, saved positions and Global settings are kept." },
+    .OnSelect = Lab_ResetSettings };
 
 static EventMenuRow LabUI_Session_rows[] = {
     LR(LabOptions_General, OPTGEN_FRAME, 1), LR(LabOptions_General, OPTGEN_SPEED, 1),
     LR(LabOptions_General, OPTGEN_HMNPCNT, 2), LR(LabOptions_General, OPTGEN_HMNPCNTLOCK, 2),
-    LR(LabOptions_General, OPTGEN_STALE, 2),
+    LR(LabOptions_General, OPTGEN_STALE, 2), LREF(LabResetSettings, 4),
 };
 LMENU(LabUI_Session, "Session", "Set practice speed and the human starting damage.");
 static EventMenuRow LabUI_CPU_rows[] = {
@@ -159,9 +167,9 @@ static EventMenuRow LabUI_GlobalVisuals_rows[] = {
 };
 LMENU(LabUI_GlobalVisuals, "Global Visuals & Shields", "Shared trails, fighter cues and full shield refill.");
 static EventMenuRow LabUI_Stage_rows[] = {
-    LR(LabOptions_Main, OPTLAB_STAGE, 0), LR(LabOptions_Main, OPTLAB_CHAR_RNG, 0),
+    LREF(LabLink_ChangeStage, 0), LR(LabOptions_Main, OPTLAB_STAGE, 0), LR(LabOptions_Main, OPTLAB_CHAR_RNG, 0),
 };
-LMENU(LabUI_Stage, "Stage & RNG", "Controls depend on the current stage and fighters.");
+LMENU(LabUI_Stage, "Stage & RNG", "Change stage, or set options for the current stage and fighters.");
 
 /* Editor pages are peers, not deeper menus; all rows keep their option identity. */
 #define INFO_PAGES(prefix, array, group) \
@@ -192,8 +200,8 @@ static EventMenuPage LabPages_Inputs[] = {
     {"Analog", countof(LabInputs_Analog), LabInputs_Analog}, {"Buttons", countof(LabInputs_Buttons), LabInputs_Buttons},
 };
 static EventOption LabResume = { .kind = OPTKIND_RESUME, .name = "Resume Practice", .desc = {"Close the pause menu and resume practice."} };
-static EventMenuRow LabUI_Exit_rows[] = { LR(LabOptions_Main, OPTLAB_EXIT, 4), LREF(LabResume, 0) };
-LMENU(LabUI_Exit, "Exit", "Return to Event Select or resume practice.");
+static EventMenuRow LabUI_Exit_rows[] = { LR(LabOptions_Main, OPTLAB_EXIT, 4), LREF(LabResetSettings, 4), LREF(LabResume, 0) };
+LMENU(LabUI_Exit, "Exit", "Return to Event Select, reset Lab settings, or resume practice.");
 
 static EventMenuTab LabMenuTabs[8] = {
     {"Session", &LabUI_Session}, {"CPU", &LabUI_CPU}, {"Recording", &LabUI_Record}, {"Visuals", &LabUI_Visual},

@@ -39,9 +39,8 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T5
-- ~~the low laser puff practice is definitely good for any character with a projectile, confirmed with brian that samuses should be able to hit that height with missile~~ **Resolved in T5:** every character can now play the event.
-- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, ~~a full hop +dj puff~~ (**T5:** Puff Height adds hop and double-jump heights; other CPU characters/poses are still open)
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T6
+- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, ~~a full hop +dj puff~~ (**T5:** Puff Height adds hop and double-jump heights; other CPU characters/poses are still open; see [the mid-event swap investigation](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md))
 - would be nice to reorder your OSDs how you want
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
@@ -54,6 +53,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 - **Program changes**
     - Moved the investigation, audit and guide notes from the repo root into [notes/](notes/), and added [a deferred design for custom OSD ordering](notes/ORDERING-GLOBAL-OSDS.md).
+    - Added [an investigation of swapping characters or stages mid-event](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md): a quick restart straight back into the event works for any character or stage; an instant in-match swap is only practical for one pair (e.g. Fox↔Falco) using Melee's Zelda/Sheik transform.
 - **Globals and all events**
     - Fixed Grid and Practice Panel OSD cells that belong to a CPU now have a small grey **CPU** tag, so a CPU's block of cells (which never updates if the CPU doesn't wavedash, shine, etc.) can't be mistaken for frozen duplicates of your own OSDs. Turning on **Override CPU OSDs Off** still hides them entirely.
     - Every match now starts on OSD page 1. Previously the page chosen in the global OSD menu (or left over from the last match) carried into the next match, which could hide your Wavedash/character-specific cells on a page you weren't looking at.
@@ -71,6 +71,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - **Event-specific changes**
     - **Eggs-ercise**
         - Free Practice's count-up timer now always starts at 0:00, whether you start the event in Free Practice or switch to it from the menu. Switching mid-challenge restarts the match, which also fixes the timer getting stuck on a big **5** if you switched during the final countdown.
+        - New **Change Stage** menu (under Retry): restart on any of the six tournament-legal stages without going back through the character and stage select. A timed run starts over; Free Practice stays on with its saved egg settings.
     - **Under Fire - Ledgestall Training**
         - Renamed the **Under Fire** event to **Under Fire - Ledgestall Training** on the event select screen and in its pause menu, so it's clear the event is about refreshing ledge invincibility.
     - **Low Laser Puff Practice** ([details](docs/LOW-LASER-PUFF.md))
@@ -80,6 +81,10 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - New **Puff Height** setting: **Grounded** (default), **Short Hop**, **Full Hop**, **Short Hop + Double Jump**, **Full Hop + Double Jump**. It lifts Puff above whichever position you picked, using heights worked out from Puff's own jump values.
         - Puff Position and Puff Height are both saved to the memory card.
         - Saved the on/under-platform coordinates for each legal stage as a reference in [notes/LEGAL-STAGE-PLATFORMS.md](notes/LEGAL-STAGE-PLATFORMS.md), with a script to regenerate them from the ISO.
+        - New **Change Stage** menu: restart on any of the six legal stages without going back through the character and stage select. Puff Position, Puff Height and the OSD toggles carry over (a platform position the new stage doesn't have uses Center for that match); Puff's percent resets.
+    - **Training Lab**
+        - New **Change Stage** row in the **Stage/RNG** tab: restart on any of the six legal stages without going back through the character and stage select. Your Lab settings come with you: CPU behavior, DI/SDI, tech and getup chances, counters (including Advanced Counter), shields, percents and locks, camera/HUD/model/collision displays, game speed, Info Display, Hitbox Trails, Custom TDI, Custom OSDs, Action Log, Character RNG and recovery options. Recordings and saved positions are cleared because they belong to the old stage, and the old stage's own options (Stadium transformation, Fountain platform heights) don't carry.
+        - New **Reset to Default Settings** in the **Session** and **Exit** tabs: puts every unsaved Lab setting back to how a fresh Lab starts, without leaving the match. Recordings, saved positions and saved preferences (Controls, overlays, OSD colors, Input Display) are kept.
 
 ### T4 (V1.4.1T4) - 2026-10-15
 

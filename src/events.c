@@ -846,6 +846,30 @@ static unsigned restore_serial;
 static unsigned Events_RestoreSerial(void) { return restore_serial; }
 void Events_NotifyRestore(void) { restore_serial++; Message_LayoutClear(); }
 
+/* In-event stage changes. The event's .dat reloads with the new match, so the
+ * pending stage and any carried state live here, in the boot-loaded code. */
+static int restart_stage = -1;
+static struct { u32 tag, size; u8 data[TM_EVENT_CARRY_SIZE]; } event_carry;
+static void Events_RestartOnStage(int stage) {
+    if (!event_vars->event_desc || event_vars->event_desc->stage != -1) return;
+    restart_stage = stage;
+    Memcard_SaveIfChanged();
+    stc_match->end_kind = MATCHENDKIND_RETRY;
+    stc_match->state = 3;
+    Match_EndVS();
+}
+static void *Events_CarryStore(u32 tag, u32 size) {
+    if (!tag || size > sizeof(event_carry.data)) return 0;
+    event_carry.tag = tag;
+    event_carry.size = size;
+    return event_carry.data;
+}
+static const void *Events_CarryTake(u32 tag, u32 size) {
+    if (!tag || event_carry.tag != tag || event_carry.size != size) return 0;
+    event_carry.tag = 0;
+    return event_carry.data;
+}
+
 EventVars stc_event_vars = {
     .event_desc = 0,
     .menu_assets = 0,
@@ -879,6 +903,9 @@ EventVars stc_event_vars = {
     .set_timing_overlay = ActionCues_SetTimingOverlay,
     .HUD_DrawInfoPanelWithStick = HUD_DrawInfoPanelWithStick,
     .shield_training = ShieldTraining_Control,
+    .restart_on_stage = Events_RestartOnStage,
+    .carry_store = Events_CarryStore,
+    .carry_take = Events_CarryTake,
 };
 
 static GOBJ *stc_msgmgr;
@@ -1809,10 +1836,20 @@ void EventInit(int page, int eventID, MatchInit *matchData)
 
     // Determine the Stage
     if (event->stage == -1) {
+        /* An in-event stage change retries straight into this scene, without
+         * the SSS. Queue the new stage here, during match prep, as native event
+         * prep does; TM's EventInit hook skips that native code. */
+        if (restart_stage >= 0) {
+            preload->queued.stage = restart_stage;
+            Preload_Update();
+        }
         matchData->stage = preload->queued.stage;
     } else {
         matchData->stage = event->stage;
     }
+    // Carried state is only for the event restarted by that stage change.
+    if (restart_stage < 0) event_carry.tag = 0;
+    restart_stage = -1;
 };
 
 static void LegacyEventUpdate(void)

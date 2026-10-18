@@ -47,6 +47,8 @@ python tests/test_event_trails.py -v
 python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
 python tests/test_lowlaser.py -v
+python tests/test_stage_swap.py -v
+python tests/test_lab_session.py -v
 python tests/test_powershield.py -v
 
 python tests/test_shield_training.py -v

@@ -1,4 +1,5 @@
 #include "events.h"
+#include "stage_swap.h"
 
 /* Squat startup, never SquatWait. A zero animation rate holds the compressed
  * pose while normal hurtbox collision and percent accumulation remain live. */
@@ -8,7 +9,7 @@
 #define FD_EDGE 85.5656967f
 #define MOVE_SPECIAL_N 18 /* Native move ID copied to atk_kind by ActionStateChange. */
 #define FIRST_SPECIAL_STATE (ASID_BARRELCANNONWAIT + 1) /* 341: character-specific states. */
-enum { OPT_POSITION, OPT_HEIGHT, OPT_OSDS, OPT_SUPPRESS, OPT_EXIT, OPT_RESET_PERCENT };
+enum { OPT_POSITION, OPT_HEIGHT, OPT_STAGE, OPT_OSDS, OPT_SUPPRESS, OPT_EXIT, OPT_RESET_PERCENT };
 enum {
     POS_CENTER, POS_FAR_LEFT, POS_CENTER_LEFT, POS_CENTER_RIGHT, POS_FAR_RIGHT,
     POS_ON_LEFT, POS_ON_TOP, POS_ON_RIGHT, POS_UNDER_LEFT, POS_UNDER_RIGHT, POS_COUNT
@@ -49,6 +50,8 @@ static EventOption options[] = {
     {.kind = OPTKIND_STRING, .name = "Puff Height", .value_num = countof(heights), .values = heights,
      .OnChange = ChangeHeight,
      .desc = {"Raise Puff above its position by one of", "Puff's jump apex heights.", "This setting is saved."}},
+    {.kind = OPTKIND_MENU, .name = "Change Stage", .menu = &StageSwap_Menu,
+     .desc = {"Restart on another tournament-legal stage.", "Saved settings are kept; Puff's percent resets."}},
     {.kind = OPTKIND_TOGGLE, .name = "Event OSDs", .val = 1, .OnChange = ChangeOSDs,
      .desc = {"Show Laser Start and the regular Fastfall timing.", "Laser Start counts from the first airborne frame.", "Both results stay white. This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .name = "Suppress Global OSDs", .OnChange = ChangeSuppression,
@@ -332,6 +335,7 @@ void Event_Init(GOBJ *gobj) {
     options[OPT_OSDS].val = options[OPT_OSDS].val_prev = TM_GetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_OSDS);
     options[OPT_SUPPRESS].val = options[OPT_SUPPRESS].val_prev = TM_GetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_SUPPRESS_GLOBAL);
     event_vars->set_osd_suppression(&options[OPT_SUPPRESS].val);
+    StageSwap_Init();
     /* Same centered HUD canvas, size and height as Under Fire's timing pair. */
     int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
     GXColor white = {255, 255, 255, 255};
@@ -426,6 +430,8 @@ static void ResetPercent(GOBJ *menu) {
     puff->dmg.percent = puff->dmg.percent_temp = 0;
     Fighter_SetHUDDamage(puff->ply, 0);
 }
+/* The suppression flag lives in this .dat, which reloads with the new match. */
+static void StageSwap_BeforeRestart(void) { event_vars->set_osd_suppression(0); }
 static void Exit(GOBJ *menu) {
     event_vars->set_osd_suppression(0);
     Memcard_SaveIfChanged();

@@ -3,10 +3,12 @@
 
 #include "../MexTK/mex.h"
 #include "events.h"
+#include "stage_swap.h"
 
 enum options_main
 {
     OPT_RETRY,
+    OPT_STAGE,
     OPT_FREEPRACTICE,
     OPT_DAMAGETHRESHOLD,
     OPT_SCALE,
@@ -84,6 +86,14 @@ static EventOption Options_Main[OPT_COUNT] = {
         .name = "Retry",
         .desc = { "Retry this event. Pressing Z while paused also does this." },
         .OnSelect = Retry
+    },
+    {
+        .kind = OPTKIND_MENU,
+        .name = "Change Stage",
+        .desc = { "Restart on another tournament-legal stage.",
+                  "A timed run starts over; Free Practice stays on",
+                  "with its saved egg settings." },
+        .menu = &StageSwap_Menu,
     },
     {
         .kind = OPTKIND_FUNC,

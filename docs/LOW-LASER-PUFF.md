@@ -10,6 +10,7 @@ The pause menu contains:
 
 - **Puff Position:** Center, Far Left, Center Left, Center Right, Far Right, On Left Plat, On Top Plat, On Right Plat, Under Left Plat, Under Right Plat. Saved on the memory card. Repositioning preserves Puff's percent.
 - **Puff Height:** Grounded (default), Short Hop, Full Hop, Short Hop + Double Jump, Full Hop + Double Jump. Saved on the memory card.
+- **Change Stage:** restart on Final Destination, Battlefield, Dream Land, Yoshi's Story, Fountain of Dreams or Pokémon Stadium without going back through the character and stage select. The current stage is greyed out. The saved settings carry over; Puff's percent resets with the new match. This uses the shared restart described in [notes/MID-EVENT-CHARACTER-STAGE-SWAP.md](../notes/MID-EVENT-CHARACTER-STAGE-SWAP.md).
 - **Event OSDs:** defaults **On**, saved in memory-card settings.
 - **Suppress Global OSDs:** defaults **Off**, saved independently. This hides global OSDs only within this event and preserves their saved global choices.
 - **Exit:** return to event selection and save pending settings.
@@ -61,6 +62,7 @@ Event OSDs and Suppress Global OSDs use bits 20–21 of the extension word at by
 - the startup pose and callback locks, position changes, retained damage and Reset %
 - airborne timing, frozen/paused clocks, independent saved toggles and neutral colors
 - all-character and stage-select catalogue entries, and score isolation
+- Change Stage: the current stage greyed out and labelled, each row's stage ID, and OSD suppression released before the restart
 
 `LowLaserStageTests` loads each legal stage's real collision lines from the ISO (Stadium's base group, Yoshi's without Randall) and checks every position: Puff's surface point, the player's side, ground height and facing, the availability masks and the saved value. FD keeps its exact old coordinates. Other tests cover direction-aware skipping and (N/A) labels, falling back from a saved missing platform without overwriting the save, every height on every Battlefield position (state, airborne flag and no-op collision included), and Fountain-style moving and disappearing platforms. The neutral-B test covers grounded shots, a lingering `atk_kind`, up-B and the no-transition case.
 

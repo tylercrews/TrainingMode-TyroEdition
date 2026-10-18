@@ -20,7 +20,7 @@ static int label_neutral_b;
 static int paused, text_count, text_rows[2], text_result[2], writes;
 static u32 text_colors[2][2];
 static const s16 *suppression;
-static int percent_hud, ended;
+static int percent_hud, ended, restarted = -1;
 static ftCommonData common;
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
 static u32 Read(unsigned field, unsigned index) { return preferences[index]; }
@@ -28,6 +28,7 @@ static void Write(unsigned field, unsigned index, u32 value) { preferences[index
 static const TMSettingsAPI api = {Read, Write, 0};
 static unsigned Serial(void) { return serial; }
 static void Suppress(const s16 *enabled) { suppression = enabled; }
+static void Restart(int stage) { restarted = stage; }
 GOBJ *Fighter_GetGObj(int player) { return &fighters[player]; }
 void JOBJ_SetMtxDirtySub(JOBJ *joint) {
     joint->flags |= JOBJ_MTX_DIRTY;
@@ -81,6 +82,7 @@ int TestLaserInit(void) {
     *event_vars_ptr_loc = &vars;
     vars.event_gobj = &event; vars.menu_gobj = &menu_object;
     vars.settings = &api; vars.get_restore_serial = Serial; vars.set_osd_suppression = Suppress;
+    vars.restart_on_stage = Restart;
     event.userdata = &data; menu_object.userdata = &menu_data;
     for (int i = 0; i < 2; ++i) {
         fighters[i].userdata = &ft[i]; fighters[i].hsd_object = &joints[i]; ft[i].ply = i;
@@ -140,6 +142,7 @@ void TestLaserChoice(int row, int value) {
     if (options[row].OnChange) options[row].OnChange(0, value);
     else options[row].OnSelect(0);
 }
+void TestLaserStageSwap(int row) { StageSwap_Options[row].OnSelect(0); }
 void TestLaserHit(int percent) {
     /* Native collision owns percent. The event must neither restore nor zero it. */
     ft[1].dmg.percent += percent;
@@ -208,6 +211,11 @@ int TestLaserInfo(int key) {
     case 41: return ft[1].state_id == ASID_FALL;
     case 42: return ft[1].state_id == ASID_SQUAT;
     case 43: return ft[0].phys.air_state;
+    case 44: { int mask = 0; for (int i = 0; i < STAGE_SWAP_COUNT; ++i) mask |= StageSwap_Options[i].disable << i; return mask; }
+    case 45: return StageSwap_Menu.cursor;
+    case 46: return restarted;
+    case 47: return options[OPT_STAGE].kind == OPTKIND_MENU && options[OPT_STAGE].menu == &StageSwap_Menu;
+    case 48: { int mask = 0; for (int i = 0; i < STAGE_SWAP_COUNT; ++i) mask |= !!StageSwap_Options[i].value_string << i; return mask; }
     }
     return -999;
 }

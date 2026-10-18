@@ -99,7 +99,7 @@ class LowLaserTests(unittest.TestCase):
             self.m.call('TestLaserChoice',0,index)
             self.assertEqual((self.info(4),self.info(5),self.info(3)),(x,50 if x<0 else -50,18))
         position = (self.info(4), self.info(5))
-        self.m.call('TestLaserChoice',5,0)
+        self.m.call('TestLaserChoice',6,0)
         self.assertEqual((self.info(3), self.info(16)),(0,0))
         self.assertEqual((self.info(4),self.info(5)),position)
 
@@ -153,17 +153,36 @@ class LowLaserTests(unittest.TestCase):
 
     def test_saved_toggles_are_independent_and_timing_is_always_white(self):
         self.assertEqual((self.info(11),self.info(12)),(0,0))
-        self.m.call('TestLaserChoice',3,1); self.step()
+        self.m.call('TestLaserChoice',4,1); self.step()
         self.assertEqual((self.info(11),self.info(12)),(1,0))
-        self.m.call('TestLaserChoice',2,0); self.step()
+        self.m.call('TestLaserChoice',3,0); self.step()
         self.assertEqual((self.info(11),self.info(12)),(1,1))
         self.m.call('TestLaserReenter'); self.step()
         self.assertEqual((self.info(11),self.info(12),self.info(15)),(1,1,2))
-        self.m.call('TestLaserChoice',2,1)
+        self.m.call('TestLaserChoice',3,1)
         self.sample(344,fastfall=1,eligible=1)
         self.assertEqual((self.info(13),self.info(14)),(-1,-1))
-        self.m.call('TestLaserChoice',4,0)
+        self.m.call('TestLaserChoice',5,0)
         self.assertEqual((self.info(11),self.info(17)),(0,1))
+
+    def test_change_stage_greys_current_stage_and_releases_suppression_before_restart(self):
+        self.assertEqual(self.info(47), 1)
+        # FD is current: unavailable, labelled Current, and the cursor starts on Battlefield.
+        self.assertEqual((self.info(44), self.info(48), self.info(45)), (0b000001, 0b000001, 1))
+        self.m.call('TestLaserChoice', 4, 1); self.step()
+        self.assertEqual(self.info(11), 1)
+        self.m.call('TestLaserStageSwap', 0)
+        self.assertEqual((self.info(46), self.info(11)), (-1, 1))
+        # FD, Battlefield, Dream Land, Yoshi's Story, Fountain, Stadium (GRKINDEXT_*).
+        for row, stage in list(enumerate((32, 31, 28, 8, 2, 3)))[1:]:
+            self.m.call('TestLaserStageSwap', row)
+            self.assertEqual((self.info(46), self.info(11)), (stage, 0))
+
+    def test_change_stage_marks_whichever_stage_is_current(self):
+        for stage, mask, cursor in ((3, 0b100000, 0), (28, 0b000100, 0), (4, 0, 0)):
+            self.m.call('TestLaserStage', stage)
+            self.m.call('TestLaserReenter')
+            self.assertEqual((self.info(44), self.info(48), self.info(45)), (mask, mask, cursor))
 
     def test_real_relocated_dat_initializes_places_and_measures(self):
         fixture = fixtures.RelocatedDATSettingsTests()
@@ -199,8 +218,8 @@ class LowLaserTests(unittest.TestCase):
         self.assertEqual((m.call('TestLaserInfo',0),m.call('TestLaserInfo',1)),(1,3))
         menu_ptr=struct.unpack('>I',m.cpu.mem_read(base+entries[3],4))[0]
         rows=struct.unpack('>I',m.cpu.mem_read(menu_ptr+8,4))[0]
-        self.assertEqual(m.cpu.mem_read(menu_ptr+4,1)[0],6)
-        reset_name=struct.unpack('>I',m.cpu.mem_read(rows+5*44+12,4))[0]
+        self.assertEqual(m.cpu.mem_read(menu_ptr+4,1)[0],7)
+        reset_name=struct.unpack('>I',m.cpu.mem_read(rows+6*44+12,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(reset_name,8)).split(b'\0',1)[0],b'Reset %')
 
 

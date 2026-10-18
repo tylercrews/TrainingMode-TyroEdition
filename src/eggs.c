@@ -46,6 +46,9 @@ void Exit(GOBJ *menu)
     Match_EndVS();
 }
 
+/* Free Practice and the egg settings are saved, so a restart keeps them. */
+static void StageSwap_BeforeRestart(void) { }
+
 void Retry(GOBJ *menu) 
 {
     Memcard_SaveIfChanged();
@@ -196,6 +199,7 @@ void Event_Init(GOBJ *gobj)
     if (TM_GetSetting(TM_SETTING_EGGS, TM_EGGS_FREE_PRACTICE)) StartFreePractice(0);
     else ChangeHitDisplay(0, 0);
     Eggs_ChangeHitboxTrails(0, 0);
+    StageSwap_Init();
 
     // initialize egg camera subject
     cam = CameraSubject_Alloc();
