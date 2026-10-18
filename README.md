@@ -74,7 +74,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - **Under Fire - Ledgestall Training**
         - Renamed the **Under Fire** event to **Under Fire - Ledgestall Training** on the event select screen and in its pause menu, so it's clear the event is about refreshing ledge invincibility.
 
-### T4 (V1.4.1T4)
+### T4 (V1.4.1T4) - 2026-10-15
 
 - **Program changes**
     - Change the game/save ID from `TYRE01` to `TMTE01`, for Training Mode Tyro Edition :3
@@ -132,14 +132,14 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 For T4 I was working with ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra use)
 
-### T3 (V1.4.1T3)
+### T3 (V1.4.1T3) - 2026-10-09
 
 - Remember the selected event and page across sessions, restoring the cursor and scroll position on boot.
 - Add numbered Fox/Falco Side-B Sweetspot distance guides that include drift, with a saved Enable Line Guides toggle defaulting to On.
 - Extend the Invincibility Overlay to Marth and Roy's active grounded and aerial counter windows.
 - Rework the Training Lab menu with eight category tabs, clearer option rows, descriptions and submenu previews, and apply/cancel value pickers; retain parent selections, shortcuts and existing saves.
 
-### T2 (V1.4.1T2)
+### T2 (V1.4.1T2) - 2026-10-07
 
 - Add saved Fixed Grid and Practice Panel OSD layouts with reserved feature positions, retained results and manual paging; Fixed Grid shows ten OSDs per page, while Practice Panel includes three previous timing results.
 - Add saved OSD title colors and previews in both editors, plus separate CPU and all-OSD overrides in reorganized Global Settings menus.
@@ -159,7 +159,7 @@ For T4 I was working with ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra
 - Centralize version metadata and give Tyro a separate disc/save identity, save caption, versioned release filenames, cross-platform patchers and matching banner/symbol-map names.
 - Make partial builds rebuild modules after version/identity changes and stop ISO updates when a C module fails to compile.
 
-### T1 (v1.4.1 T1)
+### T1 (v1.4.1 T1) - 2026-09-25
 
 - Add Eggs-ercise hitbox trails and Very Fast / Instant decay options in Eggs-ercise and Training Lab.
 - Add Tyro Edition names, version labels and banners, with corrected in-game banner colors.
