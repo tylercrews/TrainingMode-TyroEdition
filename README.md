@@ -45,13 +45,11 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T7
-- ~~would be nice to reorder your OSDs how you want~~ (**T6:** new Fixed Grid OSD Positions page, where each OSD gets its own cell in a 6-row grid and cells can be left blank; [design](notes/ORDERING-GLOBAL-OSDS.md))
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
 - Under Fire make a setting where you can see the hand grab through the lava if you don't want to go by timing forever. But by the time the lava comes up if you want to succeed you do just need perfect rhythm. Just not sure if taking away the visual cue is good or not.
-- ~~add character swapping to edgeguard event~~ (**T6:** new Change Characters menu, and the event's settings are saved)
 - Edgeguard Training Beta Changes:
     - Samus often misses tether, and doesn't "pull up" after hitting tether, just hangs there.
     - Luigi feels like they reset a little early
@@ -92,7 +90,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - The event name is now cyan on the event select screen.
         - Settings are saved: Player Percent, Hit Strength, all six Custom Hit Strength values, and the Recovery Options of each CPU (every CPU keeps its own).
         - New **Change Characters** menu with the same Player Character and CPU Character rows as the Training Lab. The player can be anyone; the CPU list only has the characters the event supports.
-        - Seven new CPUs: **Yoshi** (double jump high or low, air dodge to the ledge or stage, egg toss), **Peach** (float to the stage or low by the ledge, Parasol, Bomber, float aerials), **Luigi** (mashed Cyclone, Green Missile with the game's own misfires, up B), **Dr. Mario** (mashed Dr. Tornado, Cape stall, up B), the **Ice Climbers** (Belay when Nana is close, mashed Squall Hammer otherwise), **Jigglypuff** (jumps to stay high or low, Pound, aerials at you) and **Samus** (bomb jumps, grapple, Screw Attack). Each has its own Recovery Options. These haven't been tested in Dolphin yet; see [the notes](notes/EDGEGUARD-NEW-CHARACTERS.md#testing-in-dolphin).
+        - **BETA, very unrefined and mostly untested -** Seven new CPUs: **Yoshi** (double jump high or low, air dodge to the ledge or stage, egg toss), **Peach** (float to the stage or low by the ledge, Parasol, Bomber, float aerials), **Luigi** (mashed Cyclone, Green Missile with the game's own misfires, up B), **Dr. Mario** (mashed Dr. Tornado, Cape stall, up B), the **Ice Climbers** (Belay when Nana is close, mashed Squall Hammer otherwise), **Jigglypuff** (jumps to stay high or low, Pound, aerials at you) and **Samus** (bomb jumps, grapple, Screw Attack). Each has its own Recovery Options. These haven't been tested in Dolphin yet; see [the notes](notes/EDGEGUARD-NEW-CHARACTERS.md#testing-in-dolphin).
         - Ice Climbers: resets no longer switch off Nana's AI, and she now follows Popo instead of you after a reset.
 
 For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for the character swapping and OSD layout, and Max for attempting to add new characters to Edgeguarding)
