@@ -45,7 +45,7 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T7
-- would be nice to reorder your OSDs how you want
+- would be nice to reorder your OSDs how you want. Design picked: a Fixed Grid OSD Positions page where each OSD gets its own cell and cells can be left blank ([design](notes/ORDERING-GLOBAL-OSDS.md))
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
@@ -70,7 +70,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - The two characters can't end up in the same costume: picking the other slot's character skips its color.
         - Picking Zelda as the CPU now gives you Zelda. (The character select still turns a Zelda CPU into Sheik.)
 
-For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Ultra use for the character swapping)
+For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for the character swapping and OSD layout)
 
 ### T5 (V1.4.1T5) - 2026-10-18
 
@@ -109,7 +109,7 @@ For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Ultra use for 
         - New **Change Stage** row in the **Stage/RNG** tab: restart on any of the six legal stages without going back through the character and stage select. Your Lab settings come with you: CPU behavior, DI/SDI, tech and getup chances, counters (including Advanced Counter), shields, percents and locks, camera/HUD/model/collision displays, game speed, Info Display, Hitbox Trails, Custom TDI, Custom OSDs, Action Log, Character RNG and recovery options. Recordings and saved positions are cleared because they belong to the old stage, and the old stage's own options (Stadium transformation, Fountain platform heights) don't carry.
         - New **Reset to Default Settings** in the **Session** and **Exit** tabs: puts every unsaved Lab setting back to how a fresh Lab starts, without leaving the match. Recordings, saved positions and saved preferences (Controls, overlays, OSD colors, Input Display) are kept.
 
-For T5 I was working with Claude Opus 5.5 (mostly on Medium, with Ultra use for some research on character and stage swapping)
+For T5 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for some research on character and stage swapping)
 
 ### T4 (V1.4.1T4) - 2026-10-15
 
