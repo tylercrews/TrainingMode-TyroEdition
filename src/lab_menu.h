@@ -2,6 +2,7 @@
  * original option; array/value indices used by recordings and saves are intact.
  * Included after lab.h and recovery.c in the Lab translation unit. */
 #include "stage_swap.h"
+#include "fighter_swap.h"
 #define LR(a, i, g) { .option = &(a)[i], .group = g }
 #define LREF(o, g) { .option = &(o), .group = g }
 #define LMENU(id, title, description) \
@@ -43,11 +44,12 @@ static EventOption LabResetSettings = { .kind = OPTKIND_FUNC, .name = "Reset to 
     .OnSelect = Lab_ResetSettings };
 
 static EventMenuRow LabUI_Session_rows[] = {
+    LR(FighterSwap_Options, 0, 1), LR(FighterSwap_Options, 1, 3),
     LR(LabOptions_General, OPTGEN_FRAME, 1), LR(LabOptions_General, OPTGEN_SPEED, 1),
     LR(LabOptions_General, OPTGEN_HMNPCNT, 2), LR(LabOptions_General, OPTGEN_HMNPCNTLOCK, 2),
     LR(LabOptions_General, OPTGEN_STALE, 2), LREF(LabResetSettings, 4),
 };
-LMENU(LabUI_Session, "Session", "Set practice speed and the human starting damage.");
+LMENU(LabUI_Session, "Session", "Change characters, practice speed and the human starting damage.");
 static EventMenuRow LabUI_CPU_rows[] = {
     LR(LabOptions_CPU, OPTCPU_PCNT, 2), LR(LabOptions_CPU, OPTCPU_LOCKPCNT, 2), LR(LabOptions_CPU, OPTCPU_BEHAVE, 2),
     LREF(LabLink_DI, 1), LR(LabOptions_CPU, OPTCPU_TECHOPTIONS, 3), LREF(LabLink_Counter, 0),
@@ -216,6 +218,9 @@ static void Lab_InitMenuUI(void)
     LabOptions_CPU[OPTCPU_TECHOPTIONS].menu = &LabUI_Tech;
     LabOptions_CPU[OPTCPU_TECHOPTIONS].name = "Tech & Getup";
     LabOptions_General[OPTGEN_OSDS].menu = &LabUI_Global;
+    LabUI_Session.row_hooks = &FighterSwap_RowHooks;
+    FighterSwap_Options[0].desc[3] = FighterSwap_Options[1].desc[3] =
+        "Lab settings are kept; recordings and saved positions are cleared.";
     LabMenu_InfoDisplayHMN.pages = LabPages_InfoHMN; LabMenu_InfoDisplayHMN.page_num = countof(LabPages_InfoHMN);
     LabMenu_InfoDisplayCPU.pages = LabPages_InfoCPU; LabMenu_InfoDisplayCPU.page_num = countof(LabPages_InfoCPU);
     LabMenu_OverlaysHMN.pages = LabPages_OverlayHMN; LabMenu_OverlaysHMN.page_num = countof(LabPages_OverlayHMN);

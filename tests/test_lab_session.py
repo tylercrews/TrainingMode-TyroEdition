@@ -18,6 +18,10 @@ REC_LOOP = 7
 INTANG_COLANIM = 10
 BATTLEFIELD = 31
 NAMES = 0x80480000
+# External CKIND_* IDs, and the game's costume counts by external ID (0x803d51a0).
+FOX, MARTH, PUFF, FALCO = 2, 9, 15, 20
+COSTUMES = [6, 5, 4, 4, 6, 4, 5, 4, 5, 5, 4, 4, 5, 4, 4, 5, 5, 6, 5, 5, 4, 5, 5, 5, 4, 5]
+BUTTON_A, BUTTON_X, BUTTON_Y = 0x100, 0x400, 0x800
 
 
 def build():
@@ -50,6 +54,15 @@ class Lab:
         self.next_name += 64
         return address
 
+    def fighter(self, slot):
+        base = 33 + slot * 2
+        return (self.info(base), self.info(base + 1))
+
+    def carry_into(self, new):
+        for symbol in ('carry_tag', 'carry_size', 'carry_data'):
+            address, size = self.m.symbols[symbol], (2048 if symbol == 'carry_data' else 4)
+            new.m.cpu.mem_write(address, bytes(self.m.cpu.mem_read(address, size)))
+
     def customize(self):
         """Change one or more rows in every carried table, through each row's menu callback."""
         self.choose(GENERAL, GEN_PCNT, 40); self.choose(GENERAL, GEN_LOCK, 1)
@@ -75,14 +88,14 @@ class Lab:
         self.call('TestLabTDI', 3)
         self.chances = [self.value(TECH, i) for i in TECH_CHANCES]
 
-    def assert_carried(self, test):
+    def assert_carried(self, test, peach_item=6):
         test.assertEqual([self.value(GENERAL, i) for i in (GEN_PCNT, GEN_LOCK, GEN_MODEL, GEN_HIT, GEN_CAM, GEN_HUD, GEN_SPEED)],
                          [40, 1, 1, 1, 2, 0, 2])
         test.assertEqual([self.value(CPU, i) for i in (CPU_PCNT, CPU_INTANG, CPU_BEHAVE, CPU_TDI)], [75, 1, 1, 4])
         # Effects follow the values: camera, HUD, model/collision displays, percents, intangibility, RNG, trails.
         # Stage Only hides both fighters but not the stage.
         test.assertEqual([self.info(k) for k in (0, 1, 2, 25, 26, 27)], [3, 1, 1, 3, 0, 0])
-        test.assertEqual([self.info(k) for k in (3, 4, 5, 6, 7, 8, 10, 11)], [40, 75, 40, 75, INTANG_COLANIM, 6, 1, 2])
+        test.assertEqual([self.info(k) for k in (3, 4, 5, 6, 7, 8, 10, 11)], [40, 75, 40, 75, INTANG_COLANIM, peach_item, 1, 2])
         # Lock Player Percent captured the carried percent; the CPU lock stayed off.
         test.assertEqual((self.info(28), self.info(29)), (40, 0))
 
@@ -170,6 +183,106 @@ class LabSessionTests(unittest.TestCase):
             address, size = old.m.symbols[symbol], (2048 if symbol == 'carry_data' else 4)
             new.m.cpu.mem_write(address, bytes(old.m.cpu.mem_read(address, size)))
         self.assertEqual((new.init(), new.init()), (1, 0))
+
+
+class FighterSwapTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def lab(self, cpu=MARTH, cpu_costume=1):
+        lab = Lab()
+        lab.call('TestLabLive', 0, FOX, 0)
+        lab.call('TestLabLive', 1, cpu, cpu_costume)
+        lab.init()
+        return lab
+
+    def test_selectors_are_the_top_session_rows_in_tier_order(self):
+        lab = self.lab()
+        self.assertEqual([lab.call('TestLabSessionRow', row) for row in (0, 1)],
+                         [lab.call('TestLabFighterOption', slot) for slot in (0, 1)])
+        self.assertEqual([lab.call('TestLabFighterIndex', kind) for kind in (FOX, MARTH, PUFF, FALCO)], [0, 1, 2, 3])
+        self.assertEqual(sorted(lab.call('TestLabFighterIndex', kind) for kind in range(26)), list(range(26)))
+        self.assertEqual([lab.call('TestLabCostumeNum', kind) for kind in range(26)], COSTUMES)
+
+    def test_selectors_start_on_the_fighters_in_play(self):
+        lab = self.lab()
+        self.assertEqual((lab.info(37), lab.info(38)), (0, 1))
+        self.assertEqual((lab.fighter(0), lab.fighter(1)), ((FOX, 0), (MARTH, 1)))
+        self.assertEqual(lab.text(lab.call('TestLabFighterStatus', 1, 1)), b'Playing now: Marth, Red.')
+        self.assertEqual(lab.text(lab.call('TestLabFighterStatus', 1, 0)), b'Selected: Marth, Red.')
+
+    def test_left_right_picks_the_default_costume_unless_the_other_fighter_has_it(self):
+        lab = self.lab()
+        lab.call('TestLabPickFighter', 0, 3)
+        self.assertEqual(lab.fighter(0), (FALCO, 0))
+        lab.call('TestLabPickFighter', 1, 3)  # Falco vs Falco: the CPU moves to the next costume
+        self.assertEqual(lab.fighter(1), (FALCO, 1))
+        self.assertEqual(lab.text(lab.call('TestLabFighterStatus', 1, 0)), b'Selected: Falco, Red.')
+        self.assertEqual(lab.text(lab.call('TestLabFighterStatus', 1, 1)), b'Playing now: Marth, Red.')
+
+    def test_x_and_y_cycle_costumes_and_skip_the_other_fighters(self):
+        lab = self.lab(cpu=FOX, cpu_costume=1)
+        self.assertEqual(lab.call('TestLabFighterButton', 1, BUTTON_X), 1)
+        self.assertEqual(lab.fighter(1), (FOX, 2))
+        lab.call('TestLabFighterButton', 1, BUTTON_X)
+        self.assertEqual(lab.fighter(1), (FOX, 3))
+        lab.call('TestLabFighterButton', 1, BUTTON_X)  # wraps past the player's costume 0
+        self.assertEqual(lab.fighter(1), (FOX, 1))
+        lab.call('TestLabFighterButton', 1, BUTTON_Y)
+        self.assertEqual(lab.fighter(1), (FOX, 3))
+        self.assertEqual(lab.text(lab.call('TestLabCostumeName', FOX, 3)), b'Green')
+        self.assertEqual(lab.text(lab.call('TestLabCostumeName', FOX, 0)), b'Default')
+        # Other buttons are left to the menu.
+        self.assertEqual(lab.call('TestLabFighterButton', 1, 0x10), 0)
+
+    def test_style_shows_the_costume_color_and_stock_icon(self):
+        lab = self.lab()
+        self.assertEqual(lab.call('TestLabFighterStyle', 1), 1)
+        self.assertEqual((lab.info(44), lab.info(45), lab.info(46)), (MARTH, 1, 0xFF5A5A))
+        unchanged = lab.text(lab.info(47))
+        lab.call('TestLabFighterButton', 1, BUTTON_X)  # Marth Green
+        lab.call('TestLabFighterStyle', 1)
+        self.assertEqual((lab.info(45), lab.info(46)), (2, 0x5ADC5A))
+        self.assertNotIn(b'A: Restart', unchanged)
+        self.assertIn(b'A: Restart', lab.text(lab.info(47)))
+
+    def test_a_restarts_only_when_a_pick_changed_keeping_the_unchanged_fighter(self):
+        lab = self.lab()
+        lab.call('TestLabFighterButton', 0, BUTTON_A)
+        self.assertEqual((lab.info(39), lab.info(30), lab.info(43)), (-9, 0, 4))
+        lab.call('TestLabOnload', 3)
+        lab.call('TestLabPickFighter', 1, 2)
+        lab.call('TestLabFighterButton', 0, BUTTON_A)
+        self.assertEqual([lab.info(k) for k in (39, 41, 42)], [-1, PUFF, 0])
+        # Settings are carried and the CSS recording import is dropped, as for a stage change.
+        self.assertEqual((lab.info(30), lab.info(23), lab.info(43)), (1, -1, 41))
+
+    def test_character_change_carries_only_rows_that_belong_to_no_fighter(self):
+        fresh = Lab(); fresh.init()
+        defaults = (fresh.value(RECOVERY, 0), fresh.value(RNG, 0))
+        old = self.lab()
+        old.call('TestLabKinds', 1, 18)
+        old.customize()
+        old.call('TestLabPickFighter', 1, 2)
+        old.call('TestLabFighterButton', 1, BUTTON_A)
+        self.assertEqual(old.info(30), 1)
+        # A new CPU: its recovery rows and the Character RNG rows start fresh.
+        new = Lab(); old.carry_into(new)
+        new.call('TestLabKinds', 1, 15)
+        self.assertEqual(new.init(), 1)
+        new.call('TestLabFirstFrame')
+        new.assert_carried(self, peach_item=0)
+        self.assertEqual((new.value(RECOVERY, 0), new.value(RNG, 0)), defaults)
+        # Same CPU, new player: the CPU's recovery rows carry, Character RNG doesn't.
+        same_cpu = Lab(); old.carry_into(same_cpu)
+        same_cpu.call('TestLabKinds', 22, 18)
+        same_cpu.init(); same_cpu.call('TestLabFirstFrame')
+        self.assertEqual((same_cpu.value(RECOVERY, 0), same_cpu.value(RNG, 0)), (0, defaults[1]))
+        # Same fighters (a stage change): everything carries.
+        same = Lab(); old.carry_into(same)
+        same.call('TestLabKinds', 1, 18)
+        same.init(); same.call('TestLabFirstFrame')
+        self.assertEqual((same.value(RECOVERY, 0), same.value(RNG, 0)), (0, 6))
 
 
 if __name__ == '__main__':

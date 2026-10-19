@@ -170,6 +170,57 @@ static void MC_Preview(MenuData *data, EventMenu *menu, int page_only, int first
     else Text_SetText(data->text_preview, line, "Dim entries are currently unavailable.");
     Text_SetColor(data->text_preview, line, &gray);
 }
+/* Styled rows can show a HUD stock icon (IfAll's Stc_scemdls, as the in-match
+ * HUD uses it) at the right end of the name column. Child 1 is the first of
+ * the HUD's stock icons, a 2.4-unit square; the other children stay hidden. */
+#define MC_ICON_X (-9.2f)
+#define MC_ICON_SCALE .8f
+static JOBJ *MC_RowIcon(GOBJ *gobj, int row)
+{
+    MenuData *data = gobj->userdata;
+    if (data->row_icons[row]) return data->row_icons[row]->child;
+    JOBJSet **sets = Archive_GetPublicAddress(*stc_ifall_archive, "Stc_scemdls");
+    if (!sets || !sets[0]) return 0;
+    JOBJ *root = JOBJ_LoadJoint(sets[0]->jobj);
+    if (!root || !root->child) return 0;
+    JOBJ_AddAnimAll(root, 0, sets[0]->matanimjoint ? sets[0]->matanimjoint[0] : 0, 0);
+    JOBJ_SetFlagsAll(root, JOBJ_HIDDEN);
+    JOBJ_ClearFlags(root, JOBJ_HIDDEN);
+    JOBJ *icon = root->child;
+    icon->trans.X = icon->trans.Y = icon->trans.Z = 0;
+    root->scale.X = MC_ICON_SCALE / MC_HORIZONTAL_EXPANSION; /* undo the frame's stretch */
+    root->scale.Y = MC_ICON_SCALE;
+    root->trans.X = MC_ICON_X;
+    root->trans.Y = MC_ROW_Y - row * MC_ROW_STEP;
+    JOBJ_AddChild(gobj->hsd_object, root);
+    data->row_icons[row] = root;
+    return icon;
+}
+/* The HUD's texture frame: external ID (Sheik after Ganondorf), 30 per costume. */
+static float MC_StockFrame(int kind, int costume)
+{
+    int index = kind == CKIND_SHEIK ? 25 : kind > CKIND_SHEIK ? kind - 1 : kind;
+    return index + costume * 30;
+}
+static void MC_ShowIcon(GOBJ *gobj, int row, int kind, int costume)
+{
+    JOBJ *icon = MC_RowIcon(gobj, row);
+    if (!icon) return;
+    /* As HUD_CreateStockIcons: frame 0 is a full icon, then the texture frame. */
+    JOBJ_ReqAnimAll(icon, 0);
+    JOBJ_ReqAnimAllByFlags(icon, TOBJ_ANIM, MC_StockFrame(kind, costume));
+    TOBJ *tobj = icon->dobj && icon->dobj->mobj ? icon->dobj->mobj->tobj : 0;
+    if (tobj && tobj->aobj) AOBJ_SetRate(tobj->aobj, 0);
+    JOBJ_AnimAll(icon);
+    JOBJ_ClearFlags(icon, JOBJ_HIDDEN);
+}
+static int MC_RowStyle(EventMenu *menu, EventOption *option, EventMenuRowStyle *style)
+{
+    if (!option || option->disable || !menu->row_hooks || !menu->row_hooks->style) return 0;
+    style->icon_kind = -1;
+    style->hint = 0;
+    return menu->row_hooks->style(option, style);
+}
 static GXColor MC_RowColor(int group, int index)
 {
     GXColor color = {30, 38, 53, 255};
@@ -202,6 +253,8 @@ static void MC_UpdateText(GOBJ *gobj)
         int relative = data->picker_value - MC_ValueMinimum(data->picker);
         data->picker_scroll = MenuController_Scroll(data->picker_scroll, relative, MC_ValueCount(data->picker), MENU_MAXOPTION);
     }
+    for (int i = 0; i < MENU_MAXOPTION; ++i)
+        if (data->row_icons[i]) JOBJ_SetFlags(data->row_icons[i]->child, JOBJ_HIDDEN);
     for (int i = 0; i < MENU_MAXOPTION; ++i) {
         int row = data->picker ? data->picker_scroll + i : menu->scroll + i;
         EventOption *entry = data->picker ? data->picker : EventMenu_GetOption(menu, row);
@@ -227,6 +280,11 @@ static void MC_UpdateText(GOBJ *gobj)
             else if (entry->kind == OPTKIND_TOGGLE) Text_SetText(data->text_value, i, "%s", entry->val ? "On" : "Off");
             else if (entry->kind == OPTKIND_MENU) Text_SetText(data->text_value, i, ">");
             else Text_SetText(data->text_value, i, "%s", entry->value_string ? entry->value_string : entry->kind == OPTKIND_INFO ? "" : "A");
+            EventMenuRowStyle style;
+            if (MC_RowStyle(menu, entry, &style)) {
+                Text_SetColor(data->text_value, i, &style.value_color);
+                if (style.icon_kind >= 0) MC_ShowIcon(gobj, i, style.icon_kind, style.icon_costume);
+            }
         }
     }
     if (data->selector && !data->picker) JOBJ_SetFlags(data->highlight_menu, JOBJ_HIDDEN);
@@ -249,7 +307,11 @@ static void MC_UpdateText(GOBJ *gobj)
         Text_SetText(data->text_hints, 0, "Left/Right: %s   A/Down: Options   B: %s", menu->page_num ? "Page" : "Tab", menu->prev ? "Back" : "Resume");
         Text_SetText(data->text_hints, 1, "Start: Resume   Hold Y: Existing shortcuts   L/R: OSD page");
     } else {
-        Text_SetText(data->text_hints, 0, "Up/Down: Move   Left/Right: %s   A: Open/Choose   B: %s", data->preview_pages > 1 ? "Preview" : "Value", menu->prev ? "Back" : "Tabs");
+        EventMenuRowStyle style;
+        if (MC_RowStyle(menu, option, &style) && style.hint)
+            Text_SetText(data->text_hints, 0, "%s   B: %s", style.hint, menu->prev ? "Back" : "Tabs");
+        else
+            Text_SetText(data->text_hints, 0, "Up/Down: Move   Left/Right: %s   A: Open/Choose   B: %s", data->preview_pages > 1 ? "Preview" : "Value", menu->prev ? "Back" : "Tabs");
         const char *reason = data->root_menu->unavailable_reason ? data->root_menu->unavailable_reason(option) : 0;
         Text_SetText(data->text_hints, 1, "%s", reason ? reason : option && option->disable ? "Unavailable in this fighter, recording or mode context." : data->tab == 4 ? "Global settings are saved and apply across events." : "Start: Resume   Hold Y: Existing shortcuts   L/R: OSD page");
     }

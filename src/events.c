@@ -846,17 +846,35 @@ static unsigned restore_serial;
 static unsigned Events_RestoreSerial(void) { return restore_serial; }
 void Events_NotifyRestore(void) { restore_serial++; Message_LayoutClear(); }
 
-/* In-event stage changes. The event's .dat reloads with the new match, so the
- * pending stage and any carried state live here, in the boot-loaded code. */
-static int restart_stage = -1;
+/* In-event stage and fighter changes. The event's .dat reloads with the new
+ * match, so the pending choices and any carried state live here, in the
+ * boot-loaded code. */
+static int restart_pending, restart_stage = -1;
+static PreloadChar restart_fighters[2] = {{-1, 0}, {-1, 0}};
+/* A CPU chosen in-event stays as chosen (Zelda is not turned into Sheik) for
+ * the rest of that event, including later restarts. */
+static int restart_exact_cpu;
 static struct { u32 tag, size; u8 data[TM_EVENT_CARRY_SIZE]; } event_carry;
-static void Events_RestartOnStage(int stage) {
-    if (!event_vars->event_desc || event_vars->event_desc->stage != -1) return;
-    restart_stage = stage;
+static void Events_Restart(void) {
+    restart_pending = 1;
     Memcard_SaveIfChanged();
     stc_match->end_kind = MATCHENDKIND_RETRY;
     stc_match->state = 3;
     Match_EndVS();
+}
+static void Events_RestartOnStage(int stage) {
+    if (!event_vars->event_desc || event_vars->event_desc->stage != -1) return;
+    restart_stage = stage;
+    Events_Restart();
+}
+static int Events_RestartOnFighters(int hmn_kind, int hmn_costume, int cpu_kind, int cpu_costume) {
+    EventDesc *event = event_vars->event_desc;
+    if (!event || event->CSSType == SLCHRKIND_VS || (hmn_kind < 0 && cpu_kind < 0)) return 0;
+    if (cpu_kind >= 0 && (event->cpuKind != -1 || event->CSSType != SLCHRKIND_TRAINING)) return 0;
+    restart_fighters[0] = (PreloadChar){hmn_kind, hmn_costume};
+    restart_fighters[1] = (PreloadChar){cpu_kind, cpu_costume};
+    Events_Restart();
+    return 1;
 }
 static void *Events_CarryStore(u32 tag, u32 size) {
     if (!tag || size > sizeof(event_carry.data)) return 0;
@@ -906,6 +924,7 @@ EventVars stc_event_vars = {
     .restart_on_stage = Events_RestartOnStage,
     .carry_store = Events_CarryStore,
     .carry_take = Events_CarryTake,
+    .restart_on_fighters = Events_RestartOnFighters,
 };
 
 static GOBJ *stc_msgmgr;
@@ -1774,6 +1793,41 @@ void EventInit(int page, int eventID, MatchInit *matchData)
 
     Preload *preload = Preload_GetTable();
 
+    /* An in-event stage or fighter change retries straight into this scene,
+     * without the CSS/SSS. Queue the new choices here, during match prep, as
+     * native event prep does; TM's EventInit hook skips that native code.
+     * Carried state and an in-event CPU choice belong to that event only. */
+    int restarting = restart_pending;
+    restart_pending = 0;
+    if (!restarting) {
+        event_carry.tag = 0;
+        restart_exact_cpu = 0;
+    }
+    int new_stage = restarting && restart_stage >= 0 && event->stage == -1;
+    int new_fighters = restarting && (restart_fighters[0].kind >= 0 || restart_fighters[1].kind >= 0);
+    if (new_stage || new_fighters) {
+        /* The preload heap closes gaps by sliding files down, which corrupts
+         * files already initialized for the last match (e.g. the stage above
+         * a replaced costume). As the native event retry with new fighters
+         * does, drop every cached match file, then queue the match again so
+         * it all reloads from disc. */
+        u32 table[sizeof(preload->queued) / 4];
+        for (int i = 0; i < (int)countof(table); ++i) table[i] = ((u32 *)&preload->queued)[i];
+        Preload_Invalidate();
+        for (int i = 0; i < (int)countof(table); ++i) ((u32 *)&preload->queued)[i] = table[i];
+        for (int i = 0; i < 2; ++i) {
+            if (restart_fighters[i].kind < 0) continue;
+            // Kind and costume only: the slot's other bytes (e.g. Kirby's copy abilities) stay.
+            preload->queued.fighters[i].kind = restart_fighters[i].kind;
+            preload->queued.fighters[i].costume = restart_fighters[i].costume;
+            if (i == 1) restart_exact_cpu = 1;
+        }
+        if (new_stage) preload->queued.stage = restart_stage;
+        Preload_Update();
+    }
+    restart_fighters[0].kind = restart_fighters[1].kind = -1;
+    restart_stage = -1;
+
     if (event->CSSType != SLCHRKIND_VS) {
         // Determine player ports
         u8 hmn_port = *stc_css_hmnport + 1;
@@ -1799,8 +1853,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
         }
 
         /* Ledgechase's native controller supports either selected form. Other
-         * events retain their existing Sheik CPU convention. */
-        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase)
+         * events retain their existing Sheik CPU convention, unless Zelda was
+         * picked in-event. */
+        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase && !restart_exact_cpu)
             cpu_kind = CKIND_SHEIK;
 
         if (cpu_kind != -1) {
@@ -1836,20 +1891,10 @@ void EventInit(int page, int eventID, MatchInit *matchData)
 
     // Determine the Stage
     if (event->stage == -1) {
-        /* An in-event stage change retries straight into this scene, without
-         * the SSS. Queue the new stage here, during match prep, as native event
-         * prep does; TM's EventInit hook skips that native code. */
-        if (restart_stage >= 0) {
-            preload->queued.stage = restart_stage;
-            Preload_Update();
-        }
         matchData->stage = preload->queued.stage;
     } else {
         matchData->stage = event->stage;
     }
-    // Carried state is only for the event restarted by that stage change.
-    if (restart_stage < 0) event_carry.tag = 0;
-    restart_stage = -1;
 };
 
 static void LegacyEventUpdate(void)

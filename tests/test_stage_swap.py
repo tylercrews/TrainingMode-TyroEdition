@@ -6,6 +6,7 @@ from pathlib import Path
 from test_menu import Machine, ROOT
 
 IZUMI, PSTAD, BATTLE, FD = 2, 3, 31, 32  # GRKINDEXT_*
+FOX, MARTH, PUFF, ZELDA, SHEIK, FALCO = 2, 9, 15, 18, 19, 20  # CKIND_* (external)
 RETRY = 8                                  # MATCHENDKIND_RETRY
 CARRY_TAG, CARRY_SIZE = 0x4C616231, 2048
 
@@ -30,6 +31,7 @@ class StageSwapTests(unittest.TestCase):
         self.m = Machine('stage-swap-test.elf', 'TestStageSwapInit')
         self.low_laser = self.m.symbols['LowLaser']
         self.slalom = self.m.symbols['Slalom']
+        self.lab = self.m.symbols['Lab']
 
     def info(self, *keys): return [self.m.call('TestStageSwapInfo', key) for key in keys]
     def enter(self, event): self.m.call('TestStageSwapEnter', event)
@@ -47,9 +49,10 @@ class StageSwapTests(unittest.TestCase):
         self.assertEqual(self.info(0, 1, 2), [FD, FD, 0])
         self.m.call('TestStageSwapRestart', IZUMI)
         self.assertEqual(self.info(3, 4, 5, 6), [1, 1, RETRY, 3])
-        self.assertEqual(self.info(0, 2), [FD, 0])  # nothing is loaded mid-match
+        self.assertEqual(self.info(0, 2, 15), [FD, 0, 0])  # nothing is loaded mid-match
         self.prep(self.low_laser)
-        self.assertEqual(self.info(0, 1, 2), [IZUMI, IZUMI, 1])
+        # The whole cache is dropped first, so no initialized file can move.
+        self.assertEqual(self.info(0, 1, 2, 15), [IZUMI, IZUMI, 1, 1])
         # A later plain retry keeps the new stage without reloading the table.
         self.prep(self.low_laser)
         self.assertEqual(self.info(0, 1, 2), [IZUMI, IZUMI, 1])
@@ -76,6 +79,53 @@ class StageSwapTests(unittest.TestCase):
         self.store()
         self.prep(self.low_laser)
         self.assertEqual(self.take(), 0)
+
+    def fighters(self, *args): return self.m.call('TestStageSwapFighters', *args)
+
+    def test_fighter_restart_queues_both_fighters_at_match_prep(self):
+        self.m.call('TestStageSwapQueue', FD)
+        self.m.call('TestStageSwapQueueFighter', 0, FOX, 0)
+        self.m.call('TestStageSwapQueueFighter', 1, MARTH, 0)  # chosen on the CSS
+        self.m.call('TestStageSwapQueueFighter', 2, PUFF, 0)
+        self.m.call('TestStageSwapSlotByte', 1, 1)
+        self.enter(self.lab)
+        self.prep(self.lab)
+        self.assertEqual(self.info(11, 13, 2), [FOX, MARTH, 0])
+        self.assertEqual(self.fighters(FALCO, 1, ZELDA, 2), 1)
+        self.assertEqual(self.info(3, 4, 5, 6), [1, 1, RETRY, 3])
+        self.assertEqual(self.info(7, 9, 2), [FOX, MARTH, 0])  # nothing is loaded mid-match
+        self.prep(self.lab)
+        self.assertEqual(self.info(7, 8, 9, 10, 2, 15), [FALCO, 1, ZELDA, 2, 1, 1])
+        # The rest of the table survives the cache reset, including each slot's other bytes.
+        self.assertEqual(self.info(0, 16, 17), [FD, PUFF, 1])
+        # A CPU Zelda picked in-event stays Zelda, also after a later stage change.
+        self.assertEqual(self.info(11, 12, 13, 14), [FALCO, 1, ZELDA, 2])
+        self.m.call('TestStageSwapRestart', BATTLE)
+        self.prep(self.lab)
+        self.assertEqual(self.info(0, 1, 11, 13, 2), [BATTLE, BATTLE, FALCO, ZELDA, 2])
+        # A new event start keeps the convention of turning a CPU Zelda into Sheik.
+        self.prep(self.lab)
+        self.assertEqual(self.info(13, 2), [SHEIK, 2])
+
+    def test_fighter_restart_keeps_a_fighter_given_kind_minus_one(self):
+        self.m.call('TestStageSwapQueueFighter', 0, FOX, 0)
+        self.m.call('TestStageSwapQueueFighter', 1, ZELDA, 1)
+        self.enter(self.lab)
+        self.prep(self.lab)
+        self.assertEqual(self.info(13), [SHEIK])
+        self.assertEqual(self.fighters(PUFF, 3, -1, 0), 1)
+        self.prep(self.lab)
+        self.assertEqual(self.info(7, 8, 9, 10, 11, 13), [PUFF, 3, ZELDA, 1, PUFF, SHEIK])
+
+    def test_fighter_restart_refuses_fixed_fighters(self):
+        self.m.call('TestStageSwapQueueFighter', 0, FOX, 0)
+        self.enter(self.low_laser)  # the target is always Jigglypuff
+        self.assertEqual(self.fighters(-1, 0, MARTH, 0), 0)
+        self.assertEqual(self.fighters(-1, 0, -1, 0), 0)
+        self.assertEqual(self.info(3, 4), [0, 0])
+        self.assertEqual(self.fighters(FALCO, 0, -1, 0), 1)
+        self.prep(self.low_laser)
+        self.assertEqual(self.info(11, 13), [FALCO, PUFF])
 
     def test_carry_rejects_untagged_and_oversize_requests(self):
         self.assertEqual(self.store(tag=0), 0)
