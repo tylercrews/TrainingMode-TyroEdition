@@ -6099,7 +6099,11 @@ typedef char lab_session_capacity[(OPTGEN_COUNT + OPTCPU_COUNT + OPTTECH_COUNT +
     ACTION_LOG_MAX * OPTACTIONLOG_COUNT + OPTSTAGE_STADIUM_COUNT + OPTSTAGE_FOD_COUNT <= LAB_SESSION_MAX) ? 1 : -1];
 typedef char lab_recovery_capacity[(countof(RecOptions_Fox) <= LAB_RECOVERY_MAX &&
     countof(RecOptions_Falco) <= LAB_RECOVERY_MAX && countof(RecOptions_Sheik) <= LAB_RECOVERY_MAX &&
-    countof(RecOptions_Falcon) <= LAB_RECOVERY_MAX && countof(RecOptions_Marth) <= LAB_RECOVERY_MAX) ? 1 : -1];
+    countof(RecOptions_Falcon) <= LAB_RECOVERY_MAX && countof(RecOptions_Marth) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Yoshi) <= LAB_RECOVERY_MAX && countof(RecOptions_Peach) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Luigi) <= LAB_RECOVERY_MAX && countof(RecOptions_DrMario) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_IceClimbers) <= LAB_RECOVERY_MAX && countof(RecOptions_Puff) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Samus) <= LAB_RECOVERY_MAX) ? 1 : -1];
 
 static EventOption *lab_session[LAB_SESSION_MAX];
 static s16 lab_session_defaults[LAB_SESSION_MAX];

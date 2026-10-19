@@ -26,6 +26,13 @@ static int RecoveryPref(EventMenu *menu) {
     if (menu == &RecMenu_Sheik) return TM_EG_RECOVERY_SHEIK;
     if (menu == &RecMenu_Falcon) return TM_EG_RECOVERY_FALCON;
     if (menu == &RecMenu_Marth) return TM_EG_RECOVERY_MARTH;
+    if (menu == &RecMenu_Yoshi) return TM_EG_RECOVERY_YOSHI;
+    if (menu == &RecMenu_Peach) return TM_EG_RECOVERY_PEACH;
+    if (menu == &RecMenu_Luigi) return TM_EG_RECOVERY_LUIGI;
+    if (menu == &RecMenu_DrMario) return TM_EG_RECOVERY_DRMARIO;
+    if (menu == &RecMenu_IceClimbers) return TM_EG_RECOVERY_ICECLIMBERS;
+    if (menu == &RecMenu_Puff) return TM_EG_RECOVERY_PUFF;
+    if (menu == &RecMenu_Samus) return TM_EG_RECOVERY_SAMUS;
     return -1;
 }
 
@@ -196,8 +203,10 @@ static void Reset_HMN(GOBJ *hmn, int side_idx, int dmg) {
 
 static void Reset_CPU(GOBJ *cpu, int side_idx, int dmg, float kb_mag, float kb_angle) {
     FighterData *cpu_data = cpu->userdata;
-    cpu_data->cpu.ai = 15;
-    
+    // Nana keeps the game's own AI, which follows Popo's inputs.
+    if (!cpu_data->flags.ms)
+        cpu_data->cpu.ai = 15;
+
     int side = side_idx * 2 - 1;
     cpu_data->facing_direction = -side;
     float ledge_x = ledge_positions[side_idx].X - DISTANCE_FROM_LEDGE * side;
@@ -278,7 +287,7 @@ static void Reset(void) {
     }
     if (cpu_sub && cpu_data->flags.has_follower) {
         Reset_CPU(cpu_sub, side_idx, cpu_dmg, kb_mag, kb_angle);
-        Reset_Subchar(cpu_sub, hmn);
+        Reset_Subchar(cpu_sub, cpu);
     }
 }
 

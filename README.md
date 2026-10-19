@@ -62,8 +62,10 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 - **Program changes**
     - New reusable character selector module ([src/fighter_swap.h](src/fighter_swap.h)) and menu support for custom rows (extra buttons, colored values, stock icons), so other events can get the same Player/CPU Character rows later. Details are in [the mid-event swap notes](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md#implemented-in-t6-player-and-cpu-character).
-    - Global Settings saves version 18 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes, the saved Player/CPU costumes use 2 more and the Edgeguard settings use 12, leaving 24. Older saves update automatically with every OSD on Auto, default costumes and default Edgeguard settings.
+    - Global Settings saves version 19 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes, the saved Player/CPU costumes use 2 more and the Edgeguard settings use 16, leaving 20. Older saves update automatically with every OSD on Auto, default costumes and default Edgeguard settings.
+    - Reading a saved setting no longer re-checks the fields that can't hold a bad value (like the recovery toggles), so every settings read does less work.
     - The character selector can now limit one slot to a list of characters, for events that only support some CPUs.
+    - New CPU recoveries for Yoshi, Peach, Luigi, Dr. Mario, the Ice Climbers, Jigglypuff and Samus ([src/recovery.c](src/recovery.c)). They press buttons the way a person does: fresh presses, and mashing at about 10 presses a second (15 with Fast Mashing). The research, the numbers behind each one and a Dolphin test list are in [the Edgeguard character notes](notes/EDGEGUARD-NEW-CHARACTERS.md); [scripts/fighter_move_data.py](scripts/fighter_move_data.py) reads the move heights and timings from the ISO.
     - New [save data memory map](notes/SAVE-DATA-MEMORY-MAP.md): tables showing every saved byte Tyro uses, what owns it, and what's still free.
     - Global Settings pages now go forward with R and back with L. Previously both went forward.
 - **Globals and all events**
@@ -83,12 +85,15 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Your Lab settings carry over like they do for Change Stage, except the CPU's recovery options (kept only if the CPU stays the same) and Character RNG (kept only if both characters stay the same). Recordings and saved positions are cleared.
         - The two characters can't end up in the same costume: picking the other slot's character skips its color.
         - Picking Zelda as the CPU now gives you Zelda. (The character select still turns a Zelda CPU into Sheik.)
+        - A recovering CPU playing Yoshi, Peach, Luigi, Dr. Mario, the Ice Climbers, Jigglypuff or Samus now uses the new Edgeguard recoveries instead of the game's own CPU, and the **Recovery Options** menu works for them.
     - **Edgeguard Training**
         - The event name is now cyan on the event select screen.
-        - Settings are saved: Player Percent, Hit Strength, all six Custom Hit Strength values, and the Recovery Options of each CPU (Fox, Falco, Sheik, Captain Falcon and Marth each keep their own).
-        - New **Change Characters** menu with the same Player Character and CPU Character rows as the Training Lab. The player can be anyone; the CPU list only has the five characters the event supports (Fox, Marth, Falco, Sheik, Captain Falcon).
+        - Settings are saved: Player Percent, Hit Strength, all six Custom Hit Strength values, and the Recovery Options of each CPU (every CPU keeps its own).
+        - New **Change Characters** menu with the same Player Character and CPU Character rows as the Training Lab. The player can be anyone; the CPU list only has the characters the event supports.
+        - Seven new CPUs: **Yoshi** (double jump high or low, air dodge to the ledge or stage, egg toss), **Peach** (float to the stage or low by the ledge, Parasol, Bomber, float aerials), **Luigi** (mashed Cyclone, Green Missile with the game's own misfires, up B), **Dr. Mario** (mashed Dr. Tornado, Cape stall, up B), the **Ice Climbers** (Belay when Nana is close, mashed Squall Hammer otherwise), **Jigglypuff** (jumps to stay high or low, Pound, aerials at you) and **Samus** (bomb jumps, grapple, Screw Attack). Each has its own Recovery Options. These haven't been tested in Dolphin yet; see [the notes](notes/EDGEGUARD-NEW-CHARACTERS.md#testing-in-dolphin).
+        - Ice Climbers: resets no longer switch off Nana's AI, and she now follows Popo instead of you after a reset.
 
-For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for the character swapping and OSD layout)
+For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for the character swapping and OSD layout, and Max for attempting to add new characters to Edgeguarding)
 
 ### T5 (V1.4.1T5) - 2026-10-18
 

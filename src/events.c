@@ -612,7 +612,8 @@ EventDesc Edgeguard = {
     .allowed_characters = {
         .hmn = -1,
         .cpu = CSSID_FOX | CSSID_FALCO | CSSID_ZELDA | CSSID_CAPTAIN_FALCON
-            | CSSID_MARTH
+            | CSSID_MARTH | CSSID_YOSHI | CSSID_PEACH | CSSID_LUIGI | CSSID_DOCTOR_MARIO
+            | CSSID_ICE_CLIMBERS | CSSID_JIGGLYPUFF | CSSID_SAMUS
     },
     .cpuKind = -1,
     .stage = -1,

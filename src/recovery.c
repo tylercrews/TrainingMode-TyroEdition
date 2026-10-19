@@ -9,6 +9,14 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags);
 static void Think_Sheik(GOBJ *cpu, u32 opt_flags);
 static void Think_Falcon(GOBJ *cpu, u32 opt_flags);
 static void Think_Marth(GOBJ *cpu, u32 opt_flags);
+static void Think_Yoshi(GOBJ *cpu, u32 opt_flags);
+static void Think_Peach(GOBJ *cpu, u32 opt_flags);
+static void Think_Luigi(GOBJ *cpu, u32 opt_flags);
+static void Think_DrMario(GOBJ *cpu, u32 opt_flags);
+static void Think_IceClimbers(GOBJ *cpu, u32 opt_flags);
+static void Think_Puff(GOBJ *cpu, u32 opt_flags);
+static void Think_Samus(GOBJ *cpu, u32 opt_flags);
+static bool RecoveryAssignsInputs(int kind);
 
 typedef void (*ThinkFn)(GOBJ *, u32);
 static ThinkFn ThinkFnLookup[] = {
@@ -21,19 +29,19 @@ static ThinkFn ThinkFnLookup[] = {
     0, // LINK
     Think_Sheik, // SHEIK
     0, // NESS
-    0, // PEACH
-    0, // POPO
-    0, // NANA
+    Think_Peach, // PEACH
+    Think_IceClimbers, // POPO
+    0, // NANA (follows Popo with the game's own AI)
     0, // PIKACHU
-    0, // SAMUS
-    0, // YOSHI
-    0, // JIGGLYPUFF
+    Think_Samus, // SAMUS
+    Think_Yoshi, // YOSHI
+    Think_Puff, // JIGGLYPUFF
     0, // MEWTWO
-    0, // LUIGI
+    Think_Luigi, // LUIGI
     Think_Marth, // MARTH
     0, // ZELDA
     0, // YOUNGLINK
-    0, // DRMARIO
+    Think_DrMario, // DRMARIO
     Think_Spacies, // FALCO
     0, // PICHU
     0, // GAW,
@@ -88,7 +96,15 @@ void Recovery_Think(GOBJ *cpu, u32 opt_flags) {
         
     FighterData *cpu_data = cpu->userdata;
     cpu_data->cpu.ai = 15; // noact
-    
+
+    // The newer recoveries set every button and stick themselves each frame,
+    // so a press lasts exactly the frames that ask for it (mashing needs that).
+    if (RecoveryAssignsInputs(cpu_data->kind)) {
+        cpu_data->cpu.held = 0;
+        cpu_data->cpu.lstickX = cpu_data->cpu.lstickY = 0;
+        cpu_data->cpu.cstickX = cpu_data->cpu.cstickY = 0;
+    }
+
     // Common thinking -----------------------
     
     float x = cpu_data->phys.pos.X;
@@ -182,6 +198,75 @@ enum options_marth {
     OPT_MARTH_FAIR,
 
     OPT_MARTH_COUNT
+};
+
+// Row order is the saved bit order (Edgeguard's TM_EG_RECOVERY_* masks).
+
+enum options_yoshi {
+    OPT_YOSHI_JUMP_HIGH,
+    OPT_YOSHI_JUMP_LOW,
+    OPT_YOSHI_AIRDODGE_LEDGE,
+    OPT_YOSHI_AIRDODGE_STAGE,
+    OPT_YOSHI_EGG,
+
+    OPT_YOSHI_COUNT
+};
+
+enum options_peach {
+    OPT_PEACH_FLOAT_STAGE,
+    OPT_PEACH_FLOAT_LOW,
+    OPT_PEACH_PARASOL,
+    OPT_PEACH_BOMBER,
+    OPT_PEACH_FLOAT_AERIALS,
+
+    OPT_PEACH_COUNT
+};
+
+enum options_luigi {
+    OPT_LUIGI_JUMP,
+    OPT_LUIGI_CYCLONE,
+    OPT_LUIGI_MISSILE,
+    OPT_LUIGI_UPB_EARLY,
+    OPT_LUIGI_FAST_MASH,
+
+    OPT_LUIGI_COUNT
+};
+
+enum options_drmario {
+    OPT_DRMARIO_JUMP,
+    OPT_DRMARIO_TORNADO,
+    OPT_DRMARIO_CAPE,
+    OPT_DRMARIO_UPB_EARLY,
+    OPT_DRMARIO_FAST_MASH,
+
+    OPT_DRMARIO_COUNT
+};
+
+enum options_iceclimbers {
+    OPT_ICS_BELAY,
+    OPT_ICS_SQUALL,
+    OPT_ICS_FAST_MASH,
+
+    OPT_ICS_COUNT
+};
+
+enum options_puff {
+    OPT_PUFF_JUMP_HIGH,
+    OPT_PUFF_JUMP_LOW,
+    OPT_PUFF_POUND,
+    OPT_PUFF_AERIALS,
+
+    OPT_PUFF_COUNT
+};
+
+enum options_samus {
+    OPT_SAMUS_JUMP,
+    OPT_SAMUS_BOMBS,
+    OPT_SAMUS_GRAPPLE,
+    OPT_SAMUS_SCREW,
+    OPT_SAMUS_SCREW_HIGH,
+
+    OPT_SAMUS_COUNT
 };
  
 // Fox -------------------------------------------------
@@ -384,6 +469,295 @@ static EventMenu RecMenu_Marth = {
     .options = RecOptions_Marth,
 };
 
+// Yoshi --------------------------------------
+
+static EventOption RecOptions_Yoshi[] = {
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Jump High",
+        .desc = {"Allow Yoshi to double jump at or above",
+                 "ledge height and drift onto the stage."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Jump Low",
+        .desc = {"Allow Yoshi to save the double jump",
+                 "until below the ledge."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Air Dodge to Ledge",
+        .desc = {"Allow Yoshi to air dodge up to the ledge",
+                 "after the double jump."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Air Dodge to Stage",
+        .desc = {"Allow Yoshi to air dodge onto the stage."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Egg Toss",
+        .desc = {"Allow Yoshi to throw eggs at the player",
+                 "while recovering high."},
+    },
+};
+
+static EventMenu RecMenu_Yoshi = {
+    .name = "Yoshi Recovery",
+    .option_num = sizeof(RecOptions_Yoshi) / sizeof(EventOption),
+    .options = RecOptions_Yoshi,
+};
+
+// Peach --------------------------------------
+
+static EventOption RecOptions_Peach[] = {
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Float to Stage",
+        .desc = {"Allow Peach to double jump, float at the",
+                 "top and drift onto the stage."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Float Low",
+        .desc = {"Allow Peach to float near ledge height."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Parasol",
+        .desc = {"Allow Peach to up special to the ledge."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Peach Bomber",
+        .desc = {"Allow Peach to side special toward the",
+                 "stage."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Float Aerials",
+        .desc = {"Allow Peach to attack the player while",
+                 "floating."},
+    },
+};
+
+static EventMenu RecMenu_Peach = {
+    .name = "Peach Recovery",
+    .option_num = sizeof(RecOptions_Peach) / sizeof(EventOption),
+    .options = RecOptions_Peach,
+};
+
+// Luigi --------------------------------------
+
+static EventOption RecOptions_Luigi[] = {
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Double Jump",
+        .desc = {"Allow Luigi to double jump."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Cyclone",
+        .desc = {"Allow Luigi to mash down special for",
+                 "height. It lifts only once, until a",
+                 "Cyclone touches the ground."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Green Missile",
+        .desc = {"Allow Luigi to side special toward the",
+                 "stage. It misfires 1 time in 8, as in",
+                 "the game."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Up B Early",
+        .desc = {"Allow Luigi to up special onto the stage",
+                 "from above the ledge."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Fast Mashing",
+        .desc = {"Mash B about 15 times a second instead",
+                 "of about 10. Luigi's Cyclone needs it",
+                 "to gain much height."},
+    },
+};
+
+static EventMenu RecMenu_Luigi = {
+    .name = "Luigi Recovery",
+    .option_num = sizeof(RecOptions_Luigi) / sizeof(EventOption),
+    .options = RecOptions_Luigi,
+};
+
+// Dr. Mario ----------------------------------
+
+static EventOption RecOptions_DrMario[] = {
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Double Jump",
+        .desc = {"Allow Dr. Mario to double jump."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Dr. Tornado",
+        .desc = {"Allow Dr. Mario to mash down special for",
+                 "height. Only the first one each airtime",
+                 "lifts."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Cape Stall",
+        .desc = {"Allow Dr. Mario to side special to stall",
+                 "and change the timing."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Up B Early",
+        .desc = {"Allow Dr. Mario to up special onto the",
+                 "stage from above the ledge."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Fast Mashing",
+        .desc = {"Mash B about 15 times a second instead",
+                 "of about 10."},
+    },
+};
+
+static EventMenu RecMenu_DrMario = {
+    .name = "Dr. Mario Recovery",
+    .option_num = sizeof(RecOptions_DrMario) / sizeof(EventOption),
+    .options = RecOptions_DrMario,
+};
+
+// Ice Climbers -------------------------------
+
+static EventOption RecOptions_IceClimbers[] = {
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Belay",
+        .desc = {"Allow the Ice Climbers to up special when",
+                 "Nana is close enough to help."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Squall Hammer",
+        .desc = {"Allow the Ice Climbers to mash side",
+                 "special for height and distance."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Fast Mashing",
+        .desc = {"Mash B about 15 times a second instead",
+                 "of about 10. Squall Hammer can't lift",
+                 "more than once every 7 frames."},
+    },
+};
+
+static EventMenu RecMenu_IceClimbers = {
+    .name = "Ice Climbers Recovery",
+    .option_num = sizeof(RecOptions_IceClimbers) / sizeof(EventOption),
+    .options = RecOptions_IceClimbers,
+};
+
+// Jigglypuff ---------------------------------
+
+static EventOption RecOptions_Puff[] = {
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Jump High",
+        .desc = {"Allow Jigglypuff to jump above the ledge",
+                 "and drift onto the stage."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Jump Low",
+        .desc = {"Allow Jigglypuff to save jumps and stay",
+                 "near ledge height."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Pound",
+        .desc = {"Allow Jigglypuff to side special toward",
+                 "the stage."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Aerials",
+        .desc = {"Allow Jigglypuff to attack the player",
+                 "when they get close."},
+        .val = 1,
+    },
+};
+
+static EventMenu RecMenu_Puff = {
+    .name = "Jigglypuff Recovery",
+    .option_num = sizeof(RecOptions_Puff) / sizeof(EventOption),
+    .options = RecOptions_Puff,
+};
+
+// Samus --------------------------------------
+
+static EventOption RecOptions_Samus[] = {
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Double Jump",
+        .desc = {"Allow Samus to double jump."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Bomb Jumps",
+        .desc = {"Allow Samus to lay bombs to stall and",
+                 "drift toward the stage."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Grapple",
+        .desc = {"Allow Samus to tether to the ledge. A",
+                 "miss leaves Samus helpless, so it's",
+                 "only used close to the ledge."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Screw Attack",
+        .desc = {"Allow Samus to up special to the ledge."},
+        .val = 1,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Screw Attack High",
+        .desc = {"Allow Samus to up special onto the stage",
+                 "from near ledge height."},
+    },
+};
+
+static EventMenu RecMenu_Samus = {
+    .name = "Samus Recovery",
+    .option_num = sizeof(RecOptions_Samus) / sizeof(EventOption),
+    .options = RecOptions_Samus,
+};
+
 EventMenu *RecoveryMenus[] = {
     0, // MARIO
     &RecMenu_Fox,
@@ -394,19 +768,19 @@ EventMenu *RecoveryMenus[] = {
     0, // LINK
     &RecMenu_Sheik,
     0, // NESS
-    0, // PEACH
-    0, // POPO
+    &RecMenu_Peach,
+    &RecMenu_IceClimbers, // POPO
     0, // NANA
     0, // PIKACHU
-    0, // SAMUS
-    0, // YOSHI
-    0, // JIGGLYPUFF
+    &RecMenu_Samus,
+    &RecMenu_Yoshi,
+    &RecMenu_Puff,
     0, // MEWTWO
-    0, // LUIGI
+    &RecMenu_Luigi,
     &RecMenu_Marth,
     0, // ZELDA
     0, // YOUNGLINK
-    0, // DRMARIO
+    &RecMenu_DrMario,
     &RecMenu_Falco,
     0, // PICHU
     0, // GAW,
@@ -1351,9 +1725,814 @@ static void Think_Marth(GOBJ *cpu, u32 opt_flags) {
 
     } else if (ASID_ATTACKAIRN <= state && state <= ASID_ATTACKAIRLW) {
         cpu_data->cpu.lstickX = 127 * sign(vec_to_ledgegrab.X);
-        
+
     } else if (ASID_FALLSPECIAL <= state && state <= ASID_FALLSPECIALB) {
         cpu_data->cpu.lstickX = 127 * sign(vec_to_ledgegrab.X);
+    }
+}
+
+// Newer recoveries ---------------------------------------------------------
+//
+// Yoshi, Peach, Luigi, Dr. Mario, the Ice Climbers, Jigglypuff and Samus.
+// They set every button and stick themselves each frame (Recovery_Think
+// clears them first). Heights of animated moves come from each move's TransN
+// root motion in the ISO's PlXxAJ.dat (the game moves the fighter by that
+// bone's change every frame); the rest follow the decompiled move code and
+// each fighter's attributes. See notes/EDGEGUARD-NEW-CHARACTERS.md.
+
+// How far below the ledge-grab point the top of a rise still grabs the ledge.
+// Falcon's 48 and Marth's 60 above, against their 37.6 and 47.3 rises, imply
+// 10 to 13.
+#define LEDGE_GRAB_REACH 10.f
+
+// Mashing: one fresh B press every this many frames, give or take one.
+#define MASH_INTERVAL 6      // about 10 presses a second
+#define MASH_INTERVAL_FAST 4 // about 15, a very fast masher
+
+typedef struct RecoveryInfo {
+    Vec2 pos, vel;
+    float dir;      // 1 when the stage is to the right
+    Vec2 ledge;     // the ledge on the CPU's side
+    Vec2 to_ledge;  // ledge - pos
+    Vec2 to_grab;   // ledge grab point - pos
+    float out;      // how far outside the grab point (negative under or over the stage)
+    bool can_jump;
+    bool tumble;    // knocked into tumble: no air dodge or float
+} RecoveryInfo;
+
+static int mash_timer = 0;
+static int lg_missile_charge = 0;
+static bool pe_float_after_jump = false;
+static int pr_high = -1; // Jigglypuff's plan this attempt: 1 high, 0 low, -1 undecided
+
+static bool RecoveryAssignsInputs(int kind) {
+    return kind == FTKIND_YOSHI || kind == FTKIND_PEACH || kind == FTKIND_LUIGI
+        || kind == FTKIND_DRMARIO || kind == FTKIND_POPO || kind == FTKIND_JIGGLYPUFF
+        || kind == FTKIND_SAMUS;
+}
+
+// Every attempt starts in hitlag; forget the last one's plans.
+static void ResetRecoveryPlans(void) {
+    mash_timer = 0;
+    lg_missile_charge = 0;
+    pe_float_after_jump = false;
+    pr_high = -1;
+}
+
+static RecoveryInfo GetRecoveryInfo(FighterData *ft, float grab_x, float grab_y) {
+    RecoveryInfo r;
+    r.pos = (Vec2) { ft->phys.pos.X, ft->phys.pos.Y };
+    r.vel = (Vec2) { ft->phys.self_vel.X, ft->phys.self_vel.Y };
+    r.dir = r.pos.X > 0.f ? -1.f : 1.f;
+    r.ledge = ledge_positions[r.pos.X > 0.f];
+    r.to_ledge = (Vec2) { r.ledge.X - r.pos.X, r.ledge.Y - r.pos.Y };
+    r.to_grab = (Vec2) { r.to_ledge.X - grab_x * r.dir, r.to_ledge.Y - grab_y };
+    r.out = r.to_grab.X * r.dir;
+    r.can_jump = ft->jump.jumps_used < ft->attr.max_jumps;
+    r.tumble = ft->state_id == ASID_DAMAGEFALL || InHitstunAnim(ft->state_id);
+    return r;
+}
+
+static bool OneIn(int n) { return HSD_Randi(n) == 0; }
+
+// A fresh press. The game only acts on presses, so a button already down
+// last frame is let go for a frame first; asking every frame then presses
+// every other frame until the game takes it.
+static void Press(FighterData *ft, int buttons) {
+    ft->cpu.held |= buttons & ~ft->input.held;
+}
+
+static void SetStick(FighterData *ft, float x, float y) {
+    ft->cpu.lstickX = (s8)(fclamp(x, -1.f, 1.f) * 127.f);
+    ft->cpu.lstickY = (s8)(fclamp(y, -1.f, 1.f) * 127.f);
+}
+
+// Full tilt toward a point.
+static void AimStick(FighterData *ft, float dx, float dy) {
+    Vec2 v = { dx, dy };
+    if (Vec2_Length(&v) < 0.01f)
+        return;
+    Vec2_Normalize(&v);
+    SetStick(ft, v.X, v.Y);
+}
+
+// Above the grab point, drift onto the stage. Below it, line up `lineup`
+// units outside the grab point (where the up special starts) rather than
+// drifting under the stage.
+static void DriftHome(FighterData *ft, RecoveryInfo *r, float lineup) {
+    float x = 0.f;
+    if (r->to_grab.Y < 0.f || r->out > lineup + 3.f)
+        x = r->dir;
+    else if (r->out < lineup - 3.f)
+        x = -r->dir;
+    SetStick(ft, x, 0.f);
+}
+
+// One fresh B press every MASH_INTERVAL frames, give or take one, and never
+// on two frames in a row: a person mashing, not a turbo button.
+static bool MashB(bool fast) {
+    if (mash_timer > 0) {
+        --mash_timer;
+        return false;
+    }
+    mash_timer = (fast ? MASH_INTERVAL_FAST : MASH_INTERVAL) - 2 + HSD_Randi(3);
+    return true;
+}
+
+// The player is close enough to hit with an aerial a few frames from now.
+static bool PlayerInReach(FighterData *ft, float size, int frames) {
+    FighterData *hmn = Fighter_GetGObj(0)->userdata;
+    return hmn->hurt.intang_frames.ledge < 4 && ProjectedDistance(hmn, ft, frames) < size;
+}
+
+// Yoshi ----------------------------------------------------------------
+
+#define YS_GRAB_X 14.f
+#define YS_GRAB_Y 8.f
+// The double jump's root motion dips for 8 frames, then rises 52.5 by frame
+// 52, the highest in the game.
+#define YS_JUMP_PEAK_FRAME 52
+#define YS_JUMP_LATEST 38.f      // never wait lower than this under the grab point
+#define YS_AIRDODGE_REACH 28.f   // 3.1 speed, x0.9 a frame: 31 units, less a margin
+
+#define YS_JUMP_HIGH_CHANCE 15
+#define YS_JUMP_LOW_CHANCE 20
+#define YS_AIRDODGE_LEDGE_CHANCE 6
+#define YS_AIRDODGE_STAGE_CHANCE 8
+#define YS_EGG_CHANCE 45
+
+static void Think_Yoshi(GOBJ *cpu, u32 opt_flags) {
+    FighterData *ft = cpu->userdata;
+    RecoveryInfo r = GetRecoveryInfo(ft, YS_GRAB_X, YS_GRAB_Y);
+    int state = ft->state_id;
+    bool high = OptEnabled(OPT_YOSHI_JUMP_HIGH);
+    bool low = OptEnabled(OPT_YOSHI_JUMP_LOW);
+    // The double jump keeps rising until frame 52; a dodge or an attack
+    // would cut it short.
+    bool rising = (state == ASID_JUMPAERIALF || state == ASID_JUMPAERIALB)
+        && ft->TM.state_frame < YS_JUMP_PEAK_FRAME;
+    Vec2 to_stage = { r.to_ledge.X + 15.f * r.dir, r.to_ledge.Y + 1.f };
+
+    if (ft->flags.hitlag) {
+        ResetRecoveryPlans();
+        DIIn(ft);
+
+    } else if (IsAirActionable(cpu)) {
+        // JUMP
+        if (
+            r.can_jump && r.vel.Y < 0.5f
+            && (
+                r.to_grab.Y > YS_JUMP_LATEST
+                || (high && r.to_grab.Y > -30.f && r.to_grab.Y < 10.f && r.out > 10.f && OneIn(YS_JUMP_HIGH_CHANCE))
+                || (low && r.to_grab.Y >= 10.f && OneIn(YS_JUMP_LOW_CHANCE))
+                || (!high && !low && r.to_grab.Y > 20.f)
+            )
+        ) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, r.dir, 0.f);
+
+        // EGG TOSS while there is height to spare
+        } else if (
+            OptEnabled(OPT_YOSHI_EGG) && !rising && r.to_grab.Y < -10.f
+            && PlayerInReach(ft, 70.f, 10) && OneIn(YS_EGG_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // AIR DODGE TO LEDGE: the dodge can't grab, the helpless fall after it can
+        } else if (
+            OptEnabled(OPT_YOSHI_AIRDODGE_LEDGE) && !r.tumble && !rising && !r.can_jump
+            && r.to_grab.Y > 0.f && r.to_grab.Y < YS_AIRDODGE_REACH
+            && r.out < YS_AIRDODGE_REACH * 0.7f
+            && (OneIn(YS_AIRDODGE_LEDGE_CHANCE) || r.to_grab.Y > YS_AIRDODGE_REACH * 0.6f)
+        ) {
+            Press(ft, PAD_TRIGGER_R);
+            AimStick(ft, r.to_grab.X, r.to_grab.Y + 10.f);
+
+        // AIR DODGE TO STAGE
+        } else if (
+            OptEnabled(OPT_YOSHI_AIRDODGE_STAGE) && !r.tumble && !rising
+            && r.to_ledge.Y < 5.f && Vec2_Length(&to_stage) < YS_AIRDODGE_REACH
+            && OneIn(YS_AIRDODGE_STAGE_CHANCE)
+        ) {
+            Press(ft, PAD_TRIGGER_R);
+            AimStick(ft, to_stage.X, to_stage.Y);
+
+        // WAIT
+        } else {
+            DriftHome(ft, &r, 0.f);
+        }
+
+    } else {
+        DriftHome(ft, &r, 0.f);
+    }
+}
+
+// Peach ----------------------------------------------------------------
+
+#define PE_GRAB_X 12.f
+#define PE_GRAB_Y 8.f
+// The double jump dips for 8 frames, then rises 33.2 by frame 50; holding
+// jump floats at its top (the game only checks from frame 30). The parasol
+// rises 36.8 by frame 33 and can only grab on the way down.
+#define PE_JUMP_PEAK_FRAME 50
+#define PE_PARASOL_REACH (36.8f + LEDGE_GRAB_REACH)
+
+#define PE_FLOAT_STAGE_CHANCE 18
+#define PE_FLOAT_LOW_CHANCE 6
+#define PE_PARASOL_CHANCE 6
+#define PE_BOMBER_CHANCE 20
+#define PE_FLOAT_AERIAL_CHANCE 3
+
+#define PE_STATE_FLOAT 341
+
+static void Think_Peach(GOBJ *cpu, u32 opt_flags) {
+    FighterData *ft = cpu->userdata;
+    RecoveryInfo r = GetRecoveryInfo(ft, PE_GRAB_X, PE_GRAB_Y);
+    int state = ft->state_id;
+    bool has_float = ft->fighter_var.ft_var1 != 0; // fp+222C, cleared once she floats
+    bool jumping = state == ASID_JUMPAERIALF || state == ASID_JUMPAERIALB;
+    bool rising = jumping && ft->TM.state_frame < PE_JUMP_PEAK_FRAME;
+    // Over the stage and above the ledge: stop floating and land.
+    bool over_stage = r.to_ledge.X * r.dir < -10.f && r.to_ledge.Y < 0.f;
+    bool parasol_range = OptEnabled(OPT_PEACH_PARASOL)
+        && r.to_grab.Y > 2.f && r.to_grab.Y < PE_PARASOL_REACH && r.out < 20.f;
+    bool parasol_late = r.to_grab.Y > PE_PARASOL_REACH - 12.f;
+
+    if (ft->flags.hitlag) {
+        ResetRecoveryPlans();
+        DIIn(ft);
+
+    // FLOATING: holding jump keeps it going for up to 150 frames
+    } else if (state == PE_STATE_FLOAT) {
+        if (
+            OptEnabled(OPT_PEACH_FLOAT_AERIALS) && PlayerInReach(ft, 22.f, 5)
+            && OneIn(PE_FLOAT_AERIAL_CHANCE)
+        ) {
+            FighterData *hmn = Fighter_GetGObj(0)->userdata;
+            ft->cpu.held |= PAD_BUTTON_Y;
+            Press(ft, PAD_BUTTON_A);
+            SetStick(ft, sign(hmn->phys.pos.X - r.pos.X), 0.f);
+        } else if (parasol_range && (OneIn(PE_PARASOL_CHANCE) || parasol_late)) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+        } else if (over_stage) {
+            SetStick(ft, r.dir, 0.f);
+        } else {
+            ft->cpu.held |= PAD_BUTTON_Y;
+            SetStick(ft, r.dir, 0.f);
+        }
+
+    } else if (IsAirActionable(cpu)) {
+        // DOUBLE JUMPING: let it rise, holding jump to float at the top.
+        // Down and jump, or the parasol, would cut it short.
+        if (jumping && (pe_float_after_jump || rising)) {
+            if (pe_float_after_jump)
+                ft->cpu.held |= PAD_BUTTON_Y;
+            SetStick(ft, r.dir, 0.f);
+
+        // DOUBLE JUMP
+        } else if (
+            r.can_jump && r.vel.Y < 0.5f
+            && (
+                r.to_grab.Y > PE_PARASOL_REACH - 14.f
+                || (OptEnabled(OPT_PEACH_FLOAT_STAGE) && r.to_grab.Y > -15.f && r.out > 15.f && OneIn(PE_FLOAT_STAGE_CHANCE))
+            )
+        ) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, r.dir, 0.f);
+            pe_float_after_jump = OptEnabled(OPT_PEACH_FLOAT_STAGE) && has_float;
+
+        // FLOAT LOW: down and jump floats on the spot
+        } else if (
+            OptEnabled(OPT_PEACH_FLOAT_LOW) && has_float && !r.tumble && r.vel.Y < 0.f
+            && r.to_grab.Y > -18.f && r.to_grab.Y < 12.f && r.out > 8.f
+            && OneIn(PE_FLOAT_LOW_CHANCE)
+        ) {
+            ft->cpu.held |= PAD_BUTTON_Y; // held, not pressed, with the stick down
+            SetStick(ft, 0.f, -1.f);
+
+        // PARASOL
+        } else if (
+            parasol_range && r.vel.Y < 0.5f && (!r.can_jump || r.to_grab.Y < 25.f)
+            && (OneIn(PE_PARASOL_CHANCE) || parasol_late)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // PEACH BOMBER
+        } else if (
+            OptEnabled(OPT_PEACH_BOMBER) && r.out > 45.f
+            && r.to_ledge.Y > -35.f && r.to_ledge.Y < 15.f && OneIn(PE_BOMBER_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, r.dir, 0.f);
+
+        // WAIT
+        } else {
+            DriftHome(ft, &r, 0.f);
+        }
+
+    } else {
+        // parasol, bomber, float fall and helpless: steer home
+        DriftHome(ft, &r, 0.f);
+    }
+}
+
+// Luigi ----------------------------------------------------------------
+
+#define LG_GRAB_X 12.f
+#define LG_GRAB_Y 8.f
+// The up special rises 45.9 straight up by frame 26, so line up first.
+#define LG_UPB_REACH (45.9f + LEDGE_GRAB_REACH)
+#define LG_UPB_LINEUP 10.f
+// A Cyclone mashed 10 times a second can end 12 lower than it started.
+#define LG_CYCLONE_SAFE 15.f
+
+#define LG_JUMP_CHANCE 25
+#define LG_MISSILE_CHANCE 10
+#define LG_CYCLONE_CHANCE 10
+#define LG_UPB_CHANCE 6
+#define LG_UPB_EARLY_CHANCE 20
+
+#define LG_STATE_MISSILE_START 349
+#define LG_STATE_MISSILE_HOLD 350
+#define LG_STATE_CYCLONE 358
+
+static void Think_Luigi(GOBJ *cpu, u32 opt_flags) {
+    FighterData *ft = cpu->userdata;
+    RecoveryInfo r = GetRecoveryInfo(ft, LG_GRAB_X, LG_GRAB_Y);
+    int state = ft->state_id;
+    bool cyclone_lifts = ft->fighter_var.ft_var1 == 0; // fp+222C, set when a Cyclone ends its lift
+    bool jump = OptEnabled(OPT_LUIGI_JUMP) && r.can_jump;
+
+    if (ft->flags.hitlag) {
+        ResetRecoveryPlans();
+        DIIn(ft);
+
+    // GREEN MISSILE CHARGE: holding B charges, letting go launches
+    } else if (state == LG_STATE_MISSILE_START || state == LG_STATE_MISSILE_HOLD) {
+        if (lg_missile_charge > 0) {
+            if (state == LG_STATE_MISSILE_HOLD)
+                --lg_missile_charge;
+            ft->cpu.held |= PAD_BUTTON_B;
+        }
+        SetStick(ft, r.dir, 0.f);
+
+    // CYCLONE: mash for lift
+    } else if (state == LG_STATE_CYCLONE) {
+        if (MashB(OptEnabled(OPT_LUIGI_FAST_MASH)))
+            Press(ft, PAD_BUTTON_B);
+        DriftHome(ft, &r, 0.f);
+
+    } else if (IsAirActionable(cpu)) {
+        // JUMP
+        if (
+            jump && r.vel.Y < 0.5f
+            && (
+                r.to_grab.Y > LG_UPB_REACH - 8.f
+                || (r.to_grab.Y > 5.f && OneIn(LG_JUMP_CHANCE))
+                || (r.out > 70.f && r.to_grab.Y > -20.f && OneIn(LG_JUMP_CHANCE))
+            )
+        ) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, r.dir, 0.f);
+
+        // GREEN MISSILE across a long gap near ledge height
+        } else if (
+            OptEnabled(OPT_LUIGI_MISSILE) && r.out > 40.f
+            && r.to_grab.Y > -30.f && r.to_grab.Y < 25.f && r.vel.Y < 0.5f
+            && (OneIn(LG_MISSILE_CHANCE) || (r.out > 90.f && !jump))
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, r.dir, 0.f);
+            // longer gaps get a longer charge (a full charge is 90 frames)
+            lg_missile_charge = (int)fclamp((r.out - 40.f) * 0.5f, 0.f, 50.f) + HSD_Randi(10);
+
+        // CYCLONE while it still lifts (once, until a Cyclone touches the ground)
+        } else if (
+            OptEnabled(OPT_LUIGI_CYCLONE) && cyclone_lifts && !jump && r.vel.Y < 0.f && r.out < 60.f
+            && (
+                (r.to_grab.Y > 12.f && r.to_grab.Y < LG_UPB_REACH - LG_CYCLONE_SAFE && OneIn(LG_CYCLONE_CHANCE))
+                || r.to_grab.Y > LG_UPB_REACH - 4.f // too low for the up special alone
+            )
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, -1.f);
+            mash_timer = 2;
+
+        // UP B to the ledge
+        } else if (
+            !jump && r.vel.Y < 0.f && r.to_grab.Y > 0.f
+            && (
+                (r.to_grab.Y < LG_UPB_REACH && fabs(r.out) < LG_UPB_LINEUP && OneIn(LG_UPB_CHANCE))
+                || r.to_grab.Y > LG_UPB_REACH - 10.f
+            )
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // UP B EARLY onto the stage
+        } else if (
+            OptEnabled(OPT_LUIGI_UPB_EARLY) && r.to_grab.Y > -20.f && r.to_grab.Y <= 0.f
+            && r.out < 15.f && OneIn(LG_UPB_EARLY_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // WAIT
+        } else {
+            DriftHome(ft, &r, 0.f);
+        }
+
+    } else {
+        DriftHome(ft, &r, 0.f);
+    }
+}
+
+// Dr. Mario ------------------------------------------------------------
+
+#define DR_GRAB_X 12.f
+#define DR_GRAB_Y 8.f
+// The up special rises 40.4 and moves 17.5 forward by frame 24.
+#define DR_UPB_REACH (40.4f + LEDGE_GRAB_REACH)
+#define DR_UPB_FORWARD 15.f
+// A tornado mashed 10 times a second can end 12 lower than it started.
+#define DR_TORNADO_SAFE 15.f
+
+#define DR_JUMP_CHANCE 25
+#define DR_TORNADO_CHANCE 10
+#define DR_CAPE_CHANCE 30
+#define DR_UPB_CHANCE 6
+#define DR_UPB_EARLY_CHANCE 20
+
+#define DR_STATE_TORNADO 350
+
+static void Think_DrMario(GOBJ *cpu, u32 opt_flags) {
+    FighterData *ft = cpu->userdata;
+    RecoveryInfo r = GetRecoveryInfo(ft, DR_GRAB_X, DR_GRAB_Y);
+    int state = ft->state_id;
+    bool tornado_lifts = ft->fighter_var.ft_var3 == 0; // fp+2234, set when a tornado ends its lift
+    bool cape_lifts = ft->fighter_var.ft_var4 == 0;    // fp+2238, set by the first cape each airtime
+    bool jump = OptEnabled(OPT_DRMARIO_JUMP) && r.can_jump;
+    // how far outside the up special's starting spot
+    float upb_out = r.out - DR_UPB_FORWARD;
+
+    if (ft->flags.hitlag) {
+        ResetRecoveryPlans();
+        DIIn(ft);
+
+    // DR. TORNADO: mash for lift
+    } else if (state == DR_STATE_TORNADO) {
+        if (MashB(OptEnabled(OPT_DRMARIO_FAST_MASH)))
+            Press(ft, PAD_BUTTON_B);
+        DriftHome(ft, &r, DR_UPB_FORWARD);
+
+    } else if (IsAirActionable(cpu)) {
+        // JUMP
+        if (
+            jump && r.vel.Y < 0.5f
+            && (
+                r.to_grab.Y > DR_UPB_REACH - 8.f
+                || (r.to_grab.Y > 5.f && OneIn(DR_JUMP_CHANCE))
+                || (r.out > 70.f && r.to_grab.Y > -20.f && OneIn(DR_JUMP_CHANCE))
+            )
+        ) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, r.dir, 0.f);
+
+        // CAPE STALL: the first cape each airtime stops the fall for a moment
+        } else if (
+            OptEnabled(OPT_DRMARIO_CAPE) && cape_lifts && r.vel.Y < 0.f && r.out > 10.f
+            && r.to_grab.Y > -10.f && r.to_grab.Y < DR_UPB_REACH - 15.f && OneIn(DR_CAPE_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, r.dir, 0.f);
+
+        // DR. TORNADO while the first one this airtime still lifts
+        } else if (
+            OptEnabled(OPT_DRMARIO_TORNADO) && tornado_lifts && !jump && r.vel.Y < 0.f && r.out < 60.f
+            && (
+                (r.to_grab.Y > 12.f && r.to_grab.Y < DR_UPB_REACH - DR_TORNADO_SAFE && OneIn(DR_TORNADO_CHANCE))
+                || r.to_grab.Y > DR_UPB_REACH - 4.f // too low for the up special alone
+            )
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, -1.f);
+            mash_timer = 1;
+
+        // UP B to the ledge
+        } else if (
+            !jump && r.vel.Y < 0.f && r.to_grab.Y > 0.f
+            && (
+                (r.to_grab.Y < DR_UPB_REACH && upb_out > -10.f && upb_out < 8.f && OneIn(DR_UPB_CHANCE))
+                || r.to_grab.Y > DR_UPB_REACH - 10.f
+            )
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.4f * r.dir, 1.f);
+
+        // UP B EARLY onto the stage
+        } else if (
+            OptEnabled(OPT_DRMARIO_UPB_EARLY) && r.to_grab.Y > -20.f && r.to_grab.Y <= 0.f
+            && r.out < 25.f && OneIn(DR_UPB_EARLY_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.4f * r.dir, 1.f);
+
+        // WAIT
+        } else {
+            DriftHome(ft, &r, DR_UPB_FORWARD);
+        }
+
+    } else {
+        DriftHome(ft, &r, DR_UPB_FORWARD);
+    }
+}
+
+// Ice Climbers ---------------------------------------------------------
+//
+// Popo is the CPU here; Nana follows him with the game's own AI. Squall
+// Hammer and Belay both end helpless, so it's one or the other.
+
+#define IC_GRAB_X 10.f
+#define IC_GRAB_Y 6.f
+#define IC_JUMP_LATEST 30.f      // the double jump rises about 35
+// Belay checks for Nana within 60 on its fifth frame; ask for a little less.
+#define IC_BELAY_NANA_RANGE 45.f
+#define IC_BELAY_REACH 60.f      // Nana is thrown up and pulls Popo after her
+#define IC_BELAY_SOLO_REACH 22.f // alone: 1.8 up against 0.1 gravity, about 16
+// Squall Hammer with Nana lifts 45 even at 7 presses a second; alone about 10.
+#define IC_SQUALL_SOLO_REACH 18.f
+
+#define IC_JUMP_CHANCE 20
+#define IC_BELAY_CHANCE 6
+#define IC_SQUALL_CHANCE 10
+
+#define IC_STATE_SQUALL_FIRST 345
+#define IC_STATE_SQUALL_LAST 346
+
+static bool NanaCanHelp(FighterData *popo) {
+    GOBJ *nana = Fighter_GetSubcharGObj(popo->ply, 1);
+    if (!nana)
+        return false;
+    FighterData *nn = nana->userdata;
+    float dx = nn->phys.pos.X - popo->phys.pos.X;
+    float dy = nn->phys.pos.Y - popo->phys.pos.Y;
+    return !nn->flags.dead && !nn->flags.sleep && !nn->flags.hitlag && !nn->flags.hitstun
+        && dx * dx + dy * dy < IC_BELAY_NANA_RANGE * IC_BELAY_NANA_RANGE;
+}
+
+static void Think_IceClimbers(GOBJ *cpu, u32 opt_flags) {
+    FighterData *ft = cpu->userdata;
+    RecoveryInfo r = GetRecoveryInfo(ft, IC_GRAB_X, IC_GRAB_Y);
+    int state = ft->state_id;
+    bool nana = NanaCanHelp(ft);
+    bool belay = OptEnabled(OPT_ICS_BELAY);
+    bool squall = OptEnabled(OPT_ICS_SQUALL);
+
+    if (ft->flags.hitlag) {
+        ResetRecoveryPlans();
+        DIIn(ft);
+
+    // SQUALL HAMMER: mash for lift
+    } else if (IC_STATE_SQUALL_FIRST <= state && state <= IC_STATE_SQUALL_LAST) {
+        if (MashB(OptEnabled(OPT_ICS_FAST_MASH)))
+            Press(ft, PAD_BUTTON_B);
+        SetStick(ft, r.dir, 0.f);
+
+    } else if (IsAirActionable(cpu)) {
+        // JUMP
+        if (
+            r.can_jump && r.vel.Y < 0.5f
+            && (
+                r.to_grab.Y > IC_JUMP_LATEST
+                || (r.to_grab.Y > 5.f && OneIn(IC_JUMP_CHANCE))
+                || (r.out > 60.f && r.to_grab.Y > -20.f && OneIn(IC_JUMP_CHANCE))
+            )
+        ) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, r.dir, 0.f);
+
+        // BELAY while Nana is close
+        } else if (
+            belay && nana && !r.can_jump && r.vel.Y < 0.5f && r.out < 30.f
+            && r.to_grab.Y > 5.f && r.to_grab.Y < IC_BELAY_REACH
+            && (OneIn(IC_BELAY_CHANCE) || r.to_grab.Y > IC_BELAY_REACH - 15.f)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // SQUALL HAMMER across a gap, or for height when Belay can't help
+        } else if (
+            squall && !r.can_jump && r.vel.Y < 0.5f && r.to_grab.Y > -20.f
+            && (
+                (r.out > 35.f && OneIn(IC_SQUALL_CHANCE))
+                || (r.to_grab.Y > 5.f && (!nana || !belay) && (OneIn(IC_SQUALL_CHANCE) || r.to_grab.Y > IC_SQUALL_SOLO_REACH - 8.f))
+                || r.to_grab.Y > IC_BELAY_REACH - 10.f
+            )
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, r.dir, 0.f);
+            mash_timer = 1;
+
+        // SOLO BELAY: little height, the last thing left
+        } else if (
+            belay && !squall && !nana && !r.can_jump && r.vel.Y < 0.f && r.out < 15.f
+            && r.to_grab.Y > 3.f && r.to_grab.Y < IC_BELAY_SOLO_REACH
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // WAIT
+        } else {
+            DriftHome(ft, &r, 0.f);
+        }
+
+    } else {
+        DriftHome(ft, &r, 0.f);
+    }
+}
+
+// Jigglypuff -----------------------------------------------------------
+//
+// Five midair jumps (each one at least 28 frames after the last), the
+// fastest air drift in the game, and Pound to cover distance. Each attempt
+// picks a height to hold: above the ledge to drift onto the stage, or level
+// with the ledge to grab it.
+
+#define PR_GRAB_X 10.f
+#define PR_GRAB_Y 5.f
+#define PR_HIGH_ABOVE 25.f
+#define PR_AERIAL_SIZE 20.f
+
+#define PR_JUMP_CHANCE 6
+#define PR_POUND_CHANCE 25
+#define PR_AERIAL_CHANCE 3
+
+#define PR_STATE_JUMP_FIRST 341
+#define PR_STATE_JUMP_LAST 345
+#define PR_STATE_POUND 364
+
+static void Think_Puff(GOBJ *cpu, u32 opt_flags) {
+    FighterData *ft = cpu->userdata;
+    RecoveryInfo r = GetRecoveryInfo(ft, PR_GRAB_X, PR_GRAB_Y);
+    int state = ft->state_id;
+    bool actionable = IsAirActionable(cpu)
+        || (PR_STATE_JUMP_FIRST <= state && state <= PR_STATE_JUMP_LAST);
+
+    if (pr_high < 0) {
+        bool high = OptEnabled(OPT_PUFF_JUMP_HIGH), low = OptEnabled(OPT_PUFF_JUMP_LOW);
+        pr_high = high && (!low || HSD_Randi(2));
+    }
+    float hold_y = pr_high ? r.ledge.Y + PR_HIGH_ABOVE : r.ledge.Y - PR_GRAB_Y;
+
+    if (ft->flags.hitlag) {
+        ResetRecoveryPlans();
+        DIIn(ft);
+
+    // POUND: the angle, up to 20 degrees up, is read on frame 12
+    } else if (state == PR_STATE_POUND) {
+        SetStick(ft, r.dir, 0.5f);
+
+    } else if (actionable) {
+        FighterData *hmn = Fighter_GetGObj(0)->userdata;
+        float facing = ft->facing_direction;
+
+        // AERIAL: back air at a player behind, forward or neutral air in front
+        if (
+            OptEnabled(OPT_PUFF_AERIALS)
+            && PlayerInReach(ft, PR_AERIAL_SIZE, 6) && OneIn(PR_AERIAL_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_A);
+            if ((hmn->phys.pos.X - r.pos.X) * facing < 0.f)
+                SetStick(ft, -facing, 0.f);
+            else if (OneIn(2))
+                SetStick(ft, facing, 0.f);
+
+        // JUMP back up to the planned height
+        } else if (
+            r.can_jump && r.vel.Y < -0.3f && r.pos.Y < hold_y
+            && (OneIn(PR_JUMP_CHANCE) || r.to_grab.Y > 15.f)
+        ) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, r.dir, 0.f);
+
+        // POUND across a gap
+        } else if (
+            OptEnabled(OPT_PUFF_POUND) && r.out > 25.f
+            && r.to_ledge.Y > -40.f && r.to_ledge.Y < 15.f && OneIn(PR_POUND_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, r.dir, 0.5f);
+
+        // WAIT
+        } else {
+            DriftHome(ft, &r, 0.f);
+        }
+
+    } else {
+        DriftHome(ft, &r, 0.f);
+    }
+}
+
+// Samus ----------------------------------------------------------------
+
+#define SS_GRAB_X 14.f
+#define SS_GRAB_Y 8.f
+// Screw Attack starts at 2.5 up against 0.066 gravity: about 48.
+#define SS_SCREW_REACH (48.f + LEDGE_GRAB_REACH)
+// A missed grapple is helpless, so only tether well inside its reach.
+#define SS_GRAPPLE_MIN_X 8.f
+#define SS_GRAPPLE_MAX_X 40.f
+#define SS_GRAPPLE_MAX_Y 30.f
+
+#define SS_JUMP_CHANCE 30
+#define SS_BOMB_CHANCE 8
+#define SS_GRAPPLE_CHANCE 6
+#define SS_SCREW_CHANCE 10
+#define SS_SCREW_HIGH_CHANCE 25
+
+#define SS_STATE_BOMB_JUMP 342
+#define SS_STATE_BOMB 356
+#define SS_STATE_GRAPPLE 357
+#define SS_STATE_GRAPPLE_HIT 358
+
+static void Think_Samus(GOBJ *cpu, u32 opt_flags) {
+    FighterData *ft = cpu->userdata;
+    RecoveryInfo r = GetRecoveryInfo(ft, SS_GRAB_X, SS_GRAB_Y);
+    int state = ft->state_id;
+    bool jump = OptEnabled(OPT_SAMUS_JUMP) && r.can_jump;
+    // A bomb that goes off on Samus launches her up, still actionable.
+    bool actionable = IsAirActionable(cpu) || state == SS_STATE_BOMB_JUMP;
+    float ledge_out = r.to_ledge.X * r.dir;
+
+    if (ft->flags.hitlag) {
+        ResetRecoveryPlans();
+        DIIn(ft);
+
+    // LAYING A BOMB: the drift is fast. Travel when far away; when close,
+    // stay over the bomb so it launches her.
+    } else if (state == SS_STATE_BOMB) {
+        SetStick(ft, r.out > 50.f ? r.dir : 0.f, 0.f);
+
+    } else if (actionable) {
+        // JUMP
+        if (
+            jump && r.vel.Y < 0.5f
+            && (r.to_grab.Y > SS_SCREW_REACH - 10.f || (r.to_grab.Y > 5.f && OneIn(SS_JUMP_CHANCE)))
+        ) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, r.dir, 0.f);
+
+        // GRAPPLE: Z tethers to a ledge in front of her
+        } else if (
+            OptEnabled(OPT_SAMUS_GRAPPLE) && !ft->flags.used_tether
+            && ft->facing_direction * r.dir > 0.f && r.vel.Y < 0.f
+            && ledge_out > SS_GRAPPLE_MIN_X && ledge_out < SS_GRAPPLE_MAX_X
+            && r.to_ledge.Y > 0.f && r.to_ledge.Y < SS_GRAPPLE_MAX_Y
+            && (OneIn(SS_GRAPPLE_CHANCE) || (!jump && r.to_grab.Y > SS_SCREW_REACH - 25.f))
+        ) {
+            Press(ft, PAD_TRIGGER_Z);
+
+        // BOMBS to stall and drift in
+        } else if (
+            OptEnabled(OPT_SAMUS_BOMBS) && r.out > 30.f && r.to_grab.Y < 30.f
+            && r.vel.Y < 0.3f && OneIn(SS_BOMB_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, -1.f);
+
+        // SCREW ATTACK to the ledge
+        } else if (
+            OptEnabled(OPT_SAMUS_SCREW) && !jump && r.vel.Y < 0.f && r.to_grab.Y > 0.f
+            && (
+                (r.to_grab.Y < SS_SCREW_REACH && r.out < 25.f && OneIn(SS_SCREW_CHANCE))
+                || r.to_grab.Y > SS_SCREW_REACH - 10.f
+            )
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // SCREW ATTACK onto the stage
+        } else if (
+            OptEnabled(OPT_SAMUS_SCREW_HIGH) && r.to_grab.Y > -20.f && r.to_grab.Y <= 0.f
+            && r.out < 20.f && OneIn(SS_SCREW_HIGH_CHANCE)
+        ) {
+            Press(ft, PAD_BUTTON_B);
+            SetStick(ft, 0.f, 1.f);
+
+        // WAIT
+        } else {
+            DriftHome(ft, &r, 0.f);
+        }
+
+    } else if (state == SS_STATE_GRAPPLE || state == SS_STATE_GRAPPLE_HIT) {
+        // leave the stick alone while the tether reels in
+
+    } else {
+        // screw attack and helpless falls
+        DriftHome(ft, &r, 0.f);
     }
 }
 

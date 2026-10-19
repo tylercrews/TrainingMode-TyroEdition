@@ -122,8 +122,8 @@ static EventOption Options_Main[] = {
         .menu = &Menu_Characters,
         .name = "Change Characters",
         .desc = {"Restart with another player or CPU character.",
-                 "The CPU can be Fox, Marth, Falco, Sheik or Captain Falcon.",
-                 "Saved settings are kept."},
+                 "The CPU can be any character with Recovery",
+                 "Options. Saved settings are kept."},
     },
     {
         .kind = OPTKIND_FUNC,
@@ -219,9 +219,11 @@ static EventMenu Menu_CustomHitStrength = {
 
 // Change Characters ---------------------------------
 
-/* Only these CPUs have recovery logic (RecoveryMenus in recovery.c). */
+/* Only these CPUs have recovery logic (RecoveryMenus in recovery.c), in the
+ * character selector's tier-list order. */
 static const u8 Edgeguard_CPUKinds[] = {
-    CKIND_FOX, CKIND_MARTH, CKIND_FALCO, CKIND_SHEIK, CKIND_FALCON,
+    CKIND_FOX, CKIND_MARTH, CKIND_JIGGLYPUFF, CKIND_FALCO, CKIND_PEACH, CKIND_SHEIK,
+    CKIND_FALCON, CKIND_ICECLIMBERS, CKIND_LUIGI, CKIND_YOSHI, CKIND_SAMUS, CKIND_DRMARIO,
 };
 
 static EventMenu Menu_Characters = {

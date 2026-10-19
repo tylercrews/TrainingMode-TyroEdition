@@ -171,12 +171,15 @@ enum TMAttackShieldPreference {
     TM_AOS_ACTION, TM_AOS_HITS, TM_AOS_INFINITE, TM_AOS_DISTANCE, TM_AOS_SHIELD_DI, TM_AOS_PREF_COUNT
 };
 /* Custom Hit Strength ranges, then the percents, then Hit Strength and one
- * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu). */
+ * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu).
+ * Append; the CPUs from Yoshi on live in a later TYEX word. */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
     TM_EG_HIT_STRENGTH, TM_EG_RECOVERY_FOX, TM_EG_RECOVERY_FALCO, TM_EG_RECOVERY_SHEIK,
-    TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH, TM_EG_PREF_COUNT
+    TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH,
+    TM_EG_RECOVERY_YOSHI, TM_EG_RECOVERY_PEACH, TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_DRMARIO,
+    TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS, TM_EG_PREF_COUNT
 };
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1

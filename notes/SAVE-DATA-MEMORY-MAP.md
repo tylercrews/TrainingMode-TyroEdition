@@ -1,6 +1,6 @@
 # Save data memory map
 
-What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T6 (core settings format 3, `TYEX` extension version 18).
+What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T6 (core settings format 3, `TYEX` extension version 19).
 
 Everything here is inside Melee's existing main save entry, so it uses the game's own save, checksum and encryption. Tyro never adds a new file or grows the save. Offsets are from the start of the game-data object (`stc_memcard`), not raw GCI offsets.
 
@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b1f) | `0x1AE0..0x1B1F` | 64 bytes | 64 bytes | **41 loose bits** inside the record |
-| **Unallocated spare score slots** | `0x1B20..0x1B37` | **24 bytes** | nothing | **24 bytes (192 bits)** |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b23) | `0x1AE0..0x1B23` | 68 bytes | 68 bytes | **41 loose bits** inside the record |
+| **Unallocated spare score slots** | `0x1B24..0x1B37` | **20 bytes** | nothing | **20 bytes (160 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 24 whole bytes are free, all in one block at `0x1B20..0x1B37`, plus scattered single bits. The core record is full.
+**Bottom line:** 20 whole bytes are free, all in one block at `0x1B24..0x1B37`, plus scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -32,6 +32,7 @@ The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37
 | 16 | T6 | 50 bytes | Fixed Grid OSD positions |
 | 17 | T6 | 52 bytes | Player/CPU costume colors |
 | 18 | T6 | 64 bytes | Edgeguard settings and per-CPU recovery options |
+| 19 | T6 | 68 bytes | Recovery options of the CPUs added to Edgeguard (Yoshi to Samus) |
 
 ## Core settings record (`0x1F24..0x1F4F`)
 
@@ -106,12 +107,12 @@ Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't foll
 | 25 | `0x1AD4` | Escape Sheik Techchase |
 | 26 | `0x1AD8` | Escape DThrow Knee |
 | 27 | `0x1ADC` | Float Cancel Training |
-| 28..43 | `0x1AE0..0x1B1F` | `TYEX` record (next section) |
-| 44..49 | `0x1B20..0x1B37` | **Free (24 bytes)** |
+| 28..44 | `0x1AE0..0x1B23` | `TYEX` record (next section) |
+| 45..49 | `0x1B24..0x1B37` | **Free (20 bytes)** |
 | 50 | `0x1B38` | Ledgechase Training |
 | — | — | Low Laser Puff Practice is free practice and has no score |
 
-## `TYEX` extension record (`0x1AE0..0x1B1F`)
+## `TYEX` extension record (`0x1AE0..0x1B23`)
 
 Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_extension.c). Byte numbers are relative to `0x1AE0`. Multi-byte words are little-endian, and "word N" means the 4 bytes starting at byte N.
 
@@ -119,7 +120,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 
 | Bytes | Owner | Contents | Free inside |
 | --- | --- | --- | --- |
-| 0..7 | Header | `TYEX`, version (18), payload size (56), marker `A5 5A` | — |
+| 0..7 | Header | `TYEX`, version (19), payload size (60), marker `A5 5A` | — |
 | 8 | Global OSDs / overlays | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color | bit 7 |
 | 9..11 | Techchase | word 9 bits 0-14 and 16-22 (table below) | bit 15 (byte 10 bit 7), bit 23 (byte 11 bit 7) |
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
@@ -131,6 +132,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 50 | Character select | **Player costume** (0..5) | top 5 bits |
 | 51 | Character select | **CPU costume** (0..5) | top 5 bits |
 | 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bits 30-31 of word 56, bits 30-31 of word 60 |
+| 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 
 Free bits inside the record: 1 + 2 + 6 + 11 + 4 + 1 + 2 + 10 + 2 + 2 = **41 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
@@ -238,16 +240,30 @@ Each recovery mask has one bit per row of that CPU's Recovery Options menu, in r
 | 26-29 | Marth recovery (4 rows, default Dolphin Slash Early + Double Jump) |
 | 30-31 | *free* |
 
+**Word 64: recovery options of the later Edgeguard CPUs** (fully used)
+
+Same layout as word 60's masks. These CPUs' recoveries are described in [the Edgeguard notes](EDGEGUARD-NEW-CHARACTERS.md).
+
+| Bits | Setting |
+| --- | --- |
+| 0-4 | Yoshi (5 rows, default Jump High + Jump Low + Air Dodge to Ledge) |
+| 5-9 | Peach (5 rows, default Float to Stage + Float Low + Parasol) |
+| 10-14 | Luigi (5 rows, default Double Jump + Cyclone + Green Missile) |
+| 15-19 | Dr. Mario (5 rows, default Double Jump + Dr. Tornado) |
+| 20-22 | Ice Climbers (3 rows, default Belay + Squall Hammer) |
+| 23-26 | Jigglypuff (4 rows, all on) |
+| 27-31 | Samus (5 rows, all on but Screw Attack High) |
+
 ## Not saved
 
 These live in RAM only and reset when the game closes:
 
 - The game's character-select backup (`stc_memcard + 0xD10`, 3344). Tyro restores it at boot from the saved character (core bytes 6/37) and costume (`TYEX` bytes 50/51).
 - The Global Settings page, the manual OSD page, Techchase/Ledgechase manual chances, and custom camera coordinates.
-- All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 24 left.
+- All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 20 left.
 
 ## Adding something new
 
 1. **A few bits:** use one of the free bits above, if the setting is small and fits next to related settings. Old records must already have 0 there, or the migration must clear it.
-2. **Whole bytes:** append to `TYEX`, taking bytes from the free 24-byte block in order. Bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version, and zero the new bytes in `TMExtension_Prepare` when migrating. The static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if the record outgrows the 88-byte region.
-3. **More than 24 bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.
+2. **Whole bytes:** append to `TYEX`, taking bytes from the free 20-byte block in order. Bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version, and zero the new bytes in `TMExtension_Prepare` when migrating. The static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if the record outgrows the 88-byte region.
+3. **More than 20 bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.
