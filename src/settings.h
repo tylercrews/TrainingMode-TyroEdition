@@ -121,6 +121,7 @@ enum TMSettingsField {
     TM_SETTING_OSD_COLOR_EXTRA, /* Internal: TYEX nibble by category slot. Use OSD_COLOR. */
     TM_SETTING_OSD_GRID_CELL, /* Index: OSD slot, or TM_OSD_CATEGORIES for JC Shine. 0 Auto, 1..30 a Fixed Grid cell. */
     TM_SETTING_COSTUME, /* Index 0 human / 1 CPU: costume of the saved CHARACTER, in the extension. */
+    TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -168,6 +169,14 @@ enum TMReversalPreference {
 };
 enum TMAttackShieldPreference {
     TM_AOS_ACTION, TM_AOS_HITS, TM_AOS_INFINITE, TM_AOS_DISTANCE, TM_AOS_SHIELD_DI, TM_AOS_PREF_COUNT
+};
+/* Custom Hit Strength ranges, then the percents, then Hit Strength and one
+ * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu). */
+enum TMEdgeguardPreference {
+    TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
+    TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
+    TM_EG_HIT_STRENGTH, TM_EG_RECOVERY_FOX, TM_EG_RECOVERY_FALCO, TM_EG_RECOVERY_SHEIK,
+    TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH, TM_EG_PREF_COUNT
 };
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1

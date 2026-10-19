@@ -51,7 +51,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - change name of low laser puff practice to frozen puff (low laser?) practice
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
 - Under Fire make a setting where you can see the hand grab through the lava if you don't want to go by timing forever. But by the time the lava comes up if you want to succeed you do just need perfect rhythm. Just not sure if taking away the visual cue is good or not.
-- add character swapping to edgeguard event
+- ~~add character swapping to edgeguard event~~ (**T6:** new Change Characters menu, and the event's settings are saved)
 - add better recoveries for falco, he goes too low consistently, make him double jump side b way more often
 
 ## Tyro branch changelog
@@ -62,7 +62,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 - **Program changes**
     - New reusable character selector module ([src/fighter_swap.h](src/fighter_swap.h)) and menu support for custom rows (extra buttons, colored values, stock icons), so other events can get the same Player/CPU Character rows later. Details are in [the mid-event swap notes](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md#implemented-in-t6-player-and-cpu-character).
-    - Global Settings saves version 17 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes and the saved Player/CPU costumes use 2 more, leaving 36. Older saves update automatically with every OSD on Auto and default costumes.
+    - Global Settings saves version 18 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes, the saved Player/CPU costumes use 2 more and the Edgeguard settings use 12, leaving 24. Older saves update automatically with every OSD on Auto, default costumes and default Edgeguard settings.
+    - The character selector can now limit one slot to a list of characters, for events that only support some CPUs.
     - New [save data memory map](notes/SAVE-DATA-MEMORY-MAP.md): tables showing every saved byte Tyro uses, what owns it, and what's still free.
     - Global Settings pages now go forward with R and back with L. Previously both went forward.
 - **Globals and all events**
@@ -82,6 +83,10 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Your Lab settings carry over like they do for Change Stage, except the CPU's recovery options (kept only if the CPU stays the same) and Character RNG (kept only if both characters stay the same). Recordings and saved positions are cleared.
         - The two characters can't end up in the same costume: picking the other slot's character skips its color.
         - Picking Zelda as the CPU now gives you Zelda. (The character select still turns a Zelda CPU into Sheik.)
+    - **Edgeguard Training**
+        - The event name is now cyan on the event select screen.
+        - Settings are saved: Player Percent, Hit Strength, all six Custom Hit Strength values, and the Recovery Options of each CPU (Fox, Falco, Sheik, Captain Falcon and Marth each keep their own).
+        - New **Change Characters** menu with the same Player Character and CPU Character rows as the Training Lab. The player can be anyone; the CPU list only has the five characters the event supports (Fox, Marth, Falco, Sheik, Captain Falcon).
 
 For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for the character swapping and OSD layout)
 

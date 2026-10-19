@@ -607,6 +607,7 @@ EventDesc Edgeguard = {
     .eventDescription = "Finish off the enemy\nafter you hit them offstage!",
     .eventFile = "edgeguard",
     .jumpTableIndex = -1,
+    .tyro_edited = true,
     .CSSType = SLCHRKIND_TRAINING,
     .allowed_characters = {
         .hmn = -1,

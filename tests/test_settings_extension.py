@@ -15,12 +15,19 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 17, 44  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x11\x2C\xA5\x5A'
-# Bytes 24..51 appended by versions 15, 16 and 17: one color nibble per OSD (all
-# original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto) and the
-# human/CPU costumes (Default).
-COLOR_BYTES = bytes(28)
+CURRENT, PAYLOAD = 18, 56  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x12\x38\xA5\x5A'
+# Bytes 52..63 appended by version 18: Edgeguard's three words at their defaults
+# (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
+# CPU's default recovery toggles).
+EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3)
+EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
+# Bytes 24..63 appended by versions 15 to 18: one color nibble per OSD (all
+# original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
+# human/CPU costumes (Default) and the Edgeguard defaults.
+COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -30,7 +37,7 @@ def upgraded(raw):
     value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
-    value[24:52] = COLOR_BYTES
+    value[24:64] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
@@ -39,7 +46,7 @@ def upgraded(raw):
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 52
+REGION_SIZE, OWNED_SIZE = 88, 64
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 
@@ -170,7 +177,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('Settings_Get', 14, id) for id in (27, 30)), (4, 6))
         self.assertEqual(m.call('Settings_Get', 14, 20), m.read(14, 20))  # Garbage is not a new color.
         self.assertEqual(m.call('Settings_Get', 11, 9), 1)
-        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[24:52] = COLOR_BYTES
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[24:OWNED_SIZE] = COLOR_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         m.cpu.mem_write(EXT + 24, b'\x9F')  # Invalid nibbles repair to the original color.
         for id in (0, 1): self.assertEqual(m.call('Settings_Get', 14, id), m.read(14, id))
@@ -196,13 +203,57 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 14, 20, 12); m.call('Settings_Set', 30, 2, 9)
         m.call('Settings_Set', GRID, 3, 17); m.call('Settings_Set', GRID, 21, 30)
         old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
-        old[4:6] = bytes((16, 42)); old[50:52] = b'\x03\xFF'  # Version 16 never owned these bytes.
+        old[4:6] = bytes((16, 42)); old[50:64] = b'\x03' + b'\xFF' * 13  # Version 16 never owned these bytes.
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (0, 0))
         expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[50:52] = bytes(2)
+        expected[52:64] = EDGEGUARD_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(tuple(m.call('Settings_Get', f, i) for f, i in ((14, 20), (30, 2), (GRID, 3), (GRID, 21))),
                          (12, 9, 17, 30))
+
+    def test_version_17_migration_keeps_every_byte_and_claims_only_edgeguard_bytes(self):
+        m = self.m
+        m.call('Settings_Set', 14, 20, 12); m.call('Settings_Set', GRID, 21, 30)
+        m.call('Settings_Set', COSTUME, 0, 5); m.call('Settings_Set', COSTUME, 1, 2)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((17, 44)); old[52:64] = b'\x07' * 12  # Version 17 never owned these bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(13)), EDGEGUARD_DEFAULTS)
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[52:64] = EDGEGUARD_BYTES
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(tuple(m.call('Settings_Get', f, i) for f, i in ((14, 20), (GRID, 21), (COSTUME, 0), (COSTUME, 1))),
+                         (12, 30, 5, 2))
+
+    def test_edgeguard_preferences_round_trip_reject_and_repair_invalid_values(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(13)), EDGEGUARD_DEFAULTS)
+        m.call('Settings_Set', COSTUME, 1, 4)  # The neighbor just before the Edgeguard words.
+        values = list(EDGEGUARD_DEFAULTS)
+        for index, count in enumerate(EDGEGUARD_COUNTS):
+            for value in sorted({0, 1, count // 2, count - 1}):
+                m.call('Settings_Set', EDGEGUARD, index, value)
+                values[index] = value
+                self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(13)), tuple(values))
+            snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE + 8))
+            for value in (count, 0xFFFFFFFF):
+                m.call('Settings_Set', EDGEGUARD, index, value)
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE + 8)), snapshot)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE + 8))
+        for index in (13, 0xFFFFFFFF):
+            m.call('Settings_Set', EDGEGUARD, index, 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE + 8)), snapshot)
+        self.assertEqual(m.call('Settings_Get', COSTUME, 1), 4)
+        self.assertEqual(m.record(), core)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, REGION_SIZE - OWNED_SIZE)), b'\xA5' * (REGION_SIZE - OWNED_SIZE))
+        fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, bytes(m.cpu.mem_read(EXT, REGION_SIZE)))
+        self.assertEqual(tuple(fresh.call('Settings_Get', EDGEGUARD, i) for i in range(13)), tuple(values))
+        # A damaged Player Percent (999..1023) repairs to 0% and leaves its neighbors.
+        word = int.from_bytes(m.cpu.mem_read(EXT + 56, 4), 'little') | 1023
+        m.cpu.mem_write(EXT + 56, word.to_bytes(4, 'little'))
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, 4), 0)
+        self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in (5, 6)), tuple(values[5:7]))
 
     def test_costumes_round_trip_reject_and_repair_invalid_values(self):
         m = self.m

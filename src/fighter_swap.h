@@ -9,7 +9,8 @@
  * Each including event lists FighterSwap_Options in a menu whose .row_hooks is
  * &FighterSwap_RowHooks, defines FighterSwap_BeforeRestart for its own cleanup
  * and calls FighterSwap_Init from Event_Init. A slot the event can't change
- * (fixed CPU) should be disabled after FighterSwap_Init.
+ * (fixed CPU) should be disabled after FighterSwap_Init. An event that only
+ * supports some characters in a slot calls FighterSwap_Restrict first.
  * See notes/MID-EVENT-CHARACTER-STAGE-SWAP.md. */
 #include "events.h"
 
@@ -94,6 +95,26 @@ typedef struct FighterSwapPick { s8 kind; u8 costume; } FighterSwapPick;
 static FighterSwapPick FighterSwap_Live[2], FighterSwap_Pick[2];
 static char FighterSwap_Status[2][2][48];
 
+/* Each slot's choices in menu order: everyone, unless FighterSwap_Restrict
+ * narrowed that slot. */
+static u8 FighterSwap_SlotKinds[2][FIGHTER_SWAP_COUNT];
+static const char *FighterSwap_SlotNames[2][FIGHTER_SWAP_COUNT];
+static int FighterSwap_SlotCount[2];
+static int FighterSwap_SlotSize(int slot)
+{
+    return FighterSwap_SlotCount[slot] ? FighterSwap_SlotCount[slot] : FIGHTER_SWAP_COUNT;
+}
+static int FighterSwap_SlotKind(int slot, int index)
+{
+    return FighterSwap_SlotCount[slot] ? FighterSwap_SlotKinds[slot][index] : FighterSwap_Kinds[index];
+}
+static int FighterSwap_SlotIndex(int slot, int kind)
+{
+    for (int i = 0; i < FighterSwap_SlotSize(slot); ++i)
+        if (FighterSwap_SlotKind(slot, i) == kind) return i;
+    return -1;
+}
+
 /* The next costume from start in direction step that doesn't match the other
  * slot's pick of the same character, so the two never look identical. */
 static int FighterSwap_FreeCostume(int slot, int kind, int start, int step)
@@ -117,8 +138,8 @@ static void FighterSwap_Describe(int slot)
 }
 static void FighterSwap_Select(int slot, int index)
 {
-    if (index < 0 || index >= FIGHTER_SWAP_COUNT) return;
-    int kind = FighterSwap_Kinds[index];
+    if (index < 0 || index >= FighterSwap_SlotSize(slot)) return;
+    int kind = FighterSwap_SlotKind(slot, index);
     FighterSwap_Pick[slot].kind = kind;
     FighterSwap_Pick[slot].costume = FighterSwap_FreeCostume(slot, kind, 0, 1);
     FighterSwap_Describe(slot);
@@ -136,6 +157,22 @@ static EventOption FighterSwap_Options[2] = {
     FIGHTER_SWAP_ROW(1, "CPU Character", FighterSwap_ChangeCPU),
 };
 #undef FIGHTER_SWAP_ROW
+
+/* Offer only these characters (CKIND_*, in menu order) in one slot. */
+static void FighterSwap_Restrict(int slot, const u8 *kinds, int count)
+{
+    int n = 0;
+    for (int i = 0; i < count && n < FIGHTER_SWAP_COUNT; ++i) {
+        int index = FighterSwap_Index(kinds[i]);
+        if (index < 0) continue;
+        FighterSwap_SlotKinds[slot][n] = kinds[i];
+        FighterSwap_SlotNames[slot][n++] = FighterSwap_Names[index];
+    }
+    if (!n) return;
+    FighterSwap_SlotCount[slot] = n;
+    FighterSwap_Options[slot].values = FighterSwap_SlotNames[slot];
+    FighterSwap_Options[slot].value_num = n;
+}
 
 static void FighterSwap_BeforeRestart(void);
 static int FighterSwap_Slot(EventOption *option)
@@ -196,7 +233,7 @@ static void FighterSwap_Init(void)
 {
     for (int slot = 0; slot < 2; ++slot) {
         FighterSwapPick live = { Fighter_GetExternalID(slot), Fighter_GetCostumeID(slot) };
-        int index = FighterSwap_Index(live.kind);
+        int index = FighterSwap_SlotIndex(slot, live.kind);
         FighterSwap_Live[slot] = FighterSwap_Pick[slot] = live;
         FighterSwap_Options[slot].val = index < 0 ? 0 : index;
         FighterSwap_Options[slot].disable = index < 0;
