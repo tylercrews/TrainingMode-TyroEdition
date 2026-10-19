@@ -49,6 +49,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - would be nice to reorder your OSDs how you want
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
+- improve the fastfall OSD to tell you what frame of your jump you put in the input, so you can see how much you're buffering and see if you're hitting the right frame to account for f1 gravity
 
 ## Tyro branch changelog
 
