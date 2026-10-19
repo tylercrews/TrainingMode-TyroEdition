@@ -415,6 +415,16 @@ MsgData adds one timing Text pointer, **140 -> 144 bytes**. That Text is allocat
 
 **126 PowerPC tests pass**, including full-stream native parsing/replacement, larger title scale, missing status/prefix rows, transitions and bounded repeated timing-Text allocation. The release and packaged payloads are verified separately. Final spacing needs native Dolphin visual confirmation.
 
+## Fixed Grid positions (T6)
+
+The design and the screen and text-pool measurements behind it are in [notes/ORDERING-GLOBAL-OSDS.md](notes/ORDERING-GLOBAL-OSDS.md).
+
+- **Grid:** one page is 5 columns by 6 rows (`TM_OSD_GRID_CELLS` = 30). Rows sit at y = 20.7 − row × 6.65, which keeps the 5.15-unit boxes between the screen top (24.27) and the OSD camera's clip line (−16.18). `TMOSD_Capacity` for Fixed Grid is `TM_OSD_GRID_AUTO_CELLS` (10): Auto OSDs only fill the top two rows of a page, so with no cells assigned the order and paging are unchanged.
+- **Save:** `TM_SETTING_OSD_GRID_CELL` (field 37) stores one 5-bit value per runtime slot, with JC Shine at slot 21: 0 means Auto, 1..30 a cell. The values live in TYEX version 16, bytes 36..49 (`TM_EXTENSION_SIZE` 50). Migrating from 15 keeps bytes 0..35 and zeroes the new bytes; values above 30 repair to Auto. A static assert stops the build if a category is appended without first moving JC Shine to a fixed storage index.
+- **Layout:** `TMOSD_MapCells` copies the cells into `TMOSDMap`; a repeated or out-of-range cell falls back to Auto, and `TMOSD_MapReset` keeps the cells. When any cell is assigned and the layout is Fixed Grid, `TMOSD_Cell` places an assigned OSD in its cell whether or not it is drawn. Auto OSDs follow default order, with JC Shine right after Fighter-specific Tech, starting after the highest assigned top-two-row cell and then ten per page. Each owner's block starts on a fresh page. `TMOSD_PageOwner` names a page's owner, so a CPU's page gets one "CPU OSDs" page label instead of per-cell tags. Practice Panel and Recent ignore cells.
+- **Placeholders:** a Fixed Grid placeholder has 2 subtexts (title, `--`) instead of 9 and is destroyed once its cell has a result or leaves the shown page, so each cell holds at most one Text. Melee's text pool frees blocks without merging them unless they sit next to the remaining block, which is why the placeholders stay one small Text per cell rather than one shared Text that keeps growing. The page label moved into the gap between rows 2 and 3.
+- **Editor:** `TM_EDITOR_PAGES` is 3, and R/L now page forward/back. Page 2 (`TM_EDITOR_GRID_PAGE`) reuses page 0's OSD rows, plus logical rows 32 (JC Shine) and 33 (Reset All) in place of the overrides. Each row's native Boolean mirrors its OSD's On/Off (JC Shine shows Fighter-specific Tech), so the native exit save writes back the same value, and IDs 32/33 are no-ops. A/B step through free cells only, wrapping through Auto. Reset All arms on the first A and clears on the second; B or moving off the row disarms it. Reset only rewrites the rows that had a cell, which keeps the call under the test harness's instruction budget.
+
 
 ## Global character persistence
 

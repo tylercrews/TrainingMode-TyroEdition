@@ -119,6 +119,7 @@ enum TMSettingsField {
     TM_SETTING_ATTACK_SHIELD,
     TM_SETTING_EDITOR_PAGE, /* Runtime-only Global Settings page; never saved. */
     TM_SETTING_OSD_COLOR_EXTRA, /* Internal: TYEX nibble by category slot. Use OSD_COLOR. */
+    TM_SETTING_OSD_GRID_CELL, /* Index: OSD slot, or TM_OSD_CATEGORIES for JC Shine. 0 Auto, 1..30 a Fixed Grid cell. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -183,8 +184,16 @@ static inline int TMSettings_OSDCategorySlot(unsigned id) {
         if (TMSettings_OSDCategoryID(slot) == id) return slot;
     return -1;
 }
-#define TM_EDITOR_PAGES 2
+/* Fixed Grid positions: every category plus the Fox/Falco JC Shine cell. The
+ * stored index is the runtime slot, so JC Shine (TM_OSD_CATEGORIES) must move
+ * to a fixed index before another category is appended. */
+#define TM_OSD_GRID_SLOTS (TM_OSD_CATEGORIES + 1)
+#define TM_OSD_GRID_POSITIONS 30 /* Six rows of five on one page. */
+#define TM_EDITOR_PAGES 3
+#define TM_EDITOR_GRID_PAGE 2 /* Fixed Grid OSD Positions: page 0's OSD rows, editing positions. */
 #define TM_EDITOR_ROWS 29
+#define TM_GRID_JC_SHINE_ROW 32 /* Editor-only logical rows on the positions page. */
+#define TM_GRID_RESET_ROW 33
 extern const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS];
 /* Physical RSS row -> setting binding on one Global Settings page. */
 int TMSettings_EditorIDFor(unsigned page, unsigned native_row);

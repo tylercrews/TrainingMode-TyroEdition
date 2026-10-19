@@ -536,6 +536,7 @@ void JOBJ_ReqAnimAll(JOBJ *joint, float frame) {
 }
 void JOBJ_AnimAll(JOBJ *joint) {}
 int TestEditorBoxFrame(unsigned row) { return row < 29 ? (int)editor_box_frames[row] : -1; }
+unsigned TestEditorBoxHidden(unsigned row) { return row < 29 && !!(editor_boxes[row].flags & JOBJ_HIDDEN); }
 void Message_FreeObject(GOBJ *object) {
     ++layout_freed;
     MsgData *msg = object->userdata;
@@ -586,6 +587,26 @@ unsigned TestLayoutCPUTags(void) {
     return count;
 }
 unsigned TestLayoutLiveText(void) { unsigned count=0; for(unsigned i=0;i<countof(layout_texts);++i) count+=layout_texts[i].live; return count; }
+/* Live "--" placeholders, Fixed Grid (row 1) or Practice Panel (row 2). */
+unsigned TestLayoutPlaceholders(void) {
+    unsigned count=0;
+    for(unsigned i=0;i<countof(layout_texts);++i) {
+        const char *grid=layout_texts[i].body[1], *panel=layout_texts[i].body[2];
+        count+=layout_texts[i].live && ((grid[0]=='-' && grid[1]=='-' && !grid[2]) || (panel[0]=='-' && panel[1]=='-' && !panel[2]));
+    }
+    return count;
+}
+/* The page label: the live Text whose first row mentions "L/R". */
+static int layout_page_text(void) {
+    for(unsigned i=0;i<countof(layout_texts);++i) {
+        const char *body=layout_texts[i].body[0];
+        for(unsigned c=0;layout_texts[i].live && body[c] && body[c+1] && body[c+2];++c)
+            if(body[c]=='L' && body[c+1]=='/' && body[c+2]=='R') return i;
+    }
+    return -1;
+}
+unsigned TestLayoutPageChar(unsigned index) { int i=layout_page_text(); return i<0 ? 0 : (unsigned char)layout_texts[i].body[0][index]; }
+int TestLayoutPageHidden(void) { int i=layout_page_text(); return i<0 ? -1 : layout_texts[i].text.hidden; }
 unsigned TestLayoutFooterChar(GOBJ *object, unsigned index) {
     int i = layout_text_index(((MsgData *)object->userdata)->layout_footer);
     if(i<0)return 0;

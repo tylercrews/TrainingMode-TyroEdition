@@ -15,9 +15,11 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 15, 28  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x0F\x1C\xA5\x5A'
-COLOR_BYTES = bytes(12)  # Version 15 bytes 24..35: one color nibble per OSD, all original colors.
+CURRENT, PAYLOAD = 16, 42  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x10\x2A\xA5\x5A'
+# Bytes 24..49 appended by versions 15 and 16: one color nibble per OSD (all
+# original colors), Low Laser's byte 35 and the Fixed Grid cells (all Auto).
+COLOR_BYTES = bytes(26)
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -27,7 +29,7 @@ def upgraded(raw):
     value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
-    value[24:36] = COLOR_BYTES
+    value[24:50] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
@@ -36,7 +38,8 @@ def upgraded(raw):
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 36
+REGION_SIZE, OWNED_SIZE = 88, 50
+GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -165,12 +168,49 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('Settings_Get', 14, id) for id in (27, 30)), (4, 6))
         self.assertEqual(m.call('Settings_Get', 14, 20), m.read(14, 20))  # Garbage is not a new color.
         self.assertEqual(m.call('Settings_Get', 11, 9), 1)
-        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[24:36] = COLOR_BYTES
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[24:50] = COLOR_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         m.cpu.mem_write(EXT + 24, b'\x9F')  # Invalid nibbles repair to the original color.
         for id in (0, 1): self.assertEqual(m.call('Settings_Get', 14, id), m.read(14, id))
         m.call('Settings_Get', 28, 0)  # Any extension access validates the record.
         self.assertEqual(m.cpu.mem_read(EXT + 24, 1)[0], 0)
+
+    def test_version_15_migration_keeps_colors_and_low_laser_and_claims_only_grid_bytes(self):
+        m = self.m
+        m.call('Settings_Set', 14, 20, 12)  # Lime lives in a color nibble.
+        m.call('Settings_Set', 30, 2, 9); m.call('Settings_Set', 30, 3, 4)  # Low Laser's byte 35.
+        m.call('Settings_Set', 14, 27, 4); m.call('Settings_Set', 11, 9, 1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((15, 28)); old[36:50] = b'\xFF' * 14  # Version 15 never owned these bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', GRID, 0), 0)  # Spare score bytes are not cells.
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[36:50] = bytes(14)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(tuple(m.call('Settings_Get', f, i) for f, i in ((14, 20), (30, 2), (30, 3), (14, 27), (11, 9))),
+                         (12, 9, 4, 4, 1))
+
+    def test_grid_cells_pack_five_bits_round_trip_and_reject_or_repair_invalid_values(self):
+        m = self.m
+        core = m.record()
+        m.call('Settings_Set', 30, 2, 9)  # A neighbor in byte 35.
+        values = [(slot * 7) % 31 for slot in range(22)]
+        for slot, value in enumerate(values): m.call('Settings_Set', GRID, slot, value)
+        self.assertEqual([m.call('Settings_Get', GRID, slot) for slot in range(22)], values)
+        bits = int.from_bytes(m.cpu.mem_read(EXT + 36, 14), 'little')
+        self.assertEqual([bits >> slot * 5 & 31 for slot in range(22)], values)
+        self.assertEqual(bits >> 110, 0)  # The last two bits stay free.
+        self.assertEqual(m.call('Settings_Get', 30, 2), 9)
+        self.assertEqual(m.record(), core)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for slot, value in ((0, 31), (0, 0xFFFFFFFF), (22, 1), (0xFFFFFFFF, 1)):
+            m.call('Settings_Set', GRID, slot, value)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        self.assertEqual(m.call('Settings_Get', GRID, 22), 0)
+        fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, snapshot)
+        self.assertEqual([fresh.call('Settings_Get', GRID, slot) for slot in range(22)], values)
+        bits |= 31 << 5; m.cpu.mem_write(EXT + 36, bits.to_bytes(14, 'little'))  # A damaged cell.
+        self.assertEqual(m.call('Settings_Get', GRID, 1), 0)
+        self.assertEqual([m.call('Settings_Get', GRID, slot) for slot in (0, 2, 21)], [values[0], values[2], values[21]])
 
     def test_randall_overlay_editor_row_and_lab_share_the_global_flag(self):
         m = self.m

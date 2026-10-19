@@ -45,12 +45,14 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T7
-- would be nice to reorder your OSDs how you want. Design picked: a Fixed Grid OSD Positions page where each OSD gets its own cell and cells can be left blank ([design](notes/ORDERING-GLOBAL-OSDS.md))
+- ~~would be nice to reorder your OSDs how you want~~ (**T6:** new Fixed Grid OSD Positions page, where each OSD gets its own cell in a 6-row grid and cells can be left blank; [design](notes/ORDERING-GLOBAL-OSDS.md))
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
 - Under Fire make a setting where you can see the hand grab through the lava if you don't want to go by timing forever. But by the time the lava comes up if you want to succeed you do just need perfect rhythm. Just not sure if taking away the visual cue is good or not.
+- add character swapping to edgeguard event
+- add better recoveries for falco, he goes too low consistently, make him double jump side b way more often
 
 ## Tyro branch changelog
 
@@ -60,9 +62,18 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 - **Program changes**
     - New reusable character selector module ([src/fighter_swap.h](src/fighter_swap.h)) and menu support for custom rows (extra buttons, colored values, stock icons), so other events can get the same Player/CPU Character rows later. Details are in [the mid-event swap notes](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md#implemented-in-t6-player-and-cpu-character).
+    - Global Settings saves version 16 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes, leaving 38. Older saves update automatically with every OSD on Auto.
+    - Global Settings pages now go forward with R and back with L. Previously both went forward.
 - **Globals and all events**
     - **Change Stage** (Eggs-ercise, Low Laser Puff Practice, Training Lab) now reloads every file for the new match, like the character change does. The load takes a little longer, but changing the stage after changing characters can't crash.
     - **Fastfall Timing OSD** now has three rows: `Fastfall`, then `input #f` (white), the jump frame where your down input started, then `Nf (Mf)`. N is which frame of the fastfall window you acted on, where 1 is the first frame your y velocity is below 0, so a frame-1 aerial that changes your gravity is already counted. M is the jump frame the fastfall took effect on. `(Mf)` also shows in the Practice Panel layout and stays when a hitlag prefix is added. Fastfalls that don't come from a jump, like walking off a ledge or Kirby/Puff multi-jumps, keep the old two-row display.
+    - New **Fixed Grid OSD Positions** page in Global Settings (the third page: R twice or L once from Global OSDs). It lists the same OSDs as Global OSDs and lets you put each one in any cell of a 6-row × 5-column grid, shown as `R1 C1` (row 1, column 1).
+        - A steps to the next free cell and B to the previous one, through `Auto`. Two OSDs can never share a cell.
+        - A placed OSD always uses its cell, even when other OSDs are turned off, and cells you leave empty stay blank, so you can group OSDs with gaps between them.
+        - **JC Shine (Fox/Falco)** has its own row. Its cell stays empty when you're not playing Fox or Falco.
+        - **Reset All to Auto** puts every OSD back on Auto. Press A twice; B or moving off the row cancels.
+    - **Fixed Grid** now fits six rows: the grid moved up a little and the rows are slightly closer. OSDs on Auto still fill only the top two rows, ten per page, so if you don't place anything the grid looks the same as before, just higher. With cells placed, Auto OSDs start after your last placed OSD in the top two rows, and CPU OSDs start on their own page, labeled **CPU OSDs** instead of tagging every cell. The page label moved between rows 2 and 3.
+    - Empty `--` Fixed Grid cells use a smaller placeholder that's freed once the OSD shows a result, so the bigger grid doesn't use more of Melee's text memory.
 - **Event-specific changes**
     - **Training Lab**
         - New **Player Character** and **CPU Character** rows at the top of the **Session** tab can let you hot swap characters in the middle of a training lab session. Left/Right picks a character in its default color, in my tier list order (Fox, Marth, Jigglypuff, Falco, Peach, Sheik, ...). X/Y cycles that character's costume colors. The name is drawn in the costume's color, with its stock icon next to it. Press A to restart the match with both picks without going back through the character select.
