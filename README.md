@@ -51,6 +51,8 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - Similar Actionable X>Green for hitstun ending?
 - improve the fastfall OSD to tell you what frame of your jump you put in the input, so you can see how much you're buffering and see if you're hitting the right frame to account for f1 gravity
 - change name of low laser puff practice to frozen puff (low laser?) practice
+- Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
+- Under Fire make a setting where you can see the hand grab through the lava if you don't want to go by timing forever. But by the time the lava comes up if you want to succeed you do just need perfect rhythm. Just not sure if taking away the visual cue is good or not.
 
 ## Tyro branch changelog
 
