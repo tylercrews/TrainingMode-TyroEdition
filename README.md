@@ -63,6 +63,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - **Program changes**
     - New reusable character selector module ([src/fighter_swap.h](src/fighter_swap.h)) and menu support for custom rows (extra buttons, colored values, stock icons), so other events can get the same Player/CPU Character rows later. Details are in [the mid-event swap notes](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md#implemented-in-t6-player-and-cpu-character).
     - Global Settings saves version 17 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes and the saved Player/CPU costumes use 2 more, leaving 36. Older saves update automatically with every OSD on Auto and default costumes.
+    - New [save data memory map](notes/SAVE-DATA-MEMORY-MAP.md): tables showing every saved byte Tyro uses, what owns it, and what's still free.
     - Global Settings pages now go forward with R and back with L. Previously both went forward.
 - **Globals and all events**
     - **Change Stage** (Eggs-ercise, Low Laser Puff Practice, Training Lab) now reloads every file for the new match, like the character change does. The load takes a little longer, but changing the stage after changing characters can't crash.
