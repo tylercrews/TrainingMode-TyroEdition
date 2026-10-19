@@ -419,6 +419,7 @@ typedef struct MsgData
     Text *layout_timing; // One fitted large glyph stream for prefix + result in Practice Panel.
     Vec2 stick_direction; // Snapshot of the attempt, in controller coordinates (+Y = up).
     int stick_angle; // Angle row has an octagonal stick diagram; currently Wavedash row 1.
+    int timing_jump_frame; // Fastfall: jump frame the result took effect on; 0 = absent
 } MsgData;
 void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction);
 void Message_FreeObject(GOBJ *object);

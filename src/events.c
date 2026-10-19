@@ -2466,6 +2466,9 @@ GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, 
     char buffer[MSG_LINEMAX * MSG_CHARMAX + 1];
     va_start(args, format);
     msg_data->timing_frame = OSD_ReadMessageTimingArgument(args, msg_kind);
+    /* Display FF Timing.asm passes (input, window frame, jump frame) when the fastfall came from a jump. */
+    if (msg_data->settings_id == OSD_Fastfall && OSD_MessageArgument(msg_kind) == 2)
+        msg_data->timing_jump_frame = OSD_ReadTimingArgument(args, 3);
     if (msg_data->timing_frame >= 0 && msg_data->kind != 64) /* JC Shine precedes shine hitlag. */
         msg_data->timing_hitlag = OSDContext_MessageHitlag(queue_num, msg_data->settings_id);
     vsprintf(buffer, format, args);
