@@ -1006,11 +1006,16 @@ class CharacterPreferenceTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(backup+104,1)),b'\x02')
         self.assertEqual(bytes(m.cpu.mem_read(backup+140,1)),b'\x02')
         m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+140,b'\x09')
+        m.cpu.mem_write(backup+107,b'\x03');m.cpu.mem_write(backup+143,b'\x04')
         m.call('Settings_Characters',1,-1,-1,1)
         saved=m.record();fresh=Machine();fresh.put(saved)
+        fresh.cpu.mem_write(0x8045A6C0+0x1AE0,bytes(m.cpu.mem_read(0x8045A6C0+0x1AE0,88)))
         fresh.call('Settings_Characters',0,-1,-1,1)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1)),b'\x14')
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+140,1)),b'\x09')
+        # Costumes persist with their character across a reboot.
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+143,1)),b'\x04')
         fresh.cpu.mem_write(backup+107,b'\x03');fresh.call('Settings_Characters',0,-1,-1,1)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')
         # Peach-only exercise and Fox-only CPU: local fallback, no global overwrite.
@@ -1022,6 +1027,7 @@ class CharacterPreferenceTests(unittest.TestCase):
         self.assertEqual((fresh.call('Settings_Get',24,0),fresh.call('Settings_Get',24,1)),(20,9))
         fresh.call('Settings_Characters',0,-1,-1,1)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1)),b'\x14')
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')  # Saved costume returns with Falco.
         fresh.cpu.mem_write(backup+104,b'\x21');fresh.call('Settings_Characters',1,-1,-1,1)
         self.assertEqual(fresh.call('Settings_Get',24,0),20)
 

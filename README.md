@@ -62,7 +62,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 - **Program changes**
     - New reusable character selector module ([src/fighter_swap.h](src/fighter_swap.h)) and menu support for custom rows (extra buttons, colored values, stock icons), so other events can get the same Player/CPU Character rows later. Details are in [the mid-event swap notes](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md#implemented-in-t6-player-and-cpu-character).
-    - Global Settings saves version 16 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes, leaving 38. Older saves update automatically with every OSD on Auto.
+    - Global Settings saves version 17 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes and the saved Player/CPU costumes use 2 more, leaving 36. Older saves update automatically with every OSD on Auto and default costumes.
     - Global Settings pages now go forward with R and back with L. Previously both went forward.
 - **Globals and all events**
     - **Change Stage** (Eggs-ercise, Low Laser Puff Practice, Training Lab) now reloads every file for the new match, like the character change does. The load takes a little longer, but changing the stage after changing characters can't crash.
@@ -73,6 +73,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - **JC Shine (Fox/Falco)** has its own row. Its cell stays empty when you're not playing Fox or Falco.
         - **Reset All to Auto** puts every OSD back on Auto. Press A twice; B or moving off the row cancels.
     - **Fixed Grid** now fits six rows: the grid moved up a little and the rows are slightly closer. OSDs on Auto still fill only the top two rows, ten per page, so if you don't place anything the grid looks the same as before, just higher. With cells placed, Auto OSDs start after your last placed OSD in the top two rows, and CPU OSDs start on their own page, labeled **CPU OSDs** instead of tagging every cell. The page label moved between rows 2 and 3.
+    - The character select now remembers the Player and CPU **costume colors** across restarts, along with the characters it already remembered. A saved color comes back only with the character it was picked for; restricted events that force a different character still use its default color.
     - Empty `--` Fixed Grid cells use a smaller placeholder that's freed once the OSD shows a result, so the bigger grid doesn't use more of Melee's text memory.
 - **Event-specific changes**
     - **Training Lab**

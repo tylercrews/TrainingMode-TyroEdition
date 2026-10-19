@@ -15,11 +15,12 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 16, 42  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x10\x2A\xA5\x5A'
-# Bytes 24..49 appended by versions 15 and 16: one color nibble per OSD (all
-# original colors), Low Laser's byte 35 and the Fixed Grid cells (all Auto).
-COLOR_BYTES = bytes(26)
+CURRENT, PAYLOAD = 17, 44  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x11\x2C\xA5\x5A'
+# Bytes 24..51 appended by versions 15, 16 and 17: one color nibble per OSD (all
+# original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto) and the
+# human/CPU costumes (Default).
+COLOR_BYTES = bytes(28)
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -29,7 +30,7 @@ def upgraded(raw):
     value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
-    value[24:50] = COLOR_BYTES
+    value[24:52] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
@@ -38,8 +39,9 @@ def upgraded(raw):
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 50
+REGION_SIZE, OWNED_SIZE = 88, 52
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
+COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -168,7 +170,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('Settings_Get', 14, id) for id in (27, 30)), (4, 6))
         self.assertEqual(m.call('Settings_Get', 14, 20), m.read(14, 20))  # Garbage is not a new color.
         self.assertEqual(m.call('Settings_Get', 11, 9), 1)
-        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[24:50] = COLOR_BYTES
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[24:52] = COLOR_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         m.cpu.mem_write(EXT + 24, b'\x9F')  # Invalid nibbles repair to the original color.
         for id in (0, 1): self.assertEqual(m.call('Settings_Get', 14, id), m.read(14, id))
@@ -188,6 +190,35 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(tuple(m.call('Settings_Get', f, i) for f, i in ((14, 20), (30, 2), (30, 3), (14, 27), (11, 9))),
                          (12, 9, 4, 4, 1))
+
+    def test_version_16_migration_keeps_every_byte_and_claims_only_costume_bytes(self):
+        m = self.m
+        m.call('Settings_Set', 14, 20, 12); m.call('Settings_Set', 30, 2, 9)
+        m.call('Settings_Set', GRID, 3, 17); m.call('Settings_Set', GRID, 21, 30)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((16, 42)); old[50:52] = b'\x03\xFF'  # Version 16 never owned these bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (0, 0))
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[50:52] = bytes(2)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(tuple(m.call('Settings_Get', f, i) for f, i in ((14, 20), (30, 2), (GRID, 3), (GRID, 21))),
+                         (12, 9, 17, 30))
+
+    def test_costumes_round_trip_reject_and_repair_invalid_values(self):
+        m = self.m
+        core = m.record()
+        m.call('Settings_Set', GRID, 21, 30)  # The last cell borders the costume bytes.
+        m.call('Settings_Set', COSTUME, 0, 5); m.call('Settings_Set', COSTUME, 1, 2)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 50, 2)), b'\x05\x02')
+        self.assertEqual(m.call('Settings_Get', GRID, 21), 30)
+        self.assertEqual(m.record(), core)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for index, value in ((0, 6), (1, 0xFFFFFFFF), (2, 1)):
+            m.call('Settings_Set', COSTUME, index, value)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        m.cpu.mem_write(EXT + 51, b'\x09')  # A damaged byte repairs to Default.
+        self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (5, 0))
+        self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0)
 
     def test_grid_cells_pack_five_bits_round_trip_and_reject_or_repair_invalid_values(self):
         m = self.m
