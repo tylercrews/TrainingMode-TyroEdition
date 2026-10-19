@@ -52,7 +52,9 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
 - Under Fire make a setting where you can see the hand grab through the lava if you don't want to go by timing forever. But by the time the lava comes up if you want to succeed you do just need perfect rhythm. Just not sure if taking away the visual cue is good or not.
 - ~~add character swapping to edgeguard event~~ (**T6:** new Change Characters menu, and the event's settings are saved)
-- add better recoveries for falco, he goes too low consistently, make him double jump side b way more often
+- Edgeguard Training Beta Changes:
+    - Samus often misses tether, and doesn't "pull up" after hitting tether, just hangs there.
+    - Luigi feels like they reset a little early
 
 ## Tyro branch changelog
 
