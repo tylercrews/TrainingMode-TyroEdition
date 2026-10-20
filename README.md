@@ -49,7 +49,6 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
-- Under Fire make a setting where you can see the hand grab through the lava if you don't want to go by timing forever. But by the time the lava comes up if you want to succeed you do just need perfect rhythm. Just not sure if taking away the visual cue is good or not.
 - Edgeguard Training Beta Changes:
     - Samus often misses tether, and doesn't "pull up" after hitting tether, just hangs there.
     - Luigi feels like they reset a little early
@@ -92,6 +91,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - New **Change Characters** menu with the same Player Character and CPU Character rows as the Training Lab. The player can be anyone; the CPU list only has the characters the event supports.
         - **BETA, very unrefined and mostly untested -** Seven new CPUs: **Yoshi** (double jump high or low, air dodge to the ledge or stage, egg toss), **Peach** (float to the stage or low by the ledge, Parasol, Bomber, float aerials), **Luigi** (mashed Cyclone, Green Missile with the game's own misfires, up B), **Dr. Mario** (mashed Dr. Tornado, Cape stall, up B), the **Ice Climbers** (Belay when Nana is close, mashed Squall Hammer otherwise), **Jigglypuff** (jumps to stay high or low, Pound, aerials at you) and **Samus** (bomb jumps, grapple, Screw Attack). Each has its own Recovery Options. These haven't been tested in Dolphin yet; see [the notes](notes/EDGEGUARD-NEW-CHARACTERS.md#testing-in-dolphin).
         - Ice Climbers: resets no longer switch off Nana's AI, and she now follows Popo instead of you after a reset.
+    - **Under Fire - Ledgestall Training**
+        - New **Lava Overlay** setting (Off by default, saved). It hides the lava's model and draws a see-through orange overlay at the same height on top of the stage and your character, so you can still see the hand grab through it on the ledge after the lava rises. The lava still rises and hurts exactly as before. It uses a spare bit of the save record, so the save format doesn't change.
 
 For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for the character swapping and OSD layout, and Max for attempting to add new characters to Edgeguarding)
 

@@ -151,6 +151,7 @@ enum TMLedgechasePreference {
 enum TMUnderFirePreference {
     TM_UNDERFIRE_ATTACK_PARTICLES,
     TM_UNDERFIRE_COUNTER_SCORE, /* Record-format marker; old survival frames are not counts. */
+    TM_UNDERFIRE_LAVA_OVERLAY, /* TYEX word 20 bit 21, still version 19. */
     TM_UNDERFIRE_PREF_COUNT
 };
 enum TMLowLaserPreference {

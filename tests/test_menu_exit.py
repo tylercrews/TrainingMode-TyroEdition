@@ -120,7 +120,7 @@ class MenuExitTests(unittest.TestCase):
                 if name == 'eventMenu':
                     title = payload.index(b'Under Fire - Ledgestall Training\0')
                     menus = [at for at in range(0, len(payload) - 52, 4)
-                             if word(at) == title and payload[at + 4] == 7]
+                             if word(at) == title and payload[at + 4] == 8]
                     self.assertEqual(len(menus), 1)
                     root = menus[0]
                 else:

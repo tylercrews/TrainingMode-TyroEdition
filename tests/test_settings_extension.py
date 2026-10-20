@@ -52,6 +52,8 @@ def upgraded(raw):
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
 REGION_SIZE, OWNED_SIZE = 88, 68
+# Under Fire's Lava Overlay (index 2) lives in word 20, outside FIELDS' pre-v11 words.
+PREF_COUNTS = {29: 3}
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 
@@ -389,7 +391,7 @@ class ExtensionTests(unittest.TestCase):
                 for value in (count, 0xFFFFFFFF):
                     m.call('Settings_Set', field, index, value)
                     self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE + 8)), snapshot)
-            for index in (len(counts), 0xFFFFFFFF):
+            for index in (PREF_COUNTS.get(field, len(counts)), 0xFFFFFFFF):
                 m.call('Settings_Set', field, index, 1)
                 self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE + 8)), snapshot)
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE + 8))
@@ -763,6 +765,36 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(after[35], 0x80)
         expected = bytearray(record); expected[35] = 0x80; expected[14] &= ~0x10
         self.assertEqual(after, bytes(expected))
+
+    def test_under_fire_lava_overlay_lives_in_word_20_bit_21(self):
+        m = self.m
+        m.call('Settings_Set',29,0,0)  # Create the record.
+        self.assertEqual(m.call('Settings_Get',29,2), 0)
+        shield = [m.call('Settings_Get',f,i) for f, counts, _ in SHIELD_FIELDS for i in range(len(counts))]
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',29,2,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[22] |= 0x20
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(m.call('Settings_Get',29,2), 1)
+        self.assertEqual([m.call('Settings_Get',f,i) for f, counts, _ in SHIELD_FIELDS for i in range(len(counts))], shield)
+        # Version 11..18 records own word 20, so the bit is read as is.
+        old = bytearray(after); old[4:6] = bytes((18,56))
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,29,2), 1)
+
+    def test_records_before_version_11_never_read_the_lava_overlay_bit(self):
+        for version, payload in ((10,12), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',29,0,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload)); old[22] = 0xFF  # Valid-looking spare score bytes.
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read',EXT,29,2), 0)
+            m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
+            self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+            self.assertEqual(m.call('Settings_Get',29,2), 0)
 
     def test_older_records_never_read_byte_35_and_migration_claims_it_as_defaults(self):
         for version, payload in ((14,16), (10,12), (6,8)):

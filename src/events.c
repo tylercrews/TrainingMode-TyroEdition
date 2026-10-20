@@ -945,13 +945,16 @@ static int under_fire_input_tick, under_fire_input_state;
 static int under_fire_in_iasa;
 static int under_fire_inv_total, under_fire_inv_frame, under_fire_inv_tick, under_fire_inv_remaining;
 static CmSubject *under_fire_camera;
-enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
+static GOBJ *under_fire_lava_gobj;
+enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_LAVA_OVERLAY, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
 static void UnderFire_ChangeSide(GOBJ *menu, int value) { under_fire_restart = 1; }
 static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
     Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES, value);
     // Do not destroy all owned effects: that also erases the ledge-grab cue
     // and double-jump rings. New attack effects are filtered at their spawn.
 }
+static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value);
+static void UnderFire_SyncLava(GOBJ *gobj);
 static void UnderFire_UpdateCounterText(void) {
     if (!under_fire_count_text) return;
     for (int row = 10; row < 15; ++row)
@@ -973,6 +976,7 @@ static void UnderFire_Exit(GOBJ *menu) {
     ActionCues_SetTangibilityOverlay(0);
     Trails_SetOverride(0);
     OSD_SetEventSuppression(0);
+    UnderFire_SyncLava(under_fire_lava_gobj); // Inactive now: shows the lava again.
     int counter_record = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE);
     if (under_fire_best > 0 && (!counter_record || under_fire_best > Events_GetSavedScore(under_fire_event))) {
         Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE, 1);
@@ -999,6 +1003,10 @@ static EventOption under_fire_options[] = {
      .desc = {"Choose the left or right ledge.", "D-pad Left/Right also switches and restarts."}},
     {.kind = OPTKIND_TOGGLE, .name = "Disable Attack Particles", .OnChange = UnderFire_ChangeParticles,
      .desc = {"Hide attack effects, including Fox/Falco up-B.", "Keep ledge-grab circles and double-jump rings.", "This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Lava Overlay", .OnChange = UnderFire_ChangeLavaOverlay,
+     .desc = {"Draw the lava as a see-through overlay on top,",
+              "so ledge grabs stay visible once it rises.",
+              "The lava still hurts at the same height.", "This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Refresh OSTs",
      .desc = {"Show Ledge Drop and Invincibility together.",
               "Perfect stall: 29f protection / 29f lockout.",
@@ -1010,6 +1018,97 @@ static EventOption under_fire_options[] = {
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = UnderFire_Exit,
      .desc = {"Return to the Event Selection Screen."}},
 };
+/* Lava Overlay: once Brinstar's lava (map GObj 8) rises it draws over the
+ * ledge and hides the hand grab. While On, hide the lava's model and draw a
+ * translucent stand-in at the same height over everything, stage and fighters
+ * included: the fighter and the ledge grab stay visible through it. The lava's hitbox and rise are untouched, and only
+ * per-match joint flags change, never the stage file's shared data. */
+#define UF_LAVA_MAP_GOBJ 8
+#define UF_LAVA_SURFACE_OFFSET 55 /* The ASM places the joint 55 above the surface. */
+#define UF_LAVA_JOINTS 64
+#define UF_LAVA_HALF_WIDTH 400
+#define UF_LAVA_DEPTH 400
+static JOBJ *under_fire_lava_hidden[UF_LAVA_JOINTS];
+static int under_fire_lava_hidden_num;
+static int UnderFire_LavaOn(void) {
+    return under_fire_active && under_fire_options[UF_LAVA_OVERLAY].val;
+}
+static JOBJ *UnderFire_LavaRoot(void) {
+    if (Stage_ExternalToInternal(Stage_GetExternalID()) != GRKIND_ZEBES) return 0;
+    GOBJ *map = Stage_GetMapGObj(UF_LAVA_MAP_GOBJ);
+    MapData *data = map ? map->userdata : 0;
+    return data && data->index == UF_LAVA_MAP_GOBJ ? map->hsd_object : 0;
+}
+// Remember only the joints this overlay hid, so Off restores the model exactly.
+static void UnderFire_HideLava(JOBJ *joint) {
+    for (; joint; joint = joint->sibling) {
+        if (!(joint->flags & JOBJ_HIDDEN) && under_fire_lava_hidden_num < UF_LAVA_JOINTS) {
+            JOBJ_SetFlags(joint, JOBJ_HIDDEN);
+            under_fire_lava_hidden[under_fire_lava_hidden_num++] = joint;
+        }
+        UnderFire_HideLava(joint->child);
+    }
+}
+static void UnderFire_SyncLava(GOBJ *gobj) {
+    // Without the overlay GOBJ nothing would stand in, so keep the lava shown.
+    if (!UnderFire_LavaOn() || !under_fire_lava_gobj) {
+        while (under_fire_lava_hidden_num)
+            JOBJ_ClearFlags(under_fire_lava_hidden[--under_fire_lava_hidden_num], JOBJ_HIDDEN);
+        return;
+    }
+    JOBJ *root = under_fire_lava_hidden_num ? 0 : UnderFire_LavaRoot();
+    if (root) UnderFire_HideLava(root);
+}
+// GFX_Start with depth testing off, through HSD's cached state so later draws
+// restore their own modes normally.
+static void UnderFire_LavaBegin(u16 count, u8 shape, u8 size) {
+    Mtx mtx;
+    HSD_ClearVtxDesc();
+    GXSetCurrentMtx(0);
+    COBJ_GetViewingMtx(COBJ_GetCurrent(), &mtx);
+    GXLoadPosMtxImm(mtx, 0);
+    HSD_StateSetLineWidth(size, 5);
+    HSD_SetupRenderMode(0x68000002);
+    HSD_StateSetZMode(GX_DISABLE, GX_ALWAYS, GX_DISABLE);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    HSD_StateSetCullMode(0);
+    GXBegin(shape, GX_VTXFMT0, count);
+}
+static void UnderFire_LavaGX(GOBJ *gobj, int pass) {
+    if (pass != 2 || !UnderFire_LavaOn()) return;
+    // Read the joint the ASM moves (Stage_map_gobj_LoadJObj index 0); the
+    // tree's root stays put, so its height never rises.
+    JOBJ *root = UnderFire_LavaRoot();
+    JOBJ *moved = root ? Stage_GetMapGObjJObj(Stage_GetMapGObj(UF_LAVA_MAP_GOBJ), 0) : 0;
+    if (!moved) return;
+    float top = moved->trans.Y - UF_LAVA_SURFACE_OFFSET, bottom = top - UF_LAVA_DEPTH;
+    // Premultiplied, as GFX_AddVtx expects.
+    static const GXColor fill = {110, 36, 0, 110}, surface = {255, 150, 40, 255};
+    UnderFire_LavaBegin(4, GX_TRIANGLEFAN, 0);
+    GFX_AddVtx(-UF_LAVA_HALF_WIDTH, top, 0, fill);
+    GFX_AddVtx(UF_LAVA_HALF_WIDTH, top, 0, fill);
+    GFX_AddVtx(UF_LAVA_HALF_WIDTH, bottom, 0, fill);
+    GFX_AddVtx(-UF_LAVA_HALF_WIDTH, bottom, 0, fill);
+    UnderFire_LavaBegin(2, GX_LINES, 12);
+    GFX_AddVtx(-UF_LAVA_HALF_WIDTH, top, 0, surface);
+    GFX_AddVtx(UF_LAVA_HALF_WIDTH, top, 0, surface);
+}
+static void UnderFire_InitLava(void) {
+    under_fire_lava_hidden_num = 0;
+    under_fire_lava_gobj = GObj_Create(0, 7, 0);
+    if (!under_fire_lava_gobj) return;
+    GObj_AddProc(under_fire_lava_gobj, UnderFire_SyncLava, 0);
+    // The in-game effects link draws after the stage and fighters.
+    GObj_AddGXLink(under_fire_lava_gobj, UnderFire_LavaGX, MATCHGX_EFFECT, 255);
+    UnderFire_SyncLava(under_fire_lava_gobj);
+}
+static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value) {
+    Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY, value);
+    UnderFire_SyncLava(under_fire_lava_gobj); // Apply now: a toggle while paused runs no procs.
+}
 static EventMenu under_fire_menu = {
     .on_exit = UnderFire_Exit,
     .name = "Under Fire - Ledgestall Training", .option_num = countof(under_fire_options),
@@ -1272,6 +1371,8 @@ void UnderFire_InitMenu(void) {
     stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
     under_fire_options[UF_PARTICLES].val = under_fire_options[UF_PARTICLES].val_prev =
         Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES);
+    under_fire_options[UF_LAVA_OVERLAY].val = under_fire_options[UF_LAVA_OVERLAY].val_prev =
+        Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY);
     // The pre-counter format stores survival time, not a refresh count.
     under_fire_high_score = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE) ?
         Events_GetSavedScore(under_fire_event) : 0;
@@ -1279,6 +1380,7 @@ void UnderFire_InitMenu(void) {
     Trails_SetOverride(&under_fire_options[1].val);
     ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
     OSD_SetEventSuppression(&under_fire_options[UF_SUPPRESS_OSDS].val);
+    UnderFire_InitLava();
     stc_hsd_update->onFrame = UnderFire_Update;
     int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
     under_fire_canvas = canvas;
@@ -2124,6 +2226,8 @@ void OnSceneChange(void)
     Powershield_SceneChange();
     under_fire_active = 0;
     under_fire_camera = 0;
+    under_fire_lava_gobj = 0; // Native scene cleanup owns it and the old joints.
+    under_fire_lava_hidden_num = 0;
     OSD_SetEventSuppression(0);
     Trails_SceneChange();
     StageOverlay_SceneChange();

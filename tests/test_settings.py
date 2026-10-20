@@ -313,6 +313,8 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         m.init()
         before = m.record()
         m.call('DAT_Set',29,1,1)  # This test starts with an existing count record.
+        m.call('DAT_Set',29,2,1)  # And a saved Lava Overlay choice.
+        before = m.record()
         m.cpu.mem_write(0x8045A6C0 + 0x535, b'\x02')  # Capture Under Fire's event ID.
         start = m.symbols['DAT_UnderFire']
         # The first direct call creates the C menu. Bound rendering/allocation,
@@ -341,6 +343,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
                 saved_score[0] = cpu.reg_read(gpr(4))
             elif address == 0x8015CEB4: played.append(cpu.reg_read(gpr(3)))
             elif address == 0x803A611C: cpu.reg_write(gpr(3), 7)
+            elif address == 0x803901F0: cpu.reg_write(gpr(3), 0)  # No Lava Overlay GOBJ outside a match.
             elif address == 0x803A6754:
                 cpu.reg_write(gpr(3), 0x80407A00)
                 rows[0] = 0
@@ -356,7 +359,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             m.call('DAT_UnderFire')
             self.assertEqual(len(menus), 1)
             menu = menus[0]
-            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x07\0\0')
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x08\0\0')
             options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
             label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
@@ -365,6 +368,10 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             trail_label=struct.unpack('>I',m.cpu.mem_read(trail_row+12,4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(trail_label,14)),b'Hitbox Trails\0')
             self.assertEqual(bytes(m.cpu.mem_read(trail_row+6,4)),bytes(4))
+            lava_row=options+4*44
+            lava_label=struct.unpack('>I',m.cpu.mem_read(lava_row+12,4))[0]
+            self.assertEqual(bytes(m.cpu.mem_read(lava_label,13)),b'Lava Overlay\0')
+            self.assertEqual(bytes(m.cpu.mem_read(lava_row+6,4)),b'\0\1\0\1')  # Saved choice loads.
             self.assertNotEqual(bytes(m.cpu.mem_read(0x80479D88, 4)), bytes(4))  # Menu update installed.
             self.assertEqual(ended, [])
             self.assertEqual(scores, [])  # Best attempts are kept in RAM until Exit.
@@ -385,7 +392,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             for _ in range(3):m.call('DAT_UnderFireScore',1)
             self.assertEqual(text_rows[-6][:2],(4,3))
             self.assertEqual(text_rows[-1][:2],(9,120))
-            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 6 * 44 + 40, 4))[0]
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 7 * 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
             self.assertEqual(scores, [(2, 120)])
