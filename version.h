@@ -2,7 +2,7 @@
 #define TM_VERSION_H
 
 // Update this one line for each Tyro release. Used by C, builds and release patchers.
-#define TM_VERSION "V1.4.1T5"
+#define TM_VERSION "V1.4.1T6"
 
 // Stable save identity: keep this unchanged between Tyro releases.
 // TMTE is Training Mode Tyro Edition's game code; E is USA and 01 is the maker code.

@@ -9,12 +9,17 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
  * Page 0, Global OSDs: movement/tech, Act Oo*, then (right column) shield and
  * escape, punish, ledge/items, and both overrides in the bottom-right corner.
  * Page 1, Global Overlays & Gameplay: character overlays, character gameplay
- * (Infinite Shields), then stage overlays (Randall), separated by blank rows. */
+ * (Infinite Shields), then stage overlays (Randall), separated by blank rows.
+ * Page 2, Fixed Grid OSD Positions: page 0's OSD rows in the same places; JC
+ * Shine and Reset All take the overrides' corner. Its rows edit positions, so
+ * their native Booleans mirror each OSD's On/Off and saving them is a no-op. */
 const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS] = {
     { 0,1,20,19,5,8,30,255,3,16,27,18,28,255,255,
       9,10,24,12,255,21,22,255,26,13,14,255,29,6, },
     { 2,4,7,17,11,25,255,23,255,31,255,255,255,255,255,
       255,255,255,255,255,255,255,255,255,255,255,255,255,255, },
+    { 0,1,20,19,5,8,30,255,3,16,27,18,28,255,255,
+      9,10,24,12,255,21,22,255,26,13,14,255,TM_GRID_JC_SHINE_ROW,TM_GRID_RESET_ROW, },
 };
 int TMSettings_EditorIDFor(unsigned page, unsigned native_row) {
     static const uint8_t physical[] = {

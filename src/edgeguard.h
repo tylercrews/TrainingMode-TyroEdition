@@ -1,10 +1,12 @@
 #include "../MexTK/mex.h"
 #include "events.h"
+#include "fighter_swap.h"
 
 static void Exit(GOBJ *menu);
 static void Reset(void);
 
 static void ChangePlayerPercent(GOBJ *menu_gobj, int value);
+static void ChangeHitStrength(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMax(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_AngMin(GOBJ *menu_gobj, int value);
@@ -14,6 +16,7 @@ static void ChangeCustomKB_DmgMax(GOBJ *menu_gobj, int value);
 
 static EventMenu Menu_Main;
 static EventMenu Menu_CustomHitStrength;
+static EventMenu Menu_Characters;
 
 // Common values -------------------------------------------------
 
@@ -74,6 +77,7 @@ enum options_initial {
     OPT_MAIN_PERCENT,
     OPT_MAIN_HITSTRENGTH,
     OPT_MAIN_HITSTRENGTH_CUSTOMMENU,
+    OPT_MAIN_CHARACTERS,
     OPT_MAIN_EXIT,
     
     OPT_MAIN_COUNT
@@ -84,30 +88,42 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_MENU,
         .menu = 0, // Set in Event_Init
         .name = "Recovery Options",
-        .desc = {"Alter the CPU's recovery options."},
+        .desc = {"Alter the CPU's recovery options.",
+                 "Each character's options are saved."},
     },
     {
         .kind = OPTKIND_INT,
         .value_num = 999,
         .name = "Player Percent",
-        .desc = {"Adjust the player's percent."},
+        .desc = {"Adjust the player's percent.",
+                 "This setting is saved."},
         .format = "%d%%",
         .OnChange = ChangePlayerPercent,
     },
     {
         .kind = OPTKIND_STRING,
         .name = "Hit Strength",
-        .desc = {"How far the CPU will be knocked back."},
+        .desc = {"How far the CPU will be knocked back.",
+                 "This setting is saved."},
         .values = Values_HitStrength,
         .value_num = countof(Values_HitStrength),
         .val = 1,
+        .OnChange = ChangeHitStrength,
     },
     {
         .kind = OPTKIND_MENU,
         .menu = &Menu_CustomHitStrength,
         .name = "Customize Hit Strength",
         .desc = {"Manually adjust where and how far the CPU",
-                 "will be knocked back."},
+                 "will be knocked back. These settings are saved."},
+    },
+    {
+        .kind = OPTKIND_MENU,
+        .menu = &Menu_Characters,
+        .name = "Change Characters",
+        .desc = {"Restart with another player or CPU character.",
+                 "The CPU can be any character with Recovery",
+                 "Options. Saved settings are kept."},
     },
     {
         .kind = OPTKIND_FUNC,
@@ -199,4 +215,20 @@ static EventMenu Menu_CustomHitStrength = {
     .name = "Custom Hit Strength",
     .option_num = sizeof(Options_CustomHitStrength) / sizeof(EventOption),
     .options = Options_CustomHitStrength,
+};
+
+// Change Characters ---------------------------------
+
+/* Only these CPUs have recovery logic (RecoveryMenus in recovery.c), in the
+ * character selector's tier-list order. */
+static const u8 Edgeguard_CPUKinds[] = {
+    CKIND_FOX, CKIND_MARTH, CKIND_JIGGLYPUFF, CKIND_FALCO, CKIND_PEACH, CKIND_SHEIK,
+    CKIND_FALCON, CKIND_ICECLIMBERS, CKIND_LUIGI, CKIND_YOSHI, CKIND_SAMUS, CKIND_DRMARIO,
+};
+
+static EventMenu Menu_Characters = {
+    .name = "Change Characters",
+    .option_num = countof(FighterSwap_Options),
+    .options = FighterSwap_Options,
+    .row_hooks = &FighterSwap_RowHooks,
 };

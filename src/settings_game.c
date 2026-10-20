@@ -98,7 +98,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
         u32 extra=TMExtension_Read(extension_view(),TM_SETTING_OSD_COLOR_EXTRA,slot);
         return extra?TM_COLOR_LEGACY_COUNT-1+extra:base;
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_COLOR_EXTRA)
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD)
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index))
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
@@ -124,7 +124,7 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
         extension_set(TM_SETTING_OSD_COLOR_EXTRA,slot,extended?value-TM_COLOR_LEGACY_COUNT+1:0);
         if(extended) value=legacy_color[value-TM_COLOR_LEGACY_COUNT];
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)) {
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD) {
         extension_set(field,index,value); return;
     }
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index)) {
@@ -197,10 +197,15 @@ void Settings_CommitPending(void) {
 }
 
 /* These native CSS backups are RAM-only (outside the card manifest). Keep
- * costumes during a session when the character matches; otherwise use default.
+ * costumes during a session when the character matches; otherwise restore the
+ * saved costume of the saved character, or use default.
  * The whitelist uses CSS icon IDs, not external fighter IDs. Sheik shares Zelda. */
 static const u8 character_css_id[26] = {
     7,6,10,22,13,3,16,2,1,23,21,11,4,19,12,20,14,5,15,15,9,17,0,24,18,8,
+};
+/* Costumes per external ID; matches the game's table (CSS_GetCostumeNum). */
+static const u8 character_costumes[26] = {
+    6,5,4,4,6,4,5,4,5,5,4,4,5,4,4,5,5,6,5,5,4,5,5,5,4,5,
 };
 static int character_allowed(unsigned kind, int mask) {
     return kind < 26 && (mask == -1 || ((u32)mask & (1u << character_css_id[kind])));
@@ -213,11 +218,14 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
         if (save) {
             /* Fixed/restricted events are exercises, not a new general choice.
              * Never persist None/Random/nonplayable IDs from a closed door. */
-            if (mask == -1 && (!player || cpu_selectable) && backup[offset] < 26)
+            if (mask == -1 && (!player || cpu_selectable) && backup[offset] < 26) {
                 Settings_Set(TM_SETTING_CHARACTER, player, backup[offset]);
+                Settings_Set(TM_SETTING_COSTUME, player,
+                    backup[costume] < character_costumes[backup[offset]] ? backup[costume] : 0);
+            }
             continue;
         }
-        unsigned kind = Settings_Get(TM_SETTING_CHARACTER, player);
+        unsigned saved = Settings_Get(TM_SETTING_CHARACTER, player), kind = saved;
         if (kind >= 26) kind = backup[offset];
         if (!character_allowed(kind, mask)) {
             kind = 2; /* Fox for an uninitialized unrestricted backup. */
@@ -227,7 +235,10 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
                 if (kind == 26) continue; /* Empty whitelist: leave native behavior. */
             }
         }
-        if (kind != backup[offset]) backup[costume] = 0;
+        if (kind != backup[offset]) {
+            unsigned color = kind == saved ? Settings_Get(TM_SETTING_COSTUME, player) : 0;
+            backup[costume] = color < character_costumes[kind] ? color : 0;
+        }
         backup[offset] = kind;
     }
 }

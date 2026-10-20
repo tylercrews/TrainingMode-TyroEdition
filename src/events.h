@@ -309,6 +309,10 @@ typedef struct EventVars
      * only taken by the restarted event; any other event start discards it. */
     void *(*carry_store)(u32 tag, u32 size);
     const void *(*carry_take)(u32 tag, u32 size);
+    /* Restart with other fighters (external CKIND_* and costume; a kind of -1
+     * keeps that one), skipping the CSS/SSS. Only for fighters the event takes
+     * from the CSS; returns 0 when refused. Carry works as for a stage change. */
+    int (*restart_on_fighters)(int hmn_kind, int hmn_costume, int cpu_kind, int cpu_costume);
 } EventVars;
 #define TM_EVENT_CARRY_SIZE 2048
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
@@ -415,6 +419,7 @@ typedef struct MsgData
     Text *layout_timing; // One fitted large glyph stream for prefix + result in Practice Panel.
     Vec2 stick_direction; // Snapshot of the attempt, in controller coordinates (+Y = up).
     int stick_angle; // Angle row has an octagonal stick diagram; currently Wavedash row 1.
+    int timing_jump_frame; // Fastfall: jump frame the result took effect on; 0 = absent
 } MsgData;
 void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction);
 void Message_FreeObject(GOBJ *object);

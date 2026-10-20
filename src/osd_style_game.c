@@ -38,6 +38,10 @@ void OSD_TimingText(MsgData *msg, char *line, int which) {
     if (msg->timing_failed) strcpy(part, "FAIL");
     else sprintf(part, msg->timing_second_turn ? "%dtrn" : msg->settings_id == 1 ? "%df/7f" : "%df", msg->timing_frame);
     out = append_text(out, part);
+    if (msg->timing_jump_frame > 0 && !msg->timing_failed && !msg->timing_second_turn) {
+        sprintf(part, " (%df)", msg->timing_jump_frame);
+        out = append_text(out, part);
+    }
     }
     *out = 0;
 }

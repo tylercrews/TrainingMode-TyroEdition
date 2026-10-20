@@ -143,7 +143,7 @@ class MenuTests(unittest.TestCase):
 
     def test_views_follow_canonical_values(self):
         session = self.m.call("TestMenuTab", 0)
-        option = self.m.call("TestMenuOption", session, 2)
+        option = self.m.call("TestMenuOption", session, 4)
         self.assertEqual(self.m.call("TestMenuOrigin", option), 101)
         self.m.call("TestMenuWriteSource", 1, 1, 77)
         self.assertEqual(self.m.call("TestMenuValue", option), 77)
@@ -255,6 +255,7 @@ class MenuTests(unittest.TestCase):
             walk(word(tabs + i * 8 + 4), 1)
         self.assertEqual(observed["Boost Grab"], ["Combat & Defense OSDs"])
         self.assertEqual(observed["Frame Advance"], ["Session"])
+        self.assertEqual(ordered["Session"][:3], ["Player Character", "CPU Character", "Frame Advance"])
         self.assertEqual(observed["Reset to Default Settings"], ["Session", "Exit"])
         self.assertEqual(ordered["Exit"], ["Exit", "Reset to Default Settings", "Resume Practice"])
         self.assertEqual(ordered["Stage & RNG"], ["Change Stage", "Stage Options", "Character RNG"])
@@ -263,6 +264,9 @@ class MenuTests(unittest.TestCase):
         self.assertIn("Recording", observed["Save Positions"])
         self.assertEqual(ordered['Global Settings'][:3],
                          ['A-Smash Release', 'OVERRIDE ALL OSDS OFF', 'OVERRIDE CPU OSDS OFF'])
+        # Event_Init gave the Session tab the character selectors' row hooks.
+        hooks = word(word(tabs + 4) + 52)
+        self.assertTrue(all(base <= word(hooks + i * 4) < base + payload_size for i in range(2)))
         # The opt-in root callback lives in the relocated Lab, not shared-code
         # exports. Simulate a disabled recording mode before the state exists.
         reason_callback = word(root + 44)

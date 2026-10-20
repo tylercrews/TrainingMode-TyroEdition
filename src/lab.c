@@ -6099,11 +6099,18 @@ typedef char lab_session_capacity[(OPTGEN_COUNT + OPTCPU_COUNT + OPTTECH_COUNT +
     ACTION_LOG_MAX * OPTACTIONLOG_COUNT + OPTSTAGE_STADIUM_COUNT + OPTSTAGE_FOD_COUNT <= LAB_SESSION_MAX) ? 1 : -1];
 typedef char lab_recovery_capacity[(countof(RecOptions_Fox) <= LAB_RECOVERY_MAX &&
     countof(RecOptions_Falco) <= LAB_RECOVERY_MAX && countof(RecOptions_Sheik) <= LAB_RECOVERY_MAX &&
-    countof(RecOptions_Falcon) <= LAB_RECOVERY_MAX && countof(RecOptions_Marth) <= LAB_RECOVERY_MAX) ? 1 : -1];
+    countof(RecOptions_Falcon) <= LAB_RECOVERY_MAX && countof(RecOptions_Marth) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Yoshi) <= LAB_RECOVERY_MAX && countof(RecOptions_Peach) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Luigi) <= LAB_RECOVERY_MAX && countof(RecOptions_DrMario) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_IceClimbers) <= LAB_RECOVERY_MAX && countof(RecOptions_Puff) <= LAB_RECOVERY_MAX &&
+    countof(RecOptions_Samus) <= LAB_RECOVERY_MAX) ? 1 : -1];
 
 static EventOption *lab_session[LAB_SESSION_MAX];
 static s16 lab_session_defaults[LAB_SESSION_MAX];
 static int lab_session_default_count;
+/* Where the last list's CPU recovery rows start and its Character RNG rows
+ * start. Rows before the first depend on no fighter. */
+static int lab_session_recovery, lab_session_rng;
 
 static int Lab_SessionAdd(int count, EventOption *options, int option_num) {
     for (int i = 0; i < option_num && count < LAB_SESSION_MAX; ++i) {
@@ -6122,13 +6129,15 @@ static int Lab_SessionList(int with_stage) {
     count = Lab_SessionAdd(count, LabOptions_InfoDisplayHMN, OPTINF_COUNT);
     count = Lab_SessionAdd(count, LabOptions_InfoDisplayCPU, OPTINF_COUNT);
     count = Lab_SessionAdd(count, LabOptions_HitboxTrails, OPTHITBOXTRAILS_COUNT);
-    count = Lab_SessionAdd(count, LabMenu_CharacterRng.options, LabMenu_CharacterRng.option_num);
-    EventMenu *recovery = LabOptions_CPU[OPTCPU_RECOVERY].menu;
-    if (recovery) count = Lab_SessionAdd(count, recovery->options, recovery->option_num);
     for (int page = 0; page < ADV_COUNTER_COUNT; ++page)
         count = Lab_SessionAdd(count, LabOptions_AdvCounter[page], OPTCTR_COUNT);
     for (int page = 0; page < ACTION_LOG_MAX; ++page)
         count = Lab_SessionAdd(count, LabOptions_ActionLog[page], OPTACTIONLOG_COUNT);
+    lab_session_recovery = count;
+    EventMenu *recovery = LabOptions_CPU[OPTCPU_RECOVERY].menu;
+    if (recovery) count = Lab_SessionAdd(count, recovery->options, recovery->option_num);
+    lab_session_rng = count;
+    count = Lab_SessionAdd(count, LabMenu_CharacterRng.options, LabMenu_CharacterRng.option_num);
     EventMenu *stage = LabOptions_Main[OPTLAB_STAGE].disable ? 0 : LabOptions_Main[OPTLAB_STAGE].menu;
     if (with_stage && (stage == &LabMenu_Stage_Stadium || stage == &LabMenu_Stage_FOD))
         count = Lab_SessionAdd(count, stage->options, stage->option_num);
@@ -6160,12 +6169,13 @@ static void Lab_SessionRebuild(void) {
     // Every page holds the same Hit Number; the menu shows that page.
     LabMenu_AdvCounter.options = LabOptions_AdvCounter[LabOptions_AdvCounter[0][OPTCTR_HITNUM].val - 1];
 }
-/* Restore every value first, then re-run each changed row's own effect
- * (camera, displays, percents, CPU intangibility, trails, character RNG), so
- * every callback sees the final values. */
+/* Restore the first count rows of the list: every value first, then re-run
+ * each changed row's own effect (camera, displays, percents, CPU
+ * intangibility, trails, character RNG), so every callback sees the final
+ * values. */
 static void Lab_SessionApply(const s16 *values, int count, int with_stage) {
     u8 changed[LAB_SESSION_MAX];
-    if (Lab_SessionList(with_stage) != count) return;
+    if (Lab_SessionList(with_stage) < count) return;
     for (int i = 0; i < count; ++i) {
         EventOption *option = lab_session[i];
         changed[i] = values[i] != option->val && Lab_SessionValid(option, values[i]);
@@ -6181,12 +6191,14 @@ static void Lab_SessionApply(const s16 *values, int count, int with_stage) {
     Lab_SessionRebuild();
 }
 
-/* State that survives a stage change: the values above plus the Custom TDI,
- * Custom OSD and Action Log states, which are not option values. */
+/* State that survives a stage or character change: the values above plus the
+ * Custom TDI, Custom OSD and Action Log states, which are not option values.
+ * The fighters' internal kinds decide whether their own rows carry. */
 #define LAB_CARRY_TAG 0x4C616231 /* "Lab1" */
 #define LAB_STATE_NAME 64
 typedef struct LabCarry {
-    u16 count;
+    u16 count, recovery, rng;
+    u8 hmn_kind, cpu_kind;
     s16 values[LAB_SESSION_MAX];
     u8 tdi_num, osd_num;
     CustomTDI tdi[TDI_HITNUM];
@@ -6197,6 +6209,7 @@ typedef struct LabCarry {
 } LabCarry;
 typedef char lab_carry_capacity[(sizeof(LabCarry) <= TM_EVENT_CARRY_SIZE) ? 1 : -1];
 static const LabCarry *lab_pending_carry;
+static int Lab_FighterKind(int ply) { return ((FighterData *)Fighter_GetGObj(ply)->userdata)->kind; }
 
 static void Lab_CopyName(char *dest, const char *source, int size) {
     int i = 0;
@@ -6208,6 +6221,10 @@ static void Lab_CarryStore(void) {
     if (!carry) return;
     memset(carry, 0, sizeof(*carry));
     carry->count = Lab_SessionList(0);
+    carry->recovery = lab_session_recovery;
+    carry->rng = lab_session_rng;
+    carry->hmn_kind = Lab_FighterKind(0);
+    carry->cpu_kind = Lab_FighterKind(1);
     for (int i = 0; i < carry->count; ++i) carry->values[i] = lab_session[i]->val;
     carry->tdi_num = stc_tdi_val_num;
     memcpy(carry->tdi, stc_tdi_vals, sizeof(carry->tdi));
@@ -6222,8 +6239,16 @@ static void Lab_CarryStore(void) {
         Lab_CopyName(carry->log_names[page], action_log_state_name_buffers[page], sizeof(carry->log_names[page]));
     }
 }
+/* A character change rebuilds the CPU's recovery rows and both fighters'
+ * Character RNG rows, so those only carry while their fighters stay. */
 static void Lab_CarryApply(const LabCarry *carry) {
-    Lab_SessionApply(carry->values, carry->count, 0);
+    int count = Lab_SessionList(0);
+    if (carry->recovery != lab_session_recovery) return;
+    int same_cpu = carry->cpu_kind == Lab_FighterKind(1) && carry->rng == lab_session_rng;
+    int same_hmn = carry->hmn_kind == Lab_FighterKind(0);
+    if (same_cpu && same_hmn && carry->count == count) count = carry->count;
+    else count = same_cpu ? carry->rng : carry->recovery;
+    Lab_SessionApply(carry->values, count, 0);
     stc_tdi_val_num = carry->tdi_num <= TDI_HITNUM ? carry->tdi_num : 0;
     memcpy(stc_tdi_vals, carry->tdi, sizeof(stc_tdi_vals));
     for (int i = 0; i < carry->osd_num && i < OPTCUSTOMOSD_MAX_ADDED; ++i)
@@ -6235,19 +6260,23 @@ static void Lab_CarryApply(const LabCarry *carry) {
     }
 }
 
-/* Lab-specific cleanup before the shared stage restart. */
-static void StageSwap_BeforeRestart(void) {
+/* Lab-specific cleanup before the shared stage or character restart. */
+static void Lab_BeforeRestart(void) {
     Lab_CarryStore();
-    // A recording imported on the CSS was saved on the old stage.
+    // A recording imported on the CSS was saved on the old stage and fighters.
     *onload_fileno = -1;
     // As Lab_Exit: carried Character RNG rows reapply their choices.
     memset(event_vars->rng, 0, sizeof(*event_vars->rng));
 }
+static void StageSwap_BeforeRestart(void) { Lab_BeforeRestart(); }
+static void FighterSwap_BeforeRestart(void) { Lab_BeforeRestart(); }
 
 /* End of Event_Init: Reset returns to this fresh Lab's values. Settings
- * carried from a stage change apply on the first frame, once the match is live. */
+ * carried from a stage or character change apply on the first frame, once the
+ * match is live. */
 static void Lab_SessionInit(void) {
     StageSwap_Init();
+    FighterSwap_Init();
     lab_session_default_count = Lab_SessionList(1);
     for (int i = 0; i < lab_session_default_count; ++i)
         lab_session_defaults[i] = lab_session[i]->val;

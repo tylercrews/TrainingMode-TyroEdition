@@ -67,6 +67,20 @@ typedef struct ShortcutList {
     int count;
     Shortcut *list;
 } ShortcutList;
+/* Optional custom rows (menu->row_hooks), e.g. character selectors. A fresh
+ * press on one of the menu's rows goes to input first; nonzero means it was
+ * handled. style can recolor a row's value, put a stock icon beside it and
+ * replace the button hint while that row is selected. */
+typedef struct EventMenuRowStyle {
+    GXColor value_color;
+    s8 icon_kind;     /* CKIND_* stock icon beside the value; -1 for none */
+    u8 icon_costume;
+    const char *hint;
+} EventMenuRowStyle;
+typedef struct EventMenuRowHooks {
+    int (*input)(GOBJ *menu_gobj, EventOption *option, int buttons);
+    int (*style)(EventOption *option, EventMenuRowStyle *style); /* nonzero = styled */
+} EventMenuRowHooks;
 struct EventMenu
 {
     char *name;                    // name of this menu
@@ -85,6 +99,7 @@ struct EventMenu
     char *purpose;
     const char *(*unavailable_reason)(EventOption *option); /* optional root context */
     void (*on_exit)(GOBJ *menu_gobj); /* root-only: same callback as the Exit option */
+    const EventMenuRowHooks *row_hooks; /* optional, for this menu's own rows */
 };
 typedef enum MenuMode {
     MenuMode_Normal,
@@ -124,6 +139,7 @@ typedef struct MenuData
     EventMenu *preview_menu;
     u8 preview_page;
     u8 preview_pages;
+    JOBJ *row_icons[MENU_MAXOPTION]; /* stock icons for styled rows, made on first use */
 } MenuData;
 
 static inline int EventMenu_OptionCount(EventMenu *menu) {

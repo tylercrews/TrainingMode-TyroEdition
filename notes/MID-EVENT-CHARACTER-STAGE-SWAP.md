@@ -1,6 +1,6 @@
 # Swapping Characters or Stages Mid-Event
 
-**Status (October 18, 2026): Option A is implemented for stages** in Eggs-ercise, Training Lab and Low Laser Puff Practice ([see below](#implemented-in-t5-change-stage)). Character swaps are still only investigated. Sources: TM source, the event-mode ASM hooks, and a disassembly of `build/Start.dol` (devkitPPC `powerpc-eabi-objdump`) checked against `GTME01.map`. Nothing has been tried in Dolphin yet.
+**Status (October 19, 2026): Option A is implemented for stages** in Eggs-ercise, Training Lab and Low Laser Puff Practice ([see below](#implemented-in-t5-change-stage)), **and for characters in Training Lab** ([see below](#implemented-in-t6-player-and-cpu-character)). Sources: TM source, the event-mode ASM hooks, and a disassembly of `build/Start.dol` (devkitPPC `powerpc-eabi-objdump`) checked against `GTME01.map`. Nothing has been tried in Dolphin yet.
 
 ## Question
 
@@ -124,6 +124,32 @@ All three events offer the same **Change Stage** submenu ([src/stage_swap.h](../
 - `tests/test_lowlaser.py` and `tests/test_menu.py` cover the menus.
 
 **Still to check in Dolphin:** the actual reload time; Fountain's reflection and Stadium's transformation allocations after a stage change; camera/HUD state reapplied on the first frame; and the Lab's menu text after a Reset.
+
+## Implemented in T6: Player and CPU Character
+
+Training Lab's **Session** tab starts with **Player Character** and **CPU Character**. The module is [src/fighter_swap.h](../src/fighter_swap.h), so other CSS-character events can add it later.
+
+**How it works:**
+
+- **Left/Right** steps through 26 characters (Sheik and Zelda separately) in the Tyro tier list, always in the default costume. **X** and **Y** cycle that character's costumes forward and back. Nothing restarts until **A**.
+- The two picks never match: a character already picked for the other slot in the same costume moves to the next free costume.
+- The value is drawn in the costume's color (costume 0 uses the character's own color, e.g. tan Fox, blue Marth). In the Lab, the costume's stock icon sits beside it.
+- **A** restarts only if a pick differs from what's playing. An unchanged slot is passed as kind -1 and keeps its fighter.
+- The description shows the pick and what's playing now ("Selected: Marth, Red." / "Playing now: Fox, Default.").
+
+**Restart service** ([src/events.c](../src/events.c)): `EventVars.restart_on_fighters` reuses the stage change's retry and carry. `EventInit` writes the kind and costume of `preload->queued.fighters[0/1]`, leaving the slot's other bytes alone (byte 5 limits Kirby's copy-ability preloads). A CPU Zelda picked in-event stays Zelda (the CSS's Zelda CPU still becomes Sheik), including after a later stage change in the same event.
+
+**Why a restart reloads the whole match (found in Dolphin, T6):** the first build only called `Preload_Update()`, and changing a costume crashed in the next match's stage load (`Music_CheckStagePlaylist`, invalid read at `0xb4`: the stage's symbols came back null). The preload heap closes gaps by sliding later files down (`Heap_UpdatePersistentHeapTable` → `CopyFiles?` at `0x80015184`, a chunked `memcpy` on an alarm). Files from the last match are already initialized, so their relocated pointers break when moved. A replaced fighter file sits below the stage, so the stage moved. Change Stage happened to work because the stage was the top-most file. The native event retry with new fighters (`SceneDecide_EventMode_InGame`, `0x801bb804`) avoids this by resetting the whole cache: `resetGameCache_Prefunction`, `Preload_Update`, `Preload_FreeUnneededInitializedArchivesInHeap(4)`. `Preload_Invalidate` (`0x800174bc`) is those three calls. `EventInit` now saves the queued table, calls `Preload_Invalidate()`, restores the table with the changes and calls `Preload_Update()`, for stage changes too: after a character change the stage is no longer top-most. Everything then reloads from disc, so both kinds of restart take a little longer.
+
+**Costumes:** names and counts come from the DOL (costume file table, and `CSS_GetCostumeNum`'s table at `0x803d51a0`, whose team-color bytes also confirm Fox's Orange/Lavender costumes are the red/blue team colors).
+
+**Stock icon:** `HUD_CreateStockIcons` loads IfAll's `Stc_scemdls`. Its first child is one 2.4-unit icon; the texture frame is `StockDisplay_GetID` (`0x80168b34`): external ID, Sheik = 25, later IDs minus one, plus 30 per costume. The menu shares the HUD's `ScInfDmg_scene_data` camera, so the icon is the HUD's own model at 0.8 scale.
+
+**Lab carry:** settings carry as for a stage change, except rows that belong to a fighter: the CPU's recovery rows carry only if the CPU stays, and Character RNG rows only if both fighters stay. Recordings, saved positions and a recording imported on the CSS are cleared.
+
+**Checked in Dolphin:** the stock icons and colored names show the right costumes.
+
+**Still to check in Dolphin:** a restart after the cache fix, and its reload time; new characters' sounds (StartMelee's `Audio_LoadStageAndCharAudio` should load them); the CSS cursor on exit still shows the CSS's original choice.
 
 ## Why Training Lab needs a carry
 

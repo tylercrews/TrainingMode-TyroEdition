@@ -25,6 +25,7 @@ class UnderFireTests(unittest.TestCase):
         self.menu_update, self.menu_updates, self.develop_updates = None, 0, 0
         self.native_timer, self.timer_hides = False, 0
         self.exit_calls = []
+        self.lava_gobjs = 0
         self.second_values = []
         start = m.symbols['DAT_UnderFire']
         for pc in range(start, start + 1024, 4):
@@ -67,6 +68,8 @@ class UnderFireTests(unittest.TestCase):
         elif address == 0x8003418C: cpu.reg_write(gpr(3), 0)
         elif address == 0x801A45E8: cpu.reg_write(gpr(3), self.paused)
         elif address == 0x803A611C: cpu.reg_write(gpr(3), 7)
+        elif address == 0x803901F0:
+            self.lava_gobjs += 1; cpu.reg_write(gpr(3), 0)  # No Lava Overlay GOBJ outside a match.
         elif address == 0x803A6754:
             text = 0x80409000 + len(self.texts)*0x400
             self.texts.append(text); self.subtexts[text] = 0
@@ -98,8 +101,8 @@ class UnderFireTests(unittest.TestCase):
 
     def test_defaults_menu_and_dpad_share_side_and_full_reset_request(self):
         m = self.m; core = m.record()
-        self.assertEqual(m.cpu.mem_read(self.menu+4,1)[0],7)
-        for row, name, value in ((2,'Ledge Side',0),(3,'Disable Attack Particles',0),(4,'Ledge Refresh OSTs',1),(5,'Suppress Global OSTs',1)):
+        self.assertEqual(m.cpu.mem_read(self.menu+4,1)[0],8)
+        for row, name, value in ((2,'Ledge Side',0),(3,'Disable Attack Particles',0),(4,'Lava Overlay',0),(5,'Ledge Refresh OSTs',1),(6,'Suppress Global OSTs',1)):
             at = self.option(row)
             self.assertEqual(self.string(self.word(at+12)),name)
             self.assertEqual(bytes(m.cpu.mem_read(at+6,4)),struct.pack('>hh',value,value))
@@ -144,10 +147,10 @@ class UnderFireTests(unittest.TestCase):
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][3],-3)
         self.assertEqual(self.colors[-1][2],bytes.fromhex('FF4646FF'))
-        count = len(self.rows); self.option(4,0)
+        count = len(self.rows); self.option(5,0)
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(len(self.rows),count)
-        self.option(4,1); self.control(1); self.protection(0)
+        self.option(5,1); self.control(1); self.protection(0)
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][3],0)  # Retry clears timing history.
 
@@ -337,7 +340,7 @@ class UnderFireTests(unittest.TestCase):
         self.grant();self.tick(1,30);self.timing(0);self.timing(1)
         count=len(self.rows);self.timing(2,29)
         self.assertEqual(len(self.rows),count)  # Collision outside IASA is not an action.
-        self.control(1);self.grant();self.option(4,0)
+        self.control(1);self.grant();self.option(5,0)
         count=len(self.rows)  # Retry updates the counter to zero.
         self.tick(2,30);self.timing(0);self.timing(2,29)
         self.assertEqual(len(self.rows),count)
@@ -395,6 +398,20 @@ class UnderFireTests(unittest.TestCase):
         m.call('DAT_UnderFire')
         self.assertEqual(bytes(m.cpu.mem_read(self.option(3)+6,4)),bytes(4))
         self.assertEqual(self.effects,[])  # No blanket removal of utility effects.
+        self.assertEqual(m.record(),core)
+
+    def test_lava_overlay_toggle_saves_and_restores_through_event_menu(self):
+        m=self.m;core=m.record()
+        self.assertEqual(self.lava_gobjs,1)  # Init binds the overlay to the option.
+        m.symbols['ChangeLava']=self.word(self.option(4)+36)
+        self.option(4,1);m.call('ChangeLava',self.menu_obj,1)
+        self.assertEqual(m.call('DAT_Get',29,2),1)
+        self.assertEqual(m.call('DAT_Get',29,0),0)  # Attack particles keep their own bit.
+        m.call('DAT_UnderFire')
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(4)+6,4)),struct.pack('>hh',1,1))
+        self.option(4,0);m.call('ChangeLava',self.menu_obj,0)
+        m.call('DAT_UnderFire')
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(4)+6,4)),bytes(4))
         self.assertEqual(m.record(),core)
 
     def counter(self):
@@ -481,7 +498,7 @@ class UnderFireTests(unittest.TestCase):
         m=self.m
         m.cpu.mem_write(self.menu_data+9,b'\x01')
         m.call('DAT_UnderFireScore',1)
-        m.symbols['Exit']=self.word(self.option(6)+40)
+        m.symbols['Exit']=self.word(self.option(7)+40)
         m.call('Exit',self.menu_obj)
         self.assertEqual(self.saved_score,1)
         self.assertEqual(m.cpu.mem_read(self.menu_data+9,1)[0],0)
@@ -513,7 +530,7 @@ class UnderFireTests(unittest.TestCase):
         self.assertEqual(self.counter(),1)
         self.refresh(20,1);self.refresh(30,2);self.refresh(40,3)
         self.assertEqual(self.counter(),1)
-        self.option(4,0);self.refresh(50)
+        self.option(5,0);self.refresh(50)
         self.assertEqual(self.counter(),2)
         self.assertEqual(self.session_best(),2)
         self.assertEqual(self.rows[-1][2:],('Session Best: %d',2))

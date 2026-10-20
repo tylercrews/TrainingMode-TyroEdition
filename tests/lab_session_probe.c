@@ -10,7 +10,9 @@ static RNGControl rng;
 static Text watermark;
 static u32 settings[64];
 static int camera, stadium = -1, trails_on = -1, trails_decay = -1, colanim, hud_damage[2], restarted = -1;
-static int frees, current_stage = GRKINDEXT_PSTAD;
+static int frees, current_stage = GRKINDEXT_PSTAD, sounds;
+/* Fighters in play (external kind and costume) and the last character restart. */
+static int live_kind[2] = {CKIND_FOX, CKIND_MARTH}, live_costume[2], fighter_restart[4] = {-9, -9, -9, -9};
 static u8 heap[4096];
 static int heap_used;
 /* events.c's carry buffer, copied between machines by the test like the
@@ -49,12 +51,20 @@ void Match_SetDevelopCamera() { camera = 4; }
 void Match_CorrectCamera() { }
 void Stadium_Select(int value) { stadium = value; }
 int Stage_GetExternalID() { return current_stage; }
+int Fighter_GetExternalID(int ply) { return live_kind[ply]; }
+int Fighter_GetCostumeID(int ply) { return live_costume[ply]; }
+int SFX_PlayCommon(int sfx) { sounds = sounds * 10 + sfx; return 0; }
 static u32 Get(unsigned field, unsigned index) { return settings[index & 63]; }
 static void Set(unsigned field, unsigned index, u32 value) { settings[index & 63] = value; }
 static const TMSettingsAPI settings_api = {Get, Set, 0};
 static void Configure(unsigned enabled, unsigned mode) { trails_on = enabled; trails_decay = mode; }
 static const TMTrailAPI trails_api = {Configure, 0, 0};
 static void Restart(int stage) { restarted = stage; }
+static int RestartFighters(int hmn_kind, int hmn_costume, int cpu_kind, int cpu_costume) {
+    fighter_restart[0] = hmn_kind; fighter_restart[1] = hmn_costume;
+    fighter_restart[2] = cpu_kind; fighter_restart[3] = cpu_costume;
+    return 1;
+}
 static void *Store(u32 tag, u32 size) {
     if (size > sizeof(carry_data)) return 0;
     carry_tag = tag; carry_size = size; return carry_data;
@@ -69,10 +79,12 @@ int TestLabBoot(void) {
     vars.settings = &settings_api; vars.trails = &trails_api; vars.rng = &rng;
     vars.watermark = &watermark; vars.menu_gobj = &menu_gobj;
     vars.carry_store = Store; vars.carry_take = Take; vars.restart_on_stage = Restart;
+    vars.restart_on_fighters = RestartFighters;
     *stc_gobj_lookup = gobj_lookup;
     gobj_lookup[MATCHPLINK_FIGHTER] = &fighters[0];
     fighters[0].next = &fighters[1];
     for (int i = 0; i < 2; ++i) { fighters[i].userdata = &ft[i]; ft[i].ply = i; }
+    Lab_InitMenuUI();
     return 1;
 }
 /* Event_Init's per-match option setup for a Fox CPU with Peach's Character RNG
@@ -138,6 +150,27 @@ void TestLabTDI(int count) {
 }
 void TestLabHit(int player, int percent) { ft[player].dmg.percent = percent; }
 void TestLabStageSwap(int row) { StageSwap_Options[row].OnSelect(&menu_gobj); }
+/* Internal kinds pick recovery/RNG carry; external kinds and costumes are what
+ * the selectors read. */
+void TestLabKinds(int hmn, int cpu) { ft[0].kind = hmn; ft[1].kind = cpu; }
+void TestLabLive(int slot, int kind, int costume) { live_kind[slot] = kind; live_costume[slot] = costume; }
+/* As the menu: Left/Right sets the row's value; other buttons go to the row hook. */
+void TestLabPickFighter(int slot, int index) {
+    EventOption *option = &FighterSwap_Options[slot];
+    option->val_prev = option->val; option->val = index;
+    option->OnChange(&menu_gobj, index);
+}
+int TestLabFighterButton(int slot, int buttons) {
+    return LabUI_Session.row_hooks->input(&menu_gobj, &FighterSwap_Options[slot], buttons);
+}
+static EventMenuRowStyle style;
+int TestLabFighterStyle(int slot) { return LabUI_Session.row_hooks->style(&FighterSwap_Options[slot], &style); }
+int TestLabFighterIndex(int kind) { return FighterSwap_Index(kind); }
+int TestLabCostumeNum(int kind) { return FighterSwap_CostumeNum(kind); }
+unsigned TestLabCostumeName(int kind, int costume) { return (unsigned)FighterSwap_CostumeName(kind, costume); }
+unsigned TestLabFighterStatus(int slot, int line) { return (unsigned)FighterSwap_Options[slot].desc[line]; }
+unsigned TestLabFighterOption(int slot) { return (unsigned)&FighterSwap_Options[slot]; }
+unsigned TestLabSessionRow(int row) { return (unsigned)EventMenu_GetOption(&LabUI_Session, row); }
 void TestLabFirstFrame(void) { Lab_ApplyPendingCarry(); }
 void TestLabReset(void) { Lab_ResetSettings(&menu_gobj); }
 void TestLabOnload(int file) { *onload_fileno = file; }
@@ -178,6 +211,22 @@ int TestLabInfo(int key) {
     case 30: return carry_tag == LAB_CARRY_TAG && carry_size == sizeof(LabCarry);
     case 31: return LabOptions_ActionLog[2][OPTACTIONLOG_STATE].OnSelect == Lab_RemoveActionLogState;
     case 32: return StageSwap_Options[5].disable;
+    case 33: return FighterSwap_Pick[0].kind;
+    case 34: return FighterSwap_Pick[0].costume;
+    case 35: return FighterSwap_Pick[1].kind;
+    case 36: return FighterSwap_Pick[1].costume;
+    case 37: return FighterSwap_Options[0].val;
+    case 38: return FighterSwap_Options[1].val;
+    case 39: return fighter_restart[0];
+    case 40: return fighter_restart[1];
+    case 41: return fighter_restart[2];
+    case 42: return fighter_restart[3];
+    case 43: return sounds;
+    case 44: return style.icon_kind;
+    case 45: return style.icon_costume;
+    case 46: return style.value_color.r << 16 | style.value_color.g << 8 | style.value_color.b;
+    case 47: return (int)style.hint;
+    case 48: return FighterSwap_Options[1].disable;
     }
     return -999;
 }

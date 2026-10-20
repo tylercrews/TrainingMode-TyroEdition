@@ -607,11 +607,13 @@ EventDesc Edgeguard = {
     .eventDescription = "Finish off the enemy\nafter you hit them offstage!",
     .eventFile = "edgeguard",
     .jumpTableIndex = -1,
+    .tyro_edited = true,
     .CSSType = SLCHRKIND_TRAINING,
     .allowed_characters = {
         .hmn = -1,
         .cpu = CSSID_FOX | CSSID_FALCO | CSSID_ZELDA | CSSID_CAPTAIN_FALCON
-            | CSSID_MARTH
+            | CSSID_MARTH | CSSID_YOSHI | CSSID_PEACH | CSSID_LUIGI | CSSID_DOCTOR_MARIO
+            | CSSID_ICE_CLIMBERS | CSSID_JIGGLYPUFF | CSSID_SAMUS
     },
     .cpuKind = -1,
     .stage = -1,
@@ -846,17 +848,35 @@ static unsigned restore_serial;
 static unsigned Events_RestoreSerial(void) { return restore_serial; }
 void Events_NotifyRestore(void) { restore_serial++; Message_LayoutClear(); }
 
-/* In-event stage changes. The event's .dat reloads with the new match, so the
- * pending stage and any carried state live here, in the boot-loaded code. */
-static int restart_stage = -1;
+/* In-event stage and fighter changes. The event's .dat reloads with the new
+ * match, so the pending choices and any carried state live here, in the
+ * boot-loaded code. */
+static int restart_pending, restart_stage = -1;
+static PreloadChar restart_fighters[2] = {{-1, 0}, {-1, 0}};
+/* A CPU chosen in-event stays as chosen (Zelda is not turned into Sheik) for
+ * the rest of that event, including later restarts. */
+static int restart_exact_cpu;
 static struct { u32 tag, size; u8 data[TM_EVENT_CARRY_SIZE]; } event_carry;
-static void Events_RestartOnStage(int stage) {
-    if (!event_vars->event_desc || event_vars->event_desc->stage != -1) return;
-    restart_stage = stage;
+static void Events_Restart(void) {
+    restart_pending = 1;
     Memcard_SaveIfChanged();
     stc_match->end_kind = MATCHENDKIND_RETRY;
     stc_match->state = 3;
     Match_EndVS();
+}
+static void Events_RestartOnStage(int stage) {
+    if (!event_vars->event_desc || event_vars->event_desc->stage != -1) return;
+    restart_stage = stage;
+    Events_Restart();
+}
+static int Events_RestartOnFighters(int hmn_kind, int hmn_costume, int cpu_kind, int cpu_costume) {
+    EventDesc *event = event_vars->event_desc;
+    if (!event || event->CSSType == SLCHRKIND_VS || (hmn_kind < 0 && cpu_kind < 0)) return 0;
+    if (cpu_kind >= 0 && (event->cpuKind != -1 || event->CSSType != SLCHRKIND_TRAINING)) return 0;
+    restart_fighters[0] = (PreloadChar){hmn_kind, hmn_costume};
+    restart_fighters[1] = (PreloadChar){cpu_kind, cpu_costume};
+    Events_Restart();
+    return 1;
 }
 static void *Events_CarryStore(u32 tag, u32 size) {
     if (!tag || size > sizeof(event_carry.data)) return 0;
@@ -906,6 +926,7 @@ EventVars stc_event_vars = {
     .restart_on_stage = Events_RestartOnStage,
     .carry_store = Events_CarryStore,
     .carry_take = Events_CarryTake,
+    .restart_on_fighters = Events_RestartOnFighters,
 };
 
 static GOBJ *stc_msgmgr;
@@ -924,13 +945,16 @@ static int under_fire_input_tick, under_fire_input_state;
 static int under_fire_in_iasa;
 static int under_fire_inv_total, under_fire_inv_frame, under_fire_inv_tick, under_fire_inv_remaining;
 static CmSubject *under_fire_camera;
-enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
+static GOBJ *under_fire_lava_gobj;
+enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_LAVA_OVERLAY, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
 static void UnderFire_ChangeSide(GOBJ *menu, int value) { under_fire_restart = 1; }
 static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
     Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES, value);
     // Do not destroy all owned effects: that also erases the ledge-grab cue
     // and double-jump rings. New attack effects are filtered at their spawn.
 }
+static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value);
+static void UnderFire_SyncLava(GOBJ *gobj);
 static void UnderFire_UpdateCounterText(void) {
     if (!under_fire_count_text) return;
     for (int row = 10; row < 15; ++row)
@@ -952,6 +976,7 @@ static void UnderFire_Exit(GOBJ *menu) {
     ActionCues_SetTangibilityOverlay(0);
     Trails_SetOverride(0);
     OSD_SetEventSuppression(0);
+    UnderFire_SyncLava(under_fire_lava_gobj); // Inactive now: shows the lava again.
     int counter_record = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE);
     if (under_fire_best > 0 && (!counter_record || under_fire_best > Events_GetSavedScore(under_fire_event))) {
         Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE, 1);
@@ -978,6 +1003,10 @@ static EventOption under_fire_options[] = {
      .desc = {"Choose the left or right ledge.", "D-pad Left/Right also switches and restarts."}},
     {.kind = OPTKIND_TOGGLE, .name = "Disable Attack Particles", .OnChange = UnderFire_ChangeParticles,
      .desc = {"Hide attack effects, including Fox/Falco up-B.", "Keep ledge-grab circles and double-jump rings.", "This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Lava Overlay", .OnChange = UnderFire_ChangeLavaOverlay,
+     .desc = {"Draw the lava as a see-through overlay on top,",
+              "so ledge grabs stay visible once it rises.",
+              "The lava still hurts at the same height.", "This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Refresh OSTs",
      .desc = {"Show Ledge Drop and Invincibility together.",
               "Perfect stall: 29f protection / 29f lockout.",
@@ -989,6 +1018,97 @@ static EventOption under_fire_options[] = {
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = UnderFire_Exit,
      .desc = {"Return to the Event Selection Screen."}},
 };
+/* Lava Overlay: once Brinstar's lava (map GObj 8) rises it draws over the
+ * ledge and hides the hand grab. While On, hide the lava's model and draw a
+ * translucent stand-in at the same height over everything, stage and fighters
+ * included: the fighter and the ledge grab stay visible through it. The lava's hitbox and rise are untouched, and only
+ * per-match joint flags change, never the stage file's shared data. */
+#define UF_LAVA_MAP_GOBJ 8
+#define UF_LAVA_SURFACE_OFFSET 55 /* The ASM places the joint 55 above the surface. */
+#define UF_LAVA_JOINTS 64
+#define UF_LAVA_HALF_WIDTH 400
+#define UF_LAVA_DEPTH 400
+static JOBJ *under_fire_lava_hidden[UF_LAVA_JOINTS];
+static int under_fire_lava_hidden_num;
+static int UnderFire_LavaOn(void) {
+    return under_fire_active && under_fire_options[UF_LAVA_OVERLAY].val;
+}
+static JOBJ *UnderFire_LavaRoot(void) {
+    if (Stage_ExternalToInternal(Stage_GetExternalID()) != GRKIND_ZEBES) return 0;
+    GOBJ *map = Stage_GetMapGObj(UF_LAVA_MAP_GOBJ);
+    MapData *data = map ? map->userdata : 0;
+    return data && data->index == UF_LAVA_MAP_GOBJ ? map->hsd_object : 0;
+}
+// Remember only the joints this overlay hid, so Off restores the model exactly.
+static void UnderFire_HideLava(JOBJ *joint) {
+    for (; joint; joint = joint->sibling) {
+        if (!(joint->flags & JOBJ_HIDDEN) && under_fire_lava_hidden_num < UF_LAVA_JOINTS) {
+            JOBJ_SetFlags(joint, JOBJ_HIDDEN);
+            under_fire_lava_hidden[under_fire_lava_hidden_num++] = joint;
+        }
+        UnderFire_HideLava(joint->child);
+    }
+}
+static void UnderFire_SyncLava(GOBJ *gobj) {
+    // Without the overlay GOBJ nothing would stand in, so keep the lava shown.
+    if (!UnderFire_LavaOn() || !under_fire_lava_gobj) {
+        while (under_fire_lava_hidden_num)
+            JOBJ_ClearFlags(under_fire_lava_hidden[--under_fire_lava_hidden_num], JOBJ_HIDDEN);
+        return;
+    }
+    JOBJ *root = under_fire_lava_hidden_num ? 0 : UnderFire_LavaRoot();
+    if (root) UnderFire_HideLava(root);
+}
+// GFX_Start with depth testing off, through HSD's cached state so later draws
+// restore their own modes normally.
+static void UnderFire_LavaBegin(u16 count, u8 shape, u8 size) {
+    Mtx mtx;
+    HSD_ClearVtxDesc();
+    GXSetCurrentMtx(0);
+    COBJ_GetViewingMtx(COBJ_GetCurrent(), &mtx);
+    GXLoadPosMtxImm(mtx, 0);
+    HSD_StateSetLineWidth(size, 5);
+    HSD_SetupRenderMode(0x68000002);
+    HSD_StateSetZMode(GX_DISABLE, GX_ALWAYS, GX_DISABLE);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
+    GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GXSetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    HSD_StateSetCullMode(0);
+    GXBegin(shape, GX_VTXFMT0, count);
+}
+static void UnderFire_LavaGX(GOBJ *gobj, int pass) {
+    if (pass != 2 || !UnderFire_LavaOn()) return;
+    // Read the joint the ASM moves (Stage_map_gobj_LoadJObj index 0); the
+    // tree's root stays put, so its height never rises.
+    JOBJ *root = UnderFire_LavaRoot();
+    JOBJ *moved = root ? Stage_GetMapGObjJObj(Stage_GetMapGObj(UF_LAVA_MAP_GOBJ), 0) : 0;
+    if (!moved) return;
+    float top = moved->trans.Y - UF_LAVA_SURFACE_OFFSET, bottom = top - UF_LAVA_DEPTH;
+    // Premultiplied, as GFX_AddVtx expects.
+    static const GXColor fill = {110, 36, 0, 110}, surface = {255, 150, 40, 255};
+    UnderFire_LavaBegin(4, GX_TRIANGLEFAN, 0);
+    GFX_AddVtx(-UF_LAVA_HALF_WIDTH, top, 0, fill);
+    GFX_AddVtx(UF_LAVA_HALF_WIDTH, top, 0, fill);
+    GFX_AddVtx(UF_LAVA_HALF_WIDTH, bottom, 0, fill);
+    GFX_AddVtx(-UF_LAVA_HALF_WIDTH, bottom, 0, fill);
+    UnderFire_LavaBegin(2, GX_LINES, 12);
+    GFX_AddVtx(-UF_LAVA_HALF_WIDTH, top, 0, surface);
+    GFX_AddVtx(UF_LAVA_HALF_WIDTH, top, 0, surface);
+}
+static void UnderFire_InitLava(void) {
+    under_fire_lava_hidden_num = 0;
+    under_fire_lava_gobj = GObj_Create(0, 7, 0);
+    if (!under_fire_lava_gobj) return;
+    GObj_AddProc(under_fire_lava_gobj, UnderFire_SyncLava, 0);
+    // The in-game effects link draws after the stage and fighters.
+    GObj_AddGXLink(under_fire_lava_gobj, UnderFire_LavaGX, MATCHGX_EFFECT, 255);
+    UnderFire_SyncLava(under_fire_lava_gobj);
+}
+static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value) {
+    Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY, value);
+    UnderFire_SyncLava(under_fire_lava_gobj); // Apply now: a toggle while paused runs no procs.
+}
 static EventMenu under_fire_menu = {
     .on_exit = UnderFire_Exit,
     .name = "Under Fire - Ledgestall Training", .option_num = countof(under_fire_options),
@@ -1251,6 +1371,8 @@ void UnderFire_InitMenu(void) {
     stc_event_vars.menu_gobj = EventMenu_Init(&under_fire_menu);
     under_fire_options[UF_PARTICLES].val = under_fire_options[UF_PARTICLES].val_prev =
         Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES);
+    under_fire_options[UF_LAVA_OVERLAY].val = under_fire_options[UF_LAVA_OVERLAY].val_prev =
+        Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY);
     // The pre-counter format stores survival time, not a refresh count.
     under_fire_high_score = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE) ?
         Events_GetSavedScore(under_fire_event) : 0;
@@ -1258,6 +1380,7 @@ void UnderFire_InitMenu(void) {
     Trails_SetOverride(&under_fire_options[1].val);
     ActionCues_SetTangibilityOverlay(&under_fire_options[0].val);
     OSD_SetEventSuppression(&under_fire_options[UF_SUPPRESS_OSDS].val);
+    UnderFire_InitLava();
     stc_hsd_update->onFrame = UnderFire_Update;
     int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
     under_fire_canvas = canvas;
@@ -1774,6 +1897,41 @@ void EventInit(int page, int eventID, MatchInit *matchData)
 
     Preload *preload = Preload_GetTable();
 
+    /* An in-event stage or fighter change retries straight into this scene,
+     * without the CSS/SSS. Queue the new choices here, during match prep, as
+     * native event prep does; TM's EventInit hook skips that native code.
+     * Carried state and an in-event CPU choice belong to that event only. */
+    int restarting = restart_pending;
+    restart_pending = 0;
+    if (!restarting) {
+        event_carry.tag = 0;
+        restart_exact_cpu = 0;
+    }
+    int new_stage = restarting && restart_stage >= 0 && event->stage == -1;
+    int new_fighters = restarting && (restart_fighters[0].kind >= 0 || restart_fighters[1].kind >= 0);
+    if (new_stage || new_fighters) {
+        /* The preload heap closes gaps by sliding files down, which corrupts
+         * files already initialized for the last match (e.g. the stage above
+         * a replaced costume). As the native event retry with new fighters
+         * does, drop every cached match file, then queue the match again so
+         * it all reloads from disc. */
+        u32 table[sizeof(preload->queued) / 4];
+        for (int i = 0; i < (int)countof(table); ++i) table[i] = ((u32 *)&preload->queued)[i];
+        Preload_Invalidate();
+        for (int i = 0; i < (int)countof(table); ++i) ((u32 *)&preload->queued)[i] = table[i];
+        for (int i = 0; i < 2; ++i) {
+            if (restart_fighters[i].kind < 0) continue;
+            // Kind and costume only: the slot's other bytes (e.g. Kirby's copy abilities) stay.
+            preload->queued.fighters[i].kind = restart_fighters[i].kind;
+            preload->queued.fighters[i].costume = restart_fighters[i].costume;
+            if (i == 1) restart_exact_cpu = 1;
+        }
+        if (new_stage) preload->queued.stage = restart_stage;
+        Preload_Update();
+    }
+    restart_fighters[0].kind = restart_fighters[1].kind = -1;
+    restart_stage = -1;
+
     if (event->CSSType != SLCHRKIND_VS) {
         // Determine player ports
         u8 hmn_port = *stc_css_hmnport + 1;
@@ -1799,8 +1957,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
         }
 
         /* Ledgechase's native controller supports either selected form. Other
-         * events retain their existing Sheik CPU convention. */
-        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase)
+         * events retain their existing Sheik CPU convention, unless Zelda was
+         * picked in-event. */
+        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase && !restart_exact_cpu)
             cpu_kind = CKIND_SHEIK;
 
         if (cpu_kind != -1) {
@@ -1836,20 +1995,10 @@ void EventInit(int page, int eventID, MatchInit *matchData)
 
     // Determine the Stage
     if (event->stage == -1) {
-        /* An in-event stage change retries straight into this scene, without
-         * the SSS. Queue the new stage here, during match prep, as native event
-         * prep does; TM's EventInit hook skips that native code. */
-        if (restart_stage >= 0) {
-            preload->queued.stage = restart_stage;
-            Preload_Update();
-        }
         matchData->stage = preload->queued.stage;
     } else {
         matchData->stage = event->stage;
     }
-    // Carried state is only for the event restarted by that stage change.
-    if (restart_stage < 0) event_carry.tag = 0;
-    restart_stage = -1;
 };
 
 static void LegacyEventUpdate(void)
@@ -2077,6 +2226,8 @@ void OnSceneChange(void)
     Powershield_SceneChange();
     under_fire_active = 0;
     under_fire_camera = 0;
+    under_fire_lava_gobj = 0; // Native scene cleanup owns it and the old joints.
+    under_fire_lava_hidden_num = 0;
     OSD_SetEventSuppression(0);
     Trails_SceneChange();
     StageOverlay_SceneChange();
@@ -2421,6 +2572,9 @@ GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, 
     char buffer[MSG_LINEMAX * MSG_CHARMAX + 1];
     va_start(args, format);
     msg_data->timing_frame = OSD_ReadMessageTimingArgument(args, msg_kind);
+    /* Display FF Timing.asm passes (input, window frame, jump frame) when the fastfall came from a jump. */
+    if (msg_data->settings_id == OSD_Fastfall && OSD_MessageArgument(msg_kind) == 2)
+        msg_data->timing_jump_frame = OSD_ReadTimingArgument(args, 3);
     if (msg_data->timing_frame >= 0 && msg_data->kind != 64) /* JC Shine precedes shine hitlag. */
         msg_data->timing_hitlag = OSDContext_MessageHitlag(queue_num, msg_data->settings_id);
     vsprintf(buffer, format, args);

@@ -18,7 +18,8 @@ unpausing restores the HUD. The score counters remain visible during play.
 The shared menu owns pausing. Under Fire disables the native pause menu and
 its HUD, and skips native camera hotkeys while the shared menu is open. Exit
 unpauses before ending the match. The high-score display reads the existing
-record and adds no save fields or memory-card storage.
+record and adds no save fields. Lava Overlay uses one spare bit of the
+existing settings record (see below).
 
 Event Select displays an integer count. Old survival-time records are hidden
 until the first positive count replaces them, rather than treating a frame
@@ -32,13 +33,14 @@ stays 16 bytes. Other event records are unchanged.
 | Hitbox Trails | Off | Event choice overrides global trails. All seven normal choices are available. |
 | Ledge Side | Left | Left or Right; changing it restarts the attempt on that ledge. |
 | Disable Attack Particles | Off, saved | Hides attack/special effects, including Fox/Falco up-B flames; preserves the ledge-grab circle and double-jump rings. |
+| Lava Overlay | Off, saved | Hides the lava model and draws a translucent stand-in at its height over the stage and fighter, so ledge grabs stay visible through it. The lava's rise and hitbox are unchanged. |
 | Ledge Refresh OSTs | On | Toggles both Ledge Drop and Invincibility. Counting still works when Off. |
 | Suppress Global OSTs | On | Hides global OSD results and layout placeholders only during Under Fire. Saved global choices stay unchanged. |
 
 D-pad Left/Right selects the corresponding ledge and restarts immediately.
 The native restore resets lava height, the lava delay, player state and counter;
-the camera also moves to the chosen ledge. Disable Attack Particles is saved;
-the other Under Fire options are session-only.
+the camera also moves to the chosen ledge. Disable Attack Particles and Lava
+Overlay are saved; the other Under Fire options are session-only.
 
 Invincibility shows **green 0 at the perfect refresh boundary**, green +x
 for earlier regrabs, magenta -1 or -2 for close misses, and red -3 or later.
@@ -75,3 +77,20 @@ movement effects such as double-jump rings visible. It does not blanket-delete
 existing effects or clear the native effect-created flag each frame. This
 prevents repeated charge/launch-ring spawns. Stage effects and move mechanics
 remain active; turning the toggle off permits new attack effects normally.
+
+Lava Overlay is event-local code in [src/events.c](../src/events.c), not a
+global overlay.
+While On, it sets `JOBJ_HIDDEN` on every joint of Brinstar's lava (map GObj 8)
+that was visible, remembering only those joints so Off restores the model
+exactly. Its GOBJ draws in the in-game effects GX link (after the stage and
+fighters) with depth testing off: a translucent orange quad from the lava
+surface down, plus a bright surface line, over everything. The fighter and the
+ledge grab stay visible through it. (Earlier attempts: the end of the stage
+link never appeared, and drawing behind the fighter in the fighter link hid the
+ledge.) The surface is the Y of
+the joint Under Fire's assembly moves (map joint 0, not the tree's root, which
+stays put) minus 55, the offset the assembly adds when it moves that joint. Only
+per-match instance flags change, never the stage file's shared data, so later
+Brinstar matches are unaffected. Exit releases it, and scene changes forget the
+old joints. The setting is saved in `TYEX` word 20 bit 21 (former padding that
+every record owning word 20 zeroed), so the extension stays version 19.

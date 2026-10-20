@@ -153,6 +153,23 @@ void EventMenu_ChangeOptionVal(GOBJ *gobj, EventOption* option, int val) {
     EventMenu_UpdateText(gobj);
 }
 
+/* A fresh press on a custom row (menu->row_hooks) goes to that row first, so
+ * X/Y can mean something there. A press while Y is already held stays a Hold-Y
+ * shortcut. */
+static int EventMenu_RowInput(GOBJ *gobj, HSD_Pad *pad)
+{
+    MenuData *menu_data = gobj->userdata;
+    const EventMenuRowHooks *hooks = menu_data->curr_menu->row_hooks;
+    int buttons = pad->down;
+    if (!hooks || !hooks->input || !buttons || menu_data->picker) return 0;
+    if (MC_Enabled(menu_data) && menu_data->selector) return 0;
+    if ((pad->held & HSD_BUTTON_Y) && !(buttons & HSD_BUTTON_Y)) return 0;
+    EventOption *option = EventMenu_SelectedOption(menu_data);
+    if (!option || option->disable || !hooks->input(gobj, option, buttons)) return 0;
+    EventMenu_UpdateText(gobj);
+    return 1;
+}
+
 int Event_CheckExitInput(void)
 {
     // Match native LRAS, including analog-only triggers on either shoulder.
@@ -233,6 +250,9 @@ void EventMenu_Update(GOBJ *gobj)
         SFX_PlayCommon(2);
         return;
     }
+
+    if (EventMenu_RowInput(gobj, pad))
+        return;
 
     if ((pad->held & HSD_BUTTON_Y) && menu_data->curr_menu->shortcuts) {
         ShortcutList *shortcuts = menu_data->curr_menu->shortcuts;
@@ -665,6 +685,9 @@ void EventMenu_UpdateText(GOBJ *gobj)
             (GXColor){ 255, 255, 255, 255 };
         Text_SetColor(menu_data->text_name, i, &color);
         Text_SetColor(menu_data->text_value, i, &color);
+        EventMenuRowStyle style;
+        if (!option->disable && menu->row_hooks && menu->row_hooks->style && menu->row_hooks->style(option, &style))
+            Text_SetColor(menu_data->text_value, i, &style.value_color);
     }
 
     // Blank out lines past end of options

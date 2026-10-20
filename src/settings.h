@@ -119,6 +119,9 @@ enum TMSettingsField {
     TM_SETTING_ATTACK_SHIELD,
     TM_SETTING_EDITOR_PAGE, /* Runtime-only Global Settings page; never saved. */
     TM_SETTING_OSD_COLOR_EXTRA, /* Internal: TYEX nibble by category slot. Use OSD_COLOR. */
+    TM_SETTING_OSD_GRID_CELL, /* Index: OSD slot, or TM_OSD_CATEGORIES for JC Shine. 0 Auto, 1..30 a Fixed Grid cell. */
+    TM_SETTING_COSTUME, /* Index 0 human / 1 CPU: costume of the saved CHARACTER, in the extension. */
+    TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -148,6 +151,7 @@ enum TMLedgechasePreference {
 enum TMUnderFirePreference {
     TM_UNDERFIRE_ATTACK_PARTICLES,
     TM_UNDERFIRE_COUNTER_SCORE, /* Record-format marker; old survival frames are not counts. */
+    TM_UNDERFIRE_LAVA_OVERLAY, /* TYEX word 20 bit 21, still version 19. */
     TM_UNDERFIRE_PREF_COUNT
 };
 enum TMLowLaserPreference {
@@ -167,6 +171,17 @@ enum TMReversalPreference {
 enum TMAttackShieldPreference {
     TM_AOS_ACTION, TM_AOS_HITS, TM_AOS_INFINITE, TM_AOS_DISTANCE, TM_AOS_SHIELD_DI, TM_AOS_PREF_COUNT
 };
+/* Custom Hit Strength ranges, then the percents, then Hit Strength and one
+ * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu).
+ * Append; the CPUs from Yoshi on live in a later TYEX word. */
+enum TMEdgeguardPreference {
+    TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
+    TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
+    TM_EG_HIT_STRENGTH, TM_EG_RECOVERY_FOX, TM_EG_RECOVERY_FALCO, TM_EG_RECOVERY_SHEIK,
+    TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH,
+    TM_EG_RECOVERY_YOSHI, TM_EG_RECOVERY_PEACH, TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_DRMARIO,
+    TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS, TM_EG_PREF_COUNT
+};
 #define TM_LEDGE_DEFAULT_RESET 1
 #define TM_LEDGE_DEFAULT_DELAY 1
 #define TM_LEDGE_DEFAULT_TIPS 1
@@ -183,8 +198,16 @@ static inline int TMSettings_OSDCategorySlot(unsigned id) {
         if (TMSettings_OSDCategoryID(slot) == id) return slot;
     return -1;
 }
-#define TM_EDITOR_PAGES 2
+/* Fixed Grid positions: every category plus the Fox/Falco JC Shine cell. The
+ * stored index is the runtime slot, so JC Shine (TM_OSD_CATEGORIES) must move
+ * to a fixed index before another category is appended. */
+#define TM_OSD_GRID_SLOTS (TM_OSD_CATEGORIES + 1)
+#define TM_OSD_GRID_POSITIONS 30 /* Six rows of five on one page. */
+#define TM_EDITOR_PAGES 3
+#define TM_EDITOR_GRID_PAGE 2 /* Fixed Grid OSD Positions: page 0's OSD rows, editing positions. */
 #define TM_EDITOR_ROWS 29
+#define TM_GRID_JC_SHINE_ROW 32 /* Editor-only logical rows on the positions page. */
+#define TM_GRID_RESET_ROW 33
 extern const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS];
 /* Physical RSS row -> setting binding on one Global Settings page. */
 int TMSettings_EditorIDFor(unsigned page, unsigned native_row);

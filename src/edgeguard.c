@@ -9,7 +9,84 @@
 
 static int reset_timer = -1;
 static int edgeguard_timer = 0;
+static u32 saved_recovery = 0;
 EventMenu *Event_Menu = &Menu_Main;
+
+// Saved settings ---------------------------------------
+
+/* Saved field for each Custom Hit Strength row, in row order. */
+static const u8 CustomHitStrength_Prefs[OPT_CUSTOMHIT_COUNT] = {
+    TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
+    TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
+};
+
+static int RecoveryPref(EventMenu *menu) {
+    if (menu == &RecMenu_Fox) return TM_EG_RECOVERY_FOX;
+    if (menu == &RecMenu_Falco) return TM_EG_RECOVERY_FALCO;
+    if (menu == &RecMenu_Sheik) return TM_EG_RECOVERY_SHEIK;
+    if (menu == &RecMenu_Falcon) return TM_EG_RECOVERY_FALCON;
+    if (menu == &RecMenu_Marth) return TM_EG_RECOVERY_MARTH;
+    if (menu == &RecMenu_Yoshi) return TM_EG_RECOVERY_YOSHI;
+    if (menu == &RecMenu_Peach) return TM_EG_RECOVERY_PEACH;
+    if (menu == &RecMenu_Luigi) return TM_EG_RECOVERY_LUIGI;
+    if (menu == &RecMenu_DrMario) return TM_EG_RECOVERY_DRMARIO;
+    if (menu == &RecMenu_IceClimbers) return TM_EG_RECOVERY_ICECLIMBERS;
+    if (menu == &RecMenu_Puff) return TM_EG_RECOVERY_PUFF;
+    if (menu == &RecMenu_Samus) return TM_EG_RECOVERY_SAMUS;
+    return -1;
+}
+
+static void SaveSettings(void) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT, Options_Main[OPT_MAIN_PERCENT].val);
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH, Options_Main[OPT_MAIN_HITSTRENGTH].val);
+    for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
+        TM_SetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i], Options_CustomHitStrength[i].val);
+}
+
+static void LoadCustomKBRange(void) {
+    HitStrength_KBRange[KBVALS_CUSTOM].mag_min = Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMIN].val;
+    HitStrength_KBRange[KBVALS_CUSTOM].mag_max = Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMAX].val;
+    HitStrength_KBRange[KBVALS_CUSTOM].ang_min = Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMIN].val;
+    HitStrength_KBRange[KBVALS_CUSTOM].ang_max = Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMAX].val;
+    HitStrength_KBRange[KBVALS_CUSTOM].dmg_min = Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMIN].val;
+    HitStrength_KBRange[KBVALS_CUSTOM].dmg_max = Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMAX].val;
+}
+
+static void LoadSettings(EventMenu *recovery_menu) {
+    Options_Main[OPT_MAIN_PERCENT].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT);
+    Options_Main[OPT_MAIN_HITSTRENGTH].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH);
+    for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
+        Options_CustomHitStrength[i].val = TM_GetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i]);
+    LoadCustomKBRange();
+
+    // bit N of the saved mask is row N of this CPU's recovery menu
+    int pref = RecoveryPref(recovery_menu);
+    if (pref < 0)
+        return;
+    u32 mask = TM_GetSetting(TM_SETTING_EDGEGUARD, pref);
+    for (int opt = 0; opt < recovery_menu->option_num; ++opt)
+        recovery_menu->options[opt].val = (mask >> opt) & 1;
+}
+
+/* The recovery toggles are shared with the Lab, so they have no OnChange.
+ * Save them whenever the CPU's flags change instead. */
+static void SaveRecovery(GOBJ *cpu, u32 opt_flags) {
+    if (opt_flags == saved_recovery)
+        return;
+    saved_recovery = opt_flags;
+    FighterData *cpu_data = cpu->userdata;
+    int pref = RecoveryPref(RecoveryMenus[cpu_data->kind]);
+    if (pref >= 0)
+        TM_SetSetting(TM_SETTING_EDGEGUARD, pref, opt_flags);
+}
+
+/* Toggles changed in the pause menu before any Think frame. */
+static void FlushRecovery(void) {
+    GOBJ *cpu = Fighter_GetGObj(1);
+    SaveRecovery(cpu, RecoveryMenuOptFlags(cpu));
+}
+
+// Event ------------------------------------------------
 
 static void UpdatePosition(GOBJ *fighter) {
     FighterData *data = fighter->userdata;
@@ -59,6 +136,8 @@ static bool IsGroundActionable(GOBJ *fighter) {
 }
 
 static void Exit(GOBJ *menu) {
+    FlushRecovery();
+    Memcard_SaveIfChanged();
     stc_match->state = 3;
     Match_EndVS();
 }
@@ -124,8 +203,10 @@ static void Reset_HMN(GOBJ *hmn, int side_idx, int dmg) {
 
 static void Reset_CPU(GOBJ *cpu, int side_idx, int dmg, float kb_mag, float kb_angle) {
     FighterData *cpu_data = cpu->userdata;
-    cpu_data->cpu.ai = 15;
-    
+    // Nana keeps the game's own AI, which follows Popo's inputs.
+    if (!cpu_data->flags.ms)
+        cpu_data->cpu.ai = 15;
+
     int side = side_idx * 2 - 1;
     cpu_data->facing_direction = -side;
     float ledge_x = ledge_positions[side_idx].X - DISTANCE_FROM_LEDGE * side;
@@ -206,7 +287,7 @@ static void Reset(void) {
     }
     if (cpu_sub && cpu_data->flags.has_follower) {
         Reset_CPU(cpu_sub, side_idx, cpu_dmg, kb_mag, kb_angle);
-        Reset_Subchar(cpu_sub, hmn);
+        Reset_Subchar(cpu_sub, cpu);
     }
 }
 
@@ -216,16 +297,17 @@ static void ChangePlayerPercent(GOBJ *menu_gobj, int dmg) {
 
     hmn_data->dmg.percent = dmg;
     Fighter_SetHUDDamage(hmn_data->ply, dmg);
+    SaveSettings();
+}
+
+static void ChangeHitStrength(GOBJ *menu_gobj, int value) {
+    SaveSettings();
 }
 
 static void WriteCustomKBValues(void) {
-    HitStrength_KBRange[KBVALS_CUSTOM].mag_min = Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMIN].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].mag_max = Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMAX].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].ang_min = Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMIN].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].ang_max = Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMAX].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].dmg_min = Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMIN].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].dmg_max = Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMAX].val;
+    LoadCustomKBRange();
     Options_Main[OPT_MAIN_HITSTRENGTH].val = KBVALS_CUSTOM;
+    SaveSettings();
 }
 
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value) {
@@ -279,9 +361,17 @@ void Event_Init(GOBJ *gobj) {
     if (recovery_menu == 0)
         assert("unimplemented character in edgeguard training");
     Options_Main[OPT_MAIN_RECOVERY].menu = recovery_menu;
-    
+    LoadSettings(recovery_menu);
+    saved_recovery = RecoveryMenuOptFlags(cpu);
+
+    FighterSwap_Restrict(1, Edgeguard_CPUKinds, countof(Edgeguard_CPUKinds));
+    FighterSwap_Init();
+
     GetLedgePositions(ledge_positions);
 }
+
+/* The restart saves the card. */
+static void FighterSwap_BeforeRestart(void) { FlushRecovery(); }
 
 void Event_Think(GOBJ *menu) {
     // For some reason, Savestate_Save crashes in Event_Init.
@@ -340,5 +430,6 @@ void Event_Think(GOBJ *menu) {
         reset_timer = 0;
         
     u32 opt_flags = RecoveryMenuOptFlags(cpu);
+    SaveRecovery(cpu, opt_flags);
     Recovery_Think(cpu, opt_flags);
 }

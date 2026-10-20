@@ -1,9 +1,11 @@
 #include "events.h"
 #include "osd_layout.h"
 
-/* Allocate result objects only when a producer emits. Empty reserved cells use
- * at most nine light Texts. Native producers retain their valid GOBJ/text until
- * after their post-Message_Display edits; no encoded text-buffer surgery. */
+/* Allocate result objects only when a producer emits. An empty reserved cell on
+ * the shown page gets a light placeholder Text, freed once the cell has a result
+ * or leaves the page, so each cell holds at most one Text. Native producers
+ * retain their valid GOBJ/text until after their post-Message_Display edits; no
+ * encoded text-buffer surgery. */
 static struct {
     GOBJ *latest[TM_OSD_KEYS];
     TMOSDHistory history[TM_OSD_KEYS];
@@ -14,7 +16,7 @@ static struct {
     int spawn[TM_OSD_PLAYERS];
     unsigned frame, restore, mode;
     unsigned shown_page, shown_pages;
-    int canvas, seen;
+    int shown_cpu, canvas, seen;
 } layout;
 static const char *category_names[TM_OSD_CATEGORIES] = {
     "Wavedash", "L-Cancel", "Act OoS", "Dashback", "Fighter-specific Tech",
@@ -74,6 +76,10 @@ void Message_LayoutInit(int canvas) {
      * a previous match can otherwise hide the player's cells on page 1. */
     Settings_Set(TM_SETTING_OSD_PAGE, 0, 0);
     TMOSD_MapReset(&layout.map, Settings_Get(TM_SETTING_OSD_MASK, 0));
+    /* Fixed Grid cells only change in Global Settings, so read them once per match. */
+    uint8_t cells[TM_OSD_SLOTS];
+    for (unsigned slot = 0; slot < TM_OSD_SLOTS; ++slot) cells[slot] = Settings_Get(TM_SETTING_OSD_GRID_CELL, slot);
+    TMOSD_MapCells(&layout.map, cells);
 }
 void Message_LayoutClear(void) {
     for (unsigned key = 0; key < TM_OSD_KEYS; ++key) {
@@ -378,6 +384,12 @@ void Message_LayoutUpdate(void) {
     for (unsigned q = 0; q < TM_OSD_PLAYERS; ++q) observe_owner(q);
     unsigned pages = Message_LayoutPageCount(), page = Settings_Get(TM_SETTING_OSD_PAGE, 0);
     if (page >= pages) { page = pages - 1; Settings_Set(TM_SETTING_OSD_PAGE, 0, page); }
+    /* With assigned cells, each player's block starts on its own page, so the
+     * page label names a CPU's page instead of tagging every cell. */
+    int page_owner = TMOSD_PageOwner(&layout.map, mode, page);
+    Playerblock *page_player = page_owner >= 0 ? Fighter_GetPlayerblock(page_owner) : 0;
+    int cpu_page = page_player && page_player->p_kind == 1;
+    uint32_t needed = 0;
     hide_empty();
     for (unsigned key = 0; key < TM_OSD_KEYS; ++key) {
         GOBJ *object = layout.latest[key];
@@ -387,58 +399,67 @@ void Message_LayoutUpdate(void) {
             footer(object, mode); Message_LayoutGeometry(object);
         }
         TMOSDCell cell = TMOSD_Cell(&layout.map, key, mode);
-        if (cell.key >= 0 && cell.page == (int)page) cpu_tag(cell, key / TM_OSD_SLOTS, mode);
+        if (cell.key >= 0 && cell.page == (int)page && page_owner < 0) cpu_tag(cell, key / TM_OSD_SLOTS, mode);
         if (cell.key < 0 || cell.page != (int)page || object) continue;
-        unsigned i = cell.cell;
+        unsigned i = cell.cell, rows = mode == TM_OSD_PANEL ? 9 : 2; /* Grid: title and "--". */
+        needed |= 1u << i;
+        if (layout.empty[i] && layout.empty_mode[i] != (int)mode) { Text_Destroy(layout.empty[i]); layout.empty[i] = 0; }
         if (!layout.empty[i]) {
-            layout.empty[i] = Text_CreateText(2, layout.canvas);
-            layout.empty[i]->kerning = 1; layout.empty[i]->use_aspect = 1;
-            for(unsigned row=0;row<9;++row) Text_AddSubtext(layout.empty[i],0,0,"");
+            Text *created = Text_CreateText(2, layout.canvas);
+            if (!created) continue;
+            created->kerning = 1; created->use_aspect = 1;
+            for(unsigned row=0;row<rows;++row) Text_AddSubtext(created,0,0,"");
+            layout.empty[i] = created; layout.empty_key[i] = -1; layout.empty_mode[i] = mode;
         }
         Text *text = layout.empty[i];
-        if (layout.empty_key[i] != (int)key || layout.empty_mode[i] != (int)mode) {
-            for(unsigned row=0;row<9;++row) Text_SetText(text,row,"");
+        if (layout.empty_key[i] != (int)key) {
+            for(unsigned row=0;row<rows;++row) Text_SetText(text,row,"");
             if(mode==TM_OSD_PANEL) panel_title(text, slot_name(key));
             else Text_SetText(text, 0, "%s", slot_name(key));
             Text_SetText(text,mode==TM_OSD_PANEL ? 2 : 1,"--");
             if(mode==TM_OSD_PANEL)Text_SetText(text,8,"|");
             layout.empty_key[i] = key;
-            layout.empty_mode[i] = mode;
         }
         text->align = mode == TM_OSD_PANEL ? 0 : 1;
         text->trans.X = cell.x; text->trans.Y = -cell.y;
         text->use_aspect=mode==TM_OSD_PANEL ? 0 : 1;
         text->aspect.X = 215;
         text->viewport_scale.X = text->viewport_scale.Y = mode == TM_OSD_PANEL ? .025f : .042f;
-        Text_SetPosition(text, 0, 0, mode == TM_OSD_PANEL ? -29 : -MSGTEXT_YOFFSET);
-        Text_SetPosition(text, 1, 0, mode == TM_OSD_PANEL ? -6 : 0);
-        Text_SetPosition(text, 2, 0, mode == TM_OSD_PANEL ? 66 : 59);
         unsigned rgba = OSD_PaletteColor(Settings_Get(TM_SETTING_OSD_COLOR, TMOSD_Category(key)));
         GXColor color = {rgba >> 24, rgba >> 16, rgba >> 8, rgba};
-        Text_SetColor(text, 0, &color); Text_SetColor(text, 1, mode==TM_OSD_PANEL ? &color : &muted); Text_SetColor(text, 2, &muted);
-        for(unsigned row=0;row<9;++row) Text_SetScale(text,row,1,1);
+        for(unsigned row=0;row<rows;++row) Text_SetScale(text,row,1,1);
+        Text_SetColor(text, 0, &color); Text_SetColor(text, 1, mode==TM_OSD_PANEL ? &color : &muted);
         if(mode==TM_OSD_PANEL){
+            Text_SetColor(text, 2, &muted);
             Text_SetPosition(text,0,0,-35); Text_SetPosition(text,1,0,0);
             Text_SetScale(text,0,1.05f,1.05f);Text_SetScale(text,1,1.05f,1.05f);
             Text_SetPosition(text,2,445,-12);Text_SetScale(text,2,2.2f,2.2f);
             Text_SetPosition(text,7,0,60);Text_SetScale(text,7,.5f,.5f);
             Text_SetPosition(text,8,325,0);Text_SetScale(text,8,.6f,2.3f);
+        } else {
+            Text_SetPosition(text, 0, 0, -MSGTEXT_YOFFSET); Text_SetPosition(text, 1, 0, 0);
         }
         Playerblock *owner = Fighter_GetPlayerblock(key / TM_OSD_SLOTS);
         text->hidden = OSD_IsSuppressed() ||
             (owner && owner->p_kind == 1 && Settings_Get(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF));
     }
+    for (unsigned i = 0; i < TM_OSD_GRID_CELLS; ++i)
+        if (layout.empty[i] && !(needed & (1u << i))) {
+            Text_Destroy(layout.empty[i]); layout.empty[i] = 0; layout.empty_key[i] = -1;
+        }
     if (!layout.page_text) {
         layout.page_text = Text_CreateText(2, layout.canvas);
         layout.page_text->kerning = 1; layout.page_text->align = 0;
         layout.page_text->viewport_scale.X = layout.page_text->viewport_scale.Y = .026f;
         layout.page_text->color = muted;
-        layout.page_text->trans.X = -27; layout.page_text->trans.Y = 12;
+        /* In the gap between grid rows 2 and 3, clear of all six rows. */
+        layout.page_text->trans.X = -27; layout.page_text->trans.Y = -11.2f;
         Text_AddSubtext(layout.page_text, 0, 0, "");
     }
-    if (layout.shown_page != page || layout.shown_pages != pages) {
-        Text_SetText(layout.page_text, 0, "OSDs %d/%d - paused L/R: page", page + 1, pages);
-        layout.shown_page = page; layout.shown_pages = pages;
+    if (layout.shown_page != page || layout.shown_pages != pages || layout.shown_cpu != cpu_page) {
+        Text_SetText(layout.page_text, 0, cpu_page ? "CPU OSDs %d/%d - paused L/R: page" :
+            "OSDs %d/%d - paused L/R: page", page + 1, pages);
+        layout.shown_page = page; layout.shown_pages = pages; layout.shown_cpu = cpu_page;
     }
     layout.page_text->hidden = pages <= 1 || OSD_IsSuppressed();
 }

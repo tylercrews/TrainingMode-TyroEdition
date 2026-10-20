@@ -21,7 +21,13 @@ IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 EDITOR = [
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
     [2,4,7,17,11,25,255,23,255,31] + [255] * 19,
+    # Fixed Grid OSD Positions: page one's OSD rows, then JC Shine (32) and Reset All (33).
+    [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,32,33],
 ]
+GRID_CELL = 37  # TM_SETTING_OSD_GRID_CELL: index OSD slot (21 = JC Shine), 0 Auto, 1..30.
+SLOT = {id: slot for slot, id in enumerate(IDS + [30, 27])}
+JC_SLOT = 21
+def signed(value): return value - (1 << 32) if value >= 1 << 31 else value
 PHYSICAL = [0,1,2,3,4,5,6,7,8,9,11,10,24,26,28,12,13,14,15,16,17,18,19,20,21,22,23,25,27]
 EDITOR_PAGE = 35
 MENU_A, MENU_B, MENU_L, MENU_R = 0x200, 0x20, 0x40, 0x80
@@ -32,7 +38,8 @@ def open_editor(m, page=0):
     m.call("TestEditorInit")
     if page:
         m.call("TestEditorInput", MENU_L, 0)  # The press that opened the menu is ignored.
-        m.call("TestEditorInput", MENU_R, 0)
+        # R goes forward and L back, so the last page is one L away.
+        m.call("TestEditorInput", MENU_R if page == 1 else MENU_L, 0)
         m.call("TestEditorReload")
 
 
@@ -306,6 +313,8 @@ class RelocatedDATSettingsTests(unittest.TestCase):
         m.init()
         before = m.record()
         m.call('DAT_Set',29,1,1)  # This test starts with an existing count record.
+        m.call('DAT_Set',29,2,1)  # And a saved Lava Overlay choice.
+        before = m.record()
         m.cpu.mem_write(0x8045A6C0 + 0x535, b'\x02')  # Capture Under Fire's event ID.
         start = m.symbols['DAT_UnderFire']
         # The first direct call creates the C menu. Bound rendering/allocation,
@@ -334,6 +343,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
                 saved_score[0] = cpu.reg_read(gpr(4))
             elif address == 0x8015CEB4: played.append(cpu.reg_read(gpr(3)))
             elif address == 0x803A611C: cpu.reg_write(gpr(3), 7)
+            elif address == 0x803901F0: cpu.reg_write(gpr(3), 0)  # No Lava Overlay GOBJ outside a match.
             elif address == 0x803A6754:
                 cpu.reg_write(gpr(3), 0x80407A00)
                 rows[0] = 0
@@ -349,7 +359,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             m.call('DAT_UnderFire')
             self.assertEqual(len(menus), 1)
             menu = menus[0]
-            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x07\0\0')
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x08\0\0')
             options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
             label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
@@ -358,6 +368,10 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             trail_label=struct.unpack('>I',m.cpu.mem_read(trail_row+12,4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(trail_label,14)),b'Hitbox Trails\0')
             self.assertEqual(bytes(m.cpu.mem_read(trail_row+6,4)),bytes(4))
+            lava_row=options+4*44
+            lava_label=struct.unpack('>I',m.cpu.mem_read(lava_row+12,4))[0]
+            self.assertEqual(bytes(m.cpu.mem_read(lava_label,13)),b'Lava Overlay\0')
+            self.assertEqual(bytes(m.cpu.mem_read(lava_row+6,4)),b'\0\1\0\1')  # Saved choice loads.
             self.assertNotEqual(bytes(m.cpu.mem_read(0x80479D88, 4)), bytes(4))  # Menu update installed.
             self.assertEqual(ended, [])
             self.assertEqual(scores, [])  # Best attempts are kept in RAM until Exit.
@@ -378,7 +392,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             for _ in range(3):m.call('DAT_UnderFireScore',1)
             self.assertEqual(text_rows[-6][:2],(4,3))
             self.assertEqual(text_rows[-1][:2],(9,120))
-            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 6 * 44 + 40, 4))[0]
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 7 * 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
             self.assertEqual(scores, [(2, 120)])
@@ -999,11 +1013,16 @@ class CharacterPreferenceTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(backup+104,1)),b'\x02')
         self.assertEqual(bytes(m.cpu.mem_read(backup+140,1)),b'\x02')
         m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+140,b'\x09')
+        m.cpu.mem_write(backup+107,b'\x03');m.cpu.mem_write(backup+143,b'\x04')
         m.call('Settings_Characters',1,-1,-1,1)
         saved=m.record();fresh=Machine();fresh.put(saved)
+        fresh.cpu.mem_write(0x8045A6C0+0x1AE0,bytes(m.cpu.mem_read(0x8045A6C0+0x1AE0,88)))
         fresh.call('Settings_Characters',0,-1,-1,1)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1)),b'\x14')
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+140,1)),b'\x09')
+        # Costumes persist with their character across a reboot.
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+143,1)),b'\x04')
         fresh.cpu.mem_write(backup+107,b'\x03');fresh.call('Settings_Characters',0,-1,-1,1)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')
         # Peach-only exercise and Fox-only CPU: local fallback, no global overwrite.
@@ -1015,6 +1034,7 @@ class CharacterPreferenceTests(unittest.TestCase):
         self.assertEqual((fresh.call('Settings_Get',24,0),fresh.call('Settings_Get',24,1)),(20,9))
         fresh.call('Settings_Characters',0,-1,-1,1)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1)),b'\x14')
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')  # Saved costume returns with Falco.
         fresh.cpu.mem_write(backup+104,b'\x21');fresh.call('Settings_Characters',1,-1,-1,1)
         self.assertEqual(fresh.call('Settings_Get',24,0),20)
 
@@ -1541,8 +1561,8 @@ class OSDLayoutTests(unittest.TestCase):
         self.assertEqual(m.call("TestLayoutFooterMetric",object,4,1),(-28)&0xFFFFFFFF)
         self.assertEqual(m.call("TestLayoutFooterMetric",object,5,1),0)
         map_ptr=0x80406000;m.call("TMOSD_MapReset",map_ptr,sum(1<<id for id in IDS));m.call("TMOSD_MapOwners",map_ptr,1)
-        for key in range(5):self.assertEqual(m.call("TestLayoutCell",map_ptr,key,1,3),1800)
-        self.assertEqual(m.call("TestLayoutCell",map_ptr,5,1,3),1100)
+        for key in range(5):self.assertEqual(m.call("TestLayoutCell",map_ptr,key,1,3),2070)
+        self.assertEqual(m.call("TestLayoutCell",map_ptr,5,1,3),1405)
 
     def test_fox_falco_child_slots_keep_independent_results_history_and_shared_setting(self):
         for mode in (1,2):
@@ -1619,6 +1639,100 @@ class OSDLayoutTests(unittest.TestCase):
         self.assertEqual(m.call("TestLayoutVisible",one),1)
         m.call("TestLayoutTick",4)
         self.assertEqual(m.call("TestLayoutRecent"),2)
+
+    def cells(self, ptr, cells):
+        """Apply a slot -> saved cell table (0 Auto, 1..30) to the map at ptr."""
+        self.m.cpu.mem_write(ptr + 0x100, bytes(cells.get(slot, 0) for slot in range(22)))
+        self.m.call("TMOSD_MapCells", ptr, ptr + 0x100)
+
+    def where(self, ptr, player, id, mode=1):
+        key = self.m.call("TMOSD_Key", player, id)
+        return tuple(signed(self.m.call("TestLayoutCell", ptr, key, mode, i)) for i in (0, 1))
+
+    def test_assigned_cells_leave_gaps_and_auto_fills_after_the_last_top_row_cell(self):
+        m=self.m;ptr=0x80406000
+        m.call("TMOSD_MapReset",ptr,(1<<0)|(1<<1)|(1<<8)|(1<<16)|(1<<20));m.call("TMOSD_MapOwners",ptr,1)
+        self.cells(ptr,{SLOT[0]:1,SLOT[20]:3,SLOT[16]:12})  # R1 C1, R1 C3, R3 C2.
+        self.assertEqual([self.where(ptr,0,id) for id in (0,20,16,1,8)],[(0,0),(0,2),(0,11),(0,3),(0,4)])
+        self.assertNotIn((0,1),[self.where(ptr,0,id) for id in (0,1,8,16,20)])  # R1 C2 stays blank.
+        self.assertEqual(m.call("TMOSD_PageCount",ptr,1),1)
+        # Placed OSDs keep their cells when anything turns off; Auto OSDs pack.
+        m.call("TMOSD_MapReset",ptr,(1<<0)|(1<<8)|(1<<16));m.call("TMOSD_MapOwners",ptr,1)
+        self.assertEqual(self.where(ptr,0,20),(-1,-1))
+        self.assertEqual([self.where(ptr,0,id) for id in (0,16,8)],[(0,0),(0,11),(0,3)])
+
+    def test_auto_overflow_and_each_player_block_starting_on_its_own_page(self):
+        m=self.m;ptr=0x80406000
+        m.call("TMOSD_MapReset",ptr,sum(1<<id for id in IDS));m.call("TMOSD_MapOwners",ptr,3)
+        self.cells(ptr,{SLOT[28]:30})  # Act OoHitstun alone at R6 C5.
+        self.assertEqual(m.call("TMOSD_PageCount",ptr,1),4)  # 18 Auto per player: 10, then 8.
+        for player,base in ((0,0),(1,2)):
+            for rank,id in enumerate(id for id in IDS if id!=28):
+                self.assertEqual(self.where(ptr,player,id),(base+rank//10,rank%10))
+            self.assertEqual(self.where(ptr,player,28),(base,29))
+        self.assertEqual([signed(m.call("TMOSD_PageOwner",ptr,1,page)) for page in range(5)],[0,0,1,1,-1])
+        self.assertEqual(signed(m.call("TMOSD_PageOwner",ptr,2,0)),-1)  # Not used by the Panel.
+        self.assertEqual(m.call("TMOSD_PageCount",ptr,2),5)
+
+    def test_jc_shine_has_its_own_cell_and_leaves_it_blank_for_other_characters(self):
+        m=self.m;ptr=0x80406000
+        m.call("TMOSD_MapReset",ptr,(1<<8)|(1<<20));m.call("TMOSD_MapOwners",ptr,3);m.call("TMOSD_MapSplitOwners",ptr,1)
+        self.cells(ptr,{SLOT[8]:6,JC_SLOT:11})  # Fighter-specific Tech R2 C1, JC Shine R3 C1.
+        self.assertEqual((self.where(ptr,0,8),self.where(ptr,0,64)),((0,5),(0,10)))
+        self.assertEqual((self.where(ptr,1,8),self.where(ptr,1,64)),((1,5),(-1,-1)))
+        self.assertEqual(self.where(ptr,0,20),(0,6))  # Auto starts after R2 C1.
+        # On Auto, JC Shine follows Fighter-specific Tech.
+        self.cells(ptr,{SLOT[0]:2})
+        m.call("TMOSD_MapReset",ptr,(1<<0)|(1<<8)|(1<<20));m.call("TMOSD_MapOwners",ptr,1);m.call("TMOSD_MapSplitOwners",ptr,1)
+        self.assertEqual([self.where(ptr,0,id)[1] for id in (0,8,64,20)],[1,2,3,4])
+
+    def test_repeated_or_invalid_saved_cells_fall_back_to_auto(self):
+        m=self.m;ptr=0x80406000
+        m.call("TMOSD_MapReset",ptr,(1<<0)|(1<<1)|(1<<3));m.call("TMOSD_MapOwners",ptr,1)
+        self.cells(ptr,{0:4,1:4,2:31})
+        self.assertEqual([self.where(ptr,0,id)[1] for id in (0,1,3)],[3,4,5])
+        self.cells(ptr,{})  # All Auto is the original order.
+        self.assertEqual([self.where(ptr,0,id)[1] for id in (0,1,3)],[0,1,2])
+
+    def test_six_rows_fit_on_screen_and_other_layouts_ignore_cells(self):
+        m=self.m;ptr=0x80406000
+        m.call("TMOSD_MapReset",ptr,sum(1<<id for id in IDS));m.call("TMOSD_MapOwners",ptr,1)
+        self.cells(ptr,{slot:slot*5+slot%5+1 for slot in range(6)})  # One OSD per row.
+        for row in range(6):
+            key=m.call("TMOSD_Key",0,IDS[row])
+            self.assertEqual(signed(m.call("TestLayoutCell",ptr,key,1,2)),-2320+(row%5)*1160)
+            self.assertAlmostEqual(signed(m.call("TestLayoutCell",ptr,key,1,3)),round((20.7-row*6.65)*100),delta=1)
+        # 5.15-unit boxes stay under the screen top (24.27) and above the OSD clip (-16.18).
+        self.assertLess(20.7+2.575,24.27);self.assertGreater(20.7-5*6.65-2.575,-16.18)
+        for slot,id in enumerate(IDS):
+            self.assertEqual(self.where(ptr,0,id,2),(slot//9,slot%9))
+
+    def test_placeholders_are_freed_once_their_osd_has_a_result(self):
+        m=self.m
+        for slot,cell in ((SLOT[0],1),(SLOT[20],3),(SLOT[16],26)): m.call("Settings_Set",GRID_CELL,slot,cell)
+        self.start(1)
+        self.assertEqual(m.call("TestLayoutPlaceholders"),5)
+        wave=m.call("TestLayoutEmit",0,0,1,0);m.call("TestLayoutTick",1)
+        self.assertEqual(m.call("TestLayoutPlaceholders"),4)
+        self.assertEqual(signed(m.call("TestLayoutX100",wave)),-2320)
+        for frame,id in enumerate((1,8,16,20),2):
+            m.call("TestLayoutEmit",0,id,frame,id);m.call("TestLayoutTick",frame)
+        self.assertEqual(m.call("TestLayoutPlaceholders"),0)
+        self.assertEqual(m.call("TestLayoutPageHidden"),1)  # One page.
+
+    def test_assigned_cells_label_a_cpu_page_instead_of_tagging_cells(self):
+        m=self.m
+        m.call("Settings_Set",GRID_CELL,SLOT[0],1)
+        self.start(1)
+        m.call("TestCueState",2,14,1,40,100);m.call("TestCuePlayer",1,1,1);m.call("TestLayoutTick",1)
+        page=lambda:bytes(m.call("TestLayoutPageChar",i) for i in range(40)).split(b"\0",1)[0]
+        self.assertEqual(m.call("Message_LayoutPageCount"),2)
+        self.assertEqual(page(),b"OSDs 1/2 - paused L/R: page")
+        self.assertEqual(m.call("TestLayoutPageHidden"),0)
+        m.call("Settings_Set",23,0,1);m.call("TestLayoutTick",2)
+        self.assertEqual(page(),b"CPU OSDs 2/2 - paused L/R: page")
+        self.assertEqual(m.call("TestLayoutCPUTags"),0)
+        self.assertEqual(m.call("TestLayoutPlaceholders"),5)  # The CPU's cells on its own page.
 
     def test_native_editor_paging_does_not_use_the_opening_l_press_or_save_bits(self):
         m=self.m
@@ -2475,13 +2589,15 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(self.label(m, 28, 8), "OVERRIDE")
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
-        rows = [id for page in EDITOR for id in page if id != 255]
+        rows = [id for page in EDITOR[:2] for id in page if id != 255]
         self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31]))
         self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
-        for page in range(2):
+        # The positions page keeps every OSD row where page one has it.
+        self.assertEqual(EDITOR[2][:27], EDITOR[0][:27])
+        for page in range(3):
             for native, row in zip(PHYSICAL, range(29)):
                 self.assertEqual(self.m.call("TMSettings_EditorIDFor", page, native), EDITOR[page][row])
-        self.assertEqual(self.m.call("TMSettings_EditorIDFor", 2, 0), 255)
+        self.assertEqual(self.m.call("TMSettings_EditorIDFor", 3, 0), 255)
 
     def test_overlay_page_groups_character_overlays_gameplay_and_stage(self):
         character, gameplay, stage = [2, 4, 7, 17, 11, 25], [23], [31]
@@ -2673,6 +2789,86 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorInit")
         self.assertEqual(m.call("Settings_Get", EDITOR_PAGE, 0), 0)
         self.assertEqual(self.label(m, master, 8), "OVERRIDE")
+
+    def choice(self, m, row, length=13):
+        text = ''
+        for i in range(length):
+            c = m.call("TestEditorChoiceChar", row, i)
+            if not c: break
+            text += chr(c)
+        return text
+
+    def cell(self, slot):
+        return self.m.call("Settings_Get", GRID_CELL, slot)
+
+    def test_positions_page_reuses_page_one_rows_and_l_goes_back(self):
+        m = self.m; open_editor(m, 2)
+        self.assertEqual(m.call("Settings_Get", EDITOR_PAGE, 0), 2)
+        wave = editor_row(0)[1]
+        self.assertEqual(self.label(m, wave, 13), "Wavedash Info")
+        self.assertEqual(self.choice(m, wave, 4), "Auto")
+        self.assertEqual(self.label(m, 27, 20), "JC Shine (Fox/Falco)")
+        self.assertEqual(self.label(m, 28, 17), "Reset All to Auto")
+        self.assertEqual(self.choice(m, 28, 7), "Press A")
+        self.assertEqual(m.call("TestEditorHidden", 26), 1)
+        m.call("TestEditorInput", 0, 0)
+        self.assertEqual(m.call("TestEditorBoxHidden", 28), 1)  # Reset All is an action, not a toggle.
+        self.assertEqual(m.call("TestEditorBoxHidden", 27), 0)
+        for button, page in ((MENU_R, 0), (MENU_R, 1), (MENU_R, 2), (MENU_L, 1), (MENU_L, 0)):
+            m.call("TestEditorInput", button, 0); m.call("TestEditorReload")
+            self.assertEqual(m.call("Settings_Get", EDITOR_PAGE, 0), page)
+
+    def test_positions_step_to_free_cells_wrap_and_leave_core_settings_alone(self):
+        m = self.m; core = m.record(); open_editor(m, 2)
+        wave, lcancel = editor_row(0)[1], editor_row(1)[1]
+        m.call("TestEditorInput", MENU_A, wave)
+        self.assertEqual((self.cell(0), self.choice(m, wave, 5)), (1, "R1 C1"))
+        m.call("TestEditorInput", MENU_A, lcancel)  # R1 C1 is taken: skip to R1 C2.
+        self.assertEqual((self.cell(1), self.choice(m, lcancel, 5)), (2, "R1 C2"))
+        m.call("TestEditorInput", MENU_B, lcancel)
+        self.assertEqual((self.cell(1), self.choice(m, lcancel, 4)), (0, "Auto"))
+        m.call("TestEditorInput", MENU_B, lcancel)  # B wraps from Auto to the last cell.
+        self.assertEqual((self.cell(1), self.choice(m, lcancel, 5)), (30, "R6 C5"))
+        m.call("TestEditorInput", MENU_A, lcancel)
+        for _ in range(7): m.call("TestEditorInput", MENU_A, lcancel)
+        self.assertEqual((self.cell(1), self.choice(m, lcancel, 5)), (8, "R2 C3"))
+        m.call("TestEditorInput", MENU_A, 27)
+        self.assertEqual(self.cell(JC_SLOT), 2)  # JC Shine has its own cell.
+        self.assertEqual(m.record(), core)
+
+    def test_positions_rows_mirror_on_off_and_the_native_exit_changes_nothing(self):
+        m = self.m
+        m.write(14, 0, 0); m.write(14, 20, 6); m.write(14, 8, 3)
+        open_editor(m, 2)
+        ff, wave = editor_row(20)[1], editor_row(0)[1]
+        self.assertEqual([m.call("TestEditorCache", row) for row in (ff, wave, 27, 28)], [1, 0, 1, 0])
+        self.assertEqual(m.call("TestEditorColor", ff), m.call("OSD_PaletteColor", 6))
+        self.assertEqual(m.call("TestEditorColor", wave), 0xB4B4B4FF)
+        self.assertEqual(m.call("TestEditorColor", 27), m.call("OSD_PaletteColor", 3))
+        m.call("TestEditorInput", MENU_A, wave)
+        self.assertEqual(bytes(m.cpu.mem_read(0x804A04F4, 1)), b"\0")  # No native toggle.
+        m.call("TestEditorInput", MENU_A, ff)
+        self.assertEqual(bytes(m.cpu.mem_read(0x804A04F4, 1)), b"\1")
+        before = m.record(); cells = [self.cell(slot) for slot in range(22)]
+        for row, native in enumerate(PHYSICAL):
+            m.call("TestSettingsEditorWrite", native, m.call("TestEditorCache", row))
+        self.assertEqual(m.record(), before)
+        self.assertEqual([self.cell(slot) for slot in range(22)], cells)
+        self.assertEqual((m.call("Settings_Get", 14, 20), m.call("Settings_Get", 14, 0)), (6, 0))
+
+    def test_reset_all_needs_a_second_a_and_cancels_when_the_cursor_leaves(self):
+        m = self.m
+        for slot, cell in ((0, 1), (JC_SLOT, 7)): m.call("Settings_Set", GRID_CELL, slot, cell)
+        open_editor(m, 2)
+        m.call("TestEditorInput", MENU_A, 28)
+        self.assertEqual(self.choice(m, 28), "Press A Again")
+        m.call("TestEditorInput", 0, 3)  # The cursor moved to another row.
+        self.assertEqual(self.choice(m, 28), "Press A")
+        m.call("TestEditorInput", MENU_A, 28); m.call("TestEditorInput", MENU_B, 28)  # B cancels.
+        self.assertEqual((self.cell(0), self.cell(JC_SLOT)), (1, 7))
+        m.call("TestEditorInput", MENU_A, 28); m.call("TestEditorInput", MENU_A, 28)
+        self.assertEqual([self.cell(slot) for slot in range(22)], [0] * 22)
+        self.assertEqual((self.choice(m, editor_row(0)[1], 4), self.choice(m, 27, 4), self.choice(m, 28)), ("Auto", "Auto", "Press A"))
 
 
 class SweetspotCameraTests(unittest.TestCase):

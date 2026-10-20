@@ -44,19 +44,57 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T6
-- see if low laser puff practice can be switched to different characters in different poses - would be nice to have a dashing marth and dashing fox, ~~a full hop +dj puff~~ (**T5:** Puff Height adds hop and double-jump heights; other CPU characters/poses are still open; see [the mid-event swap investigation](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md))
-- would be nice to reorder your OSDs how you want
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T7
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
-- improve the fastfall OSD to tell you what frame of your jump you put in the input, so you can see how much you're buffering and see if you're hitting the right frame to account for f1 gravity
 - change name of low laser puff practice to frozen puff (low laser?) practice
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
-- Under Fire make a setting where you can see the hand grab through the lava if you don't want to go by timing forever. But by the time the lava comes up if you want to succeed you do just need perfect rhythm. Just not sure if taking away the visual cue is good or not.
+- Edgeguard Training Beta Changes:
+    - Samus often misses tether, and doesn't "pull up" after hitting tether, just hangs there.
+    - Luigi feels like they reset a little early
 
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T6 (V1.4.1T6) - 2026-10-19
+
+- **Program changes**
+    - New reusable character selector module ([src/fighter_swap.h](src/fighter_swap.h)) and menu support for custom rows (extra buttons, colored values, stock icons), so other events can get the same Player/CPU Character rows later. Details are in [the mid-event swap notes](notes/MID-EVENT-CHARACTER-STAGE-SWAP.md#implemented-in-t6-player-and-cpu-character).
+    - Global Settings saves version 19 of its extension record. Fixed Grid positions use 14 of the 52 spare bytes, the saved Player/CPU costumes use 2 more and the Edgeguard settings use 16, leaving 20. Older saves update automatically with every OSD on Auto, default costumes and default Edgeguard settings.
+    - Reading a saved setting no longer re-checks the fields that can't hold a bad value (like the recovery toggles), so every settings read does less work.
+    - The character selector can now limit one slot to a list of characters, for events that only support some CPUs.
+    - **BETA, relatively untested -** New CPU recoveries for Yoshi, Peach, Luigi, Dr. Mario, the Ice Climbers, Jigglypuff and Samus ([src/recovery.c](src/recovery.c)). They press buttons the way a person does: fresh presses, and mashing at about 10 presses a second (15 with Fast Mashing). The research, the numbers behind each one and a Dolphin test list are in [the Edgeguard character notes](notes/EDGEGUARD-NEW-CHARACTERS.md); [scripts/fighter_move_data.py](scripts/fighter_move_data.py) reads the move heights and timings from the ISO.
+    - New [save data memory map](notes/SAVE-DATA-MEMORY-MAP.md): tables showing every saved byte Tyro uses, what owns it, and what's still free.
+    - Global Settings pages now go forward with R and back with L. Previously both went forward.
+- **Globals and all events**
+    - **Change Stage** (Eggs-ercise, Low Laser Puff Practice, Training Lab) now reloads every file for the new match, like the character change does. The load takes a little longer, but changing the stage after changing characters can't crash.
+    - **Fastfall Timing OSD** now has three rows: `Fastfall`, then `input #f` (white), the jump frame where your down input started, then `Nf (Mf)`. N is which frame of the fastfall window you acted on, where 1 is the first frame your y velocity is below 0, so a frame-1 aerial that changes your gravity is already counted. M is the jump frame the fastfall took effect on. `(Mf)` also shows in the Practice Panel layout and stays when a hitlag prefix is added. Fastfalls that don't come from a jump, like walking off a ledge or Kirby/Puff multi-jumps, keep the old two-row display.
+    - New **Fixed Grid OSD Positions** page in Global Settings (the third page: R twice or L once from Global OSDs). It lists the same OSDs as Global OSDs and lets you put each one in any cell of a 6-row × 5-column grid, shown as `R1 C1` (row 1, column 1).
+        - A steps to the next free cell and B to the previous one, through `Auto`. Two OSDs can never share a cell.
+        - A placed OSD always uses its cell, even when other OSDs are turned off, and cells you leave empty stay blank, so you can group OSDs with gaps between them.
+        - **JC Shine (Fox/Falco)** has its own row. Its cell stays empty when you're not playing Fox or Falco.
+        - **Reset All to Auto** puts every OSD back on Auto. Press A twice; B or moving off the row cancels.
+    - **Fixed Grid** now fits six rows: the grid moved up a little and the rows are slightly closer. OSDs on Auto still fill only the top two rows, ten per page, so if you don't place anything the grid looks the same as before, just higher. With cells placed, Auto OSDs start after your last placed OSD in the top two rows, and CPU OSDs start on their own page, labeled **CPU OSDs** instead of tagging every cell. The page label moved between rows 2 and 3.
+    - The character select now remembers the Player and CPU **costume colors** across restarts, along with the characters it already remembered. A saved color comes back only with the character it was picked for; restricted events that force a different character still use its default color.
+    - Empty `--` Fixed Grid cells use a smaller placeholder that's freed once the OSD shows a result, so the bigger grid doesn't use more of Melee's text memory.
+- **Event-specific changes**
+    - **Training Lab**
+        - New **Player Character** and **CPU Character** rows at the top of the **Session** tab can let you hot swap characters in the middle of a training lab session. Left/Right picks a character in its default color, in my tier list order (Fox, Marth, Jigglypuff, Falco, Peach, Sheik, ...). X/Y cycles that character's costume colors. The name is drawn in the costume's color, with its stock icon next to it. Press A to restart the match with both picks without going back through the character select.
+        - Your Lab settings carry over like they do for Change Stage, except the CPU's recovery options (kept only if the CPU stays the same) and Character RNG (kept only if both characters stay the same). Recordings and saved positions are cleared.
+        - The two characters can't end up in the same costume: picking the other slot's character skips its color.
+        - Picking Zelda as the CPU now gives you Zelda. (The character select still turns a Zelda CPU into Sheik.)
+        - A recovering CPU playing Yoshi, Peach, Luigi, Dr. Mario, the Ice Climbers, Jigglypuff or Samus now uses the new Edgeguard recoveries instead of the game's own CPU, and the **Recovery Options** menu works for them.
+    - **Edgeguard Training**
+        - The event name is now cyan on the event select screen.
+        - Settings are saved: Player Percent, Hit Strength, all six Custom Hit Strength values, and the Recovery Options of each CPU (every CPU keeps its own).
+        - New **Change Characters** menu with the same Player Character and CPU Character rows as the Training Lab. The player can be anyone; the CPU list only has the characters the event supports.
+        - **BETA, very unrefined and mostly untested -** Seven new CPUs: **Yoshi** (double jump high or low, air dodge to the ledge or stage, egg toss), **Peach** (float to the stage or low by the ledge, Parasol, Bomber, float aerials), **Luigi** (mashed Cyclone, Green Missile with the game's own misfires, up B), **Dr. Mario** (mashed Dr. Tornado, Cape stall, up B), the **Ice Climbers** (Belay when Nana is close, mashed Squall Hammer otherwise), **Jigglypuff** (jumps to stay high or low, Pound, aerials at you) and **Samus** (bomb jumps, grapple, Screw Attack). Each has its own Recovery Options. These haven't been tested in Dolphin yet; see [the notes](notes/EDGEGUARD-NEW-CHARACTERS.md#testing-in-dolphin).
+        - Ice Climbers: resets no longer switch off Nana's AI, and she now follows Popo instead of you after a reset.
+    - **Under Fire - Ledgestall Training**
+        - New **Lava Overlay** setting (Off by default, saved). It hides the lava's model and draws a see-through orange overlay at the same height on top of the stage and your character, so you can still see the hand grab through it on the ledge after the lava rises. The lava still rises and hurts exactly as before. It uses a spare bit of the save record, so the save format doesn't change.
+
+For T6 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for the character swapping and OSD layout, and Max for attempting to add new characters to Edgeguarding)
 
 ### T5 (V1.4.1T5) - 2026-10-18
 
@@ -94,6 +132,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - **Training Lab**
         - New **Change Stage** row in the **Stage/RNG** tab: restart on any of the six legal stages without going back through the character and stage select. Your Lab settings come with you: CPU behavior, DI/SDI, tech and getup chances, counters (including Advanced Counter), shields, percents and locks, camera/HUD/model/collision displays, game speed, Info Display, Hitbox Trails, Custom TDI, Custom OSDs, Action Log, Character RNG and recovery options. Recordings and saved positions are cleared because they belong to the old stage, and the old stage's own options (Stadium transformation, Fountain platform heights) don't carry.
         - New **Reset to Default Settings** in the **Session** and **Exit** tabs: puts every unsaved Lab setting back to how a fresh Lab starts, without leaving the match. Recordings, saved positions and saved preferences (Controls, overlays, OSD colors, Input Display) are kept.
+
+For T5 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use for some research on character and stage swapping)
 
 ### T4 (V1.4.1T4) - 2026-10-15
 

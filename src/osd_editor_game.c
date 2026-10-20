@@ -2,7 +2,7 @@
 #include "osd_layout.h"
 
 /* Labels by stable OSD/flag identity; TMSettings_EditorIDs places them on a page. */
-static const char *row_names[32] = {
+static const char *row_names[34] = {
     [0] = "Wavedash Info", [1] = "L-Cancel", [3] = "Act OoS Frame", [5] = "Dashback",
     [8] = "Fighter-specific Tech", [9] = "Powershield Frame", [10] = "SDI Inputs",
     [12] = "Lockout Timers", [13] = "Item Throw Interrupts", [14] = "Boost Grab",
@@ -21,8 +21,12 @@ static const char *row_names[32] = {
     [TM_GLOBAL_INFINITE_SHIELDS_ROW] = TM_GLOBAL_INFINITE_SHIELDS_NAME,
     [TM_GLOBAL_INVINCIBILITY_ROW] = TM_GLOBAL_INVINCIBILITY_NAME,
     [TM_GLOBAL_RANDALL_ROW] = TM_GLOBAL_RANDALL_NAME,
+    [TM_GRID_JC_SHINE_ROW] = "JC Shine (Fox/Falco)",
+    [TM_GRID_RESET_ROW] = "Reset All to Auto",
 };
-static const char *page_titles[TM_EDITOR_PAGES] = { "Global OSDs (1/2)", "Global Overlays & Gameplay (2/2)" };
+static const char *page_titles[TM_EDITOR_PAGES] = {
+    "Global OSDs (1/3)", "Global Overlays & Gameplay (2/3)", "Fixed Grid OSD Positions (3/3)",
+};
 static const char *color_names[] = { TM_OSD_COLOR_NAMES };
 static const char *display_names[] = { TM_OSD_DISPLAY_NAMES };
 /* Native RSS state shared with the ASM hooks (see "Toggle UI"). */
@@ -39,6 +43,8 @@ static const char *display_names[] = { TM_OSD_DISPLAY_NAMES };
 #define MENU_L 0x40
 #define MENU_R 0x80
 static int editor_armed, editor_switching;
+static int reset_armed; /* Reset All to Auto waits for a second A on its row. */
+static char cell_names[TM_EDITOR_ROWS][6]; /* "R6 C5"; the row Text keeps the pointer. */
 
 static unsigned editor_page(void) { return Settings_Get(TM_SETTING_EDITOR_PAGE, 0); }
 static unsigned row_id(unsigned row) {
@@ -47,6 +53,31 @@ static unsigned row_id(unsigned row) {
 static const char *row_name(unsigned row) {
     unsigned id = row_id(row);
     return id < countof(row_names) ? row_names[id] : 0;
+}
+static int grid_page(void) { return editor_page() == TM_EDITOR_GRID_PAGE; }
+/* The OSD whose On/Off and color a positions-page row shows; JC Shine shares
+ * Fighter-specific Tech's setting. */
+static unsigned shown_id(unsigned id) { return id == TM_GRID_JC_SHINE_ROW ? 8 : id; }
+static int grid_slot(unsigned id) {
+    return id == TM_GRID_JC_SHINE_ROW ? TM_OSD_CATEGORIES : TMSettings_OSDCategorySlot(id);
+}
+/* Step to the next cell no other OSD holds, through Auto (0), wrapping both ways. */
+static unsigned next_cell(unsigned slot, unsigned cell, int forward) {
+    uint32_t taken = 0;
+    for (unsigned other = 0; other < TM_OSD_GRID_SLOTS; ++other)
+        if (other != slot) taken |= 1u << Settings_Get(TM_SETTING_OSD_GRID_CELL, other);
+    for (unsigned i = 0; i <= TM_OSD_GRID_POSITIONS; ++i) {
+        cell = forward ? (cell + 1) % (TM_OSD_GRID_POSITIONS + 1) : (cell + TM_OSD_GRID_POSITIONS) % (TM_OSD_GRID_POSITIONS + 1);
+        if (!cell || !(taken & (1u << cell))) return cell;
+    }
+    return 0;
+}
+static const char *cell_name(unsigned row, unsigned cell) {
+    if (!cell) return "Auto";
+    char *name = cell_names[row];
+    name[0] = 'R'; name[1] = '1' + (cell - 1) / TM_OSD_GRID_COLUMNS;
+    name[2] = ' '; name[3] = 'C'; name[4] = '1' + (cell - 1) % TM_OSD_GRID_COLUMNS; name[5] = 0;
+    return name;
 }
 static void refresh_display(void *data) {
     Text *text = *(Text **)((uint8_t *)data + 0x40);
@@ -76,9 +107,13 @@ static JOBJ *row_joint(void *data, unsigned row) {
 static void hide_gaps(void *data) {
     /* Do not follow a row's next sibling when hiding its subtree. */
     for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row) {
-        if (row_name(row)) continue;
-        JOBJ *joint = row_joint(data, row);
-        if (joint) hide_tree(joint);
+        JOBJ *joint = row_joint(data, row), *box = 0;
+        if (!row_name(row)) { if (joint) hide_tree(joint); continue; }
+        /* Reset All is an action, not an On/Off row: hide only its checkbox. */
+        if (joint && row_id(row) == TM_GRID_RESET_ROW) {
+            JOBJ_GetChild(joint, &box, 2, -1);
+            if (box) hide_tree(box);
+        }
     }
 }
 /* Pose a row's checkbox (child 2) for its Boolean, exactly as the native toggle
@@ -99,16 +134,21 @@ static int flag_for(unsigned id) {
 
 static void refresh_row(void *data, unsigned row) {
     unsigned id = row_id(row);
-    int flag = flag_for(id);
+    int flag = grid_page() ? -1 : flag_for(id);
     unsigned value = Settings_Get(flag < 0 ? TM_SETTING_OSD_COLOR : TM_SETTING_FLAG,
-                                  flag < 0 ? id : (unsigned)flag);
+                                  flag < 0 ? shown_id(id) : (unsigned)flag);
     Text *text = *(Text **)((uint8_t *)data + (row < 15 ? 0x40 : 0x44));
     int subtext = (row < 15 ? row : row - 15) + 1;
     const char *choice = flag < 0 ? color_names[value < TM_COLOR_COUNT ? value : 0] : (value ? "On" : "Off");
+    uint32_t rgba = value ? (flag < 0 ? OSD_PaletteColor(value) : 0x8DFF6EFF) : 0xB4B4B4FF;
+    if (grid_page()) {
+        /* Positions page: the row keeps its OSD's color (grey when Off) and shows its cell. */
+        if (id == TM_GRID_RESET_ROW) { choice = reset_armed ? "Press A Again" : "Press A"; rgba = 0xFFFFFFFF; }
+        else choice = cell_name(row, Settings_Get(TM_SETTING_OSD_GRID_CELL, grid_slot(id)));
+    }
     Text_SetText(text, subtext, "%s: %s", row_name(row), choice);
     /* Fit long names plus the palette value into the existing two-column layout. */
     Text_SetScale(text, subtext, 0.78f, 1.0f);
-    uint32_t rgba = value ? (flag < 0 ? OSD_PaletteColor(value) : 0x8DFF6EFF) : 0xB4B4B4FF;
     GXColor color = {rgba >> 24, rgba >> 16, rgba >> 8, rgba};
     Text_SetColor(text, subtext, &color);
 }
@@ -117,11 +157,13 @@ void OSD_EditorInit(void *data) {
     /* Opening the menu always starts on Global OSDs; a page switch re-enters
      * here through the native end-of-entry path with its page already chosen. */
     if (!editor_switching) { Settings_Set(TM_SETTING_EDITOR_PAGE, 0, 0); editor_armed = 0; }
-    editor_switching = 0;
+    editor_switching = 0; reset_armed = 0;
     for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row)
         if (row_name(row)) {
             refresh_row(data, row);
-            ((uint8_t *)data)[row + 2] = !!Settings_Get(TM_SETTING_NATIVE_ROW, row_id(row));
+            /* Positions rows mirror their OSD's On/Off, so the native exit save
+             * writes back the same value (JC Shine and Reset All are no-ops). */
+            ((uint8_t *)data)[row + 2] = !!Settings_Get(TM_SETTING_NATIVE_ROW, grid_page() ? shown_id(row_id(row)) : row_id(row));
         } else {
             Text *text = *(Text **)((uint8_t *)data + (row < 15 ? 0x40 : 0x44));
             Text_SetText(text, (row < 15 ? row : row - 15) + 1, "");
@@ -136,7 +178,7 @@ void OSD_EditorInit(void *data) {
     refresh_title(data);
 }
 
-static void switch_page(void *data) {
+static void switch_page(void *data, int forward) {
     /* Save this page exactly as the native exit pass would, including the
      * cursor row's not-yet-animated Boolean, before its rows are rebound. */
     for (unsigned row = 0; row < TM_EDITOR_ROWS; ++row) {
@@ -144,7 +186,7 @@ static void switch_page(void *data) {
         unsigned value = row == RSS_CURSOR ? RSS_SELECTED : ((uint8_t *)data)[row + 2];
         Settings_Set(TM_SETTING_NATIVE_ROW, row_id(row), !!value);
     }
-    Settings_Set(TM_SETTING_EDITOR_PAGE, 0, (editor_page() + 1) % TM_EDITOR_PAGES);
+    Settings_Set(TM_SETTING_EDITOR_PAGE, 0, (editor_page() + (forward ? 1 : TM_EDITOR_PAGES - 1)) % TM_EDITOR_PAGES);
     /* Re-run the native "entry finished" step (state 1 at its last frame): it
      * recreates both Texts through the Load Alt Text hook, which calls
      * OSD_EditorInit, then redraws every checkbox from the new row snapshot. */
@@ -160,17 +202,51 @@ static void switch_page(void *data) {
     RSS_BUSY = 1;
 }
 
+/* Positions page: A moves the row's OSD to the next free cell and B to the
+ * previous one. Reset All needs a second A on its row; B or leaving it cancels. */
+static int grid_input(void *data, unsigned buttons, unsigned row) {
+    unsigned id = row_id(row);
+    if (reset_armed && id != TM_GRID_RESET_ROW) {
+        reset_armed = 0;
+        for (unsigned r = 0; r < TM_EDITOR_ROWS; ++r) if (row_id(r) == TM_GRID_RESET_ROW) refresh_row(data, r);
+    }
+    if (!(buttons & (MENU_A | MENU_B))) return 0;
+    if (row >= TM_EDITOR_ROWS || !row_name(row)) return 1;
+    if (id == TM_GRID_RESET_ROW) {
+        int reset = (buttons & MENU_A) && reset_armed;
+        reset_armed = (buttons & MENU_A) && !reset;
+        /* Every slot has a row on this page; only rows with a cell change. */
+        for (unsigned r = 0; reset && r < TM_EDITOR_ROWS; ++r) {
+            int slot = row_name(r) ? grid_slot(row_id(r)) : -1;
+            if (slot < 0 || !Settings_Get(TM_SETTING_OSD_GRID_CELL, slot)) continue;
+            Settings_Set(TM_SETTING_OSD_GRID_CELL, slot, 0);
+            refresh_row(data, r);
+        }
+        refresh_row(data, row);
+    } else {
+        unsigned slot = grid_slot(id);
+        unsigned cell = Settings_Get(TM_SETTING_OSD_GRID_CELL, slot);
+        Settings_Set(TM_SETTING_OSD_GRID_CELL, slot, next_cell(slot, cell, buttons & MENU_A));
+        refresh_row(data, row);
+    }
+    /* Positions never toggle the On/Off box: keep the native Boolean unchanged. */
+    RSS_SELECTED = ((uint8_t *)data)[row + 2];
+    return 1;
+}
+
 /* Return whether input was consumed, including on unused rows. A steps a row's
- * choice forward and B backward; L/R switch page; Start exits and saves (native,
- * before this hook). D-pad/stick still navigate and X/Y choose the display. */
+ * choice forward and B backward; R goes to the next page and L to the previous
+ * one; Start exits and saves (native, before this hook). D-pad/stick still
+ * navigate and X/Y choose the display. */
 int OSD_EditorInput(void *data, unsigned buttons, unsigned row) {
     hide_gaps(data); /* Native initialization can clear the model's hidden flags. */
     int armed = editor_armed; editor_armed = 1;
     if (buttons & (MENU_L | MENU_R)) {
         if (!armed) return 1; /* Do not treat the L press that opened this menu as paging. */
-        switch_page(data);
+        switch_page(data, !!(buttons & MENU_R));
         return 1;
     }
+    if (grid_page()) return grid_input(data, buttons, row);
     if (!(buttons & (MENU_A | MENU_B))) return 0;
     if (row >= TM_EDITOR_ROWS || !row_name(row)) return 1;
     unsigned id = row_id(row);
