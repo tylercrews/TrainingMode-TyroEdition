@@ -47,6 +47,7 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T7
+- Green>Yellow should trigger on all 4 standard ledge options: ledge get up, ledge roll up, ledge attack, and as soon as you're actionable in the air after ledge jump. Additionally, oowait should trigger after ledge get up and ledge roll up, and ooattack should trigger after ledge attack. These should work correctly for the sub 100% and over 100% versions
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
