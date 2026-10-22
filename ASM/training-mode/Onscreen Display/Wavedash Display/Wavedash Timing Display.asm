@@ -240,11 +240,12 @@ FullHopString:
 
 AngleFloats:
     blrl
-    # The shallowest angle a stick can reach is about 16.8 degrees.
+    # The shallowest angle a stick can reach is about 16.8 degrees. The angle is
+    # already floored to 0.1, so 20.0 is cyan and 20.1 is green.
     .float 0.0                      # Flat airdodge: no color
-    .float 19.0                     # Cyan below this
-    .float 24.0                     # Green below this
-    .float 31.0                     # Yellow below this
+    .float 20.05                    # Cyan up to 20.0
+    .float 25.05                    # Green up to 25.0
+    .float 30.05                    # Yellow up to 30.0
     .long 0x00ffffff                # Cyan
     .long 0x8dff6eff                # Green
     .long 0xfff000ff                # Yellow

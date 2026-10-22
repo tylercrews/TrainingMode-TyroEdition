@@ -2433,8 +2433,9 @@ class OSDStyleTests(unittest.TestCase):
 
     def test_real_wavedash_assembly_ranks_the_angle_cyan_green_yellow_then_white(self):
         # 0 means the angle row was never recolored, so it keeps its white text.
-        for degrees,expected in [(16.9,0x00FFFFFF),(18.8,0x00FFFFFF),(19.2,0x8DFF6EFF),(23.8,0x8DFF6EFF),
-                                 (24.2,0xFFF000FF),(30.8,0xFFF000FF),(31.2,0),(60.0,0),(0.0,0)]:
+        # Displayed angles are floored to 0.1: 20.05 shows 20.0, 20.15 shows 20.1.
+        for degrees,expected in [(16.85,0x00FFFFFF),(20.05,0x00FFFFFF),(20.15,0x8DFF6EFF),(25.05,0x8DFF6EFF),
+                                 (25.15,0xFFF000FF),(30.05,0xFFF000FF),(30.15,0),(60.0,0),(0.0,0)]:
             m=Machine();m.init();m.call("TestCueInit");m.write(14,0,1)
             m.call("TestCueState",0,42,0,40,100)
             data=m.call("TestCueData",0);obj=m.call("TestCueObject",0)

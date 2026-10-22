@@ -208,6 +208,44 @@ class GeckoTests(unittest.TestCase):
         m.tick(93, 347, 0)
         self.assertEqual(m.draw(), 0)
 
+    def test_ledge_getup_attack_and_roll_at_both_percents(self):
+        for state in range(254, 260):  # Slow (100%+) and quick variants of all three.
+            with self.subTest(state=state):
+                m = Machine()
+                m.boundary = 30
+                m.tick(1, state, 27)
+                self.assertEqual(m.draw(), 0)
+                m.tick(2, state, 28)
+                self.assertEqual(m.draw(), YELLOW)
+                m.tick(3, state, 29)
+                self.assertEqual(m.draw(), YELLOW)
+                m.tick(4, 14, 0)
+                self.assertEqual(m.draw(), GREEN)
+                m.tick(5, 14, 1)
+                self.assertEqual(m.draw(), GREEN)
+                m.tick(6, 14, 2)
+                self.assertEqual(m.draw(), 0)
+
+    def test_ledge_jump_cues_its_second_stage_and_greens_on_fall(self):
+        for first, second in [(260, 261), (262, 263)]:
+            with self.subTest(state=first):
+                m = Machine()
+                m.boundary = 10
+                m.tick(1, first, 8)
+                m.tick(2, first, 9)
+                self.assertEqual(m.draw(), 0)  # The second stage is still ahead.
+                m.boundary = 12
+                m.tick(3, second, 0)
+                self.assertEqual(m.draw(), 0)
+                m.tick(4, second, 10)
+                self.assertEqual(m.draw(), YELLOW)
+                m.tick(5, second, 11)
+                self.assertEqual(m.draw(), YELLOW)
+                m.tick(6, 29, 0)  # Fall.
+                self.assertEqual(m.draw(), GREEN)
+                m.tick(7, 29, 1)
+                self.assertEqual(m.draw(), GREEN)
+
     def test_native_iasa_lookahead_and_lcancel_rate(self):
         m = Machine()
         # Native script wait one frame, then enable IASA, then end.

@@ -45,15 +45,20 @@ static int remaining(GOBJ *obj) {
         (state >= ASID_LANDINGAIRN && state <= ASID_LANDINGAIRLW);
     int attack = state >= ASID_ATTACK11 && state <= ASID_ATTACKAIRLW;
     int thrown = state >= ASID_THROWF && state <= ASID_THROWLW;
-    if ((!landing && !attack && !thrown) || state == ASID_ATTACK100START ||
+    /* Ledge getup, attack and roll recover into Wait at their animation end.
+     * Ledge jump's first stage leads into a second one, which ends in Fall. */
+    if (state == ASID_CLIFFJUMPSLOW1 || state == ASID_CLIFFJUMPQUICK1) return 3;
+    int ledge = (state >= ASID_CLIFFCLIMBSLOW && state <= ASID_CLIFFESCAPEQUICK) ||
+        state == ASID_CLIFFJUMPSLOW2 || state == ASID_CLIFFJUMPQUICK2;
+    if ((!landing && !attack && !thrown && !ledge) || state == ASID_ATTACK100START ||
         state == ASID_ATTACK100LOOP || ft->action_flags.loop_anim || !(ft->state.rate > 0)) return -1;
     float end = ((float (*)(GOBJ *))0x8006F484)(obj);
     if (!(end > 0)) return -1;
     if ((state == ASID_LANDING || state == ASID_LANDINGFALLSPECIAL) &&
         ft->state_var.state_var1 && ft->attr.normal_landing_lag < end) end = ft->attr.normal_landing_lag;
     int result = TMCue_Remaining(ft->state.frame, ft->state.rate, end);
-    if (thrown || (attack && !(ft->kind == FTKIND_KIRBY && ft->state_id == 352))) {
-        /* past_iasa can be stale from an earlier attack; throws use the script only. */
+    if (thrown || ledge || (attack && !(ft->kind == FTKIND_KIRBY && ft->state_id == 352))) {
+        /* past_iasa can be stale from an earlier attack; throws and ledge options use the script only. */
         if (attack && ft->flags.past_iasa) return 0;
         TMCueScript script;
         __builtin_memcpy(&script, &ft->script, sizeof(script));

@@ -62,10 +62,13 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 ### T7 (V1.4.1T7) - 2026-10-21
 
 - **Globals and all events**
-    - **Wavedash OSD** angle now uses the same colors as the timing OSDs: cyan below 19.0° (nearly perfect; the shallowest angle you can get is about 16.8°), green below 24.0°, yellow below 31.0°, and white for anything steeper. Before, it was green from 16.8° to 23.6°, yellow up to 30.5°, and white otherwise. A 1f wavedash no longer turns the whole first row green, so the `Wavedash` title keeps the color you picked for the OSD; the frame count is still colored like the other timing OSDs.
+    - **Wavedash OSD** angle now uses the same colors as the timing OSDs: cyan up to 20.0° (nearly perfect; the shallowest angle you can get is about 16.8°), green from 20.1° to 25.0°, yellow from 25.1° to 30.0°, and white from 30.1° up. Before, it was green from 16.8° to 23.6°, yellow up to 30.5°, and white otherwise. A 1f wavedash no longer turns the whole first row green, so the `Wavedash` title keeps the color you picked for the OSD; the frame count is still colored like the other timing OSDs.
     - **Actionable Yellow>Green** now works on all four ledge options, at both under and over 100%: ledge getup, ledge roll and ledge attack go yellow for the last two frames and green when you're back in Wait. Ledge jump goes yellow at the end of its second (airborne) stage and green on your first actionable frame in the air.
+        - The [Slippi Gecko code](slippi-gecko-codes/actionable/README.md) for this overlay is updated to match, so the ledge options also work in Slippi.
     - **Act OoWait** now reports after a ledge getup or a ledge roll, labeled `Ledge getup` or `Ledge roll`.
     - **Act OoAttack** now reports after a ledge attack, labeled `Ledge attack`. Like throws, a ledge attack only counts as Act OoAttack, not Act OoWait.
+
+For T7 I was working with Claude Opus 5.5 Extra High
 
 ### T6 (V1.4.1T6) - 2026-10-19
 
