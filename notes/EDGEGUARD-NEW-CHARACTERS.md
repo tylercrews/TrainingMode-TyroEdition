@@ -14,7 +14,7 @@ Sources: the Melee decompilation (doldecomp/melee) for move logic and action sta
 | Dr. Mario | Double jump, mash Dr. Tornado, Cape stall, up B from about 15 out | Medium | Tornado then up B order; up B start distance |
 | Ice Climbers | Double jump, Belay when Nana is close, mash Squall Hammer otherwise | Medium-low | Nana keeps up (she runs the game's own follower AI) |
 | Jigglypuff | Holds a high or low height with her five jumps, Pound across gaps, back/forward/neutral air at the player | Medium | Jump spacing; aerials not sending her offstage |
-| Samus | Double jump, bomb hops to stall and drift, grapple close to the ledge, Screw Attack | Medium-low | Grapple range (a miss is helpless) |
+| Samus | Double jump, bomb hops to stall and drift, grapple aimed at the wall just under the ledge (then reels in), Screw Attack | Medium | Grapple connects and the reel ends on the ledge |
 
 ## How these recoveries are built
 
@@ -112,9 +112,13 @@ So Luigi only gets real height from fast mashing (true in Melee too), and Squall
 
 - **Game facts:**
     - **Bombs:** laying one in the air sets 0.9 upward speed and multiplies air acceleration ×22 (`ftSs_SpecialAirLw_Enter`), so bomb hops travel fast. A bomb going off on her is a 1.7-speed launch at 90° ± up to 45° by her offset, and she can act during it (state 342).
-    - **Grapple:** Z (L/R + A), at a ledge in front of her. Once per airtime (`used_tether`), and **a miss leaves her helpless** (`ftCo_800968C8`).
+    - **Grapple:** Z (L/R + A), facing the stage. Once per airtime (`used_tether`), and **a miss leaves her helpless** (`ftCo_800968C8`). From `ftCo_AirCatch.c`, `itsamusgrapple.c` and `PlSs.dat`:
+        - The head leaves her hand on frame 7 of AirCatch, about 9 up and 9 forward (the arm's pose that frame), and flies **straight out** at 1.7 a frame. The air chain is 45 links of 0.88 (the base 30 × 1.0, times 1.5 for the air version and her 0.88 scale), so it reaches about 40 from the hand. It retracts from frame 40.
+        - It only latches onto a **wall** (floors bounce it off), so it has to fly into the side of the stage, under the ledge. If the hand is already past the wall on frame 7, the game cancels it.
+        - Once latched (AirCatchHit, 358) she **hangs until A is pressed**, then reels in. Without a press she drops into tumble after 180 frames (`ftSs_DatAttrs` xD0).
+        - At the end of the reel she grabs the ledge if it's in her grab box, widened by 5 (`ftCo_800C3A14`): 7.3 to 20.3 above her feet, so the head hit 0 to 11 under the ledge. Otherwise she hops up like a ledge jump (`ftCo_8009B390`) and can still act.
     - **Screw Attack:** grabs only on the way down.
-- **AI:** bomb hops toward the stage when far, holding still over the bomb when close so it launches her. It grapples only when facing the ledge, 8 to 40 out and up to 30 below it (the grapple's real reach wasn't measured, so this is deliberately short), then Screw Attacks.
+- **AI:** bomb hops toward the stage when far, holding still over the bomb when close so it launches her. It grapples only when facing the ledge, falling, and where the head will leave from (8 frames ahead) is 13 to 40 outside the ledge and 2 to 10 under it, so the reel ends on the ledge. Without a double jump it always takes the last frames of that window. Once latched it presses A 4 frames in to reel in. Otherwise it Screw Attacks.
 - **Options:** Double Jump, Bomb Jumps, Grapple, Screw Attack (on); Screw Attack High (off).
 
 ## Pikachu (not implemented)
@@ -141,5 +145,5 @@ For each character, run Edgeguard with the default options and **don't** hit the
 3. **Luigi / Dr. Mario:** does the up B start in the right place (Luigi under the ledge, Doc about 15 out)? With Fast Mashing off, does the Cyclone or tornado leave them able to up B?
 4. **Ice Climbers:** does Nana follow Popo after a reset? Does Belay fire with her close and give full height?
 5. **Jigglypuff:** do the jumps space out, or does she burn them early? Do the aerials hit a player standing at the ledge?
-6. **Samus:** does the grapple connect at the chosen distances? If it never misses, `SS_GRAPPLE_MAX_X` can grow.
+6. **Samus:** does the grapple connect, and does the reel end on the ledge? If it hits the wall but she hops up instead of grabbing, `SS_GRAPPLE_MAX_DEPTH` is too deep for that stage; if it flies over the stage, raise `SS_GRAPPLE_MIN_DEPTH` or `SS_GRAPPLE_HAND_Y`. If it never misses, `SS_GRAPPLE_MAX_X` can grow toward about 48.
 7. **High recoveries:** with "high" options on (Jump High, Float to Stage, Up B Early, Screw Attack High), does the CPU land on the stage rather than on the ledge?

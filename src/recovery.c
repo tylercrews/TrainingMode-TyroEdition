@@ -2442,10 +2442,19 @@ static void Think_Puff(GOBJ *cpu, u32 opt_flags) {
 #define SS_GRAB_Y 8.f
 // Screw Attack starts at 2.5 up against 0.066 gravity: about 48.
 #define SS_SCREW_REACH (48.f + LEDGE_GRAB_REACH)
-// A missed grapple is helpless, so only tether well inside its reach.
-#define SS_GRAPPLE_MIN_X 8.f
+// The grapple head leaves her hand (9 up, 9 forward) about 8 frames after
+// the press and flies straight out, reaching about 40, and only latches onto
+// a wall. A miss is helpless, so aim it at the wall just under the ledge: the
+// reel then ends with the ledge in her grab box (0 to 11 under it). Too close
+// and the hand is already past the wall, which cancels the grapple.
+#define SS_GRAPPLE_FRAMES 8.f
+#define SS_GRAPPLE_HAND_Y 9.f
+#define SS_GRAPPLE_MIN_X 13.f
 #define SS_GRAPPLE_MAX_X 40.f
-#define SS_GRAPPLE_MAX_Y 30.f
+#define SS_GRAPPLE_MIN_DEPTH 2.f
+#define SS_GRAPPLE_MAX_DEPTH 10.f
+// Once latched, A reels her in; she hangs (and then tumbles) until it's pressed.
+#define SS_GRAPPLE_REEL_FRAME 4
 
 #define SS_JUMP_CHANCE 30
 #define SS_BOMB_CHANCE 8
@@ -2465,7 +2474,9 @@ static void Think_Samus(GOBJ *cpu, u32 opt_flags) {
     bool jump = OptEnabled(OPT_SAMUS_JUMP) && r.can_jump;
     // A bomb that goes off on Samus launches her up, still actionable.
     bool actionable = IsAirActionable(cpu) || state == SS_STATE_BOMB_JUMP;
-    float ledge_out = r.to_ledge.X * r.dir;
+    // Where the grapple head would leave from: outside the ledge, and under it.
+    float grapple_out = (r.to_ledge.X - SS_GRAPPLE_FRAMES * (r.vel.X + ft->phys.kb_vel.X)) * r.dir;
+    float grapple_depth = r.to_ledge.Y - SS_GRAPPLE_HAND_Y - SS_GRAPPLE_FRAMES * (r.vel.Y + ft->phys.kb_vel.Y);
 
     if (ft->flags.hitlag) {
         ResetRecoveryPlans();
@@ -2485,13 +2496,14 @@ static void Think_Samus(GOBJ *cpu, u32 opt_flags) {
             Press(ft, PAD_BUTTON_Y);
             SetStick(ft, r.dir, 0.f);
 
-        // GRAPPLE: Z tethers to a ledge in front of her
+        // GRAPPLE: Z tethers to the wall under a ledge in front of her.
+        // Without a jump, take the last chance before it would hit too deep.
         } else if (
             OptEnabled(OPT_SAMUS_GRAPPLE) && !ft->flags.used_tether
             && ft->facing_direction * r.dir > 0.f && r.vel.Y < 0.f
-            && ledge_out > SS_GRAPPLE_MIN_X && ledge_out < SS_GRAPPLE_MAX_X
-            && r.to_ledge.Y > 0.f && r.to_ledge.Y < SS_GRAPPLE_MAX_Y
-            && (OneIn(SS_GRAPPLE_CHANCE) || (!jump && r.to_grab.Y > SS_SCREW_REACH - 25.f))
+            && grapple_out > SS_GRAPPLE_MIN_X && grapple_out < SS_GRAPPLE_MAX_X
+            && grapple_depth > SS_GRAPPLE_MIN_DEPTH && grapple_depth < SS_GRAPPLE_MAX_DEPTH
+            && (OneIn(SS_GRAPPLE_CHANCE) || (!jump && grapple_depth > SS_GRAPPLE_MAX_DEPTH - 3.f))
         ) {
             Press(ft, PAD_TRIGGER_Z);
 
@@ -2527,8 +2539,13 @@ static void Think_Samus(GOBJ *cpu, u32 opt_flags) {
             DriftHome(ft, &r, 0.f);
         }
 
-    } else if (state == SS_STATE_GRAPPLE || state == SS_STATE_GRAPPLE_HIT) {
-        // leave the stick alone while the tether reels in
+    } else if (state == SS_STATE_GRAPPLE_HIT) {
+        // press A to reel in; the reel ends on the ledge or in a hop up the wall
+        if (ft->TM.state_frame >= SS_GRAPPLE_REEL_FRAME)
+            Press(ft, PAD_BUTTON_A);
+
+    } else if (state == SS_STATE_GRAPPLE) {
+        // leave the stick alone while the grapple flies out
 
     } else {
         // screw attack and helpless falls

@@ -52,7 +52,6 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - change name of low laser puff practice to frozen puff (low laser?) practice
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
 - Edgeguard Training Beta Changes:
-    - Samus often misses tether, and doesn't "pull up" after hitting tether, just hangs there.
     - Luigi feels like they reset a little early
 
 ## Tyro branch changelog
@@ -71,6 +70,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 - **Event-specific changes**
     - **Edgeguard Training**
         - New **Player Position** setting (saved) for where you start each attempt: **At Ledge** (5 units in), **Close** (15 units in, the original spot and the default), **Halfway** (halfway from the ledge to the middle of the stage) or **Mid Stage** (the middle). Halfway and Mid Stage scale with the stage's size. The CPU is still launched from its usual spot, except on At Ledge, where it's launched from your spot so your bair still sends it out in front of you. It uses 2 spare bits of the Edgeguard save word, so the save format doesn't change.
+        - **Samus** now reels in after her grapple connects. Before, she never pressed A again, so she hung on the wall until she dropped into tumble. She also misses it less: she only grapples when her hand will be just under the ledge and outside the stage wall. Before, she could fire with her hand above the ledge (the grapple flew over the stage) or from so close that the game cancelled it. Aimed this way, the reel should end with her on the ledge. The details are in [the Edgeguard character notes](notes/EDGEGUARD-NEW-CHARACTERS.md#samus).
 
 For T7 I was working with Claude Opus 5.5 Extra High
 
