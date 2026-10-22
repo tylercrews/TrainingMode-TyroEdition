@@ -220,7 +220,7 @@ int TMExtension_Prepare(uint8_t *r) {
         uint8_t old[TM_EXTENSION_LEGACY_SIZE]; memcpy(old,r,sizeof(old));
         TMExtension_Init(r);
         /* Existing palette/Tech fields and still-unclaimed padding retain
-         * their bits. Initialize CPU color to Gray and the two new selectors
+         * their bits. Initialize CPU color to Lavender and the two new selectors
          * to zero in byte 11, preserving its remaining high padding bit. */
         memcpy(r+8,old+8,3);
         r[11]=(old[11]&0x80)|(r[11]&7);

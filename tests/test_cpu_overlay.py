@@ -5,7 +5,7 @@ import unittest
 from test_settings import Machine
 
 
-COLORS = [0,0xFF464670,0x4691FF70,0xFFE14170,0x4BE16470,0x00FFFF70,0xFF00FF70,0xB4B4B470]
+COLORS = [0,0xFF464670,0x4691FF70,0xFFE14170,0x4BE16470,0x00FFFF70,0xFF00FF70,0xB48CFF70]
 
 
 class CPUInvincibilityOverlayTests(unittest.TestCase):
@@ -46,7 +46,7 @@ class CPUInvincibilityOverlayTests(unittest.TestCase):
         self.assertEqual(self.draw(2),0)
         self.assertEqual(self.draw(3),COLORS[6])
 
-    def test_local_off_overrides_global_on_and_detach_restores_global_cpu_gray(self):
+    def test_local_off_overrides_global_on_and_detach_restores_global_cpu_lavender(self):
         m=self.m;m.call("Settings_Set",11,7,1)
         for slot in range(4):self.protect(slot)
         before=m.record()
@@ -93,7 +93,7 @@ class CPUInvincibilityOverlayTests(unittest.TestCase):
                     m.cpu.mem_write(data+0x221B,bytes([flags]))
                     self.assertEqual(self.draw(2),color)
 
-    def test_paused_off_with_global_on_cannot_leave_stale_gray_after_unpause(self):
+    def test_paused_off_with_global_on_cannot_leave_stale_lavender_after_unpause(self):
         m=self.m;m.call("Settings_Set",11,7,1);self.protect(2)
         data=m.call("TestCueData",2)
         baseline=bytes(m.cpu.mem_read(data+0x408,384))

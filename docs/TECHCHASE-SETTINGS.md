@@ -54,7 +54,7 @@ The configured Fast/Slow reset delay starts after the spotdodge finishes.
 Reset None continues to disable automatic resets.
 
 CPU Invincibility Overlay selects Off, Red, Blue, Yellow, Green, Cyan, Magenta
-or Gray (default). It uses the shared natural-protection detector, including
+or Lavender (default). It uses the shared natural-protection detector, including
 move and dodge invulnerability. This event-local choice overrides the global
 protection tint for CPU fighters, including when set to Off. Human coloring
 continues to follow Global Settings. The same setting is available in Ledgechase.

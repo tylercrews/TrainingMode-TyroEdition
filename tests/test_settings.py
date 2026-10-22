@@ -3558,10 +3558,10 @@ class ActionCueTests(unittest.TestCase):
             self.assertEqual(fresh.call("Settings_Get", 11, flag), 1)
         self.assertEqual(fresh.read(14, 20), 6)
 
-    def test_protection_overlay_uses_trail_palette_for_all_sources_and_cpu(self):
+    def test_protection_overlay_uses_trail_palette_for_all_sources_and_lavender_for_cpu(self):
         m = self.m
         m.call("Settings_Set", 11, 7, 1)
-        palette = [0xFF464670, 0x4691FF70, 0xFFE14170, 0x4BE16470, 0xB4B4B470]
+        palette = [0xFF464670, 0x4691FF70, 0xFFE14170, 0x4BE16470, 0xB48CFF70]
         for source in [(0, 1), (0, 2), (1, 0), (2, 0)]:
             for accent, color in enumerate(palette):
                 m.call("TestCuePlayer", 5, accent, accent == 4)
@@ -3576,7 +3576,7 @@ class ActionCueTests(unittest.TestCase):
                 m.call("TestCueProtection", 11, 0, 0, 0)
                 m.call("TestCueDraw", 11)
                 self.assertEqual(m.call("TestCueDrawColor", 11), 0)
-        m.call("TestCuePlayer", 5, 0, 1)  # CPU is Gray even with a Red accent.
+        m.call("TestCuePlayer", 5, 0, 1)  # CPU is Lavender even with a Red accent.
         m.call("TestCueProtection", 11, 0, 1, 0)
         m.call("TestCueDraw", 11)
         self.assertEqual(m.call("TestCueDrawColor", 11), palette[4])

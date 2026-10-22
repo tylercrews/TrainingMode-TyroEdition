@@ -103,8 +103,8 @@ The owned version-3 record is bounded to 16 bytes; unrelated preference bytes
 remain untouched. An exact version-1 header (`TYEX`, version 1, payload size 4,
 markers `A5 5A`) migrates to version 3, payload size 8. A-Smash's saved color,
 all eight earlier Techchase preferences and unclaimed padding bits survive.
-The new Techchase CPU protection color defaults to Gray. Ledgechase defaults to
-Left, CPU 100% Off, player 0%, Even preset, Close distance, Gray protection color
+The new Techchase CPU protection color defaults to Lavender. Ledgechase defaults to
+Left, CPU 100% Off, player 0%, Even preset, Close distance, Lavender protection color
 and None follow-up. Version 2 also migrates to version 3: the four existing
 CPU actions retain their meaning as menu indices shift by one. The fifth
 choice uses one old padding bit without expanding the record. Manual
