@@ -64,7 +64,9 @@ static const char *wait_source(FighterData *data, int index) {
         return c && c->cancelled ? "L-cancel" : "Missed L-cancel";
     }
     if (state == ASID_LANDINGFALLSPECIAL) return before == ASID_ESCAPEAIR ? "Waveland" : "Special landing";
-    /* Throws, including through Wait, belong to Act OoAttack. */
+    /* Throws and ledge attacks, including through Wait, belong to Act OoAttack. */
+    if (state == ASID_CLIFFCLIMBSLOW || state == ASID_CLIFFCLIMBQUICK) return "Ledge getup";
+    if (state == ASID_CLIFFESCAPESLOW || state == ASID_CLIFFESCAPEQUICK) return "Ledge roll";
     if (state == ASID_PASSIVE) return "Tech";
     if (state == ASID_PASSIVESTANDF || state == ASID_PASSIVESTANDB) return "Tech roll";
     if (state == ASID_DOWNATTACKU || state == ASID_DOWNATTACKD) return "Getup attack";
@@ -100,6 +102,7 @@ static const char *attack_label(int state) {
     static const char *throws[] = { "Fthrow", "Bthrow", "Uthrow", "Dthrow" };
     if (state >= ASID_ATTACK11 && state <= ASID_ATTACKLW4) return names[state - ASID_ATTACK11];
     if (state >= ASID_THROWF && state <= ASID_THROWLW) return throws[state - ASID_THROWF];
+    if (state == ASID_CLIFFATTACKSLOW || state == ASID_CLIFFATTACKQUICK) return "Ledge attack";
     return "Attack";
 }
 typedef char attack_label_layout[(ASID_ATTACKLW4 - ASID_ATTACK11 == 20 && ASID_THROWLW - ASID_THROWF == 3) ? 1 : -1];

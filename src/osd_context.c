@@ -54,7 +54,8 @@ int TMShine_After(TMShineEpisode *s, uint32_t frame, int state, int frozen) {
 }
 int TMAttack_Tracked(int state) {
     return (state >= ASID_ATTACK11 && state <= ASID_ATTACKLW4) ||
-        (state >= ASID_THROWF && state <= ASID_THROWLW);
+        (state >= ASID_THROWF && state <= ASID_THROWLW) ||
+        state == ASID_CLIFFATTACKSLOW || state == ASID_CLIFFATTACKQUICK;
 }
 int TMAttack_Idle(int state) {
     return state == ASID_WAIT || (state >= ASID_WALKSLOW && state <= ASID_TURN) ||

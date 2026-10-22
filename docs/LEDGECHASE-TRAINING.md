@@ -14,7 +14,7 @@ The event saves these ten choices:
 | CPU 100% | Off / On; sets exactly 0% / 100% | Off |
 | Player Percent | 0%, 25%, 50%, 75%, 100%, 125%, 150% | 0% |
 | Player Distance | Edge, Close, Mid, Far, Safe | Close |
-| CPU Invincibility Overlay | Off, Red, Blue, Yellow, Green, Cyan, Magenta, Gray | Gray |
+| CPU Invincibility Overlay | Off, Red, Blue, Yellow, Green, Cyan, Magenta, Lavender | Lavender |
 | CPU Action (Grounded) | Training Lab ground counter actions, without Play Slots or Random Advanced | None |
 | CPU Action (Jumping) | Five aerials, Neutral B (Repeat), Up B, Side B Toward/Away, Down B, Random | None |
 | Ledge Setup / Get to Ledge | Spawn on Ledge, Fall to Ledge, Jump to Ledge | Jump to Ledge |

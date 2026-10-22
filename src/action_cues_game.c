@@ -211,7 +211,13 @@ int ActionCues_Remaining(GOBJ *gobj) {
     /* Ordinary throws recover at their animation end; weight-scaled rates are
      * already in state.rate. Character-special throws (cargo, swallow) are not. */
     int thrown = state >= ASID_THROWF && state <= ASID_THROWLW;
-    if ((!landing && !attack && !thrown) || state == ASID_ATTACK100START ||
+    /* Ledge getup, attack and roll (both percent variants) recover into Wait at
+     * their animation end. Ledge jump's first stage leads into a second
+     * uninterruptible stage, which ends in Fall: cue that second stage. */
+    if (state == ASID_CLIFFJUMPSLOW1 || state == ASID_CLIFFJUMPQUICK1) return 3;
+    int ledge = (state >= ASID_CLIFFCLIMBSLOW && state <= ASID_CLIFFESCAPEQUICK) ||
+        state == ASID_CLIFFJUMPSLOW2 || state == ASID_CLIFFJUMPQUICK2;
+    if ((!landing && !attack && !thrown && !ledge) || state == ASID_ATTACK100START ||
         state == ASID_ATTACK100LOOP || data->action_flags.loop_anim || !(data->state.rate > 0))
         return -1;
     float end = Fighter_GetCurrentAnimLength(gobj);
@@ -228,7 +234,7 @@ int ActionCues_Remaining(GOBJ *gobj) {
         int iasa = TMCue_ScriptIASA(&script, data->state.rate);
         if (iasa >= 0 && iasa < remaining) remaining = iasa;
     }
-    if (thrown) {
+    if (thrown || ledge) {
         /* past_iasa can be stale from an earlier attack; use the tracked IASA. */
         if (data->TM.iasa_frames && data->TM.iasa_frames <= data->TM.state_frame) return 0;
         TMCueScript script;
@@ -339,8 +345,9 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
     if (cue == TM_CUE_RED) color.a = TMCue_RedAlpha(entry->cue.red);
     if (protected && cue != TM_CUE_YELLOW && cue != TM_CUE_GREEN) {
         Playerblock *player = Fighter_GetPlayerblock((u8)data->ply);
-        uint32_t rgba = cpu_override ? cpu_color :
-            TMTrail_PlayerColor(player ? player->color_accent : 4, !player || player->p_kind == 1);
+        /* CPUs get Lavender rather than the trail Gray, which is hard to see. */
+        uint32_t rgba = cpu_override ? cpu_color : !player || player->p_kind == 1 ?
+            TMCue_CPUInvincibilityColor(TM_CPU_INVINCIBILITY_DEFAULT) : TMTrail_PlayerColor(player->color_accent, 0);
         color = (GXColor){rgba >> 24, rgba >> 16, rgba >> 8, 112};
     }
     /* Dropped invincibility must remain visible even over timing/local tints. */

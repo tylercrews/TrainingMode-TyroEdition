@@ -1,8 +1,10 @@
 #include "edgeguard.h"
 #include "recovery.c"
 
-// how far inland the hmn will start
+// how far inland the cpu starts, and the hmn with Player Position on Close
 #define DISTANCE_FROM_LEDGE 15
+// how far inland the hmn starts with Player Position on At Ledge
+#define AT_LEDGE_DISTANCE 5
 
 // how many frames it takes to reset after the cpu dies or successfully recovers
 #define RESET_DELAY 30
@@ -38,6 +40,7 @@ static int RecoveryPref(EventMenu *menu) {
 
 static void SaveSettings(void) {
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT, Options_Main[OPT_MAIN_PERCENT].val);
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION, Options_Main[OPT_MAIN_POSITION].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH, Options_Main[OPT_MAIN_HITSTRENGTH].val);
     for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
         TM_SetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i], Options_CustomHitStrength[i].val);
@@ -54,6 +57,7 @@ static void LoadCustomKBRange(void) {
 
 static void LoadSettings(EventMenu *recovery_menu) {
     Options_Main[OPT_MAIN_PERCENT].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT);
+    Options_Main[OPT_MAIN_POSITION].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION);
     Options_Main[OPT_MAIN_HITSTRENGTH].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH);
     for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
         Options_CustomHitStrength[i].val = TM_GetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i]);
@@ -159,20 +163,47 @@ static void Reset_Subchar(GOBJ *sub, GOBJ *main) {
     }
 }
 
-static void Reset_HMN(GOBJ *hmn, int side_idx, int dmg) {
+/* How far inland the hmn starts. Halfway and Mid Stage scale with the stage:
+ * half of, and all of, the distance from this ledge to the stage's center. */
+static float PlayerDistance(int side_idx) {
+    int position = Options_Main[OPT_MAIN_POSITION].val;
+    if (position == TM_EG_POSITION_AT_LEDGE)
+        return AT_LEDGE_DISTANCE;
+    if (position != TM_EG_POSITION_HALFWAY && position != TM_EG_POSITION_MID_STAGE)
+        return DISTANCE_FROM_LEDGE;
+    float center = (ledge_positions[0].X + ledge_positions[1].X) * 0.5f;
+    float distance = fabs(ledge_positions[side_idx].X - center);
+    if (position == TM_EG_POSITION_HALFWAY)
+        distance *= 0.5f;
+    return distance > DISTANCE_FROM_LEDGE ? distance : DISTANCE_FROM_LEDGE;
+}
+
+/* The bair starts 5 units above the ground, or above y = 0 like before when
+ * the ground is lower. Mid stage can be higher than the ledges on some stages. */
+static float PlayerHeight(float x, int side_idx) {
+    Vec3 ground, slope;
+    int line, kind;
+    float y = ledge_positions[side_idx].Y;
+    if (GrColl_RaycastGround(&ground, &line, &kind, &slope, -1, -1, -1, 0, x, y + 10, x, y - 20, 0)
+        && ground.Y > 0.f)
+        return ground.Y + 5.f;
+    return 5.f;
+}
+
+static void Reset_HMN(GOBJ *hmn, int side_idx, int dmg, float distance) {
     FighterData *hmn_data = hmn->userdata;
-    
+
     int side = side_idx * 2 - 1;
-    hmn_data->facing_direction = -side; 
-    float ledge_x = ledge_positions[side_idx].X - DISTANCE_FROM_LEDGE * side;
-    
+    hmn_data->facing_direction = -side;
+    float ledge_x = ledge_positions[side_idx].X - distance * side;
+
     // set phys
     hmn_data->phys.kb_vel.X = 0.f;
     hmn_data->phys.kb_vel.Y = 0.f;
     hmn_data->phys.self_vel.X = 0.f;
     hmn_data->phys.self_vel.Y = 0.f;
     hmn_data->phys.pos.X = ledge_x;
-    hmn_data->phys.pos.Y = 5.f;
+    hmn_data->phys.pos.Y = PlayerHeight(ledge_x, side_idx);
     UpdatePosition(hmn);
     
     hmn_data->jump.jumps_used = 1;
@@ -201,7 +232,7 @@ static void Reset_HMN(GOBJ *hmn, int side_idx, int dmg) {
     Fighter_SetHUDDamage(hmn_data->ply, dmg);
 }
 
-static void Reset_CPU(GOBJ *cpu, int side_idx, int dmg, float kb_mag, float kb_angle) {
+static void Reset_CPU(GOBJ *cpu, int side_idx, int dmg, float kb_mag, float kb_angle, float distance) {
     FighterData *cpu_data = cpu->userdata;
     // Nana keeps the game's own AI, which follows Popo's inputs.
     if (!cpu_data->flags.ms)
@@ -209,7 +240,7 @@ static void Reset_CPU(GOBJ *cpu, int side_idx, int dmg, float kb_mag, float kb_a
 
     int side = side_idx * 2 - 1;
     cpu_data->facing_direction = -side;
-    float ledge_x = ledge_positions[side_idx].X - DISTANCE_FROM_LEDGE * side;
+    float ledge_x = ledge_positions[side_idx].X - distance * side;
     
     // set phys
     cpu_data->phys.kb_vel.X = 0.f;
@@ -271,22 +302,28 @@ static void Reset(void) {
     float kb_angle = vals.ang_min + (vals.ang_max - vals.ang_min) * HSD_Randf();
     int hmn_dmg = Options_Main[OPT_MAIN_PERCENT].val;
     int cpu_dmg = vals.dmg_min + HSD_Randi(vals.dmg_max - vals.dmg_min);
-    
+
+    // The cpu keeps its usual launch spot, unless the hmn starts closer to the
+    // ledge: then the cpu is launched from the hmn's spot, so the bair still
+    // sends it out from in front of the hmn.
+    float hmn_distance = PlayerDistance(side_idx);
+    float cpu_distance = hmn_distance < DISTANCE_FROM_LEDGE ? hmn_distance : DISTANCE_FROM_LEDGE;
+
     GOBJ *hmn = Fighter_GetSubcharGObj(0, 0);
     GOBJ *cpu = Fighter_GetSubcharGObj(1, 0);
-    Reset_HMN(hmn, side_idx, hmn_dmg);
-    Reset_CPU(cpu, side_idx, cpu_dmg, kb_mag, kb_angle);
+    Reset_HMN(hmn, side_idx, hmn_dmg, hmn_distance);
+    Reset_CPU(cpu, side_idx, cpu_dmg, kb_mag, kb_angle, cpu_distance);
     
     GOBJ *hmn_sub = Fighter_GetSubcharGObj(0, 1);
     GOBJ *cpu_sub = Fighter_GetSubcharGObj(1, 1);
     FighterData *hmn_data = hmn->userdata;
     FighterData *cpu_data = cpu->userdata;
     if (hmn_sub && hmn_data->flags.has_follower) {
-        Reset_HMN(hmn_sub, side_idx, hmn_dmg);
+        Reset_HMN(hmn_sub, side_idx, hmn_dmg, hmn_distance);
         Reset_Subchar(hmn_sub, hmn);
     }
     if (cpu_sub && cpu_data->flags.has_follower) {
-        Reset_CPU(cpu_sub, side_idx, cpu_dmg, kb_mag, kb_angle);
+        Reset_CPU(cpu_sub, side_idx, cpu_dmg, kb_mag, kb_angle, cpu_distance);
         Reset_Subchar(cpu_sub, cpu);
     }
 }
@@ -297,6 +334,10 @@ static void ChangePlayerPercent(GOBJ *menu_gobj, int dmg) {
 
     hmn_data->dmg.percent = dmg;
     Fighter_SetHUDDamage(hmn_data->ply, dmg);
+    SaveSettings();
+}
+
+static void ChangePlayerPosition(GOBJ *menu_gobj, int value) {
     SaveSettings();
 }
 

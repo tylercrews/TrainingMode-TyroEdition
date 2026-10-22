@@ -105,7 +105,7 @@ uint32_t TMCue_CPUInvincibilityColor(unsigned choice) {
     /* Match the existing player/trail hues and protection opacity. */
     static const uint32_t palette[] = {
         0x00000000, 0xFF464670, 0x4691FF70, 0xFFE14170,
-        0x4BE16470, 0x00FFFF70, 0xFF00FF70, 0xB4B4B470,
+        0x4BE16470, 0x00FFFF70, 0xFF00FF70, 0xB48CFF70,
     };
     return choice < TM_CPU_INVINCIBILITY_COUNT ? palette[choice] : 0;
 }

@@ -105,7 +105,7 @@ PrintMessage_NoHopType:
     Message_DisplayOSD 0, 1, 0, 1
     lwz r3, 0x2C(r3)
     lwz REG_Text, MsgData_Text(r3)
-    b SetTimingColor
+    b CheckSetAngleColor
 
 CheckSetHopTypeColor:
     lwz r3, TM_ShortOrFullHop(REG_FighterData)
@@ -117,43 +117,28 @@ CheckSetHopTypeColor:
     addi r5, sp, 0x84
     branchl r12, Text_ChangeTextColor
 
-SetTimingColor:
-    # Adjust Timing color
-    lhz r3, TM_FramesinOneASAgo(REG_FighterData)
-    cmpwi r3, 1
-    bne CheckSetAngleColor
-    bl Floats
-    mflr r4
-    addi r5, r4, 0xC
-    # Change Color
-    mr r3, REG_Text                 # text pointer
-    li r4, 0
-    branchl r12, Text_ChangeTextColor
-
+    # The timing row is already colored by the shared timing scheme.
 CheckSetAngleColor:
-    # Adjust Angle color
-    # Get Angle and Float Pointer
-    bl Floats
+    # Rank the angle like the timing OSDs: cyan for nearly perfect, then green,
+    # then yellow. Steeper angles (and a flat 0) stay white.
+    bl AngleFloats
     mflr r4
     lfs f1, 0x80(sp)
-    # Check For Perfect Angle
     lfs f2, 0x0(r4)
     fcmpo cr0, f1, f2
-    blt Exit
+    ble Exit
+    addi r5, r4, 0x10               # Cyan
     lfs f2, 0x4(r4)
     fcmpo cr0, f1, f2
-    blt PerfectAngle
+    blt ChangeAngleColor
+    addi r5, r4, 0x14               # Green
     lfs f2, 0x8(r4)
     fcmpo cr0, f1, f2
-    bgt Exit
-
-OKAngle:
-    addi r5, r4, 0x10
-    b ChangeAngleColor
-
-PerfectAngle:
-    addi r5, r4, 0xC
-    b ChangeAngleColor
+    blt ChangeAngleColor
+    addi r5, r4, 0x18               # Yellow
+    lfs f2, 0xC(r4)
+    fcmpo cr0, f1, f2
+    bge Exit
 
 ChangeAngleColor:
     # Change Color
@@ -253,13 +238,17 @@ FullHopString:
     .string "Full Hop"
     .align 2
 
-Floats:
+AngleFloats:
     blrl
-    .float 16.8                     # Great Angle Min
-    .float 23.7                     # Great Angle Max
-    .float 30.5                     # Good Angle Max
-    .long 0x8dff6eff                # Perfect Angle
-    .long 0xfff000ff                # Great Angle
+    # The shallowest angle a stick can reach is about 16.8 degrees. The angle is
+    # already floored to 0.1, so 20.0 is cyan and 20.1 is green.
+    .float 0.0                      # Flat airdodge: no color
+    .float 20.05                    # Cyan up to 20.0
+    .float 25.05                    # Green up to 25.0
+    .float 30.05                    # Yellow up to 30.0
+    .long 0x00ffffff                # Cyan
+    .long 0x8dff6eff                # Green
+    .long 0xfff000ff                # Yellow
 
 ##############################
 

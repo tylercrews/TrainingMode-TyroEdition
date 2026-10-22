@@ -39,7 +39,10 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
 /* Version 18 appends bytes 52..63, three words: 52 the Custom Hit Strength
  * ranges, 56 the percents, 60 Hit Strength and the recovery masks. Version 19
  * appends word 64: the recovery masks of the CPUs added after Marth. Each
- * mask's initial value is its recovery menu's defaults in recovery.c. */
+ * mask's initial value is its recovery menu's defaults in recovery.c.
+ * Player Position takes word 60's spare bits 30..31, which every record that
+ * owns word 60 zeroed. It is stored as an offset from Close so those zero bits
+ * read as Close, the original spot, with no version bump. */
 #define EDGEGUARD_OFFSET 52
 #define EDGEGUARD_SIZE 12
 #define EDGEGUARD2_OFFSET 64
@@ -50,7 +53,12 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {0,3,5,1}, {3,6,64,1}, {9,6,64,1}, {15,6,64,7}, {21,5,32,3}, {26,4,16,3},
     /* word 64: Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus */
     {0,5,32,7}, {5,5,32,7}, {10,5,32,7}, {15,5,32,3}, {20,3,8,3}, {23,4,16,15}, {27,5,32,15},
+    /* word 60 again: Player Position */
+    {30,2,TM_EG_POSITION_COUNT,TM_EG_POSITION_CLOSE},
 };
+#define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
+#define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
+typedef char TMExtension_EdgeguardPosition[(TM_EG_POSITION_COUNT==4) ? 1 : -1]; /* Exactly fills bits 30..31. */
 static int signature(const uint8_t *r) { return r[0]=='T' && r[1]=='Y' && r[2]=='E' && r[3]=='X'; }
 static int format(const uint8_t *r, unsigned version, unsigned payload_size) {
     return signature(r) && r[4]==version && r[5]==payload_size && r[6]==0xA5 && r[7]==0x5A;
@@ -146,7 +154,8 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_EDGEGUARD)
-        return index>=TM_EG_RECOVERY_YOSHI?EDGEGUARD2_OFFSET:
+        return index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
+            index>=TM_EG_RECOVERY_YOSHI?EDGEGUARD2_OFFSET:
             EDGEGUARD_OFFSET+(index>=TM_EG_HIT_STRENGTH?8:index>=TM_EG_PLAYER_PERCENT?4:0);
     if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD ||
         (field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY)) return 20;
@@ -163,10 +172,12 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     unsigned value=(bits>>p->shift)&((1u<<p->width)-1);
     /* Retain the original four attack bits; the fifth occupies new padding. */
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) value|=((bits>>20)&1)<<4;
+    if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_READ(value);
     return value;
 }
 static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned value) {
     const ExtensionPreference *p=preference(field,index);
+    if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_STORED(value);
     unsigned offset=preference_offset(field,index), mask=((1u<<p->width)-1)<<p->shift;
     unsigned bits=(read_bits(r,offset)&~mask)|((value<<p->shift)&mask);
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) bits=(bits&~(1u<<20))|((value>>4)<<20);
@@ -209,7 +220,7 @@ int TMExtension_Prepare(uint8_t *r) {
         uint8_t old[TM_EXTENSION_LEGACY_SIZE]; memcpy(old,r,sizeof(old));
         TMExtension_Init(r);
         /* Existing palette/Tech fields and still-unclaimed padding retain
-         * their bits. Initialize CPU color to Gray and the two new selectors
+         * their bits. Initialize CPU color to Lavender and the two new selectors
          * to zero in byte 11, preserving its remaining high padding bit. */
         memcpy(r+8,old+8,3);
         r[11]=(old[11]&0x80)|(r[11]&7);

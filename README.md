@@ -46,20 +46,33 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T7
-- the wavedash Angle OSD had its own logic for when to color the angle green and when to color it yellow and it's quite strict. Make it more conformative to the new color scheme, have nearly perfect be cyan and then do green and yellow and leave the rest white
-- Green>Yellow should trigger on all 4 standard ledge options: ledge get up, ledge roll up, ledge attack, and as soon as you're actionable in the air after ledge jump. Additionally, oowait should trigger after ledge get up and ledge roll up, and ooattack should trigger after ledge attack. These should work correctly for the sub 100% and over 100% versions
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T8
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
 - Under Fire split high score between left and right side?? Idt you can have 2 ko high scores though. 
 - Edgeguard Training Beta Changes:
-    - Samus often misses tether, and doesn't "pull up" after hitting tether, just hangs there.
     - Luigi feels like they reset a little early
 
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T7 (V1.4.1T7) - 2026-10-21
+
+- **Globals and all events**
+    - **Wavedash OSD** angle now uses the same colors as the timing OSDs: cyan up to 20.0° (nearly perfect; the shallowest angle you can get is about 16.8°), green from 20.1° to 25.0°, yellow from 25.1° to 30.0°, and white from 30.1° up. Before, it was green from 16.8° to 23.6°, yellow up to 30.5°, and white otherwise. A 1f wavedash no longer turns the whole first row green, so the `Wavedash` title keeps the color you picked for the OSD; the frame count is still colored like the other timing OSDs.
+    - **Actionable Yellow>Green** now works on all four ledge options, at both under and over 100%: ledge getup, ledge roll and ledge attack go yellow for the last two frames and green when you're back in Wait. Ledge jump goes yellow at the end of its second (airborne) stage and green on your first actionable frame in the air.
+        - The [Slippi Gecko code](slippi-gecko-codes/actionable/README.md) for this overlay is updated to match, so the ledge options also work in Slippi.
+    - **Act OoWait** now reports after a ledge getup or a ledge roll, labeled `Ledge getup` or `Ledge roll`.
+    - **Act OoAttack** now reports after a ledge attack, labeled `Ledge attack`. Like throws, a ledge attack only counts as Act OoAttack, not Act OoWait.
+    - **Invincibility Overlay** now tints CPUs lavender instead of gray, which was hard to see. In Techchase and Ledgechase, the **CPU Invincibility Overlay** choice **Gray** is now **Lavender** (still the default; saved choices carry over). CPU hitbox trails stay gray.
+- **Event-specific changes**
+    - **Edgeguard Training**
+        - New **Player Position** setting (saved) for where you start each attempt: **At Ledge** (5 units in), **Close** (15 units in, the original spot and the default), **Halfway** (halfway from the ledge to the middle of the stage) or **Mid Stage** (the middle). Halfway and Mid Stage scale with the stage's size. The CPU is still launched from its usual spot, except on At Ledge, where it's launched from your spot so your bair still sends it out in front of you. It uses 2 spare bits of the Edgeguard save word, so the save format doesn't change.
+        - **Samus** now reels in after her grapple connects. Before, she never pressed A again, so she hung on the wall until she dropped into tumble. She also misses it less: she only grapples when her hand will be just under the ledge and outside the stage wall. Before, she could fire with her hand above the ledge (the grapple flew over the stage) or from so close that the game cancelled it. Aimed this way, the reel should end with her on the ledge. The details are in [the Edgeguard character notes](notes/EDGEGUARD-NEW-CHARACTERS.md#samus).
+
+For T7 I was working with Claude Opus 5.5 Extra High
 
 ### T6 (V1.4.1T6) - 2026-10-19
 

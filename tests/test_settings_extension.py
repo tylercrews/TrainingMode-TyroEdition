@@ -22,11 +22,13 @@ HEADER = b'TYEX\x13\x3C\xA5\x5A'
 # CPU's default recovery toggles).
 EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
 # Recovery masks: Fox, Falco, Sheik, Falcon, Marth, then (word 64, version 19)
-# Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus.
-EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32)
-EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15)
+# Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus. Then Player
+# Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31.
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1)
 EG_COUNT = len(EDGEGUARD_COUNTS)
-EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index in word 64
+EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index added after version 18
+EG_POSITION = 20  # TM_EG_PLAYER_POSITION
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Bytes 24..67 appended by versions 15 to 19: one color nibble per OSD (all
@@ -300,6 +302,26 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT + 56, word.to_bytes(4, 'little'))
         self.assertEqual(m.call('Settings_Get', EDGEGUARD, 4), 0)
         self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in (5, 6)), tuple(values[5:7]))
+
+    def test_edgeguard_player_position_reads_close_from_existing_saves_and_uses_only_word_60_top_bits(self):
+        m = self.m
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_POSITION), 1)  # Close without a record.
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        # A new record, like every record from before this setting, has bits 30-31 of word 60 clear.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 60, 4), 'little') >> 30, 0)
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_POSITION), 1)  # Close.
+        before = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        for position, stored in ((0, 3), (1, 0), (2, 1), (3, 2)):
+            m.call('Settings_Set', EDGEGUARD, EG_POSITION, position)
+            self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_POSITION), position)
+            after = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            word = int.from_bytes(after[60:64], 'little')
+            self.assertEqual(word >> 30, stored)
+            # Nothing else in the record changes, including Hit Strength and Marth in word 60.
+            after[63] &= 0x3F
+            self.assertEqual(bytes(after), bytes(before))
+        self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(EG_POSITION)),
+                         EDGEGUARD_DEFAULTS[:EG_POSITION])
 
     def test_costumes_round_trip_reject_and_repair_invalid_values(self):
         m = self.m
