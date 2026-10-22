@@ -1943,6 +1943,16 @@ class OSDContextTests(unittest.TestCase):
         m.cpu.mem_write(data+0x2408, struct.pack(">6H",1,30,0,0,0,0))
         m.call("TestWaitDisplay", 0)
         self.assertEqual(m.call("TestWaitFrame"), 0)
+        # Ledge getup and roll report through Wait; ledge attack belongs to Act OoAttack.
+        for ledge, label in [(254, b"Ledge getup"), (255, b"Ledge getup"), (258, b"Ledge roll"),
+                             (259, b"Ledge roll"), (256, None), (257, None)]:
+            m.call("TestWaitClear")
+            m.cpu.mem_write(data+0x23FC, struct.pack(">6H",14,ledge,0,0,0,0))
+            m.cpu.mem_write(data+0x2408, struct.pack(">6H",2,30,0,0,0,0))
+            m.call("TestWaitDisplay", 0)
+            self.assertEqual(m.call("TestWaitFrame"), 2 if label else 0)
+            if label:
+                self.assertEqual(bytes(m.call("TestWaitLabelChar", i) for i in range(len(label) + 1)), label + b"\0")
         m.call("ActionCues_Clear")
         self.assertEqual(m.call("OSDContext_MessageHitlag", 0, 8), 0)
 
@@ -1990,6 +2000,15 @@ class AttackEpisodeTests(unittest.TestCase):
         self.assertEqual(self.fields()[1],0)
         self.tick(KNEEBEND);self.assertEqual(self.act(5,KNEEBEND,0,24),0)  # Never a second report.
         self.tick(THROWF,1);self.assertEqual(self.act(6,THROWF,1,KNEEBEND,0,1),1)
+
+    def test_ledge_attack_reports_through_wait_at_both_percents(self):
+        for ledge in (256, 257):
+            self.m.cpu.mem_write(self.episode,bytes(36))
+            self.assertEqual(self.m.call("TMAttack_Tracked",ledge),1)
+            for frame in (1,2): self.tick(ledge);self.act(frame,ledge,0,ledge)
+            self.tick(WAIT);self.assertEqual(self.act(3,WAIT,0,WAIT),0)
+            self.tick(WAIT);self.assertEqual(self.act(4,WAIT,0,KNEEBEND),2)
+            self.assertEqual(self.fields()[1],0)
 
     def test_being_hit_or_waiting_past_the_window_reports_nothing(self):
         self.tick(FTILT);self.act(1,FTILT,0,DAMAGE)
@@ -2039,6 +2058,15 @@ class AttackEpisodeTests(unittest.TestCase):
         text,colors,_=styled_ascii(m,2)
         self.assertEqual(text,"4hl->2f")
         self.assertEqual(colors[-1][1],0x8DFF6EFF)
+        # Ledge attack: not actionable until Wait, so the first Wait frame is 1f.
+        m.call("TestWaitClear")
+        for f,state,after in [(30,257,257),(31,257,WAIT),(32,WAIT,KNEEBEND)]:
+            m.call("TestCueState",0,state,f,40,100);m.call("TestCueIASA",0,0)
+            m.call("TestCueFrozen",0,0);m.call("TestContextTick",0,f)
+            m.call("TestShineBefore",0)
+            m.call("TestCueState",0,after,f,40,100);m.call("TestShineAfter",0)
+        self.assertEqual(m.call("TestWaitFrame"),1)
+        self.assertEqual("".join(chr(m.call("TestWaitLabelChar",i)) for i in range(12)),"Ledge attack")
 
 
 class ShineEpisodeTests(unittest.TestCase):
@@ -2402,6 +2430,33 @@ class OSDStyleTests(unittest.TestCase):
             self.assertEqual(m.call("TestWaveFrame"),wave)
             self.assertEqual(m.call("TestWaveHop"),held)
             self.assertEqual(m.call("TestStyleColor",2),expected)
+
+    def test_real_wavedash_assembly_ranks_the_angle_cyan_green_yellow_then_white(self):
+        # 0 means the angle row was never recolored, so it keeps its white text.
+        for degrees,expected in [(16.9,0x00FFFFFF),(18.8,0x00FFFFFF),(19.2,0x8DFF6EFF),(23.8,0x8DFF6EFF),
+                                 (24.2,0xFFF000FF),(30.8,0xFFF000FF),(31.2,0),(60.0,0),(0.0,0)]:
+            m=Machine();m.init();m.call("TestCueInit");m.write(14,0,1)
+            m.call("TestCueState",0,42,0,40,100)
+            data=m.call("TestCueData",0);obj=m.call("TestCueObject",0)
+            m.call("TestStyleInit",0,-1,0,1)
+            m.cpu.mem_write(data+0x2408,struct.pack(">H",1))
+            m.cpu.mem_write(data+0x2428,struct.pack(">fI",degrees*0.017453292,1))
+            m.cpu.mem_write(data+0x685,bytes([1]))
+            m.cpu.mem_write(data+0x2438,b"\x04\0")
+            m.cpu.reg_write(gpr(13),0x804D6D5C)
+            m.cpu.mem_write(0x80300000-0x6758,struct.pack(">Q",0x4330000080000000))
+            m.cpu.mem_write(0x80300000-0x3D10,struct.pack(">f",0.017453292))
+            m.cpu.mem_write(0x80005510,bytes.fromhex("386000004e800020"))
+            m.cpu.mem_write(0x80099D80,bytes.fromhex("4e800020"))
+            address=m.symbols["Text_SetColor"]
+            m.cpu.mem_write(0x803A74F0,struct.pack(">4I",0x3D800000|(address>>16),
+                0x618C0000|(address&65535),0x7D8903A6,0x4E800420))
+            for slot,name in [(21,"Message_Display"),(35,"OSD_WavedashHopColor")]:
+                m.cpu.mem_write(0x80300000-200+slot*4,struct.pack(">I",m.symbols[name]))
+            m.symbols["NativeWaveProducer"]=m.install_hook(0x80099D7C,0x80481000)
+            m.call("NativeWaveProducer",obj)
+            self.assertEqual(m.call("TestStyleColor",1),expected,degrees)
+            self.assertEqual(m.call("TestStyleColor",2),0x00FFFFFF)  # Hop row is unchanged.
 
     def test_real_jc_shine_assembly_uses_actual_hop_duration_and_preserves_registers(self):
         for kind in (1,22):
@@ -3172,6 +3227,28 @@ class ActionCueTests(unittest.TestCase):
         m.call("TestCueLanding", 0, 5, 1)
         results = [self.show(i, 42, i) for i in range(8)]
         self.assertEqual(results, [0, 0, 0, self.YELLOW, self.YELLOW, self.GREEN, self.GREEN, 0])
+
+    def test_ledge_getup_attack_and_roll_cue_at_both_percents_then_green_in_wait(self):
+        for state in range(254, 260):  # Slow (100%+) and quick variants of all three.
+            self.m.call("ActionCues_Clear")
+            self.assertEqual(self.show(1, state, 37, 40), 0)
+            self.assertEqual(self.show(2, state, 38, 40), self.YELLOW)
+            self.assertEqual(self.show(3, state, 39, 40), self.YELLOW)
+            self.assertEqual(self.show(4, 14, 0), self.GREEN)
+            self.assertEqual(self.show(5, 14, 1), self.GREEN)
+            self.assertEqual(self.show(6, 14, 2), 0)
+
+    def test_ledge_jump_cues_its_second_stage_and_greens_on_fall(self):
+        for first, second in [(260, 261), (262, 263)]:
+            self.m.call("ActionCues_Clear")
+            self.assertEqual(self.show(1, first, 8, 10), 0)
+            self.assertEqual(self.show(2, first, 9, 10), 0)  # The second stage is still ahead.
+            self.assertEqual(self.show(3, second, 0, 12), 0)
+            self.assertEqual(self.show(4, second, 10, 12), self.YELLOW)
+            self.assertEqual(self.show(5, second, 11, 12), self.YELLOW)
+            self.assertEqual(self.show(6, 29, 0), self.GREEN)  # Fall.
+            self.assertEqual(self.show(7, 29, 1), self.GREEN)
+            self.assertEqual(self.show(8, 29, 2), 0)
 
     def test_wavelanding_uses_actual_rate_and_end_not_normal_lag(self):
         m = self.m

@@ -47,8 +47,6 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T7
-- the wavedash Angle OSD had its own logic for when to color the angle green and when to color it yellow and it's quite strict. Make it more conformative to the new color scheme, have nearly perfect be cyan and then do green and yellow and leave the rest white
-- Green>Yellow should trigger on all 4 standard ledge options: ledge get up, ledge roll up, ledge attack, and as soon as you're actionable in the air after ledge jump. Additionally, oowait should trigger after ledge get up and ledge roll up, and ooattack should trigger after ledge attack. These should work correctly for the sub 100% and over 100% versions
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
@@ -60,6 +58,14 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T7 (V1.4.1T7) - 2026-10-21
+
+- **Globals and all events**
+    - **Wavedash OSD** angle now uses the same colors as the timing OSDs: cyan below 19.0° (nearly perfect; the shallowest angle you can get is about 16.8°), green below 24.0°, yellow below 31.0°, and white for anything steeper. Before, it was green from 16.8° to 23.6°, yellow up to 30.5°, and white otherwise. A 1f wavedash no longer turns the whole first row green, so the `Wavedash` title keeps the color you picked for the OSD; the frame count is still colored like the other timing OSDs.
+    - **Actionable Yellow>Green** now works on all four ledge options, at both under and over 100%: ledge getup, ledge roll and ledge attack go yellow for the last two frames and green when you're back in Wait. Ledge jump goes yellow at the end of its second (airborne) stage and green on your first actionable frame in the air.
+    - **Act OoWait** now reports after a ledge getup or a ledge roll, labeled `Ledge getup` or `Ledge roll`.
+    - **Act OoAttack** now reports after a ledge attack, labeled `Ledge attack`. Like throws, a ledge attack only counts as Act OoAttack, not Act OoWait.
 
 ### T6 (V1.4.1T6) - 2026-10-19
 

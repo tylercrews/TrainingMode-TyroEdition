@@ -27,7 +27,7 @@ typedef struct TMShineEpisode {
 void TMShine_Tick(TMShineEpisode *shine, uint32_t frame, int state, int hitlag, int dead);
 void TMShine_Before(TMShineEpisode *shine, uint32_t frame, int state, int frozen, int jump_available);
 int TMShine_After(TMShineEpisode *shine, uint32_t frame, int state, int frozen);
-/* Act OoAttack: one grounded attack or throw, then its actionable recovery.
+/* Act OoAttack: one grounded attack, throw or ledge attack, then its actionable recovery.
  * States are already normalized by ActionCues_CommonState. */
 #define TM_ATTACK_WINDOW 13
 typedef struct TMAttackEpisode {
