@@ -131,10 +131,10 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 36..49 | Fixed Grid OSD positions | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell | byte 49 bits 6-7 |
 | 50 | Character select | **Player costume** (0..5) | top 5 bits |
 | 51 | Character select | **CPU costume** (0..5) | top 5 bits |
-| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bits 30-31 of word 56, bits 30-31 of word 60 |
+| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bits 30-31 of word 56 |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 
-Free bits inside the record: 1 + 2 + 6 + 10 + 4 + 1 + 2 + 10 + 2 + 2 = **40 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 1 + 2 + 6 + 10 + 4 + 1 + 2 + 10 + 2 = **38 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -227,7 +227,7 @@ Free bits inside the record: 1 + 2 + 6 + 10 + 4 + 1 + 2 + 10 + 2 + 2 = **40 bits
 | 20-29 | CPU percent max (0..999, default 80) |
 | 30-31 | *free* |
 
-**Word 60: Edgeguard Hit Strength and recovery options**
+**Word 60: Edgeguard Hit Strength, recovery options and Player Position** (fully used)
 
 Each recovery mask has one bit per row of that CPU's Recovery Options menu, in row order ([src/recovery.c](../src/recovery.c)). Defaults match the menu's defaults.
 
@@ -239,7 +239,7 @@ Each recovery mask has one bit per row of that CPU's Recovery Options menu, in r
 | 15-20 | Sheik recovery (6 rows, default the three Vanish rows) |
 | 21-25 | Captain Falcon recovery (5 rows, default Falcon Dive + Drift Back) |
 | 26-29 | Marth recovery (4 rows, default Dolphin Slash Early + Double Jump) |
-| 30-31 | *free* |
+| 30-31 | Player Position (T7), stored as an offset from Close: 0 Close (default), 1 Halfway, 2 Mid Stage, 3 At Ledge. Every record that owned word 60 had these bits clear, so older saves read as Close with no version bump. |
 
 **Word 64: recovery options of the later Edgeguard CPUs** (fully used)
 

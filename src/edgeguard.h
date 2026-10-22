@@ -6,6 +6,7 @@ static void Exit(GOBJ *menu);
 static void Reset(void);
 
 static void ChangePlayerPercent(GOBJ *menu_gobj, int value);
+static void ChangePlayerPosition(GOBJ *menu_gobj, int value);
 static void ChangeHitStrength(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMax(GOBJ *menu_gobj, int value);
@@ -44,6 +45,8 @@ enum options_kbvals {
 #define CUSTOMKB_INIT_DMGMAX 80
 
 static const char *Values_HitStrength[] = {"Weak", "Normal", "Hard", "Shallow", "Custom"};
+static const char *Values_PlayerPosition[] = {"At Ledge", "Close", "Halfway", "Mid Stage"};
+typedef char edgeguard_position_names[(countof(Values_PlayerPosition) == TM_EG_POSITION_COUNT) ? 1 : -1];
 static KBValues HitStrength_KBRange[] = {
     {
          80.f, 100.f, // mag
@@ -75,6 +78,7 @@ static KBValues HitStrength_KBRange[] = {
 enum options_initial {
     OPT_MAIN_RECOVERY,
     OPT_MAIN_PERCENT,
+    OPT_MAIN_POSITION,
     OPT_MAIN_HITSTRENGTH,
     OPT_MAIN_HITSTRENGTH_CUSTOMMENU,
     OPT_MAIN_CHARACTERS,
@@ -99,6 +103,17 @@ static EventOption Options_Main[] = {
                  "This setting is saved."},
         .format = "%d%%",
         .OnChange = ChangePlayerPercent,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Player Position",
+        .desc = {"Where you start each attempt: at the ledge, close,",
+                 "halfway to the middle, or the middle of the stage.",
+                 "Takes effect on the next reset. This setting is saved."},
+        .values = Values_PlayerPosition,
+        .value_num = countof(Values_PlayerPosition),
+        .val = TM_EG_POSITION_CLOSE,
+        .OnChange = ChangePlayerPosition,
     },
     {
         .kind = OPTKIND_STRING,
