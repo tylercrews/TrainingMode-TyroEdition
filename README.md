@@ -47,6 +47,10 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T8
+- Timer resets when you load a savestate, and when events reset like the edgeguard training. Would like to have a counter that doesn't reset if possible so that you can see how long you're practicing (and keep track of things like switching sides after x minutes)
+- edgeguarding event should have a camera zoom out view, and add blast zone boxes.
+- split fox+falco's side bs up into to ledge and to stage and to side plat
+- make a new event where you practice getting to ledge as quickly as possible (counted in frames) from various distances away from the ledge. Should be able to switch what ledge you're working on and what way your character is facing. should also be able to set platforms as spawn points, 
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
