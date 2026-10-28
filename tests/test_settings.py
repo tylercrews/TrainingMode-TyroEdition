@@ -2947,7 +2947,7 @@ class SweetspotCameraTests(unittest.TestCase):
         exported = dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
         m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
         menu = self.word(self.base + exported[3])
-        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 5)
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 6)
         options = self.word(menu+8)
         self.row = options + 44
         self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
@@ -3021,6 +3021,21 @@ class SweetspotCameraTests(unittest.TestCase):
         self.assertEqual(m.record(), saved)
         m.call('DAT_InitSweetspot', 0)  # Re-entering cannot compound the zoom.
         self.assertEqual(self.corrected[-1], self.expected_zoom())
+
+    def test_change_stage_row_lists_the_legal_stages_with_this_one_greyed_out(self):
+        m = self.m; row = self.row + 2 * 44
+        self.assertEqual(self.text(self.word(row+12)), 'Change Stage')
+        self.assertEqual(m.cpu.mem_read(row, 1)[0], 0)  # OPTKIND_MENU
+        stages = self.word(row+32)
+        m.call('DAT_InitSweetspot', 0)  # On Final Destination.
+        self.assertEqual(self.text(self.word(stages)), 'Change Stage')
+        self.assertEqual(bytes(m.cpu.mem_read(stages+4, 3)), bytes((6, 0, 1)))  # Six rows; cursor skips FD.
+        options = self.word(stages+8)
+        self.assertEqual([self.text(self.word(options + i*44 + 12)) for i in range(6)],
+                         ['Final Destination', 'Battlefield', 'Dream Land', "Yoshi's Story",
+                          'Fountain of Dreams', 'Pokemon Stadium'])
+        self.assertEqual([m.cpu.mem_read(options + i*44 + 1, 1)[0] for i in range(6)], [1, 0, 0, 0, 0, 0])
+        self.assertEqual(self.text(self.word(options + 32)), 'Current')
 
     def test_double_jump_indicator_defaults_off_and_saves_only_its_extension_bit(self):
         m = self.m; row = self.row + 44

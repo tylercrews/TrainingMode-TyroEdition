@@ -74,6 +74,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
             - It's two thirds as wide as the double jump can drift either way by its peak: ±10.6 for Fox (the most is 15.9, in 19 frames) and ±12.3 for Falco (18.5, in 22 frames).
             - **The X** is where a full side-B (the range guide's white **0** dot) just reaches the ledge. It draws on top of the white ledge line.
             - It works with the Line Guides on or off, and works out its numbers from your character's live data. It uses a spare bit of the save record, so the save format doesn't change.
+        - New **Change Stage** menu: restart on any of the six tournament-legal stages without going back through the character and stage select, like Eggs-ercise, Low Laser and Training Lab. The current stage is greyed out. All of the event's settings are saved, so they carry over.
         - New [Slippi Gecko codes](slippi-gecko-codes/dj-height-indicator/README.md), one for Fox and one for Falco, that draw the same line and X on the six legal stages in any match. They don't check who is playing, and both can be on at once. Their README lists where the marks land on each stage. They pass emulator tests but haven't been tested in Dolphin yet.
 
 ### T7 (V1.4.1T7) - 2026-10-21

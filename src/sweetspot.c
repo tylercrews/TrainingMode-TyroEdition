@@ -1,4 +1,5 @@
 #include "events.h"
+#include "stage_swap.h"
 
 static Vec2 ledge_positions[2];
 
@@ -168,6 +169,13 @@ static EventOption Options_Main[] = {
         .OnChange = ChangeDoubleJumpIndicator,
         .desc = {"Double jump before your feet fall below the line,",
                  "then drift to the X and side-B at the peak."},
+    },
+    {
+        .kind = OPTKIND_MENU,
+        .name = "Change Stage",
+        .desc = {"Restart on another tournament-legal stage.",
+                 "Your saved settings are kept."},
+        .menu = &StageSwap_Menu,
     },
     /* Extra underside guide retained for reference; excluded from the menu.
     {
@@ -481,6 +489,7 @@ void Event_Init(GOBJ* gobj) {
     // Archived underside option was session-only, never memory-card backed.
     // Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val = Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val_prev = 0;
     GetLedgePositions(ledge_positions);
+    StageSwap_Init();
     GOBJ *draw_gobj = GObj_Create(0, 0, 0);
     GObj_AddUserData(draw_gobj, 0, RestoreCamera, &normal_camera);
     GObj_AddGXLink(draw_gobj, Draw_Lines, 3, 0);
@@ -599,6 +608,10 @@ void Exit(GOBJ *menu) {
     stc_match->state = 3;
     Match_EndVS();
 }
+
+/* Every menu setting is saved, so the restart keeps them. The draw GObj's
+ * cleanup restores the camera when the match ends, as it does on Exit. */
+static void StageSwap_BeforeRestart(void) { }
 
 void Reset(int side_idx) {
     if (side_idx == 2)
