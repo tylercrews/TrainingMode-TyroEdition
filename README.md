@@ -46,7 +46,7 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T8
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T9
 - Sweet Spot Side B Event should also have knockback variation selectors similar to the edgeguarding practice
 - edgeguarding event should have a camera zoom out view, and add blast zone boxes.
 - split fox+falco's side bs up into to ledge and to stage and to side plat
@@ -77,6 +77,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
             - It works with the Line Guides on or off, and works out its numbers from your character's live data. It uses a spare bit of the save record, so the save format doesn't change.
         - New **Change Stage** menu: restart on any of the six tournament-legal stages without going back through the character and stage select, like Eggs-ercise, Low Laser and Training Lab. The current stage is greyed out. All of the event's settings are saved, so they carry over.
         - New [Slippi Gecko codes](slippi-gecko-codes/dj-height-indicator/README.md), one for Fox and one for Falco, that draw the same line and X on the six legal stages in any match. They don't check who is playing, and both can be on at once. Their README lists where the marks land on each stage. They pass emulator tests but haven't been tested in Dolphin yet.
+    - **Edgeguard Training**
+        - New **Change Stage** menu, under Change Characters: restart on any of the six tournament-legal stages without going back through the character and stage select. Your characters and saved settings carry over, including the CPU's recovery options.
 
 For T8 I was working with Claude Opus 5.5 Extra High
 

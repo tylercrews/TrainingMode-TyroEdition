@@ -407,12 +407,14 @@ void Event_Init(GOBJ *gobj) {
 
     FighterSwap_Restrict(1, Edgeguard_CPUKinds, countof(Edgeguard_CPUKinds));
     FighterSwap_Init();
+    StageSwap_Init();
 
     GetLedgePositions(ledge_positions);
 }
 
 /* The restart saves the card. */
 static void FighterSwap_BeforeRestart(void) { FlushRecovery(); }
+static void StageSwap_BeforeRestart(void) { FlushRecovery(); }
 
 void Event_Think(GOBJ *menu) {
     // For some reason, Savestate_Save crashes in Event_Init.

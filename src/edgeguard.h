@@ -1,6 +1,7 @@
 #include "../MexTK/mex.h"
 #include "events.h"
 #include "fighter_swap.h"
+#include "stage_swap.h"
 
 static void Exit(GOBJ *menu);
 static void Reset(void);
@@ -82,6 +83,7 @@ enum options_initial {
     OPT_MAIN_HITSTRENGTH,
     OPT_MAIN_HITSTRENGTH_CUSTOMMENU,
     OPT_MAIN_CHARACTERS,
+    OPT_MAIN_STAGE,
     OPT_MAIN_EXIT,
     
     OPT_MAIN_COUNT
@@ -139,6 +141,13 @@ static EventOption Options_Main[] = {
         .desc = {"Restart with another player or CPU character.",
                  "The CPU can be any character with Recovery",
                  "Options. Saved settings are kept."},
+    },
+    {
+        .kind = OPTKIND_MENU,
+        .menu = &StageSwap_Menu,
+        .name = "Change Stage",
+        .desc = {"Restart on another tournament-legal stage.",
+                 "Saved settings are kept."},
     },
     {
         .kind = OPTKIND_FUNC,
