@@ -47,7 +47,6 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T8
-- For Sweet Spot Side B Event - Have a little platform in the sky under the stage where you can double jump and be at the perfect height to sweet spot side b. Turn it into a gecko code overlay too. 
 - Sweet Spot Side B Event should also have knockback variation selectors similar to the edgeguarding practice
 - Timer resets when you load a savestate, and when events reset like the edgeguard training. Would like to have a counter that doesn't reset if possible so that you can see how long you're practicing (and keep track of things like switching sides after x minutes)
 - edgeguarding event should have a camera zoom out view, and add blast zone boxes.
@@ -63,6 +62,18 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T8 (V1.4.1T8) - 2026-10-28
+
+- **Program changes**
+    - New [scripts/sweetspot_dj_platforms.py](scripts/sweetspot_dj_platforms.py) reads Fox's and Falco's double jump, side-B and ledge-grab numbers and the legal stages' ledges from a vanilla ISO, and prints where the Double-Jump Height Indicator draws on each legal stage.
+- **Event-specific changes**
+    - **Side-B Sweetspot**
+        - New **Double-Jump Height Indicator** setting (Off by default, saved). It draws a short line under each ledge: double jump with your feet on it, side-B at the top of the jump, and a full side-B sweetspots. Orange for Fox, sky blue for Falco.
+            - **Height:** the double jump's rise (40.2 for Fox, 41.8 for Falco) plus 13 under the ledge, so at the peak the middle of your ledge-grab box is level with the ledge, with 4.5 of slack either way. Fox's line is 1/6 higher because he drops that much during side-B startup.
+            - **Position and width:** centered where a full side-B (the range guide's white **0** dot) just reaches the ledge, and as wide as the double jump can drift either way by its peak (15.9 for Fox in 19 frames, 18.5 for Falco in 22).
+            - It works with the Line Guides on or off, and works out its numbers from your character's live data. It uses a spare bit of the save record, so the save format doesn't change.
+        - New [Slippi Gecko code](slippi-gecko-codes/dj-height-indicator/README.md) that draws the same lines in any match on the six legal stages, for every Fox and Falco playing. Its README lists where the lines land on each stage. It passes emulator tests but hasn't been tested in Dolphin yet.
 
 ### T7 (V1.4.1T7) - 2026-10-21
 

@@ -2947,7 +2947,7 @@ class SweetspotCameraTests(unittest.TestCase):
         exported = dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
         m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
         menu = self.word(self.base + exported[3])
-        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 4)
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 5)
         options = self.word(menu+8)
         self.row = options + 44
         self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
@@ -3021,6 +3021,116 @@ class SweetspotCameraTests(unittest.TestCase):
         self.assertEqual(m.record(), saved)
         m.call('DAT_InitSweetspot', 0)  # Re-entering cannot compound the zoom.
         self.assertEqual(self.corrected[-1], self.expected_zoom())
+
+    def test_double_jump_indicator_defaults_off_and_saves_only_its_extension_bit(self):
+        m = self.m; row = self.row + 44
+        self.assertEqual(self.text(self.word(row+12)), 'Double-Jump Height Indicator')
+        before = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 0, 0))
+        m.symbols['DAT_ChangeDoubleJump'] = self.word(row+36)
+        for choice in (1, 0, 1):
+            m.cpu.mem_write(row+6, struct.pack('>h', choice))
+            m.call('DAT_ChangeDoubleJump', 0, choice)
+            self.assertEqual(m.call('Settings_Get', 40, 0), choice)
+            self.assertEqual(m.call('Settings_Get', 25, 0), 1)  # Line guides keep their own bit.
+            self.assertEqual(m.call('Settings_Get', 32, 0), 0)  # So does the camera.
+        self.assertEqual(m.record(), before)  # The core record has no room; it lives in TYEX.
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 1, 1))
+
+
+class SweetspotDoubleJumpDrawTests(unittest.TestCase):
+    """Run the event's compiled Draw_Lines for a vanilla Fox or Falco on Final
+    Destination and read the Double-Jump Height Indicator back from the GX FIFO."""
+    dat_path, dat_root, stage = SweetspotCameraTests.dat_path, SweetspotCameraTests.dat_root, SweetspotCameraTests.stage
+    word, text = SweetspotCameraTests.word, SweetspotCameraTests.text
+    GFX, LEDGE = 0x80004100, 85.5657
+    # Full side-B, drift either way, depth under the ledge, color: the numbers
+    # scripts/sweetspot_dj_platforms.py prints, as in tests/test_dj_height_gecko.py.
+    SPACIES = {0: (83.740, 15.860, 53.037, (0xff, 0x8c, 0x00, 0xff)),
+               1: (77.080, 18.510, 54.778, (0x30, 0xc8, 0xff, 0xff))}
+
+    def setUp(self):
+        from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+        SweetspotCameraTests.setUp(self)
+        m = self.m
+        m.cpu.mem_map(0xCC000000, 0x10000)
+        m.call('TestEventGFX', self.GFX)
+        fighter = m.call('TestCueObject', 0)
+        self.starts, self.fifo, self.draw = [], [], None
+        def natives(cpu, address, size, user):
+            if address == 0x8039069C: self.draw = cpu.reg_read(gpr(4))  # GObj_AddGXLink
+            elif address in (0x80053ECC, 0x80053DA4):  # Stage_GetLeft/RightOfLineCoordinates
+                x = self.LEDGE if address == 0x80053DA4 else -self.LEDGE
+                cpu.mem_write(cpu.reg_read(gpr(4)), struct.pack('>3f', x, 0, 0))
+            elif address in (0x80034110, 0x8036A288, 0x80368458, self.GFX):
+                if address == 0x80034110: cpu.reg_write(gpr(3), fighter)  # Fighter_GetGObj
+                if address == self.GFX:
+                    count, params = cpu.reg_read(gpr(3)) & 0xFFFF, bytes(cpu.mem_read(cpu.reg_read(gpr(4)), 2))
+                    self.starts.append((count, *params))
+                cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        def fifo(cpu, access, address, size, value, user):
+            self.fifo.append((size, value & ((1 << 8 * size) - 1)))
+        self.hooks = [m.cpu.hook_add(UC_HOOK_CODE, natives),
+                      m.cpu.hook_add(UC_HOOK_MEM_WRITE, fifo, begin=0xCC008000, end=0xCC008003)]
+
+    def tearDown(self):
+        SweetspotCameraTests.tearDown(self)
+        for hook in self.hooks: self.m.cpu.hook_del(hook)
+
+    def run_draw(self, falco, guides, indicator):
+        m = self.m
+        m.call('TestCueSpacie', 0, falco)
+        m.call('Settings_Set', 25, 0, guides)
+        m.call('Settings_Set', 40, 0, indicator)
+        m.call('DAT_InitSweetspot', 0)
+        m.symbols['DAT_DrawLines'] = self.draw
+        self.starts, self.fifo = [], []
+        m.call('DAT_DrawLines')
+
+    def vertices(self):
+        """FIFO writes as (x, y, z, (r, g, b, a)): three floats, four color bytes."""
+        vertices, writes = [], list(self.fifo)
+        while writes:
+            position, color, writes = writes[:3], writes[3:7], writes[7:]
+            self.assertEqual([size for size, _ in position + color], [4, 4, 4, 1, 1, 1, 1])
+            floats = struct.unpack('>3f', struct.pack('>3I', *(value for _, value in position)))
+            vertices.append((*floats, tuple(value for _, value in color)))
+        return vertices
+
+    def expected(self, falco):
+        full, drift, depth, color = self.SPACIES[falco]
+        lines = []
+        for x, offstage in ((-self.LEDGE, -1), (self.LEDGE, 1)):
+            center = x + offstage * full
+            lines += [(center - drift, -depth, 0, color), (center + drift, -depth, 0, color)]
+        return lines
+
+    def assertVertices(self, actual, expected):
+        self.assertEqual(len(actual), len(expected))
+        for got, want in zip(actual, expected):
+            self.assertAlmostEqual(got[0], want[0], places=3)
+            self.assertAlmostEqual(got[1], want[1], places=3)
+            self.assertEqual(got[2:], want[2:])
+
+    def test_fox_and_falco_lines_match_the_iso_numbers(self):
+        for falco in (0, 1):
+            with self.subTest(falco=falco):
+                self.run_draw(falco, guides=0, indicator=1)
+                self.assertEqual(self.starts, [(4, 0xA8, 16)])  # GX_LINES, width 16.
+                self.assertVertices(self.vertices(), self.expected(falco))
+
+    def test_indicator_draws_alongside_the_line_guides_and_only_when_on(self):
+        self.run_draw(0, guides=1, indicator=1)
+        self.assertEqual(self.starts[0], (4, 0xA8, 16))
+        self.assertGreater(len(self.starts), 1)  # The guides follow.
+        self.assertVertices(self.vertices()[:4], self.expected(0))
+        self.run_draw(0, guides=1, indicator=0)
+        self.assertGreater(len(self.starts), 1)
+        self.assertNotIn(self.SPACIES[0][3], [vertex[3] for vertex in self.vertices()])
+        self.run_draw(1, guides=0, indicator=0)
+        self.assertEqual((self.starts, self.fifo), ([], []))
 
 
 class SweetspotResetTests(unittest.TestCase):

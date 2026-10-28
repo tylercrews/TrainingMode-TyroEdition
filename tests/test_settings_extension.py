@@ -58,6 +58,7 @@ REGION_SIZE, OWNED_SIZE = 88, 68
 PREF_COUNTS = {29: 3}
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
+SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -817,6 +818,42 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
             self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
             self.assertEqual(m.call('Settings_Get',29,2), 0)
+
+    def test_sweetspot_double_jump_indicator_lives_in_word_20_bit_22(self):
+        m = self.m
+        m.call('Settings_Set',29,2,1)  # Lava Overlay: the neighboring bit 21.
+        self.assertEqual(m.call('Settings_Get',SWEETSPOT_DJ,0), 0)
+        shield = [m.call('Settings_Get',f,i) for f, counts, _ in SHIELD_FIELDS for i in range(len(counts))]
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',SWEETSPOT_DJ,0,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[22] |= 0x40
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual((m.call('Settings_Get',SWEETSPOT_DJ,0), m.call('Settings_Get',29,2)), (1, 1))
+        self.assertEqual([m.call('Settings_Get',f,i) for f, counts, _ in SHIELD_FIELDS for i in range(len(counts))], shield)
+        m.call('Settings_Set',SWEETSPOT_DJ,0,2)  # Out of range is ignored.
+        m.call('Settings_Set',SWEETSPOT_DJ,1,0)  # So is any index but 0.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        # Version 11..18 records own word 20, so the bit is read as is.
+        old = bytearray(after); old[4:6] = bytes((18,56))
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,SWEETSPOT_DJ,0), 1)
+        m.cpu.mem_write(EXT, after)
+        m.call('Settings_Set',SWEETSPOT_DJ,0,0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_records_before_version_11_never_read_the_double_jump_indicator_bit(self):
+        for version, payload in ((10,12), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',29,0,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload)); old[22] = 0xFF  # Valid-looking spare score bytes.
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read',EXT,SWEETSPOT_DJ,0), 0)
+            m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
+            self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+            self.assertEqual(m.call('Settings_Get',SWEETSPOT_DJ,0), 0)
 
     def test_older_records_never_read_byte_35_and_migration_claims_it_as_defaults(self):
         for version, payload in ((14,16), (10,12), (6,8)):

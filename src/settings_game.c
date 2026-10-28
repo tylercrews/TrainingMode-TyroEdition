@@ -98,7 +98,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
         u32 extra=TMExtension_Read(extension_view(),TM_SETTING_OSD_COLOR_EXTRA,slot);
         return extra?TM_COLOR_LEGACY_COUNT-1+extra:base;
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD)
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ)
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index))
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
@@ -124,7 +124,7 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
         extension_set(TM_SETTING_OSD_COLOR_EXTRA,slot,extended?value-TM_COLOR_LEGACY_COUNT+1:0);
         if(extended) value=legacy_color[value-TM_COLOR_LEGACY_COUNT];
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD) {
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ) {
         extension_set(field,index,value); return;
     }
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index)) {

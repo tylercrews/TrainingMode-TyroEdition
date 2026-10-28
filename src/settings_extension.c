@@ -14,6 +14,9 @@ static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
 /* The Lava Overlay bit is word 20's former padding: every record that owns
  * word 20 (version 11 on) zeroed it, so no version bump is needed. */
 static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT] = {{18,1,2,0}, {19,1,2,0}, {21,1,2,0}};
+/* Side-B Sweetspot's Double-Jump Height Indicator takes the next bit of that
+ * zeroed padding, word 20 bit 22, also without a version bump. */
+static const ExtensionPreference sweetspot_dj_preference = {22,1,2,0};
 /* Position and height occupy byte 35 (word at 32, bits 24..30). */
 static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {
     {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0},
@@ -139,7 +142,8 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_POWERSHIELD ? TM_PS_PREF_COUNT :
         field==TM_SETTING_REVERSAL ? TM_REV_PREF_COUNT :
         field==TM_SETTING_ATTACK_SHIELD ? TM_AOS_PREF_COUNT :
-        field==TM_SETTING_EDGEGUARD ? TM_EG_PREF_COUNT : 0;
+        field==TM_SETTING_EDGEGUARD ? TM_EG_PREF_COUNT :
+        field==TM_SETTING_SWEETSPOT_DJ ? 1 : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -150,6 +154,7 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_REVERSAL && index<TM_REV_PREF_COUNT) return &reversal_preferences[index];
     if(field==TM_SETTING_ATTACK_SHIELD && index<TM_AOS_PREF_COUNT) return &attack_shield_preferences[index];
     if(field==TM_SETTING_EDGEGUARD && index<TM_EG_PREF_COUNT) return &edgeguard_preferences[index];
+    if(field==TM_SETTING_SWEETSPOT_DJ && index==0) return &sweetspot_dj_preference;
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
@@ -157,7 +162,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
         return index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
             index>=TM_EG_RECOVERY_YOSHI?EDGEGUARD2_OFFSET:
             EDGEGUARD_OFFSET+(index>=TM_EG_HIT_STRENGTH?8:index>=TM_EG_PLAYER_PERCENT?4:0);
-    if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD ||
+    if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || field==TM_SETTING_SWEETSPOT_DJ ||
         (field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY)) return 20;
     if(field==TM_SETTING_LEDGECHASE && (index==TM_LEDGECHASE_PRESET || index==TM_LEDGECHASE_AIR_ATTACK)) return 16;
     if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION) return 32;
@@ -336,7 +341,7 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     }
     if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18) return p->initial;
     /* Records before version 11 end before word 20. */
-    if(field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18) return p->initial;
+    if(((field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY) || field==TM_SETTING_SWEETSPOT_DJ) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_SHIELD_DI) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_ACTION) {
         unsigned action=(read_bits(r,20)>>9)&15;

@@ -126,10 +126,14 @@ void Reset(int side_idx);
 static void ChangeLineGuides(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_SWEETSPOT_LINES, 0, value);
 }
+static void ChangeDoubleJumpIndicator(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_SWEETSPOT_DJ, 0, value);
+}
 
 enum menu_options {
     OPT_VERTICAL_LINES,
     OPT_CAMERA,
+    OPT_DJ_HEIGHT,
     // OPT_EXTRA_UNDERSIDE_LINES,
 };
 
@@ -157,6 +161,13 @@ static EventOption Options_Main[] = {
         .OnChange = ChangeCamera,
         .desc = {"Zoom out to see farther offstage",
                  "and line up with the ledge."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Double-Jump Height Indicator",
+        .OnChange = ChangeDoubleJumpIndicator,
+        .desc = {"Double jump with your feet on the line,",
+                 "then side-B at the peak to sweetspot."},
     },
     /* Extra underside guide retained for reference; excluded from the menu.
     {
@@ -292,6 +303,66 @@ static void DrawRangeGuide(Vec3 origin, float direction, float ranges[4], GXColo
     DrawRangeNumber(0, origin.X + direction * ranges[3], origin.Y + 2, white);
 }
 
+// Double jump rise to its peak and the farthest it can drift on the way up,
+// from the fighter's live attributes. The jump sets Y speed to jump V *
+// air jump V multiplier and X speed to stick X * air jump H multiplier, and
+// gravity applies on its first physics frame (ftCo_JumpAerial_Enter_Basic,
+// ft_80084DB0). Full-stick drift follows ftCommon_CalcSelfAccel_DriftFrom:
+// above aerial_drift_max, X speed slows by aerial_friction a frame.
+// NTSC 1.02 values: Fox rises 40.20 in 19 frames and drifts up to 15.86;
+// Falco rises 41.78 in 22 frames and drifts up to 18.51.
+static void GetDoubleJumpReach(FighterData *fighter, float *rise, float *drift) {
+    float gravity = fighter->attr.gravity;
+    float speed_y = fighter->attr.jump_v_initial_velocity * fighter->attr.air_jump_v_multiplier;
+    float speed_x = fighter->attr.air_jump_h_multiplier;
+    float accel = fighter->attr.aerial_drift_stick_mult + fighter->attr.aerial_drift_base;
+    float target = fighter->attr.aerial_drift_max;
+    float limit = fighter->attr.horizontal_air_mobility_constant; // Max air X speed.
+    *rise = *drift = 0;
+    for (int i = 0; gravity > 0 && i < 180; i++) {
+        speed_y -= gravity;
+        if (speed_y <= 0)
+            break;
+        float step = accel;
+        if (speed_x + step > target) {
+            step = -fighter->attr.aerial_friction;
+            if (speed_x + step < target)
+                step = target - speed_x;
+            if (speed_x + step > limit)
+                step = limit - speed_x;
+        }
+        speed_x += step;
+        *rise += speed_y;
+        *drift += speed_x;
+    }
+}
+
+// A platform under each ledge for the double jump before a full side-B. It is
+// centered where the full side-B (the white 0 dot) just reaches the ledge and
+// is as wide as the double jump can drift either way by its peak. Double jump
+// with your feet on it and side-B at the peak: the middle of the ledge-grab
+// box (cliffgrab_y_offset above the feet) meets the ledge, so you have half
+// the box's height to spare either way.
+static void DrawDoubleJumpIndicator(FighterData *fighter, float full_range) {
+    float rise, drift;
+    GetDoubleJumpReach(fighter, &rise, &drift);
+    float depth = fighter->coll_data.cliffgrab_y_offset + rise;
+    if (fighter->kind == FTKIND_FOX)
+        depth -= 1.0 / 6.0; // Fox drops this much during side-B startup.
+
+    GXColor color = fighter->kind == FTKIND_FOX
+        ? (GXColor) { 0xff, 0x8c, 0x00, 0xff }  // Orange
+        : (GXColor) { 0x30, 0xc8, 0xff, 0xff }; // Sky blue
+    event_vars->GFX_Start(4, (GFX_Params) { .shape = GX_LINES, .size = 16 });
+    for (int i = 0; i < 2; i++) {
+        float offstage = i == 0 ? -1 : 1;
+        float x = ledge_positions[i].X + offstage * full_range;
+        float y = ledge_positions[i].Y - depth;
+        GFX_AddVtx(x - drift, y, 0, color);
+        GFX_AddVtx(x + drift, y, 0, color);
+    }
+}
+
 /* Extra Underside Distance Markings, Totally Unnecessary
 static void DrawExtraUndersideDistanceMarkings(FighterData *fighter) {
     float ranges[4];
@@ -302,19 +373,8 @@ static void DrawExtraUndersideDistanceMarkings(FighterData *fighter) {
 }
 */
 
-void Draw_Lines(void) {
-    GOBJ *hmn = Fighter_GetGObj(0);
-    FighterData *hmn_data = hmn->userdata;
+static void DrawLineGuides(FighterData *hmn_data, float ranges[4]) {
     CollData *coll_data = &hmn_data->coll_data;
-
-    if (!Options_Main[OPT_VERTICAL_LINES].val)
-        return;
-
-    COBJ *cur_cam = COBJ_GetCurrent();
-    CObj_SetCurrent(*stc_matchcam_cobj);
-
-    // if (Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val)
-    //     DrawExtraUndersideDistanceMarkings(hmn_data);
 
     // Melee calculation for the top of the ledgegrab box
     float ledgegrab_offset = coll_data->cliffgrab_y_offset + 0.5 * coll_data->cliffgrab_height;
@@ -348,9 +408,6 @@ void Draw_Lines(void) {
 
     // Sweetspot targets use the full aerial distances INCLUDING endlag drift,
     // at the original ledge-grab height with the original result colors.
-    float ranges[4];
-    // GetHorizontalRanges(hmn_data, ranges, false); // Archived dash-only guide.
-    GetHorizontalRanges(hmn_data, ranges, true);
     float direction = sideb.attempted ? sideb.dir : hmn_data->facing_direction;
     DrawRangeGuide((Vec3) { x, y, 0 }, direction, ranges, color);
 
@@ -367,6 +424,28 @@ void Draw_Lines(void) {
     y = ledge_positions[1].Y;
     GFX_AddVtx(x, y, 0, white);
     GFX_AddVtx(x + 100, y, 0, white);
+}
+
+void Draw_Lines(void) {
+    GOBJ *hmn = Fighter_GetGObj(0);
+    FighterData *hmn_data = hmn->userdata;
+
+    if (!Options_Main[OPT_VERTICAL_LINES].val && !Options_Main[OPT_DJ_HEIGHT].val)
+        return;
+
+    COBJ *cur_cam = COBJ_GetCurrent();
+    CObj_SetCurrent(*stc_matchcam_cobj);
+
+    // if (Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val)
+    //     DrawExtraUndersideDistanceMarkings(hmn_data);
+
+    float ranges[4];
+    // GetHorizontalRanges(hmn_data, ranges, false); // Archived dash-only guide.
+    GetHorizontalRanges(hmn_data, ranges, true);
+    if (Options_Main[OPT_DJ_HEIGHT].val)
+        DrawDoubleJumpIndicator(hmn_data, ranges[3]);
+    if (Options_Main[OPT_VERTICAL_LINES].val)
+        DrawLineGuides(hmn_data, ranges);
 
     CObj_SetCurrent(cur_cam);
 }
@@ -376,6 +455,8 @@ void Event_Init(GOBJ* gobj) {
         TM_GetSetting(TM_SETTING_SWEETSPOT_LINES, 0);
     Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0);
+    Options_Main[OPT_DJ_HEIGHT].val = Options_Main[OPT_DJ_HEIGHT].val_prev =
+        TM_GetSetting(TM_SETTING_SWEETSPOT_DJ, 0);
     normal_camera.left = stc_stage->cambound_left;
     normal_camera.right = stc_stage->cambound_right;
     normal_camera.top = stc_stage->cambound_top;
