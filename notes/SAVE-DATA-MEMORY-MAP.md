@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b23) | `0x1AE0..0x1B23` | 68 bytes | 68 bytes | **40 loose bits** inside the record |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b23) | `0x1AE0..0x1B23` | 68 bytes | 68 bytes | **36 loose bits** inside the record |
 | **Unallocated spare score slots** | `0x1B24..0x1B37` | **20 bytes** | nothing | **20 bytes (160 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -121,7 +121,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | Bytes | Owner | Contents | Free inside |
 | --- | --- | --- | --- |
 | 0..7 | Header | `TYEX`, version (19), payload size (60), marker `A5 5A` | — |
-| 8 | Global OSDs / overlays | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color | bit 7 |
+| 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
 | 9..11 | Techchase | word 9 bits 0-14 and 16-22 (table below) | bit 15 (byte 10 bit 7), bit 23 (byte 11 bit 7) |
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
@@ -134,7 +134,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bits 30-31 of word 56 |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 
-Free bits inside the record: 1 + 2 + 6 + 9 + 4 + 1 + 2 + 10 + 2 = **37 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 2 + 6 + 9 + 4 + 1 + 2 + 10 + 2 = **36 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 

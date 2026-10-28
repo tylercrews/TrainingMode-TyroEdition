@@ -38,6 +38,7 @@ COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
+TIMERS = 0x80  # Byte 8 bit 7: Don't Reset Timers, flag 10 (TM_FLAG_DONT_RESET_TIMERS), no version bump.
 
 def upgraded(raw):
     value = bytearray(raw)
@@ -82,6 +83,27 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 11, 9, 0)
         self.assertEqual(m.call('Settings_Get', 11, 9), 0)
         self.assertEqual(m.call('Settings_Get', 14, 30), 5)
+
+    def test_dont_reset_timers_flag_lives_in_extension_byte_eight_bit_seven(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(m.call('Settings_Get', 11, 10), 0)  # Default Off: savestates rewind the clock.
+        m.call('Settings_Set', 14, 30, 5)  # Every other byte-8 field is set first.
+        m.call('Settings_Set', 11, 9, 1)
+        m.call('Settings_Set', 14, 27, 6)
+        m.call('Settings_Set', 11, 10, 1)
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0], TIMERS | (6 << 4) | RANDALL | 5)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)  # Still version 19.
+        self.assertEqual(m.record(), core)
+        m.call('Settings_Set', 11, 10, 2)  # Out of range is ignored.
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, bytes(m.cpu.mem_read(EXT, OWNED_SIZE)))
+        self.assertEqual(fresh.call('Settings_Get', 11, 10), 1)
+        m.call('Settings_Set', 11, 10, 0)
+        self.assertEqual(m.call('Settings_Get', 11, 10), 0)
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0], (6 << 4) | RANDALL | 5)
+        self.assertEqual((m.call('Settings_Get', 14, 30), m.call('Settings_Get', 11, 9), m.call('Settings_Get', 14, 27)), (5, 1, 6))
 
     def test_version_12_padding_never_turns_randall_on(self):
         m = self.m
@@ -377,6 +399,23 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('TestSettingsEditorRow', fixtures.PHYSICAL[row]), 1)
         m.call('Settings_Set', 16, 31, 0)  # Logical row write, as the Lab and native hooks use.
         self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+
+    def test_dont_reset_timers_editor_row_writes_its_extension_flag(self):
+        m = self.m
+        fixtures.open_editor(m, 1)
+        row = fixtures.editor_row(34)[1]
+        label = "Don't Reset Timers"
+        self.assertEqual(''.join(chr(m.call('TestEditorLabelChar', row, i)) for i in range(len(label))), label)
+        m.call('TestEditorInput', fixtures.MENU_A, row)
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)  # Randall is untouched.
+        m.call('TestEditorAnimate', row)
+        m.call('TestSettingsEditorWrite', fixtures.PHYSICAL[row], m.call('TestEditorCache', row))
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        self.assertEqual(m.call('TestSettingsEditorRow', fixtures.PHYSICAL[row]), 1)
+        self.assertEqual(m.call('Settings_Get', 16, 34), 1)
+        m.call('Settings_Set', 16, 34, 0)  # Logical row write, as the native hooks use.
+        self.assertEqual(m.call('Settings_Get', 11, 10), 0)
 
     def test_absent_defaults_are_read_only_and_first_edit_only_owns_twenty_bytes(self):
         m = self.m

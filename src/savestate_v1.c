@@ -592,14 +592,19 @@ int Savestate_Load_v1(Savestate_v1 *savestate, int flags)
         ActionCues_Clear();
         Events_NotifyRestore();
         // restore frame
-        Match *match = stc_match;
-        match->time_frames = savestate->frame;
+        // event logic and Lab recordings count from game_timer, so it always rewinds.
+        // Don't Reset Timers leaves the match clock running for long practice sessions.
         event_vars->game_timer = savestate->frame;
+        if (!Settings_Get(TM_SETTING_FLAG, TM_FLAG_DONT_RESET_TIMERS))
+        {
+            Match *match = stc_match;
+            match->time_frames = savestate->frame;
 
-        // update timer
-        int frames = match->time_frames - 1; // this is because the scenethink function runs once before the gobj procs do
-        match->time_seconds = frames / 60;
-        match->time_ms = frames % 60;
+            // update timer
+            int frames = match->time_frames - 1; // this is because the scenethink function runs once before the gobj procs do
+            match->time_seconds = frames / 60;
+            match->time_ms = frames % 60;
+        }
 
         // restore event data
         memcpy(event_vars->event_gobj->userdata, &savestate->event_data, sizeof(savestate->event_data));

@@ -86,8 +86,10 @@ static int version16(const uint8_t *r) { return format(r,16,42); }
 static int version17(const uint8_t *r) { return format(r,17,44); }
 static int version18(const uint8_t *r) { return format(r,18,56); }
 /* Byte 8: A-Smash Release palette in bits 0..2, Randall Overlay in bit 3,
- * Act OoAttack palette in bits 4..6 (version 14). Bit 7 remains free. */
+ * Act OoAttack palette in bits 4..6 (version 14). Don't Reset Timers takes bit
+ * 7 without a version bump: every record zeroed byte 8 and no writer set it. */
 #define RANDALL_BIT 0x08u
+#define DONT_RESET_TIMERS_BIT 0x80u
 #define ACT_OO_ATTACK_SHIFT 4
 #define ACT_OO_ATTACK_BITS (7u<<ACT_OO_ATTACK_SHIFT)
 /* Version 15 appends bytes 24..35: one nibble per OSD category slot, low nibble
@@ -331,6 +333,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return supported(r)||v14||v15||v16||v17||v18?(r[8]&ACT_OO_ATTACK_BITS)>>ACT_OO_ATTACK_SHIFT:0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)
         return supported(r)||v13||v14||v15||v16||v17||v18?!!(r[8]&RANDALL_BIT):0;
+    if(field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS)
+        return current||old?!!(r[8]&DONT_RESET_TIMERS_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 all of them. */
@@ -376,12 +380,13 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     int color=field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID;
     int attack=field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ACT_OO_ATTACK_ID;
     int randall=field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL;
+    int timers=field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS;
     int extra=field==TM_SETTING_OSD_COLOR_EXTRA && index<TM_OSD_CATEGORIES;
     int grid=field==TM_SETTING_OSD_GRID_CELL && index<TM_OSD_GRID_SLOTS;
     int costume=field==TM_SETTING_COSTUME && index<2;
     const ExtensionPreference *p=preference(field,index);
-    if(!color && !attack && !randall && !extra && !grid && !costume && !p) return 0;
-    if(value >= (color||attack?8:randall?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
+    if(!color && !attack && !randall && !timers && !extra && !grid && !costume && !p) return 0;
+    if(value >= (color||attack?8:randall||timers?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
     if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
     if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r)) TMExtension_Prepare(r);
@@ -389,6 +394,7 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     if(color) r[8]=(r[8]&~7u)|value;
     else if(attack) r[8]=(r[8]&~ACT_OO_ATTACK_BITS)|(value<<ACT_OO_ATTACK_SHIFT);
     else if(randall) r[8]=(r[8]&~RANDALL_BIT)|(value?RANDALL_BIT:0);
+    else if(timers) r[8]=(r[8]&~DONT_RESET_TIMERS_BIT)|(value?DONT_RESET_TIMERS_BIT:0);
     else if(extra) set_color_extra(r,index,value);
     else if(grid) set_grid_cell(r,index,value);
     else if(costume) r[COSTUME_OFFSET+index]=value;

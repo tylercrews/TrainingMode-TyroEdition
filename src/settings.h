@@ -55,6 +55,8 @@
 #define TM_GLOBAL_INVINCIBILITY_NAME "Invincibility Overlay"
 #define TM_GLOBAL_RANDALL_ROW 31 /* Editor-only logical row; never an OSD enable bit. */
 #define TM_GLOBAL_RANDALL_NAME "Randall Overlay"
+#define TM_GLOBAL_DONT_RESET_TIMERS_ROW 34 /* Editor-only logical row, after the positions page's 32/33. */
+#define TM_GLOBAL_DONT_RESET_TIMERS_NAME "Don't Reset Timers"
 #define TM_GLOBAL_MISSED_LCANCEL_NAME "Missed L Cancel"
 #define TM_GLOBAL_ACTION_CUES_NAME "Actionable Yellow>Green"
 #define TM_GLOBAL_RUN_TURN_NAME "Run Turnaround"
@@ -88,7 +90,10 @@ enum TMSettingsFlag {
     TM_FLAG_CPU_OSDS_OFF,
     TM_FLAG_COUNT, /* Core-record flags end here. */
     TM_FLAG_RANDALL = TM_FLAG_COUNT, /* TYEX byte 8 bit 3; routed by Settings_Get/Set. */
+    TM_FLAG_DONT_RESET_TIMERS, /* TYEX byte 8 bit 7: savestate loads keep the match clock. */
 };
+/* Flags whose bit lives in the extension, not the full core record. */
+#define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS)
 
 /* These field numbers are mirrored in ASM/Globals.s. Append; never reorder. */
 enum TMSettingsField {
