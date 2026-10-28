@@ -1,4 +1,4 @@
-$Fox Double-Jump Height Indicator (Slippi NTSC 1.02)
+$Fox Sweetspot Side-B Double-Jump Height Indicator (Slippi NTSC 1.02)
 *Legal stages: orange line under each ledge and an X at ledge height.
 *Double jump from the line, drift to the X, side-B at the peak. Visual only.
 C216E8E0 00000073

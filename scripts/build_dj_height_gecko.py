@@ -15,9 +15,9 @@ FOLDER = ROOT / 'slippi-gecko-codes/dj-height-indicator'
 GCT = ROOT / 'build/dj-height-indicator.gct'
 # Hook address: text file, Slippi code name, description lines.
 CODES = {
-    0x8016E8E0: ('fox-dj-height-indicator.txt', 'Fox Double-Jump Height Indicator (Slippi NTSC 1.02)',
+    0x8016E8E0: ('fox-dj-height-indicator.txt', 'Fox Sweetspot Side-B Double-Jump Height Indicator (Slippi NTSC 1.02)',
                  'Legal stages: orange line under each ledge and an X at ledge height.'),
-    0x8016E8E8: ('falco-dj-height-indicator.txt', 'Falco Double-Jump Height Indicator (Slippi NTSC 1.02)',
+    0x8016E8E8: ('falco-dj-height-indicator.txt', 'Falco Sweetspot Side-B Double-Jump Height Indicator (Slippi NTSC 1.02)',
                  'Legal stages: sky blue line under each ledge and an X at ledge height.'),
 }
 NOTE = 'Double jump from the line, drift to the X, side-B at the peak. Visual only.'

@@ -1,5 +1,5 @@
     # To be inserted at 8016e8e0
-    # Fox Double-Jump Height Indicator for vanilla NTSC 1.02 Melee / Slippi.
+    # Fox Sweetspot Side-B Double-Jump Height Indicator for vanilla NTSC 1.02 Melee / Slippi.
     # On the six legal stages, draws Fox's double-jump platform and side-B
     # target X under each ledge, in orange. The drawing is shared with the
     # Falco code in dj-height-indicator.inc; the numbers come from

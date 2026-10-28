@@ -1,4 +1,4 @@
-# Double-Jump Height Indicator (Slippi Gecko codes)
+# Sweetspot Side-B Double-Jump Height Indicator (Slippi Gecko codes)
 
 Standalone versions of the **Double-Jump Height Indicator** from Tyro Edition's Side-B Sweetspot event, for vanilla NTSC 1.02 Melee, including Slippi netplay. There is one code for Fox and one for Falco. Each one draws its character's marks on the six legal stages, whoever is playing. Enable the one for the character you play, or both.
 
@@ -16,7 +16,7 @@ They only draw: they read the stage's ledges and never change game state, so the
 ## Install
 
 1. Open Slippi Launcher → Settings → Netplay → Manage Gecko Codes → Add.
-2. For Fox, use `Fox Double-Jump Height Indicator (Slippi NTSC 1.02)` as the name and paste the hex lines from [fox-dj-height-indicator.txt](fox-dj-height-indicator.txt). For Falco, use `Falco Double-Jump Height Indicator (Slippi NTSC 1.02)` and [falco-dj-height-indicator.txt](falco-dj-height-indicator.txt). Save and enable it. The `$` title and `*` description lines are metadata, not hex code.
+2. For Fox, use `Fox Sweetspot Side-B Double-Jump Height Indicator (Slippi NTSC 1.02)` as the name and paste the hex lines from [fox-dj-height-indicator.txt](fox-dj-height-indicator.txt). For Falco, use `Falco Sweetspot Side-B Double-Jump Height Indicator (Slippi NTSC 1.02)` and [falco-dj-height-indicator.txt](falco-dj-height-indicator.txt). Save and enable it. The `$` title and `*` description lines are metadata, not hex code.
 3. Keep Slippi's standard required codes enabled and restart the game.
 
 On other stages they do nothing. The Fox code hooks `8016E8E0` and the Falco code `8016E8E8`, so both can be on at once, alongside the [Randall Overlay](../randall-overlay/README.md) (`8016E8C8`) and [Actionable Yellow-Green](../actionable/README.md) (`800805C8` and `8006D9EC`).
