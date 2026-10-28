@@ -47,6 +47,8 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T8
+- For Sweet Spot Side B Event - Have a little platform in the sky under the stage where you can double jump and be at the perfect height to sweet spot side b. Turn it into a gecko code overlay too. 
+- Sweet Spot Side B Event should also have knockback variation selectors similar to the edgeguarding practice
 - Timer resets when you load a savestate, and when events reset like the edgeguard training. Would like to have a counter that doesn't reset if possible so that you can see how long you're practicing (and keep track of things like switching sides after x minutes)
 - edgeguarding event should have a camera zoom out view, and add blast zone boxes.
 - split fox+falco's side bs up into to ledge and to stage and to side plat
