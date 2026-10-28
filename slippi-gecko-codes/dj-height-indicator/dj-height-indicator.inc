@@ -1,16 +1,14 @@
-    # To be inserted at 8016e8e0
-    # Double-Jump Height Indicator for vanilla NTSC 1.02 Melee / Slippi
-    # (standalone Gecko code). On the six legal stages, draws a short line
-    # under each ledge for every Fox and Falco in the match: double jump with
-    # your feet on the line, side-B at the peak, and a full side-B sweetspots.
-    # Visual only: it reads the stage's ledges and the fighters' characters and
-    # never writes game state, so it cannot desync.
+    # Shared body of the Fox and Falco Double-Jump Height Indicator codes. Each
+    # character's .asm defines character_data (its numbers and color) and
+    # original_instruction (the instruction its hook replaces), then includes
+    # this file.
     #
     # Match start (StartMelee) creates one GObj with a GX link 5 callback. Each
-    # frame the callback finds the stage's two ledges with the line IDs Tyro's
-    # Side-B Sweetspot event uses, then draws each character's two lines with
-    # depth testing off (HSD_StateSetZMode keeps HSD's state cache in sync).
-    # The per-character numbers come from scripts/sweetspot_dj_platforms.py.
+    # frame on a legal stage, the callback finds the two ledges with the line
+    # IDs Tyro's Side-B Sweetspot event uses, then under each ledge draws the
+    # double-jump platform and, at ledge height, the X where to side-B. Depth
+    # testing is off (HSD_StateSetZMode keeps HSD's state cache in sync). Visual
+    # only: it never writes game state, so it cannot desync.
 
     .macro branchl reg, address
     lis \reg, \address @h
@@ -37,17 +35,17 @@
     .set HSD_StateSetCullMode, 0x80361AD8
     .set GXBegin, 0x8033D0DC
 
-    .set GObjLists, -0x3E74          # r13: GOBJ *[] by p_link
-    .set FIGHTER_LIST, 0x20          # p_link 8: fighters
-    .set FTKIND_FOX, 1
-    .set FTKIND_FALCO, 22
     .set STAGE_COUNT, 6
     .set LINE_WIDTH, 16
 
     # Data table offsets
     .set D_ZERO, 0x00
-    .set D_STAGES, 0x04              # STAGE_COUNT x (external ID, left line, right line, pad)
-    .set D_CHARS, 0x1C               # Fox, Falco: full side-B, drift, depth, color
+    .set D_TARGET, 0x04              # half the X's width and height
+    .set D_STAGES, 0x08              # STAGE_COUNT x (external ID, left line, right line, pad)
+    .set D_FULL, 0x20                # character_data: full side-B,
+    .set D_WIDTH, 0x24               # platform half-width,
+    .set D_DEPTH, 0x28               # platform depth under the ledge,
+    .set D_COLOR, 0x2C               # and color.
 
 #############################
 ## Match start: create GObj
@@ -73,8 +71,8 @@ Draw:
     bnelr
     mflr r0
     stw r0, 0x4(r1)
-    stwu r1, -0x80(r1)
-    stmw r24, 0x60(r1)
+    stwu r1, -0x40(r1)
+    stmw r30, 0x38(r1)
 
     bl DataTable
     mflr r31
@@ -93,30 +91,6 @@ FindStage:
     b DrawExit
 FoundStage:
 
-    # r29 bit 0 = a Fox is in the match, bit 1 = a Falco is.
-    li r29, 0
-    lwz r3, GObjLists(r13)
-    lwz r3, FIGHTER_LIST(r3)
-FighterLoop:
-    cmpwi r3, 0
-    beq FightersDone
-    lwz r4, 0x2C(r3)                 # FighterData
-    cmpwi r4, 0
-    beq NextFighter
-    lwz r4, 0x4(r4)                  # kind
-    cmpwi r4, FTKIND_FOX
-    bne 0f
-    ori r29, r29, 1
-0:  cmpwi r4, FTKIND_FALCO
-    bne NextFighter
-    ori r29, r29, 2
-NextFighter:
-    lwz r3, 0x8(r3)                  # next
-    b FighterLoop
-FightersDone:
-    cmpwi r29, 0
-    beq DrawExit
-
     lbz r3, 0x1(r30)
     addi r4, r1, 0x10
     branchl r12, Stage_GetLeftOfLineCoordinates
@@ -124,58 +98,63 @@ FightersDone:
     addi r4, r1, 0x20
     branchl r12, Stage_GetRightOfLineCoordinates
 
-    addi r28, r31, D_CHARS
-CharLoop:
-    andi. r0, r29, 1
-    beq NextChar
     li r3, 0xA8                      # GX_LINES
-    li r4, 4
+    li r4, 12
     li r5, LINE_WIDTH
     bl Begin
     lis r3, 0xCC00
     ori r3, r3, 0x8000
-    lfs f5, 0x0(r28)                 # full side-B
-    lfs f6, 0x4(r28)                 # drift
-    lfs f7, 0x8(r28)                 # depth under the ledge
-    lwz r4, 0xC(r28)                 # color
+    lwz r4, D_COLOR(r31)
     lfs f0, D_ZERO(r31)
+    lfs f5, D_FULL(r31)
+    lfs f6, D_WIDTH(r31)
+    lfs f7, D_DEPTH(r31)
+    lfs f8, D_TARGET(r31)
     lfs f1, 0x10(r1)                 # Left ledge: offstage is -X.
     fsubs f1, f1, f5
     lfs f2, 0x14(r1)
-    fsubs f2, f2, f7
-    bl Platform
+    bl Mark
     lfs f1, 0x20(r1)                 # Right ledge: offstage is +X.
     fadds f1, f1, f5
     lfs f2, 0x24(r1)
-    fsubs f2, f2, f7
-    bl Platform
-NextChar:
-    addi r28, r28, 0x10
-    srwi. r29, r29, 1
-    bne CharLoop
+    bl Mark
 
 DrawExit:
-    lmw r24, 0x60(r1)
-    lwz r0, 0x84(r1)
-    addi r1, r1, 0x80
+    lmw r30, 0x38(r1)
+    lwz r0, 0x44(r1)
+    addi r1, r1, 0x40
     mtlr r0
     blr
 
-########################################################
-## Platform(r3 FIFO, r4 color, f0 0, f1 center x, f2 y,
-## f6 drift): leaf, one line from x - drift to x + drift.
-########################################################
-Platform:
-    fsubs f3, f1, f6
-    stfs f3, 0(r3)
-    stfs f2, 0(r3)
+    .macro vertex x, y
+    stfs \x, 0(r3)
+    stfs \y, 0(r3)
     stfs f0, 0(r3)
     stw r4, 0(r3)
-    fadds f3, f1, f6
-    stfs f3, 0(r3)
-    stfs f2, 0(r3)
-    stfs f0, 0(r3)
-    stw r4, 0(r3)
+    .endm
+
+########################################################
+## Mark(r3 FIFO, r4 color, f0 0, f1 target x, f2 ledge y,
+## f6 half-width, f7 depth, f8 X half-size): leaf. The
+## platform at f2 - f7, then the X centered at (f1, f2).
+########################################################
+Mark:
+    fsubs f3, f2, f7
+    fsubs f4, f1, f6
+    vertex f4, f3
+    fadds f4, f1, f6
+    vertex f4, f3
+    fsubs f4, f1, f8                 # X: bottom left to top right,
+    fsubs f3, f2, f8
+    vertex f4, f3
+    fadds f4, f1, f8
+    fadds f3, f2, f8
+    vertex f4, f3
+    fsubs f4, f1, f8                 # then top left to bottom right.
+    vertex f4, f3
+    fadds f4, f1, f8
+    fsubs f3, f2, f8
+    vertex f4, f3
     blr
 
 ########################################################
@@ -242,16 +221,14 @@ Begin:
 DataTable:
     blrl
     .float 0.0
+    .float 2.5                       # X half-size, DJ_TARGET_SIZE in src/sweetspot.c
     .byte 2, 0x03, 0x07, 0           # Fountain of Dreams
     .byte 3, 0x33, 0x36, 0           # Pokemon Stadium
     .byte 8, 0x02, 0x06, 0           # Yoshi's Story
     .byte 28, 0x03, 0x05, 0          # Dream Land
     .byte 31, 0x00, 0x05, 0          # Battlefield
     .byte 32, 0x00, 0x02, 0          # Final Destination
-    .float 83.740, 15.860, 53.037    # Fox
-    .long 0xFF8C00FF                 # orange
-    .float 77.080, 18.510, 54.778    # Falco
-    .long 0x30C8FFFF                 # sky blue
+    character_data
 
 GetDraw:
     mflr r4                          # Draw
@@ -264,4 +241,4 @@ StartExit:
     lwz r0, 0x84(r1)
     addi r1, r1, 0x80
     mtlr r0
-    mr r30, r3                       # Original instruction
+    original_instruction

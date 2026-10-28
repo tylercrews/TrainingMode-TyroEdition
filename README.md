@@ -66,14 +66,15 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 ### T8 (V1.4.1T8) - 2026-10-28
 
 - **Program changes**
-    - New [scripts/sweetspot_dj_platforms.py](scripts/sweetspot_dj_platforms.py) reads Fox's and Falco's double jump, side-B and ledge-grab numbers and the legal stages' ledges from a vanilla ISO, and prints where the Double-Jump Height Indicator draws on each legal stage.
+    - New [scripts/sweetspot_dj_platforms.py](scripts/sweetspot_dj_platforms.py) reads Fox's and Falco's double jump, side-B and ledge-grab numbers and the legal stages' ledges from a vanilla ISO, and prints where the Double-Jump Height Indicator draws on each legal stage. [scripts/build_dj_height_gecko.py](scripts/build_dj_height_gecko.py) rebuilds its Gecko codes.
 - **Event-specific changes**
     - **Side-B Sweetspot**
-        - New **Double-Jump Height Indicator** setting (Off by default, saved). It draws a short line under each ledge: double jump with your feet on it, side-B at the top of the jump, and a full side-B sweetspots. Orange for Fox, sky blue for Falco.
-            - **Height:** the double jump's rise (40.2 for Fox, 41.8 for Falco) plus 13 under the ledge, so at the peak the middle of your ledge-grab box is level with the ledge, with 4.5 of slack either way. Fox's line is 1/6 higher because he drops that much during side-B startup.
-            - **Position and width:** centered where a full side-B (the range guide's white **0** dot) just reaches the ledge, and as wide as the double jump can drift either way by its peak (15.9 for Fox in 19 frames, 18.5 for Falco in 22).
+        - New **Double-Jump Height Indicator** setting (Off by default, saved). Under each ledge it draws a short line and an X at ledge height above the line's middle. Double jump before your feet fall below the line, drift to the X, and side-B at the peak to sweetspot. Orange for Fox, sky blue for Falco.
+            - **The line** is the lowest your feet can be when you double jump and still sweetspot: the double jump's rise (40.2 for Fox, 41.8 for Falco) plus the top of your ledge-grab box (17.5), so 57.5 under the ledge for Fox and 59.3 for Falco. Double jump from it and the blue guide line peaks level with the white one; from below it you can't make it. Fox's line is 1/6 higher because he drops that much during side-B startup.
+            - It's two thirds as wide as the double jump can drift either way by its peak: ±10.6 for Fox (the most is 15.9, in 19 frames) and ±12.3 for Falco (18.5, in 22 frames).
+            - **The X** is where a full side-B (the range guide's white **0** dot) just reaches the ledge. It draws on top of the white ledge line.
             - It works with the Line Guides on or off, and works out its numbers from your character's live data. It uses a spare bit of the save record, so the save format doesn't change.
-        - New [Slippi Gecko code](slippi-gecko-codes/dj-height-indicator/README.md) that draws the same lines in any match on the six legal stages, for every Fox and Falco playing. Its README lists where the lines land on each stage. It passes emulator tests but hasn't been tested in Dolphin yet.
+        - New [Slippi Gecko codes](slippi-gecko-codes/dj-height-indicator/README.md), one for Fox and one for Falco, that draw the same line and X on the six legal stages in any match. They don't check who is playing, and both can be on at once. Their README lists where the marks land on each stage. They pass emulator tests but haven't been tested in Dolphin yet.
 
 ### T7 (V1.4.1T7) - 2026-10-21
 

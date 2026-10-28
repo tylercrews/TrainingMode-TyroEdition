@@ -166,8 +166,8 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Double-Jump Height Indicator",
         .OnChange = ChangeDoubleJumpIndicator,
-        .desc = {"Double jump with your feet on the line,",
-                 "then side-B at the peak to sweetspot."},
+        .desc = {"Double jump before your feet fall below the line,",
+                 "then drift to the X and side-B at the peak."},
     },
     /* Extra underside guide retained for reference; excluded from the menu.
     {
@@ -337,29 +337,49 @@ static void GetDoubleJumpReach(FighterData *fighter, float *rise, float *drift) 
     }
 }
 
-// A platform under each ledge for the double jump before a full side-B. It is
-// centered where the full side-B (the white 0 dot) just reaches the ledge and
-// is as wide as the double jump can drift either way by its peak. Double jump
-// with your feet on it and side-B at the peak: the middle of the ledge-grab
-// box (cliffgrab_y_offset above the feet) meets the ledge, so you have half
-// the box's height to spare either way.
+// The platform spans two thirds of the farthest drift either way, so reaching
+// the middle never takes the stick held all the way for the whole rise.
+#define DJ_WIDTH_SHARE (2.0f / 3.0f)
+#define DJ_TARGET_SIZE 2.5f // Half the target X's width and height.
+
+// Melee calculation for the top of the ledgegrab box, above the feet
+static float LedgeGrabTop(FighterData *fighter) {
+    CollData *coll_data = &fighter->coll_data;
+    float offset = coll_data->cliffgrab_y_offset + 0.5 * coll_data->cliffgrab_height;
+    if (fighter->kind == FTKIND_FOX) {
+        // Only Fox drops a small amount during sideb before moving
+        offset -= 1.0 / 6.0;
+    }
+    return offset;
+}
+
+// A platform under each ledge at the lowest your feet can be when you double
+// jump and still sweetspot a side-B at the peak: there, the top of the
+// ledge-grab box (the blue guide line) peaks level with the ledge. Fall below
+// it and the double jump can't get you back up. An X on the white ledge line
+// marks where to side-B. Both are centered where the full side-B (the white
+// 0 dot) just reaches the ledge.
 static void DrawDoubleJumpIndicator(FighterData *fighter, float full_range) {
     float rise, drift;
     GetDoubleJumpReach(fighter, &rise, &drift);
-    float depth = fighter->coll_data.cliffgrab_y_offset + rise;
-    if (fighter->kind == FTKIND_FOX)
-        depth -= 1.0 / 6.0; // Fox drops this much during side-B startup.
+    float width = drift * DJ_WIDTH_SHARE;
+    float depth = LedgeGrabTop(fighter) + rise;
 
     GXColor color = fighter->kind == FTKIND_FOX
         ? (GXColor) { 0xff, 0x8c, 0x00, 0xff }  // Orange
         : (GXColor) { 0x30, 0xc8, 0xff, 0xff }; // Sky blue
-    event_vars->GFX_Start(4, (GFX_Params) { .shape = GX_LINES, .size = 16 });
+    const float s = DJ_TARGET_SIZE;
+    event_vars->GFX_Start(12, (GFX_Params) { .shape = GX_LINES, .size = 16 });
     for (int i = 0; i < 2; i++) {
         float offstage = i == 0 ? -1 : 1;
         float x = ledge_positions[i].X + offstage * full_range;
-        float y = ledge_positions[i].Y - depth;
-        GFX_AddVtx(x - drift, y, 0, color);
-        GFX_AddVtx(x + drift, y, 0, color);
+        float y = ledge_positions[i].Y;
+        GFX_AddVtx(x - width, y - depth, 0, color);
+        GFX_AddVtx(x + width, y - depth, 0, color);
+        GFX_AddVtx(x - s, y - s, 0, color);
+        GFX_AddVtx(x + s, y + s, 0, color);
+        GFX_AddVtx(x - s, y + s, 0, color);
+        GFX_AddVtx(x + s, y - s, 0, color);
     }
 }
 
@@ -374,14 +394,7 @@ static void DrawExtraUndersideDistanceMarkings(FighterData *fighter) {
 */
 
 static void DrawLineGuides(FighterData *hmn_data, float ranges[4]) {
-    CollData *coll_data = &hmn_data->coll_data;
-
-    // Melee calculation for the top of the ledgegrab box
-    float ledgegrab_offset = coll_data->cliffgrab_y_offset + 0.5 * coll_data->cliffgrab_height;
-    if (hmn_data->kind == FTKIND_FOX) {
-        // Only Fox drops a small amount during sideb before moving
-        ledgegrab_offset -= 1.0 / 6.0;
-    }
+    float ledgegrab_offset = LedgeGrabTop(hmn_data);
 
     float y = hmn_data->phys.pos.Y + ledgegrab_offset; 
     float x = hmn_data->phys.pos.X; 
@@ -442,10 +455,11 @@ void Draw_Lines(void) {
     float ranges[4];
     // GetHorizontalRanges(hmn_data, ranges, false); // Archived dash-only guide.
     GetHorizontalRanges(hmn_data, ranges, true);
-    if (Options_Main[OPT_DJ_HEIGHT].val)
-        DrawDoubleJumpIndicator(hmn_data, ranges[3]);
     if (Options_Main[OPT_VERTICAL_LINES].val)
         DrawLineGuides(hmn_data, ranges);
+    // After the guides, so the X sits on top of the white ledge line.
+    if (Options_Main[OPT_DJ_HEIGHT].val)
+        DrawDoubleJumpIndicator(hmn_data, ranges[3]);
 
     CObj_SetCurrent(cur_cam);
 }

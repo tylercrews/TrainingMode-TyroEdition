@@ -7,18 +7,22 @@ src/sweetspot.c, in single-precision floats like the game:
   air jump H multiplier. Gravity applies on the first physics frame. With the
   stick held, X speed above the drift max slows by air friction each frame.
   "rise" is the height at the peak and "drift" how far the jump moves sideways
-  by then.
+  by then. The platform spans two thirds of that drift either way.
 - Full side-B: three dash steps (78/4 for Fox, 60/4 for Falco, times the model
   scale) plus the aerial endlag drift (special attributes 0x3C speed, 0x40
   decay). This is the white 0 dot of the event's range guide.
-- Height: the platform is where your feet double jump so the peak puts the
-  middle of the ledge-grab box (FtCollDesc 0x14, unscaled) on the ledge. Fox
-  drops 1/6 during side-B startup, so his platform is 1/6 higher.
+- Height: the platform is the lowest your feet can be when you double jump
+  and still sweetspot at the peak: there, the top of the ledge-grab box
+  (FtCollDesc 0x14 + 0x18 / 2, unscaled; the event's blue guide line) peaks
+  level with the ledge. Fox drops 1/6 during side-B startup, so his platform
+  is 1/6 higher.
+- Target: an X at ledge height, straight above the platform's middle. Peak
+  there and side-B.
 - Ledges: the event's line IDs, walked to the end of the floor like the game's
   Stage_GetLeft/RightOfLineCoordinates, scaled by grGroundParam.
 
-The Slippi Gecko code (slippi-gecko-codes/dj-height-indicator) hardcodes the
-three per-character numbers this prints.
+The Slippi Gecko codes (slippi-gecko-codes/dj-height-indicator) hardcode the
+full side-B, width and depth this prints for each character.
 
 Usage: python -I scripts/sweetspot_dj_platforms.py [path/to/melee.iso]
 """
@@ -36,6 +40,7 @@ STAGES = [
     ('GrNLa.dat', 'Final Destination', 32, 0x00, 0x02),
 ]
 CHARACTERS = [('PlFx.dat', 'Fox', 78.0, 1 / 6), ('PlFc.dat', 'Falco', 60.0, 0.0)]
+WIDTH_SHARE = 2 / 3  # DJ_WIDTH_SHARE in src/sweetspot.c
 
 
 def f32(value):
@@ -104,9 +109,9 @@ def character(dat, dash, drop):
         endlag = f32(endlag + end_speed)
     full = f32(endlag + 3 * f32(f32(dash / 4) * scale))
     grab_y, grab_height = struct.unpack_from('>2f', body, coll + 0x14)
-    depth = f32(grab_y + rise - drop)
-    return {'rise': rise, 'frames': frames, 'drift': drift, 'full': full, 'depth': depth,
-            'grab_y': grab_y, 'grab_height': grab_height}
+    depth = f32(f32(grab_y + grab_height / 2 - drop) + rise)
+    return {'rise': rise, 'frames': frames, 'drift': drift, 'width': f32(drift * f32(WIDTH_SHARE)),
+            'full': full, 'depth': depth, 'grab_y': grab_y, 'grab_height': grab_height}
 
 
 def ledges(dat, left_line, right_line):
@@ -130,18 +135,21 @@ def main():
     with open(path, 'rb') as iso:
         chars = [(name, character(read_file(iso, dat), dash, drop)) for dat, name, dash, drop in CHARACTERS]
         for name, c in chars:
-            print(f"{name}: double jump rises {c['rise']:.3f} in {c['frames']} frames, drifts {c['drift']:.3f}; "
+            print(f"{name}: double jump rises {c['rise']:.3f} in {c['frames']} frames, drifts {c['drift']:.3f} "
+                  f"(platform +/-{c['width']:.3f}); "
                   f"full side-B {c['full']:.3f}; ledge-grab box {c['grab_y']:.1f} +/- {c['grab_height'] / 2:.1f} "
                   f"above the feet; platform {c['depth']:.3f} under the ledge")
         print()
-        print('| Stage | Ledges (x, y) | ' + ' | '.join(f'{name} platforms (x from..to, y)' for name, _ in chars) + ' |')
-        print('| --- | --- | ' + ' | '.join('---' for _ in chars) + ' |')
+        print('| Stage | Ledges (x, y) | ' + ' | '.join(f'{name} platform (x from..to, y) | {name} X (x, y)'
+                                                     for name, _ in chars) + ' |')
+        print('| --- | --- | ' + ' | '.join('--- | ---' for _ in chars) + ' |')
         for dat, stage, _, left_line, right_line in STAGES:
             (lx, ly), (rx, ry) = ledges(read_file(iso, dat), left_line, right_line)
             cells = []
             for _, c in chars:
                 center = rx + c['full']
-                cells.append(f"+/-{center - c['drift']:.2f}..{center + c['drift']:.2f}, {ry - c['depth']:.2f}")
+                cells.append(f"+/-{center - c['width']:.2f}..{center + c['width']:.2f}, {ry - c['depth']:.2f}")
+                cells.append(f"+/-{center:.2f}, {ry:.2f}")
             print(f'| {stage} | +/-{rx:.2f}, {ry:.2f} | ' + ' | '.join(cells) + ' |')
             if abs(lx + rx) > 1e-3 or abs(ly - ry) > 1e-3:
                 print(f'  ({stage} is not symmetric: left ledge {lx:.4f}, {ly:.4f})')

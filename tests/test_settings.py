@@ -3045,11 +3045,11 @@ class SweetspotDoubleJumpDrawTests(unittest.TestCase):
     Destination and read the Double-Jump Height Indicator back from the GX FIFO."""
     dat_path, dat_root, stage = SweetspotCameraTests.dat_path, SweetspotCameraTests.dat_root, SweetspotCameraTests.stage
     word, text = SweetspotCameraTests.word, SweetspotCameraTests.text
-    GFX, LEDGE = 0x80004100, 85.5657
-    # Full side-B, drift either way, depth under the ledge, color: the numbers
+    GFX, LEDGE, TARGET = 0x80004100, 85.5657, 2.5
+    # Full side-B, platform half-width, depth, color: the numbers
     # scripts/sweetspot_dj_platforms.py prints, as in tests/test_dj_height_gecko.py.
-    SPACIES = {0: (83.740, 15.860, 53.037, (0xff, 0x8c, 0x00, 0xff)),
-               1: (77.080, 18.510, 54.778, (0x30, 0xc8, 0xff, 0xff))}
+    SPACIES = {0: (83.740, 10.573, 57.537, (0xff, 0x8c, 0x00, 0xff)),
+               1: (77.080, 12.340, 59.278, (0x30, 0xc8, 0xff, 0xff))}
 
     def setUp(self):
         from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
@@ -3100,12 +3100,14 @@ class SweetspotDoubleJumpDrawTests(unittest.TestCase):
         return vertices
 
     def expected(self, falco):
-        full, drift, depth, color = self.SPACIES[falco]
-        lines = []
+        """Under each ledge, the platform and then the X."""
+        full, width, depth, color = self.SPACIES[falco]
+        vertices, t = [], self.TARGET
         for x, offstage in ((-self.LEDGE, -1), (self.LEDGE, 1)):
-            center = x + offstage * full
-            lines += [(center - drift, -depth, 0, color), (center + drift, -depth, 0, color)]
-        return lines
+            x += offstage * full
+            vertices += [(x + dx, dy, 0, color) for dx, dy in
+                         ((-width, -depth), (width, -depth), (-t, -t), (t, t), (-t, t), (t, -t))]
+        return vertices
 
     def assertVertices(self, actual, expected):
         self.assertEqual(len(actual), len(expected))
@@ -3118,14 +3120,14 @@ class SweetspotDoubleJumpDrawTests(unittest.TestCase):
         for falco in (0, 1):
             with self.subTest(falco=falco):
                 self.run_draw(falco, guides=0, indicator=1)
-                self.assertEqual(self.starts, [(4, 0xA8, 16)])  # GX_LINES, width 16.
+                self.assertEqual(self.starts, [(12, 0xA8, 16)])  # GX_LINES, width 16.
                 self.assertVertices(self.vertices(), self.expected(falco))
 
-    def test_indicator_draws_alongside_the_line_guides_and_only_when_on(self):
+    def test_indicator_draws_over_the_line_guides_and_only_when_on(self):
         self.run_draw(0, guides=1, indicator=1)
-        self.assertEqual(self.starts[0], (4, 0xA8, 16))
-        self.assertGreater(len(self.starts), 1)  # The guides follow.
-        self.assertVertices(self.vertices()[:4], self.expected(0))
+        self.assertGreater(len(self.starts), 1)  # The guides come first,
+        self.assertEqual(self.starts[-1], (12, 0xA8, 16))  # so the X is on top.
+        self.assertVertices(self.vertices()[-12:], self.expected(0))
         self.run_draw(0, guides=1, indicator=0)
         self.assertGreater(len(self.starts), 1)
         self.assertNotIn(self.SPACIES[0][3], [vertex[3] for vertex in self.vertices()])
