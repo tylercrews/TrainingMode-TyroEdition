@@ -23,12 +23,14 @@ HEADER = b'TYEX\x13\x3C\xA5\x5A'
 EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
 # Recovery masks: Fox, Falco, Sheik, Falcon, Marth, then (word 64, version 19)
 # Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus. Then Player
-# Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31.
-EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4)
-EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1)
+# Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31,
+# and Camera (Normal / Zoomed Out) in word 56's spare bit 30.
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0)
 EG_COUNT = len(EDGEGUARD_COUNTS)
 EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index added after version 18
 EG_POSITION = 20  # TM_EG_PLAYER_POSITION
+EG_CAMERA = 21  # TM_EG_CAMERA
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Bytes 24..67 appended by versions 15 to 19: one color nibble per OSD (all
@@ -38,6 +40,7 @@ COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
+TIMERS = 0x80  # Byte 8 bit 7: Don't Reset Timers, flag 10 (TM_FLAG_DONT_RESET_TIMERS), no version bump.
 
 def upgraded(raw):
     value = bytearray(raw)
@@ -58,6 +61,8 @@ REGION_SIZE, OWNED_SIZE = 88, 68
 PREF_COUNTS = {29: 3}
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
+SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
+BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -81,6 +86,27 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 11, 9, 0)
         self.assertEqual(m.call('Settings_Get', 11, 9), 0)
         self.assertEqual(m.call('Settings_Get', 14, 30), 5)
+
+    def test_dont_reset_timers_flag_lives_in_extension_byte_eight_bit_seven(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(m.call('Settings_Get', 11, 10), 0)  # Default Off: savestates rewind the clock.
+        m.call('Settings_Set', 14, 30, 5)  # Every other byte-8 field is set first.
+        m.call('Settings_Set', 11, 9, 1)
+        m.call('Settings_Set', 14, 27, 6)
+        m.call('Settings_Set', 11, 10, 1)
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0], TIMERS | (6 << 4) | RANDALL | 5)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)  # Still version 19.
+        self.assertEqual(m.record(), core)
+        m.call('Settings_Set', 11, 10, 2)  # Out of range is ignored.
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, bytes(m.cpu.mem_read(EXT, OWNED_SIZE)))
+        self.assertEqual(fresh.call('Settings_Get', 11, 10), 1)
+        m.call('Settings_Set', 11, 10, 0)
+        self.assertEqual(m.call('Settings_Get', 11, 10), 0)
+        self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0], (6 << 4) | RANDALL | 5)
+        self.assertEqual((m.call('Settings_Get', 14, 30), m.call('Settings_Get', 11, 9), m.call('Settings_Get', 14, 27)), (5, 1, 6))
 
     def test_version_12_padding_never_turns_randall_on(self):
         m = self.m
@@ -323,6 +349,24 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(EG_POSITION)),
                          EDGEGUARD_DEFAULTS[:EG_POSITION])
 
+    def test_edgeguard_camera_reads_normal_from_existing_saves_and_uses_only_word_56_bit_30(self):
+        m = self.m
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_CAMERA), 0)  # Normal without a record.
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        # A new record, like every record from before this setting, has bit 30 of word 56 clear.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 56, 4), 'little') >> 30, 0)
+        before = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        for camera in (1, 0, 1):
+            m.call('Settings_Set', EDGEGUARD, EG_CAMERA, camera)
+            self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_CAMERA), camera)
+            after = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual(int.from_bytes(after[56:60], 'little') >> 30, camera)
+            # Nothing else in the record changes, including the CPU percents in word 56.
+            after[59] &= 0xBF
+            self.assertEqual(bytes(after), bytes(before))
+        self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(EG_CAMERA)),
+                         EDGEGUARD_DEFAULTS[:EG_CAMERA])
+
     def test_costumes_round_trip_reject_and_repair_invalid_values(self):
         m = self.m
         core = m.record()
@@ -376,6 +420,40 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('TestSettingsEditorRow', fixtures.PHYSICAL[row]), 1)
         m.call('Settings_Set', 16, 31, 0)  # Logical row write, as the Lab and native hooks use.
         self.assertEqual(m.call('Settings_Get', 11, 9), 0)
+
+    def test_dont_reset_timers_editor_row_writes_its_extension_flag(self):
+        m = self.m
+        fixtures.open_editor(m, 1)
+        row = fixtures.editor_row(34)[1]
+        label = "Don't Reset Timers"
+        self.assertEqual(''.join(chr(m.call('TestEditorLabelChar', row, i)) for i in range(len(label))), label)
+        m.call('TestEditorInput', fixtures.MENU_A, row)
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        self.assertEqual(m.call('Settings_Get', 11, 9), 0)  # Randall is untouched.
+        m.call('TestEditorAnimate', row)
+        m.call('TestSettingsEditorWrite', fixtures.PHYSICAL[row], m.call('TestEditorCache', row))
+        self.assertEqual(m.call('Settings_Get', 11, 10), 1)
+        self.assertEqual(m.call('TestSettingsEditorRow', fixtures.PHYSICAL[row]), 1)
+        self.assertEqual(m.call('Settings_Get', 16, 34), 1)
+        m.call('Settings_Set', 16, 34, 0)  # Logical row write, as the native hooks use.
+        self.assertEqual(m.call('Settings_Get', 11, 10), 0)
+
+    def test_blast_zone_overlay_editor_row_writes_its_extension_flag(self):
+        m = self.m
+        fixtures.open_editor(m, 1)
+        row = fixtures.editor_row(35)[1]
+        label = "Blast Zone Overlay"
+        self.assertEqual(''.join(chr(m.call('TestEditorLabelChar', row, i)) for i in range(len(label))), label)
+        m.call('TestEditorInput', fixtures.MENU_A, row)
+        self.assertEqual(m.call('Settings_Get', 11, BLAST_ZONES), 1)
+        self.assertEqual((m.call('Settings_Get', 11, 9), m.call('Settings_Get', 11, 10)), (0, 0))  # Randall and timers are untouched.
+        m.call('TestEditorAnimate', row)
+        m.call('TestSettingsEditorWrite', fixtures.PHYSICAL[row], m.call('TestEditorCache', row))
+        self.assertEqual(m.call('Settings_Get', 11, BLAST_ZONES), 1)
+        self.assertEqual(m.call('TestSettingsEditorRow', fixtures.PHYSICAL[row]), 1)
+        self.assertEqual(m.call('Settings_Get', 16, 35), 1)
+        m.call('Settings_Set', 16, 35, 0)  # Logical row write, as the native hooks use.
+        self.assertEqual(m.call('Settings_Get', 11, BLAST_ZONES), 0)
 
     def test_absent_defaults_are_read_only_and_first_edit_only_owns_twenty_bytes(self):
         m = self.m
@@ -817,6 +895,80 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
             self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
             self.assertEqual(m.call('Settings_Get',29,2), 0)
+
+    def test_sweetspot_double_jump_indicator_lives_in_word_20_bit_22(self):
+        m = self.m
+        m.call('Settings_Set',29,2,1)  # Lava Overlay: the neighboring bit 21.
+        self.assertEqual(m.call('Settings_Get',SWEETSPOT_DJ,0), 0)
+        shield = [m.call('Settings_Get',f,i) for f, counts, _ in SHIELD_FIELDS for i in range(len(counts))]
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',SWEETSPOT_DJ,0,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[22] |= 0x40
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual((m.call('Settings_Get',SWEETSPOT_DJ,0), m.call('Settings_Get',29,2)), (1, 1))
+        self.assertEqual([m.call('Settings_Get',f,i) for f, counts, _ in SHIELD_FIELDS for i in range(len(counts))], shield)
+        m.call('Settings_Set',SWEETSPOT_DJ,0,2)  # Out of range is ignored.
+        m.call('Settings_Set',SWEETSPOT_DJ,1,0)  # So is any index but 0.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        # Version 11..18 records own word 20, so the bit is read as is.
+        old = bytearray(after); old[4:6] = bytes((18,56))
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,SWEETSPOT_DJ,0), 1)
+        m.cpu.mem_write(EXT, after)
+        m.call('Settings_Set',SWEETSPOT_DJ,0,0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_records_before_version_11_never_read_the_double_jump_indicator_bit(self):
+        for version, payload in ((10,12), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',29,0,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload)); old[22] = 0xFF  # Valid-looking spare score bytes.
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read',EXT,SWEETSPOT_DJ,0), 0)
+            m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
+            self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+            self.assertEqual(m.call('Settings_Get',SWEETSPOT_DJ,0), 0)
+
+    def test_blast_zone_overlay_flag_lives_in_word_20_bit_23(self):
+        m = self.m
+        m.call('Settings_Set',29,2,1)  # Lava Overlay and the Double-Jump Indicator: bits 21 and 22.
+        m.call('Settings_Set',SWEETSPOT_DJ,0,1)
+        m.call('Settings_Set',11,10,1)  # Don't Reset Timers, the previous extension flag.
+        self.assertEqual(m.call('Settings_Get',11,BLAST_ZONES), 0)
+        core = m.record()
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',11,BLAST_ZONES,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[22] |= 0x80
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(after[:8], HEADER)  # Still version 19.
+        self.assertEqual(m.record(), core)
+        self.assertEqual([m.call('Settings_Get',*key) for key in ((11,BLAST_ZONES), (29,2), (SWEETSPOT_DJ,0), (11,10), (11,9))], [1,1,1,1,0])
+        m.call('Settings_Set',11,BLAST_ZONES,2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        # Version 11..18 records own word 20, so the bit is read as is.
+        old = bytearray(after); old[4:6] = bytes((18,56))
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,11,BLAST_ZONES), 1)
+        m.cpu.mem_write(EXT, after)
+        m.call('Settings_Set',11,BLAST_ZONES,0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_records_before_version_11_never_read_the_blast_zone_overlay_bit(self):
+        for version, payload in ((10,12), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',29,0,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload)); old[22] = 0xFF  # Valid-looking spare score bytes.
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read',EXT,11,BLAST_ZONES), 0)
+            m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
+            self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+            self.assertEqual(m.call('Settings_Get',11,BLAST_ZONES), 0)
 
     def test_older_records_never_read_byte_35_and_migration_claims_it_as_defaults(self):
         for version, payload in ((14,16), (10,12), (6,8)):

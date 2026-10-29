@@ -456,6 +456,30 @@ void TestCueLanding(unsigned slot, int lag, int allow_interrupt) {
 void TestCueFrozen(unsigned slot, int frozen) { cue_data[slot].flags.hitlag = frozen; cue_data[slot].flags.freeze = frozen; }
 void TestCueIASA(unsigned slot, int ready) { cue_data[slot].flags.past_iasa = ready; }
 void TestCueKind(unsigned slot, int kind) { cue_data[slot].kind = kind; }
+/* Vanilla NTSC 1.02 Fox or Falco: the jump, drift, side-B and ledge-grab
+ * numbers scripts/sweetspot_dj_platforms.py reads from the ISO. */
+static float cue_spacie_special[0x44 / sizeof(float)];
+void TestCueSpacie(unsigned slot, int falco) {
+    FighterData *fp = &cue_data[slot];
+    fp->kind = falco ? FTKIND_FALCO : FTKIND_FOX;
+    fp->attr.jump_v_initial_velocity = falco ? 4.1f : 3.68f;
+    fp->attr.air_jump_v_multiplier = falco ? .94f : 1.2f;
+    fp->attr.air_jump_h_multiplier = falco ? .94f : .9f;
+    fp->attr.gravity = falco ? .17f : .23f;
+    fp->attr.aerial_drift_stick_mult = falco ? .05f : .06f;
+    fp->attr.aerial_drift_base = .02f;
+    fp->attr.aerial_drift_max = .83f;
+    fp->attr.aerial_friction = .02f;
+    fp->attr.horizontal_air_mobility_constant = falco ? 4 : 3;
+    fp->attr.model_scaling = falco ? 1.1f : .96f;
+    fp->scale.Y = 1;
+    cue_spacie_special[0x3C / sizeof(float)] = 2;    /* Aerial side-B end speed */
+    cue_spacie_special[0x40 / sizeof(float)] = .07f; /* and its decay. */
+    fp->special_attributes = cue_spacie_special;
+    fp->coll_data.cliffgrab_y_offset = 13;
+    fp->coll_data.cliffgrab_height = 9;
+}
+void TestEventGFX(uintptr_t start) { test_trail_vars.GFX_Start = (void *)start; }
 void TestCueInstance(unsigned slot, unsigned instance) { cue_data[slot].atk_instance = instance; }
 void TestCueTimers(unsigned slot, int state_frame, int iasa_frames) {
     cue_data[slot].TM.state_frame = state_frame; cue_data[slot].TM.iasa_frames = iasa_frames;

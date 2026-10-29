@@ -1,6 +1,8 @@
 #include "../MexTK/mex.h"
 #include "events.h"
 #include "fighter_swap.h"
+#include "stage_swap.h"
+#include "zoom_camera.h"
 
 static void Exit(GOBJ *menu);
 static void Reset(void);
@@ -8,6 +10,8 @@ static void Reset(void);
 static void ChangePlayerPercent(GOBJ *menu_gobj, int value);
 static void ChangePlayerPosition(GOBJ *menu_gobj, int value);
 static void ChangeHitStrength(GOBJ *menu_gobj, int value);
+static void ChangeBlastZones(GOBJ *menu_gobj, int value);
+static void ChangeCamera(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMax(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_AngMin(GOBJ *menu_gobj, int value);
@@ -81,7 +85,10 @@ enum options_initial {
     OPT_MAIN_POSITION,
     OPT_MAIN_HITSTRENGTH,
     OPT_MAIN_HITSTRENGTH_CUSTOMMENU,
+    OPT_MAIN_BLAST_ZONES,
+    OPT_MAIN_CAMERA,
     OPT_MAIN_CHARACTERS,
+    OPT_MAIN_STAGE,
     OPT_MAIN_EXIT,
     
     OPT_MAIN_COUNT
@@ -133,12 +140,35 @@ static EventOption Options_Main[] = {
                  "will be knocked back. These settings are saved."},
     },
     {
+        .kind = OPTKIND_TOGGLE,
+        .name = TM_GLOBAL_BLAST_ZONES_NAME,
+        .desc = {"Draw a red line on the stage's blast zones.",
+                 "Shares the Global Overlays & Gameplay setting."},
+        .OnChange = ChangeBlastZones,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Camera",
+        .value_num = 2,
+        .values = (const char *[]) { ZOOM_CAMERA_VALUES },
+        .OnChange = ChangeCamera,
+        .desc = {"Zoom out to see farther offstage.",
+                 "This setting is saved."},
+    },
+    {
         .kind = OPTKIND_MENU,
         .menu = &Menu_Characters,
         .name = "Change Characters",
         .desc = {"Restart with another player or CPU character.",
                  "The CPU can be any character with Recovery",
                  "Options. Saved settings are kept."},
+    },
+    {
+        .kind = OPTKIND_MENU,
+        .menu = &StageSwap_Menu,
+        .name = "Change Stage",
+        .desc = {"Restart on another tournament-legal stage.",
+                 "Saved settings are kept."},
     },
     {
         .kind = OPTKIND_FUNC,

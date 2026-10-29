@@ -62,6 +62,10 @@ static void LoadSettings(EventMenu *recovery_menu) {
     for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
         Options_CustomHitStrength[i].val = TM_GetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i]);
     LoadCustomKBRange();
+    Options_Main[OPT_MAIN_BLAST_ZONES].val = Options_Main[OPT_MAIN_BLAST_ZONES].val_prev =
+        !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES);
+    Options_Main[OPT_MAIN_CAMERA].val = Options_Main[OPT_MAIN_CAMERA].val_prev =
+        TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_CAMERA);
 
     // bit N of the saved mask is row N of this CPU's recovery menu
     int pref = RecoveryPref(recovery_menu);
@@ -345,6 +349,15 @@ static void ChangeHitStrength(GOBJ *menu_gobj, int value) {
     SaveSettings();
 }
 
+static void ChangeBlastZones(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES, value);
+}
+
+static void ChangeCamera(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_CAMERA, value);
+    ZoomCamera_Apply(value);
+}
+
 static void WriteCustomKBValues(void) {
     LoadCustomKBRange();
     Options_Main[OPT_MAIN_HITSTRENGTH].val = KBVALS_CUSTOM;
@@ -407,12 +420,21 @@ void Event_Init(GOBJ *gobj) {
 
     FighterSwap_Restrict(1, Edgeguard_CPUKinds, countof(Edgeguard_CPUKinds));
     FighterSwap_Init();
+    StageSwap_Init();
 
     GetLedgePositions(ledge_positions);
+
+    // Fighters fall far below the stage here, so Zoomed Out also keeps the
+    // bottom blast zone in view. The GObj's cleanup restores the stage's
+    // camera when the match ends.
+    ZoomCamera_Init(Options_Main[OPT_MAIN_CAMERA].val, 1);
+    GOBJ *camera_gobj = GObj_Create(0, 0, 0);
+    GObj_AddUserData(camera_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
 }
 
 /* The restart saves the card. */
 static void FighterSwap_BeforeRestart(void) { FlushRecovery(); }
+static void StageSwap_BeforeRestart(void) { FlushRecovery(); }
 
 void Event_Think(GOBJ *menu) {
     // For some reason, Savestate_Save crashes in Event_Init.
@@ -446,6 +468,7 @@ void Event_Think(GOBJ *menu) {
     edgeguard_timer++;
     
     Vec2 cpu_pos = { cpu_data->phys.pos.X, cpu_data->phys.pos.Y };
+    ZoomCamera_Follow((hmn_data->phys.pos.X + cpu_pos.X) * 0.5f);
     
     if (
         reset_timer == -1

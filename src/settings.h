@@ -55,6 +55,10 @@
 #define TM_GLOBAL_INVINCIBILITY_NAME "Invincibility Overlay"
 #define TM_GLOBAL_RANDALL_ROW 31 /* Editor-only logical row; never an OSD enable bit. */
 #define TM_GLOBAL_RANDALL_NAME "Randall Overlay"
+#define TM_GLOBAL_DONT_RESET_TIMERS_ROW 34 /* Editor-only logical row, after the positions page's 32/33. */
+#define TM_GLOBAL_DONT_RESET_TIMERS_NAME "Don't Reset Timers"
+#define TM_GLOBAL_BLAST_ZONES_ROW 35 /* Editor-only logical row. */
+#define TM_GLOBAL_BLAST_ZONES_NAME "Blast Zone Overlay"
 #define TM_GLOBAL_MISSED_LCANCEL_NAME "Missed L Cancel"
 #define TM_GLOBAL_ACTION_CUES_NAME "Actionable Yellow>Green"
 #define TM_GLOBAL_RUN_TURN_NAME "Run Turnaround"
@@ -88,7 +92,11 @@ enum TMSettingsFlag {
     TM_FLAG_CPU_OSDS_OFF,
     TM_FLAG_COUNT, /* Core-record flags end here. */
     TM_FLAG_RANDALL = TM_FLAG_COUNT, /* TYEX byte 8 bit 3; routed by Settings_Get/Set. */
+    TM_FLAG_DONT_RESET_TIMERS, /* TYEX byte 8 bit 7: savestate loads keep the match clock. */
+    TM_FLAG_BLAST_ZONES, /* TYEX word 20 bit 23: red lines on every stage's blast zones. */
 };
+/* Flags whose bit lives in the extension, not the full core record. */
+#define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS ||     (index) == TM_FLAG_BLAST_ZONES)
 
 /* These field numbers are mirrored in ASM/Globals.s. Append; never reorder. */
 enum TMSettingsField {
@@ -122,6 +130,7 @@ enum TMSettingsField {
     TM_SETTING_OSD_GRID_CELL, /* Index: OSD slot, or TM_OSD_CATEGORIES for JC Shine. 0 Auto, 1..30 a Fixed Grid cell. */
     TM_SETTING_COSTUME, /* Index 0 human / 1 CPU: costume of the saved CHARACTER, in the extension. */
     TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
+    TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -174,7 +183,7 @@ enum TMAttackShieldPreference {
 /* Custom Hit Strength ranges, then the percents, then Hit Strength and one
  * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu).
  * Append; the CPUs from Yoshi on live in a later TYEX word. Player Position
- * uses word 60's spare top bits. */
+ * uses word 60's spare top bits, Camera (Normal / Zoomed Out) word 56's bit 30. */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
@@ -182,7 +191,7 @@ enum TMEdgeguardPreference {
     TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH,
     TM_EG_RECOVERY_YOSHI, TM_EG_RECOVERY_PEACH, TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_DRMARIO,
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
-    TM_EG_PLAYER_POSITION, TM_EG_PREF_COUNT
+    TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_PREF_COUNT
 };
 /* Edgeguard Player Position choices, ledge to center. Close is the original spot. */
 enum { TM_EG_POSITION_AT_LEDGE, TM_EG_POSITION_CLOSE, TM_EG_POSITION_HALFWAY,

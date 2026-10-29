@@ -1,43 +1,12 @@
 #include "events.h"
+#include "stage_swap.h"
+#include "zoom_camera.h"
 
 static Vec2 ledge_positions[2];
 
-// Stage camera settings are outside the practice savestate. Keep the original
-// values so toggling modes never compounds the zoom or affects another event.
-static struct {
-    float left, right, top, bottom;
-    float min_distance, max_distance;
-} normal_camera;
-
-static void RestoreCamera(void *unused) {
-    stc_stage->cambound_left = normal_camera.left;
-    stc_stage->cambound_right = normal_camera.right;
-    stc_stage->cambound_top = normal_camera.top;
-    stc_stage->cambound_bottom = normal_camera.bottom;
-    stc_stage->x34 = normal_camera.min_distance;
-    stc_stage->x38 = normal_camera.max_distance;
-}
-
-static void ApplyCamera(int zoomed_out) {
-    RestoreCamera(0);
-    if (zoomed_out) {
-        // Retain normal tracking of both fighters, with more recovery space on
-        // either side. Widen the tracking limits too: distance alone still
-        // clamps an offstage fighter to the stage's original camera bounds.
-        stc_stage->cambound_left -= 80;
-        stc_stage->cambound_right += 80;
-        stc_stage->cambound_top += 40;
-        stc_stage->cambound_bottom -= 40;
-        stc_stage->x34 *= 1.5f;
-        stc_stage->x38 *= 1.5f;
-    }
-    Match_SetNormalCamera();
-    Match_CorrectCamera();
-}
-
 static void ChangeCamera(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0, value);
-    ApplyCamera(value);
+    ZoomCamera_Apply(value);
 }
 
 static void GetLedgePositions(Vec2 coords_out[2]) {
@@ -126,10 +95,14 @@ void Reset(int side_idx);
 static void ChangeLineGuides(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_SWEETSPOT_LINES, 0, value);
 }
+static void ChangeDoubleJumpIndicator(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_SWEETSPOT_DJ, 0, value);
+}
 
 enum menu_options {
     OPT_VERTICAL_LINES,
     OPT_CAMERA,
+    OPT_DJ_HEIGHT,
     // OPT_EXTRA_UNDERSIDE_LINES,
 };
 
@@ -153,10 +126,24 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_STRING,
         .name = "Camera",
         .value_num = 2,
-        .values = (const char *[]) { "Normal", "Zoomed Out" },
+        .values = (const char *[]) { ZOOM_CAMERA_VALUES },
         .OnChange = ChangeCamera,
         .desc = {"Zoom out to see farther offstage",
                  "and line up with the ledge."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Double-Jump Height Indicator",
+        .OnChange = ChangeDoubleJumpIndicator,
+        .desc = {"Double jump before your feet fall below the line,",
+                 "then drift to the X and side-B at the peak."},
+    },
+    {
+        .kind = OPTKIND_MENU,
+        .name = "Change Stage",
+        .desc = {"Restart on another tournament-legal stage.",
+                 "Your saved settings are kept."},
+        .menu = &StageSwap_Menu,
     },
     /* Extra underside guide retained for reference; excluded from the menu.
     {
@@ -292,6 +279,86 @@ static void DrawRangeGuide(Vec3 origin, float direction, float ranges[4], GXColo
     DrawRangeNumber(0, origin.X + direction * ranges[3], origin.Y + 2, white);
 }
 
+// Double jump rise to its peak and the farthest it can drift on the way up,
+// from the fighter's live attributes. The jump sets Y speed to jump V *
+// air jump V multiplier and X speed to stick X * air jump H multiplier, and
+// gravity applies on its first physics frame (ftCo_JumpAerial_Enter_Basic,
+// ft_80084DB0). Full-stick drift follows ftCommon_CalcSelfAccel_DriftFrom:
+// above aerial_drift_max, X speed slows by aerial_friction a frame.
+// NTSC 1.02 values: Fox rises 40.20 in 19 frames and drifts up to 15.86;
+// Falco rises 41.78 in 22 frames and drifts up to 18.51.
+static void GetDoubleJumpReach(FighterData *fighter, float *rise, float *drift) {
+    float gravity = fighter->attr.gravity;
+    float speed_y = fighter->attr.jump_v_initial_velocity * fighter->attr.air_jump_v_multiplier;
+    float speed_x = fighter->attr.air_jump_h_multiplier;
+    float accel = fighter->attr.aerial_drift_stick_mult + fighter->attr.aerial_drift_base;
+    float target = fighter->attr.aerial_drift_max;
+    float limit = fighter->attr.horizontal_air_mobility_constant; // Max air X speed.
+    *rise = *drift = 0;
+    for (int i = 0; gravity > 0 && i < 180; i++) {
+        speed_y -= gravity;
+        if (speed_y <= 0)
+            break;
+        float step = accel;
+        if (speed_x + step > target) {
+            step = -fighter->attr.aerial_friction;
+            if (speed_x + step < target)
+                step = target - speed_x;
+            if (speed_x + step > limit)
+                step = limit - speed_x;
+        }
+        speed_x += step;
+        *rise += speed_y;
+        *drift += speed_x;
+    }
+}
+
+// The platform spans two thirds of the farthest drift either way, so reaching
+// the middle never takes the stick held all the way for the whole rise.
+#define DJ_WIDTH_SHARE (2.0f / 3.0f)
+#define DJ_TARGET_SIZE 2.5f // Half the target X's width and height.
+
+// Melee calculation for the top of the ledgegrab box, above the feet
+static float LedgeGrabTop(FighterData *fighter) {
+    CollData *coll_data = &fighter->coll_data;
+    float offset = coll_data->cliffgrab_y_offset + 0.5 * coll_data->cliffgrab_height;
+    if (fighter->kind == FTKIND_FOX) {
+        // Only Fox drops a small amount during sideb before moving
+        offset -= 1.0 / 6.0;
+    }
+    return offset;
+}
+
+// A platform under each ledge at the lowest your feet can be when you double
+// jump and still sweetspot a side-B at the peak: there, the top of the
+// ledge-grab box (the blue guide line) peaks level with the ledge. Fall below
+// it and the double jump can't get you back up. An X on the white ledge line
+// marks where to side-B. Both are centered where the full side-B (the white
+// 0 dot) just reaches the ledge.
+static void DrawDoubleJumpIndicator(FighterData *fighter, float full_range) {
+    float rise, drift;
+    GetDoubleJumpReach(fighter, &rise, &drift);
+    float width = drift * DJ_WIDTH_SHARE;
+    float depth = LedgeGrabTop(fighter) + rise;
+
+    GXColor color = fighter->kind == FTKIND_FOX
+        ? (GXColor) { 0xff, 0x8c, 0x00, 0xff }  // Orange
+        : (GXColor) { 0x30, 0xc8, 0xff, 0xff }; // Sky blue
+    const float s = DJ_TARGET_SIZE;
+    event_vars->GFX_Start(12, (GFX_Params) { .shape = GX_LINES, .size = 16 });
+    for (int i = 0; i < 2; i++) {
+        float offstage = i == 0 ? -1 : 1;
+        float x = ledge_positions[i].X + offstage * full_range;
+        float y = ledge_positions[i].Y;
+        GFX_AddVtx(x - width, y - depth, 0, color);
+        GFX_AddVtx(x + width, y - depth, 0, color);
+        GFX_AddVtx(x - s, y - s, 0, color);
+        GFX_AddVtx(x + s, y + s, 0, color);
+        GFX_AddVtx(x - s, y + s, 0, color);
+        GFX_AddVtx(x + s, y - s, 0, color);
+    }
+}
+
 /* Extra Underside Distance Markings, Totally Unnecessary
 static void DrawExtraUndersideDistanceMarkings(FighterData *fighter) {
     float ranges[4];
@@ -302,26 +369,8 @@ static void DrawExtraUndersideDistanceMarkings(FighterData *fighter) {
 }
 */
 
-void Draw_Lines(void) {
-    GOBJ *hmn = Fighter_GetGObj(0);
-    FighterData *hmn_data = hmn->userdata;
-    CollData *coll_data = &hmn_data->coll_data;
-
-    if (!Options_Main[OPT_VERTICAL_LINES].val)
-        return;
-
-    COBJ *cur_cam = COBJ_GetCurrent();
-    CObj_SetCurrent(*stc_matchcam_cobj);
-
-    // if (Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val)
-    //     DrawExtraUndersideDistanceMarkings(hmn_data);
-
-    // Melee calculation for the top of the ledgegrab box
-    float ledgegrab_offset = coll_data->cliffgrab_y_offset + 0.5 * coll_data->cliffgrab_height;
-    if (hmn_data->kind == FTKIND_FOX) {
-        // Only Fox drops a small amount during sideb before moving
-        ledgegrab_offset -= 1.0 / 6.0;
-    }
+static void DrawLineGuides(FighterData *hmn_data, float ranges[4]) {
+    float ledgegrab_offset = LedgeGrabTop(hmn_data);
 
     float y = hmn_data->phys.pos.Y + ledgegrab_offset; 
     float x = hmn_data->phys.pos.X; 
@@ -348,9 +397,6 @@ void Draw_Lines(void) {
 
     // Sweetspot targets use the full aerial distances INCLUDING endlag drift,
     // at the original ledge-grab height with the original result colors.
-    float ranges[4];
-    // GetHorizontalRanges(hmn_data, ranges, false); // Archived dash-only guide.
-    GetHorizontalRanges(hmn_data, ranges, true);
     float direction = sideb.attempted ? sideb.dir : hmn_data->facing_direction;
     DrawRangeGuide((Vec3) { x, y, 0 }, direction, ranges, color);
 
@@ -367,6 +413,29 @@ void Draw_Lines(void) {
     y = ledge_positions[1].Y;
     GFX_AddVtx(x, y, 0, white);
     GFX_AddVtx(x + 100, y, 0, white);
+}
+
+void Draw_Lines(void) {
+    GOBJ *hmn = Fighter_GetGObj(0);
+    FighterData *hmn_data = hmn->userdata;
+
+    if (!Options_Main[OPT_VERTICAL_LINES].val && !Options_Main[OPT_DJ_HEIGHT].val)
+        return;
+
+    COBJ *cur_cam = COBJ_GetCurrent();
+    CObj_SetCurrent(*stc_matchcam_cobj);
+
+    // if (Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val)
+    //     DrawExtraUndersideDistanceMarkings(hmn_data);
+
+    float ranges[4];
+    // GetHorizontalRanges(hmn_data, ranges, false); // Archived dash-only guide.
+    GetHorizontalRanges(hmn_data, ranges, true);
+    if (Options_Main[OPT_VERTICAL_LINES].val)
+        DrawLineGuides(hmn_data, ranges);
+    // After the guides, so the X sits on top of the white ledge line.
+    if (Options_Main[OPT_DJ_HEIGHT].val)
+        DrawDoubleJumpIndicator(hmn_data, ranges[3]);
 
     CObj_SetCurrent(cur_cam);
 }
@@ -376,18 +445,15 @@ void Event_Init(GOBJ* gobj) {
         TM_GetSetting(TM_SETTING_SWEETSPOT_LINES, 0);
     Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0);
-    normal_camera.left = stc_stage->cambound_left;
-    normal_camera.right = stc_stage->cambound_right;
-    normal_camera.top = stc_stage->cambound_top;
-    normal_camera.bottom = stc_stage->cambound_bottom;
-    normal_camera.min_distance = stc_stage->x34;
-    normal_camera.max_distance = stc_stage->x38;
-    ApplyCamera(Options_Main[OPT_CAMERA].val);
+    Options_Main[OPT_DJ_HEIGHT].val = Options_Main[OPT_DJ_HEIGHT].val_prev =
+        TM_GetSetting(TM_SETTING_SWEETSPOT_DJ, 0);
+    ZoomCamera_Init(Options_Main[OPT_CAMERA].val, 0);
     // Archived underside option was session-only, never memory-card backed.
     // Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val = Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val_prev = 0;
     GetLedgePositions(ledge_positions);
+    StageSwap_Init();
     GOBJ *draw_gobj = GObj_Create(0, 0, 0);
-    GObj_AddUserData(draw_gobj, 0, RestoreCamera, &normal_camera);
+    GObj_AddUserData(draw_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
     GObj_AddGXLink(draw_gobj, Draw_Lines, 3, 0);
 }
 
@@ -504,6 +570,10 @@ void Exit(GOBJ *menu) {
     stc_match->state = 3;
     Match_EndVS();
 }
+
+/* Every menu setting is saved, so the restart keeps them. The draw GObj's
+ * cleanup restores the camera when the match ends, as it does on Exit. */
+static void StageSwap_BeforeRestart(void) { }
 
 void Reset(int side_idx) {
     if (side_idx == 2)

@@ -20,7 +20,7 @@ IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 # Global Settings pages, read down the left column then the right; 255 = gap.
 EDITOR = [
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
-    [2,4,7,17,11,25,255,23,255,31] + [255] * 19,
+    [2,4,7,17,11,25,255,23,255,35,31,255,34] + [255] * 16,
     # Fixed Grid OSD Positions: page one's OSD rows, then JC Shine (32) and Reset All (33).
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,32,33],
 ]
@@ -2646,7 +2646,7 @@ class OSDEditorTests(unittest.TestCase):
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
         rows = [id for page in EDITOR[:2] for id in page if id != 255]
-        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31]))
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35]))
         self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
         # The positions page keeps every OSD row where page one has it.
         self.assertEqual(EDITOR[2][:27], EDITOR[0][:27])
@@ -2655,28 +2655,28 @@ class OSDEditorTests(unittest.TestCase):
                 self.assertEqual(self.m.call("TMSettings_EditorIDFor", page, native), EDITOR[page][row])
         self.assertEqual(self.m.call("TMSettings_EditorIDFor", 3, 0), 255)
 
-    def test_overlay_page_groups_character_overlays_gameplay_and_stage(self):
-        character, gameplay, stage = [2, 4, 7, 17, 11, 25], [23], [31]
-        self.assertEqual(EDITOR[1][:10], character + [255] + gameplay + [255] + stage)
+    def test_overlay_page_groups_character_overlays_gameplay_stage_and_timers(self):
+        character, gameplay, stage, timers = [2, 4, 7, 17, 11, 25], [23], [35, 31], [34]
+        self.assertEqual(EDITOR[1][:13], character + [255] + gameplay + [255] + stage + [255] + timers)
         m = self.m; open_editor(m, 1)
         m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
-        for row in (6, 8): self.assertEqual(m.call("TestEditorHidden", row), 1)
-        label = "Randall Overlay"
-        self.assertEqual(self.label(m, 9, len(label)), label)
+        for row in (6, 8, 11): self.assertEqual(m.call("TestEditorHidden", row), 1)
+        for row, label in ((9, "Blast Zone Overlay"), (10, "Randall Overlay"), (12, "Don't Reset Timers")):
+            self.assertEqual(self.label(m, row, len(label)), label)
 
     def test_checkboxes_are_posed_from_the_page_shown_not_the_previous_page(self):
         m = self.m
         frames = 0x804DB6A0 - 0x6AE8
         m.cpu.mem_write(frames, struct.pack(">ff", 3.0, 9.0))  # Off, On
-        m.write(14, 16, 7)  # Act OoWait On at page 1 row 9, where Randall sits on page 2.
+        m.write(14, 16, 7)  # Act OoWait On at page 1 row 9, where Blast Zone Overlay sits on page 2.
         m.call("TestEditorInit")
         row = editor_row(16)[1]
         self.assertEqual(m.call("TestEditorBoxFrame", row), 9)
         self.assertEqual(m.call("TestEditorBoxFrame", 7), 3)  # Gap rows are posed Off.
         m.call("TestEditorInput", MENU_L, 0); m.call("TestEditorInput", MENU_R, 0)
         m.call("TestEditorReload")
-        self.assertEqual(editor_row(31), (1, row))
-        self.assertEqual(m.call("Settings_Get", 11, 9), 0)  # No saved Randall setting.
+        self.assertEqual(editor_row(35), (1, row))
+        self.assertEqual(m.call("Settings_Get", 11, 11), 0)  # No saved Blast Zone Overlay setting.
         self.assertEqual(m.call("TestEditorBoxFrame", row), 3)
         for r in range(29):
             self.assertEqual(m.call("TestEditorBoxFrame", r), 9 if m.call("TestEditorCache", r) else 3)
@@ -2947,7 +2947,7 @@ class SweetspotCameraTests(unittest.TestCase):
         exported = dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
         m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
         menu = self.word(self.base + exported[3])
-        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 4)
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 6)
         options = self.word(menu+8)
         self.row = options + 44
         self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
@@ -3021,6 +3021,133 @@ class SweetspotCameraTests(unittest.TestCase):
         self.assertEqual(m.record(), saved)
         m.call('DAT_InitSweetspot', 0)  # Re-entering cannot compound the zoom.
         self.assertEqual(self.corrected[-1], self.expected_zoom())
+
+    def test_change_stage_row_lists_the_legal_stages_with_this_one_greyed_out(self):
+        m = self.m; row = self.row + 2 * 44
+        self.assertEqual(self.text(self.word(row+12)), 'Change Stage')
+        self.assertEqual(m.cpu.mem_read(row, 1)[0], 0)  # OPTKIND_MENU
+        stages = self.word(row+32)
+        m.call('DAT_InitSweetspot', 0)  # On Final Destination.
+        self.assertEqual(self.text(self.word(stages)), 'Change Stage')
+        self.assertEqual(bytes(m.cpu.mem_read(stages+4, 3)), bytes((6, 0, 1)))  # Six rows; cursor skips FD.
+        options = self.word(stages+8)
+        self.assertEqual([self.text(self.word(options + i*44 + 12)) for i in range(6)],
+                         ['Final Destination', 'Battlefield', 'Dream Land', "Yoshi's Story",
+                          'Fountain of Dreams', 'Pokemon Stadium'])
+        self.assertEqual([m.cpu.mem_read(options + i*44 + 1, 1)[0] for i in range(6)], [1, 0, 0, 0, 0, 0])
+        self.assertEqual(self.text(self.word(options + 32)), 'Current')
+
+    def test_double_jump_indicator_defaults_off_and_saves_only_its_extension_bit(self):
+        m = self.m; row = self.row + 44
+        self.assertEqual(self.text(self.word(row+12)), 'Double-Jump Height Indicator')
+        before = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 0, 0))
+        m.symbols['DAT_ChangeDoubleJump'] = self.word(row+36)
+        for choice in (1, 0, 1):
+            m.cpu.mem_write(row+6, struct.pack('>h', choice))
+            m.call('DAT_ChangeDoubleJump', 0, choice)
+            self.assertEqual(m.call('Settings_Get', 40, 0), choice)
+            self.assertEqual(m.call('Settings_Get', 25, 0), 1)  # Line guides keep their own bit.
+            self.assertEqual(m.call('Settings_Get', 32, 0), 0)  # So does the camera.
+        self.assertEqual(m.record(), before)  # The core record has no room; it lives in TYEX.
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 1, 1))
+
+
+class SweetspotDoubleJumpDrawTests(unittest.TestCase):
+    """Run the event's compiled Draw_Lines for a vanilla Fox or Falco on Final
+    Destination and read the Double-Jump Height Indicator back from the GX FIFO."""
+    dat_path, dat_root, stage = SweetspotCameraTests.dat_path, SweetspotCameraTests.dat_root, SweetspotCameraTests.stage
+    word, text = SweetspotCameraTests.word, SweetspotCameraTests.text
+    GFX, LEDGE, TARGET = 0x80004100, 85.5657, 2.5
+    # Full side-B, platform half-width, depth, color: the numbers
+    # scripts/sweetspot_dj_platforms.py prints, as in tests/test_dj_height_gecko.py.
+    SPACIES = {0: (83.740, 10.573, 57.537, (0xff, 0x8c, 0x00, 0xff)),
+               1: (77.080, 12.340, 59.278, (0x30, 0xc8, 0xff, 0xff))}
+
+    def setUp(self):
+        from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_WRITE
+        SweetspotCameraTests.setUp(self)
+        m = self.m
+        m.cpu.mem_map(0xCC000000, 0x10000)
+        m.call('TestEventGFX', self.GFX)
+        fighter = m.call('TestCueObject', 0)
+        self.starts, self.fifo, self.draw = [], [], None
+        def natives(cpu, address, size, user):
+            if address == 0x8039069C: self.draw = cpu.reg_read(gpr(4))  # GObj_AddGXLink
+            elif address in (0x80053ECC, 0x80053DA4):  # Stage_GetLeft/RightOfLineCoordinates
+                x = self.LEDGE if address == 0x80053DA4 else -self.LEDGE
+                cpu.mem_write(cpu.reg_read(gpr(4)), struct.pack('>3f', x, 0, 0))
+            elif address in (0x80034110, 0x8036A288, 0x80368458, self.GFX):
+                if address == 0x80034110: cpu.reg_write(gpr(3), fighter)  # Fighter_GetGObj
+                if address == self.GFX:
+                    count, params = cpu.reg_read(gpr(3)) & 0xFFFF, bytes(cpu.mem_read(cpu.reg_read(gpr(4)), 2))
+                    self.starts.append((count, *params))
+                cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        def fifo(cpu, access, address, size, value, user):
+            self.fifo.append((size, value & ((1 << 8 * size) - 1)))
+        self.hooks = [m.cpu.hook_add(UC_HOOK_CODE, natives),
+                      m.cpu.hook_add(UC_HOOK_MEM_WRITE, fifo, begin=0xCC008000, end=0xCC008003)]
+
+    def tearDown(self):
+        SweetspotCameraTests.tearDown(self)
+        for hook in self.hooks: self.m.cpu.hook_del(hook)
+
+    def run_draw(self, falco, guides, indicator):
+        m = self.m
+        m.call('TestCueSpacie', 0, falco)
+        m.call('Settings_Set', 25, 0, guides)
+        m.call('Settings_Set', 40, 0, indicator)
+        m.call('DAT_InitSweetspot', 0)
+        m.symbols['DAT_DrawLines'] = self.draw
+        self.starts, self.fifo = [], []
+        m.call('DAT_DrawLines')
+
+    def vertices(self):
+        """FIFO writes as (x, y, z, (r, g, b, a)): three floats, four color bytes."""
+        vertices, writes = [], list(self.fifo)
+        while writes:
+            position, color, writes = writes[:3], writes[3:7], writes[7:]
+            self.assertEqual([size for size, _ in position + color], [4, 4, 4, 1, 1, 1, 1])
+            floats = struct.unpack('>3f', struct.pack('>3I', *(value for _, value in position)))
+            vertices.append((*floats, tuple(value for _, value in color)))
+        return vertices
+
+    def expected(self, falco):
+        """Under each ledge, the platform and then the X."""
+        full, width, depth, color = self.SPACIES[falco]
+        vertices, t = [], self.TARGET
+        for x, offstage in ((-self.LEDGE, -1), (self.LEDGE, 1)):
+            x += offstage * full
+            vertices += [(x + dx, dy, 0, color) for dx, dy in
+                         ((-width, -depth), (width, -depth), (-t, -t), (t, t), (-t, t), (t, -t))]
+        return vertices
+
+    def assertVertices(self, actual, expected):
+        self.assertEqual(len(actual), len(expected))
+        for got, want in zip(actual, expected):
+            self.assertAlmostEqual(got[0], want[0], places=3)
+            self.assertAlmostEqual(got[1], want[1], places=3)
+            self.assertEqual(got[2:], want[2:])
+
+    def test_fox_and_falco_lines_match_the_iso_numbers(self):
+        for falco in (0, 1):
+            with self.subTest(falco=falco):
+                self.run_draw(falco, guides=0, indicator=1)
+                self.assertEqual(self.starts, [(12, 0xA8, 16)])  # GX_LINES, width 16.
+                self.assertVertices(self.vertices(), self.expected(falco))
+
+    def test_indicator_draws_over_the_line_guides_and_only_when_on(self):
+        self.run_draw(0, guides=1, indicator=1)
+        self.assertGreater(len(self.starts), 1)  # The guides come first,
+        self.assertEqual(self.starts[-1], (12, 0xA8, 16))  # so the X is on top.
+        self.assertVertices(self.vertices()[-12:], self.expected(0))
+        self.run_draw(0, guides=1, indicator=0)
+        self.assertGreater(len(self.starts), 1)
+        self.assertNotIn(self.SPACIES[0][3], [vertex[3] for vertex in self.vertices()])
+        self.run_draw(1, guides=0, indicator=0)
+        self.assertEqual((self.starts, self.fifo), ([], []))
 
 
 class SweetspotResetTests(unittest.TestCase):

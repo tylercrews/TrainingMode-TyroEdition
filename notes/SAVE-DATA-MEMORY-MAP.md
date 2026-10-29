@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b23) | `0x1AE0..0x1B23` | 68 bytes | 68 bytes | **40 loose bits** inside the record |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b23) | `0x1AE0..0x1B23` | 68 bytes | 68 bytes | **35 loose bits** inside the record |
 | **Unallocated spare score slots** | `0x1B24..0x1B37` | **20 bytes** | nothing | **20 bytes (160 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -121,20 +121,20 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | Bytes | Owner | Contents | Free inside |
 | --- | --- | --- | --- |
 | 0..7 | Header | `TYEX`, version (19), payload size (60), marker `A5 5A` | — |
-| 8 | Global OSDs / overlays | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color | bit 7 |
+| 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
 | 9..11 | Techchase | word 9 bits 0-14 and 16-22 (table below) | bit 15 (byte 10 bit 7), bit 23 (byte 11 bit 7) |
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
-| 20..23 | Reversal, Attack on Shield, Under Fire | word 20 bits 0-21 | bits 22-31 (10 bits) |
+| 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay | word 20 bits 0-23 | bits 24-31 (8 bits) |
 | 24..34 | Global OSD colors | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender | byte 34 high nibble |
 | 35 | Low Laser Puff Practice | bits 0-3 Puff position, bits 4-6 Puff height | bit 7 |
 | 36..49 | Fixed Grid OSD positions | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell | byte 49 bits 6-7 |
 | 50 | Character select | **Player costume** (0..5) | top 5 bits |
 | 51 | Character select | **CPU costume** (0..5) | top 5 bits |
-| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bits 30-31 of word 56 |
+| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bit 31 of word 56 |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 
-Free bits inside the record: 1 + 2 + 6 + 10 + 4 + 1 + 2 + 10 + 2 = **38 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 2 + 6 + 8 + 4 + 1 + 2 + 10 + 1 = **34 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -192,7 +192,7 @@ Free bits inside the record: 1 + 2 + 6 + 10 + 4 + 1 + 2 + 10 + 2 = **38 bits**. 
 | 24-27 | Ledgechase preset |
 | 28-31 | Ledgechase aerial attack |
 
-**Word 20: Reversal, Attack on Shield, Under Fire**
+**Word 20: Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay**
 
 | Bits | Setting |
 | --- | --- |
@@ -207,7 +207,9 @@ Free bits inside the record: 1 + 2 + 6 + 10 + 4 + 1 + 2 + 10 + 2 = **38 bits**. 
 | 17-18 | Attack on Shield distance |
 | 19 | Attack on Shield shield DI |
 | 21 | Under Fire: Lava Overlay (no version bump: every record that owns word 20 zeroed it) |
-| 22-31 | *free* |
+| 22 | Side-B Sweetspot: Double-Jump Height Indicator (no version bump, same reason) |
+| 23 | Blast Zone Overlay, a global flag (T8, no version bump, same reason) |
+| 24-31 | *free* |
 
 **Word 52: Edgeguard Custom Hit Strength** (fully used)
 
@@ -225,7 +227,8 @@ Free bits inside the record: 1 + 2 + 6 + 10 + 4 + 1 + 2 + 10 + 2 = **38 bits**. 
 | 0-9 | Player percent (0..998, default 0) |
 | 10-19 | CPU percent min (0..999, default 50) |
 | 20-29 | CPU percent max (0..999, default 80) |
-| 30-31 | *free* |
+| 30 | Camera (T8): 0 Normal (default), 1 Zoomed Out. Every record that owned word 56 had this bit clear, so older saves read as Normal with no version bump. |
+| 31 | *free* |
 
 **Word 60: Edgeguard Hit Strength, recovery options and Player Position** (fully used)
 
