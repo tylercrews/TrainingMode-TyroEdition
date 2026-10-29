@@ -446,7 +446,8 @@ void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color);
 void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
 void ActionCues_SetTangibilityOverlay(const s16 *enabled);
-/* Global Randall Overlay on Yoshi's Story; driven by TM_FLAG_RANDALL. */
+/* Global Blast Zone Overlay (every stage) and Randall Overlay (Yoshi's Story);
+ * driven by TM_FLAG_BLAST_ZONES and TM_FLAG_RANDALL. */
 void StageOverlay_MatchStart(void);
 void StageOverlay_SceneChange(void);
 void ActionCues_SetCPUInvincibilityOverlay(const s16 *palette);

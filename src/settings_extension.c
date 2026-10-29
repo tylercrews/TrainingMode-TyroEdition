@@ -17,6 +17,10 @@ static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT]
 /* Side-B Sweetspot's Double-Jump Height Indicator takes the next bit of that
  * zeroed padding, word 20 bit 22, also without a version bump. */
 static const ExtensionPreference sweetspot_dj_preference = {22,1,2,0};
+/* The global Blast Zone Overlay flag takes the last bit of that padding, word
+ * 20 bit 23 (byte 22 bit 7), the same way. */
+#define BLAST_ZONES_BYTE 22
+#define BLAST_ZONES_BIT 0x80u
 /* Position and height occupy byte 35 (word at 32, bits 24..30). */
 static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {
     {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0},
@@ -335,6 +339,9 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return supported(r)||v13||v14||v15||v16||v17||v18?!!(r[8]&RANDALL_BIT):0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS)
         return current||old?!!(r[8]&DONT_RESET_TIMERS_BIT):0;
+    /* Records before version 11 end before word 20. */
+    if(field==TM_SETTING_FLAG && index==TM_FLAG_BLAST_ZONES)
+        return supported(r)||v11||v12||v13||v14||v15||v16||v17||v18?!!(r[BLAST_ZONES_BYTE]&BLAST_ZONES_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 all of them. */
@@ -381,12 +388,13 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     int attack=field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ACT_OO_ATTACK_ID;
     int randall=field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL;
     int timers=field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS;
+    int blast=field==TM_SETTING_FLAG && index==TM_FLAG_BLAST_ZONES;
     int extra=field==TM_SETTING_OSD_COLOR_EXTRA && index<TM_OSD_CATEGORIES;
     int grid=field==TM_SETTING_OSD_GRID_CELL && index<TM_OSD_GRID_SLOTS;
     int costume=field==TM_SETTING_COSTUME && index<2;
     const ExtensionPreference *p=preference(field,index);
-    if(!color && !attack && !randall && !timers && !extra && !grid && !costume && !p) return 0;
-    if(value >= (color||attack?8:randall||timers?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
+    if(!color && !attack && !randall && !timers && !blast && !extra && !grid && !costume && !p) return 0;
+    if(value >= (color||attack?8:randall||timers||blast?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
     if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
     if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r)) TMExtension_Prepare(r);
@@ -395,6 +403,7 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     else if(attack) r[8]=(r[8]&~ACT_OO_ATTACK_BITS)|(value<<ACT_OO_ATTACK_SHIFT);
     else if(randall) r[8]=(r[8]&~RANDALL_BIT)|(value?RANDALL_BIT:0);
     else if(timers) r[8]=(r[8]&~DONT_RESET_TIMERS_BIT)|(value?DONT_RESET_TIMERS_BIT:0);
+    else if(blast) r[BLAST_ZONES_BYTE]=(r[BLAST_ZONES_BYTE]&~BLAST_ZONES_BIT)|(value?BLAST_ZONES_BIT:0);
     else if(extra) set_color_extra(r,index,value);
     else if(grid) set_grid_cell(r,index,value);
     else if(costume) r[COSTUME_OFFSET+index]=value;

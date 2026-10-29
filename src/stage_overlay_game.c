@@ -1,6 +1,11 @@
 #include "events.h"
 
-/* Randall Overlay: Yoshi's Story's cloud (map GObj 2) rides a square track and
+/* Global stage overlays, drawn by one GX callback created at match start.
+ *
+ * Blast Zone Overlay: on every stage, a crisp red line on the blast zones and
+ * a red glow fading out past them.
+ *
+ * Randall Overlay: Yoshi's Story's cloud (map GObj 2) rides a square track and
  * passes behind the stage. Draw its live platform and a cloud silhouette on top
  * of everything so its position is always readable. The platform comes from the
  * moving collision group attached to Randall's joints; the joint's world
@@ -60,8 +65,36 @@ static void ellipse(float cx, float cy, float rx, float ry, GXColor fill, GXColo
         GFX_AddVtx(cx + cos(angle) * rx, cy + sin(angle) * ry, 0, edge);
     }
 }
-static void Randall_GX(GOBJ *gobj, int pass) {
-    if (!live || pass != 2 || !Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL)) return;
+#define BLAST_ZONE_LINE 18   /* 3 pixels, in sixths. */
+#define BLAST_ZONE_GLOW 24.f /* How far past the line the glow fades out. */
+static void BlastZones_Draw(void) {
+    /* The getters add the stage's camera offset, exactly as the KO check
+     * (Player_CheckForDeath) reads them. Read every frame in case a stage
+     * moves them. */
+    float left = Stage_GetBlastzoneLeft(), right = Stage_GetBlastzoneRight();
+    float top = Stage_GetBlastzoneTop(), bottom = Stage_GetBlastzoneBottom();
+    if (right <= left || top <= bottom) return;
+    /* Premultiplied: about half-opaque red at the line, clear at the glow's edge. */
+    static const GXColor line = {255, 0, 0, 255}, glow = {120, 0, 0, 120}, clear = {0, 0, 0, 0};
+    const float g = BLAST_ZONE_GLOW;
+    const Vec2 in[4] = {{left, bottom}, {right, bottom}, {right, top}, {left, top}};
+    const Vec2 out[4] = {{left - g, bottom - g}, {right + g, bottom - g}, {right + g, top + g}, {left - g, top + g}};
+    /* One band per side, mitered at the corners. */
+    begin(16, GX_QUADS, 0);
+    for (int i = 0; i < 4; ++i) {
+        int j = (i + 1) % 4;
+        GFX_AddVtx(in[i].X, in[i].Y, 0, glow);
+        GFX_AddVtx(in[j].X, in[j].Y, 0, glow);
+        GFX_AddVtx(out[j].X, out[j].Y, 0, clear);
+        GFX_AddVtx(out[i].X, out[i].Y, 0, clear);
+    }
+    begin(5, GX_LINESTRIP, BLAST_ZONE_LINE);
+    for (int i = 0; i <= 4; ++i) GFX_AddVtx(in[i % 4].X, in[i % 4].Y, 0, line);
+    /* Wide lines end square at their vertices; a point as wide fills each corner. */
+    begin(4, GX_POINTS, BLAST_ZONE_LINE);
+    for (int i = 0; i < 4; ++i) GFX_AddVtx(in[i].X, in[i].Y, 0, line);
+}
+static void Randall_Draw(void) {
     GOBJ *map = randall();
     if (!map) return;
     static const GXColor fill = {92, 92, 92, 92}, edge = {230, 230, 230, 230}, top = {255, 255, 255, 255};
@@ -100,6 +133,11 @@ static void Randall_GX(GOBJ *gobj, int pass) {
         GFX_AddVtx(b.X, b.Y, 0, top);
     }
 }
+static void StageOverlay_GX(GOBJ *gobj, int pass) {
+    if (!live || pass != 2) return;
+    if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES)) BlastZones_Draw();
+    if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL)) Randall_Draw();
+}
 void StageOverlay_SceneChange(void) {
     live = 0;
     manager = 0; /* Native scene cleanup owns the old GOBJ. */
@@ -109,5 +147,5 @@ void StageOverlay_MatchStart(void) {
     live = 1;
     manager = GObj_Create(0, 7, 0);
     if (!manager) { live = 0; return; }
-    GObj_AddGXLink(manager, Randall_GX, 5, 0);
+    GObj_AddGXLink(manager, StageOverlay_GX, 5, 0);
 }

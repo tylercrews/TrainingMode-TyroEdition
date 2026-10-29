@@ -48,7 +48,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T9
 - Sweet Spot Side B Event should also have knockback variation selectors similar to the edgeguarding practice
-- edgeguarding event should have a camera zoom out view, and add blast zone boxes.
+- edgeguarding event should have a camera zoom out view. (Blast zone boxes are done: the Blast Zone Overlay, T8.)
 - split fox+falco's side bs up into to ledge and to stage and to side plat
 - make a new event where you practice getting to ledge as quickly as possible (counted in frames) from various distances away from the ledge. Should be able to switch what ledge you're working on and what way your character is facing. should also be able to set platforms as spawn points, 
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
@@ -66,8 +66,11 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 - **Program changes**
     - New [scripts/sweetspot_dj_platforms.py](scripts/sweetspot_dj_platforms.py) reads Fox's and Falco's double jump, side-B and ledge-grab numbers and the legal stages' ledges from a vanilla ISO, and prints where the Double-Jump Height Indicator draws on each legal stage. [scripts/build_dj_height_gecko.py](scripts/build_dj_height_gecko.py) rebuilds its Gecko codes.
+    - New [scripts/build_blast_zone_gecko.py](scripts/build_blast_zone_gecko.py) rebuilds the Blast Zone Overlay Gecko code, and [tests/test_blast_zone_gecko.py](tests/test_blast_zone_gecko.py) runs it in an emulator.
 - **Globals and all events**
     - New **Don't Reset Timers** setting on the Global Overlays & Gameplay page, below Randall Overlay after a blank row (Off by default, saved). Normally, loading a savestate puts the match timer back to where it was when you saved, and events that reset to a savestate, like Edgeguard Training, restart their timer every attempt. With it On, the timer keeps counting through loads and resets, so you can see how long you've been practicing (and, say, switch sides after a few minutes). Off keeps the old behavior for timing something from a savestate. Everything else still rewinds: event logic and Lab recordings follow the savestate as before. It uses the spare bit 7 of `TYEX` byte 8, so the save format doesn't change.
+    - New **Blast Zone Overlay** setting on the Global Overlays & Gameplay page, the first stage overlay, above Randall Overlay (Off by default, saved). Randall Overlay and Don't Reset Timers each move down a row. On every stage, it draws a crisp red line exactly on the blast zones, with red fading out for a short distance past them. It reads the blast zones every frame, the same numbers the game checks for KOs. It uses a spare bit of the save record (`TYEX` word 20 bit 23), so the save format doesn't change.
+        - New [Slippi Gecko code](slippi-gecko-codes/blast-zone-overlay/README.md) that draws the same line and glow on every stage in any match. It passes emulator tests but hasn't been tested in Dolphin yet.
 - **Event-specific changes**
     - **Side-B Sweetspot**
         - New **Double-Jump Height Indicator** setting (Off by default, saved). Under each ledge it draws a short line and an X at ledge height above the line's middle. Double jump before your feet fall below the line, drift to the X, and side-B at the peak to sweetspot. Orange for Fox, sky blue for Falco.
@@ -79,6 +82,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - New [Slippi Gecko codes](slippi-gecko-codes/dj-height-indicator/README.md), one for Fox and one for Falco, that draw the same line and X on the six legal stages in any match. They don't check who is playing, and both can be on at once. Their README lists where the marks land on each stage. They pass emulator tests but haven't been tested in Dolphin yet.
     - **Edgeguard Training**
         - New **Change Stage** menu, under Change Characters: restart on any of the six tournament-legal stages without going back through the character and stage select. Your characters and saved settings carry over, including the CPU's recovery options.
+        - New **Blast Zone Overlay** toggle, under Customize Hit Strength. It's the same setting as the global one, so turning it on here turns it on everywhere.
 
 For T8 I was working with Claude Opus 5.5 Extra High
 

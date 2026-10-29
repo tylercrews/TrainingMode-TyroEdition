@@ -9,6 +9,7 @@ static void Reset(void);
 static void ChangePlayerPercent(GOBJ *menu_gobj, int value);
 static void ChangePlayerPosition(GOBJ *menu_gobj, int value);
 static void ChangeHitStrength(GOBJ *menu_gobj, int value);
+static void ChangeBlastZones(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMax(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_AngMin(GOBJ *menu_gobj, int value);
@@ -82,6 +83,7 @@ enum options_initial {
     OPT_MAIN_POSITION,
     OPT_MAIN_HITSTRENGTH,
     OPT_MAIN_HITSTRENGTH_CUSTOMMENU,
+    OPT_MAIN_BLAST_ZONES,
     OPT_MAIN_CHARACTERS,
     OPT_MAIN_STAGE,
     OPT_MAIN_EXIT,
@@ -133,6 +135,13 @@ static EventOption Options_Main[] = {
         .name = "Customize Hit Strength",
         .desc = {"Manually adjust where and how far the CPU",
                  "will be knocked back. These settings are saved."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = TM_GLOBAL_BLAST_ZONES_NAME,
+        .desc = {"Draw a red line on the stage's blast zones.",
+                 "Shares the Global Overlays & Gameplay setting."},
+        .OnChange = ChangeBlastZones,
     },
     {
         .kind = OPTKIND_MENU,

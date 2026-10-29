@@ -62,6 +62,8 @@ static void LoadSettings(EventMenu *recovery_menu) {
     for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
         Options_CustomHitStrength[i].val = TM_GetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i]);
     LoadCustomKBRange();
+    Options_Main[OPT_MAIN_BLAST_ZONES].val = Options_Main[OPT_MAIN_BLAST_ZONES].val_prev =
+        !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES);
 
     // bit N of the saved mask is row N of this CPU's recovery menu
     int pref = RecoveryPref(recovery_menu);
@@ -343,6 +345,10 @@ static void ChangePlayerPosition(GOBJ *menu_gobj, int value) {
 
 static void ChangeHitStrength(GOBJ *menu_gobj, int value) {
     SaveSettings();
+}
+
+static void ChangeBlastZones(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES, value);
 }
 
 static void WriteCustomKBValues(void) {

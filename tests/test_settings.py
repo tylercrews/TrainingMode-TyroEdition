@@ -20,7 +20,7 @@ IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 # Global Settings pages, read down the left column then the right; 255 = gap.
 EDITOR = [
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
-    [2,4,7,17,11,25,255,23,255,31,255,34] + [255] * 17,
+    [2,4,7,17,11,25,255,23,255,35,31,255,34] + [255] * 16,
     # Fixed Grid OSD Positions: page one's OSD rows, then JC Shine (32) and Reset All (33).
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,32,33],
 ]
@@ -2646,7 +2646,7 @@ class OSDEditorTests(unittest.TestCase):
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
         rows = [id for page in EDITOR[:2] for id in page if id != 255]
-        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34]))
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35]))
         self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
         # The positions page keeps every OSD row where page one has it.
         self.assertEqual(EDITOR[2][:27], EDITOR[0][:27])
@@ -2656,29 +2656,27 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(self.m.call("TMSettings_EditorIDFor", 3, 0), 255)
 
     def test_overlay_page_groups_character_overlays_gameplay_stage_and_timers(self):
-        character, gameplay, stage, timers = [2, 4, 7, 17, 11, 25], [23], [31], [34]
-        self.assertEqual(EDITOR[1][:12], character + [255] + gameplay + [255] + stage + [255] + timers)
+        character, gameplay, stage, timers = [2, 4, 7, 17, 11, 25], [23], [35, 31], [34]
+        self.assertEqual(EDITOR[1][:13], character + [255] + gameplay + [255] + stage + [255] + timers)
         m = self.m; open_editor(m, 1)
         m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
-        for row in (6, 8, 10): self.assertEqual(m.call("TestEditorHidden", row), 1)
-        label = "Randall Overlay"
-        self.assertEqual(self.label(m, 9, len(label)), label)
-        label = "Don't Reset Timers"
-        self.assertEqual(self.label(m, 11, len(label)), label)
+        for row in (6, 8, 11): self.assertEqual(m.call("TestEditorHidden", row), 1)
+        for row, label in ((9, "Blast Zone Overlay"), (10, "Randall Overlay"), (12, "Don't Reset Timers")):
+            self.assertEqual(self.label(m, row, len(label)), label)
 
     def test_checkboxes_are_posed_from_the_page_shown_not_the_previous_page(self):
         m = self.m
         frames = 0x804DB6A0 - 0x6AE8
         m.cpu.mem_write(frames, struct.pack(">ff", 3.0, 9.0))  # Off, On
-        m.write(14, 16, 7)  # Act OoWait On at page 1 row 9, where Randall sits on page 2.
+        m.write(14, 16, 7)  # Act OoWait On at page 1 row 9, where Blast Zone Overlay sits on page 2.
         m.call("TestEditorInit")
         row = editor_row(16)[1]
         self.assertEqual(m.call("TestEditorBoxFrame", row), 9)
         self.assertEqual(m.call("TestEditorBoxFrame", 7), 3)  # Gap rows are posed Off.
         m.call("TestEditorInput", MENU_L, 0); m.call("TestEditorInput", MENU_R, 0)
         m.call("TestEditorReload")
-        self.assertEqual(editor_row(31), (1, row))
-        self.assertEqual(m.call("Settings_Get", 11, 9), 0)  # No saved Randall setting.
+        self.assertEqual(editor_row(35), (1, row))
+        self.assertEqual(m.call("Settings_Get", 11, 11), 0)  # No saved Blast Zone Overlay setting.
         self.assertEqual(m.call("TestEditorBoxFrame", row), 3)
         for r in range(29):
             self.assertEqual(m.call("TestEditorBoxFrame", r), 9 if m.call("TestEditorCache", r) else 3)

@@ -2,7 +2,7 @@
 #include "osd_layout.h"
 
 /* Labels by stable OSD/flag identity; TMSettings_EditorIDs places them on a page. */
-static const char *row_names[35] = {
+static const char *row_names[36] = {
     [0] = "Wavedash Info", [1] = "L-Cancel", [3] = "Act OoS Frame", [5] = "Dashback",
     [8] = "Fighter-specific Tech", [9] = "Powershield Frame", [10] = "SDI Inputs",
     [12] = "Lockout Timers", [13] = "Item Throw Interrupts", [14] = "Boost Grab",
@@ -22,6 +22,7 @@ static const char *row_names[35] = {
     [TM_GLOBAL_INVINCIBILITY_ROW] = TM_GLOBAL_INVINCIBILITY_NAME,
     [TM_GLOBAL_RANDALL_ROW] = TM_GLOBAL_RANDALL_NAME,
     [TM_GLOBAL_DONT_RESET_TIMERS_ROW] = TM_GLOBAL_DONT_RESET_TIMERS_NAME,
+    [TM_GLOBAL_BLAST_ZONES_ROW] = TM_GLOBAL_BLAST_ZONES_NAME,
     [TM_GRID_JC_SHINE_ROW] = "JC Shine (Fox/Falco)",
     [TM_GRID_RESET_ROW] = "Reset All to Auto",
 };
