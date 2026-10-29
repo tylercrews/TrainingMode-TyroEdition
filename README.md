@@ -15,11 +15,13 @@ Please read [DEVELOPMENT.md](DEVELOPMENT.md).
 The Tyro version and stable game/save identity live in [version.h](version.h). Update `TM_VERSION` for a new release; keep `TM_GAME_ID` stable. Run `./build.sh --version` to see the version, game ID, and output filename.
 
 ## My Settings
+
 <img width="740" height="606" alt="tm-te settings fixed order rearranged" src="https://github.com/user-attachments/assets/ea6c4031-5125-4923-9773-09ea5a0e6329" />
 
 So here's what I have turned on as an aspiring fox player:
 
 <img width="747" height="587" alt="tm-te settings pg 1" src="https://github.com/user-attachments/assets/93f3f656-36ba-43ca-abdb-62522e2b907e" /> 
+
 - OSD Display is set to Fixed Grid, which is a display that I came up with where all of the OSDs are permanently in a fixed position at the top so you don't have to figure out which is which when they're popping up, and you can always look to the same place to see the one you're currently working on.
 - Page 1, OSDs:
     - **Wavedash - Teal -** still trying to make sure that I'm getting short hops when I wavedash instead of full hops.
@@ -32,6 +34,7 @@ So here's what I have turned on as an aspiring fox player:
     - **OVERRIDE CPU OSDS OFF -** I don't really care about seeing when the CPUs do their actions, I don't see the use in it and it clutters the screen. So I created this override so that you only see your own actions.
  
 <img width="899" height="740" alt="tm-te settings pg 2" src="https://github.com/user-attachments/assets/3eed3447-bb99-4df0-a1a8-1296d8c8c5f1" />
+
 - Page 2, Overlays:
     - **Hitbox Trails Very Fast -** I think this might be the most useful setting for a new player of anything. Being able to see where moves are hitting at all times gives you a much better idea of spacing, of placing where you're hitting, and visibility into how you're making mistakes. You also notice little quirks of the game better, like when you're running around on FD upsmashing eggs in eggsercise, seeing how much narrower the running upsmash hitbox is compared to standing hitbox, and where it actually hits on the ground is so important. I could not recommend this setting more highly. I made it a global so that you can play friends locally in vs mode and every player slot has their own hitbox trail color.
     - **Missed L Cancel -** tried to make this work like the stock slippi overlay. just a classic.
@@ -44,6 +47,7 @@ So here's what I have turned on as an aspiring fox player:
     -  **Don't Reset Timers -** When a savestate loads it resets the timer back to whatever time it was on when the savestate was made. That could be helpful if you're trying to time a sequence out, so I wanted it to still be accessible. But I prefer to see how long I have been playing so that I can keep track of how long I'm practicing things, and makes it easy to know when to switch sides so my practice is balanced.
 
 <img width="745" height="611" alt="tm-te settings pg 3" src="https://github.com/user-attachments/assets/6f6c1bb3-7118-4c61-8ace-60afbc2a2920" />
+
 - Page 3, OSD Positions
     - I like a little gap on row 2 in the middle so that event-specific OSDs can go there.
     - I like the wavedash underneath because I can check it easier when I'm scooting around.
