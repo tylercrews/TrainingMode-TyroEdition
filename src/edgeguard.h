@@ -7,6 +7,7 @@
 static void Exit(GOBJ *menu);
 static void Reset(void);
 
+static void ChangeSide(GOBJ *menu_gobj, int value);
 static void ChangePlayerPercent(GOBJ *menu_gobj, int value);
 static void ChangePlayerPosition(GOBJ *menu_gobj, int value);
 static void ChangeHitStrength(GOBJ *menu_gobj, int value);
@@ -51,6 +52,8 @@ enum options_kbvals {
 static const char *Values_HitStrength[] = {"Weak", "Normal", "Hard", "Shallow", "Custom"};
 static const char *Values_PlayerPosition[] = {"At Ledge", "Close", "Halfway", "Mid Stage"};
 typedef char edgeguard_position_names[(countof(Values_PlayerPosition) == TM_EG_POSITION_COUNT) ? 1 : -1];
+static const char *Values_Side[] = {"Random", "Left", "Right"};
+typedef char edgeguard_side_names[(countof(Values_Side) == TM_EG_SIDE_COUNT) ? 1 : -1];
 static KBValues HitStrength_KBRange[] = {
     {
          80.f, 100.f, // mag
@@ -81,6 +84,7 @@ static KBValues HitStrength_KBRange[] = {
 
 enum options_initial {
     OPT_MAIN_RECOVERY,
+    OPT_MAIN_SIDE,
     OPT_MAIN_PERCENT,
     OPT_MAIN_POSITION,
     OPT_MAIN_HITSTRENGTH,
@@ -101,6 +105,16 @@ static EventOption Options_Main[] = {
         .name = "Recovery Options",
         .desc = {"Alter the CPU's recovery options.",
                  "Each character's options are saved."},
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Side",
+        .desc = {"Which ledge each attempt starts at: a random one,",
+                 "or always the left or the right.",
+                 "Takes effect on the next reset. This setting is saved."},
+        .values = Values_Side,
+        .value_num = countof(Values_Side),
+        .OnChange = ChangeSide,
     },
     {
         .kind = OPTKIND_INT,

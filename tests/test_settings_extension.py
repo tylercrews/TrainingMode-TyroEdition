@@ -24,13 +24,15 @@ EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
 # Recovery masks: Fox, Falco, Sheik, Falcon, Marth, then (word 64, version 19)
 # Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus. Then Player
 # Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31,
-# and Camera (Normal / Zoomed Out) in word 56's spare bit 30.
-EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2)
-EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0)
+# Camera (Normal / Zoomed Out) in word 56's spare bit 30, and Side (Random /
+# Left / Right) in word 20's spare bits 24-25.
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0)
 EG_COUNT = len(EDGEGUARD_COUNTS)
 EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index added after version 18
 EG_POSITION = 20  # TM_EG_PLAYER_POSITION
 EG_CAMERA = 21  # TM_EG_CAMERA
+EG_SIDE = 22  # TM_EG_SIDE
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Bytes 24..67 appended by versions 15 to 19: one color nibble per OSD (all
@@ -366,6 +368,30 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(bytes(after), bytes(before))
         self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(EG_CAMERA)),
                          EDGEGUARD_DEFAULTS[:EG_CAMERA])
+
+    def test_edgeguard_side_reads_random_from_existing_saves_and_uses_only_word_20_bits_24_25(self):
+        m = self.m
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_SIDE), 0)  # Random without a record.
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        # A new record, like every record from before this setting, has bits 24-25 of word 20 clear.
+        self.assertEqual(m.cpu.mem_read(EXT + 23, 1)[0] & 3, 0)
+        before = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        for side in (1, 2, 0, 2):
+            m.call('Settings_Set', EDGEGUARD, EG_SIDE, side)
+            self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_SIDE), side)
+            after = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual(after[23] & 3, side)
+            # Nothing else in the record changes, including Blast Zone Overlay in byte 22.
+            after[23] &= 0xFC
+            self.assertEqual(bytes(after), bytes(before))
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', EDGEGUARD, EG_SIDE, 3)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        # An invalid side (padding an old record kept) reads as Random.
+        m.cpu.mem_write(EXT + 23, bytes((m.cpu.mem_read(EXT + 23, 1)[0] | 3,)))
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_SIDE), 0)
+        self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(EG_SIDE)),
+                         EDGEGUARD_DEFAULTS[:EG_SIDE])
 
     def test_costumes_round_trip_reject_and_repair_invalid_values(self):
         m = self.m

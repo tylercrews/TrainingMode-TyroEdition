@@ -39,6 +39,7 @@ static int RecoveryPref(EventMenu *menu) {
 }
 
 static void SaveSettings(void) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE, Options_Main[OPT_MAIN_SIDE].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT, Options_Main[OPT_MAIN_PERCENT].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION, Options_Main[OPT_MAIN_POSITION].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH, Options_Main[OPT_MAIN_HITSTRENGTH].val);
@@ -56,6 +57,7 @@ static void LoadCustomKBRange(void) {
 }
 
 static void LoadSettings(EventMenu *recovery_menu) {
+    Options_Main[OPT_MAIN_SIDE].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE);
     Options_Main[OPT_MAIN_PERCENT].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT);
     Options_Main[OPT_MAIN_POSITION].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION);
     Options_Main[OPT_MAIN_HITSTRENGTH].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH);
@@ -300,7 +302,10 @@ static void Reset(void) {
             Match_CreateHUD(ply);
     }
 
-    int side_idx = HSD_Randi(2);
+    // 0 is the left ledge: the fighters start inland of it and the cpu is
+    // launched leftward. 1 is the right.
+    int side = Options_Main[OPT_MAIN_SIDE].val;
+    int side_idx = side == TM_EG_SIDE_LEFT ? 0 : side == TM_EG_SIDE_RIGHT ? 1 : HSD_Randi(2);
     KBValues vals = HitStrength_KBRange[Options_Main[OPT_MAIN_HITSTRENGTH].val];
     float kb_mag = vals.mag_min + (vals.mag_max - vals.mag_min) * HSD_Randf();
     float kb_angle = vals.ang_min + (vals.ang_max - vals.ang_min) * HSD_Randf();
@@ -338,6 +343,10 @@ static void ChangePlayerPercent(GOBJ *menu_gobj, int dmg) {
 
     hmn_data->dmg.percent = dmg;
     Fighter_SetHUDDamage(hmn_data->ply, dmg);
+    SaveSettings();
+}
+
+static void ChangeSide(GOBJ *menu_gobj, int value) {
     SaveSettings();
 }
 

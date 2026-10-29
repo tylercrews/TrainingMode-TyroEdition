@@ -50,7 +50,9 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
  * Player Position takes word 60's spare bits 30..31, which every record that
  * owns word 60 zeroed. It is stored as an offset from Close so those zero bits
  * read as Close, the original spot, with no version bump. Camera takes word
- * 56's spare bit 30 the same way: zero is Normal. */
+ * 56's spare bit 30 the same way: zero is Normal. Side takes word 20's spare
+ * bits 24..25: zero is Random. Word 20's padding is kept through migrations,
+ * so only a Settings_Set writes Side; an invalid 3 reads as Random. */
 #define EDGEGUARD_OFFSET 52
 #define EDGEGUARD_SIZE 12
 #define EDGEGUARD2_OFFSET 64
@@ -65,6 +67,8 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {30,2,TM_EG_POSITION_COUNT,TM_EG_POSITION_CLOSE},
     /* word 56 again: Camera */
     {30,1,2,0},
+    /* word 20: Side */
+    {24,2,TM_EG_SIDE_COUNT,TM_EG_SIDE_RANDOM},
 };
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -170,6 +174,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_EDGEGUARD)
         return index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
             index==TM_EG_CAMERA?EDGEGUARD_OFFSET+4:
+            index==TM_EG_SIDE?20:
             index>=TM_EG_RECOVERY_YOSHI?EDGEGUARD2_OFFSET:
             EDGEGUARD_OFFSET+(index>=TM_EG_HIT_STRENGTH?8:index>=TM_EG_PLAYER_PERCENT?4:0);
     if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || field==TM_SETTING_SWEETSPOT_DJ ||
@@ -205,10 +210,10 @@ static void init_shield_preferences(uint8_t *r) {
             set_preference(r,field,i,preference(field,i)->initial);
 }
 /* Initialize the Edgeguard preferences from index `first`, whose bytes the
- * caller has just claimed. */
+ * caller has just claimed. Side is not in those bytes. */
 static void init_edgeguard_preferences(uint8_t *r, unsigned first) {
     for(unsigned i=first;i<TM_EG_PREF_COUNT;++i)
-        set_preference(r,TM_SETTING_EDGEGUARD,i,edgeguard_preferences[i].initial);
+        if(i!=TM_EG_SIDE) set_preference(r,TM_SETTING_EDGEGUARD,i,edgeguard_preferences[i].initial);
 }
 void TMExtension_Init(uint8_t *r) {
     memset(r,0,TM_EXTENSION_SIZE);
@@ -314,6 +319,7 @@ int TMExtension_Prepare(uint8_t *r) {
             /* Every value of a field this wide is valid (the toggle masks);
              * Reversal's attack has a fifth bit elsewhere. */
             if(p->count==(1u<<p->width) && !(field==TM_SETTING_REVERSAL && i==TM_REV_ATTACK)) continue;
+            if(field==TM_SETTING_EDGEGUARD && i==TM_EG_SIDE) continue; /* Read-tolerant padding. */
             unsigned value=preference_value(r,field,i);
             if(value>=p->count) { set_preference(r,field,i,p->initial); changed=1; }
         }
