@@ -83,6 +83,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - **Edgeguard Training**
         - New **Change Stage** menu, under Change Characters: restart on any of the six tournament-legal stages without going back through the character and stage select. Your characters and saved settings carry over, including the CPU's recovery options.
         - New **Blast Zone Overlay** toggle, under Customize Hit Strength. It's the same setting as the global one, so turning it on here turns it on everywhere.
+        - New **Camera** setting, under Blast Zone Overlay: **Normal** (the default) or **Zoomed Out**, the same zoom as Side-B Sweetspot's Camera setting, to see farther offstage. It's saved separately from Side-B Sweetspot's, in a spare bit of the Edgeguard save word, so the save format doesn't change.
 
 For T8 I was working with Claude Opus 5.5 Extra High
 

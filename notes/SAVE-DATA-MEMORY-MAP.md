@@ -131,10 +131,10 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 36..49 | Fixed Grid OSD positions | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell | byte 49 bits 6-7 |
 | 50 | Character select | **Player costume** (0..5) | top 5 bits |
 | 51 | Character select | **CPU costume** (0..5) | top 5 bits |
-| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bits 30-31 of word 56 |
+| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bit 31 of word 56 |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 
-Free bits inside the record: 2 + 6 + 8 + 4 + 1 + 2 + 10 + 2 = **35 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 2 + 6 + 8 + 4 + 1 + 2 + 10 + 1 = **34 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -227,7 +227,8 @@ Free bits inside the record: 2 + 6 + 8 + 4 + 1 + 2 + 10 + 2 = **35 bits**. The 6
 | 0-9 | Player percent (0..998, default 0) |
 | 10-19 | CPU percent min (0..999, default 50) |
 | 20-29 | CPU percent max (0..999, default 80) |
-| 30-31 | *free* |
+| 30 | Camera (T8): 0 Normal (default), 1 Zoomed Out. Every record that owned word 56 had this bit clear, so older saves read as Normal with no version bump. |
+| 31 | *free* |
 
 **Word 60: Edgeguard Hit Strength, recovery options and Player Position** (fully used)
 

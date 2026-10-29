@@ -183,7 +183,7 @@ enum TMAttackShieldPreference {
 /* Custom Hit Strength ranges, then the percents, then Hit Strength and one
  * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu).
  * Append; the CPUs from Yoshi on live in a later TYEX word. Player Position
- * uses word 60's spare top bits. */
+ * uses word 60's spare top bits, Camera (Normal / Zoomed Out) word 56's bit 30. */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
@@ -191,7 +191,7 @@ enum TMEdgeguardPreference {
     TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH,
     TM_EG_RECOVERY_YOSHI, TM_EG_RECOVERY_PEACH, TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_DRMARIO,
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
-    TM_EG_PLAYER_POSITION, TM_EG_PREF_COUNT
+    TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_PREF_COUNT
 };
 /* Edgeguard Player Position choices, ledge to center. Close is the original spot. */
 enum { TM_EG_POSITION_AT_LEDGE, TM_EG_POSITION_CLOSE, TM_EG_POSITION_HALFWAY,

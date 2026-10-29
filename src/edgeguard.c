@@ -64,6 +64,8 @@ static void LoadSettings(EventMenu *recovery_menu) {
     LoadCustomKBRange();
     Options_Main[OPT_MAIN_BLAST_ZONES].val = Options_Main[OPT_MAIN_BLAST_ZONES].val_prev =
         !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES);
+    Options_Main[OPT_MAIN_CAMERA].val = Options_Main[OPT_MAIN_CAMERA].val_prev =
+        TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_CAMERA);
 
     // bit N of the saved mask is row N of this CPU's recovery menu
     int pref = RecoveryPref(recovery_menu);
@@ -351,6 +353,11 @@ static void ChangeBlastZones(GOBJ *menu_gobj, int value) {
     TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES, value);
 }
 
+static void ChangeCamera(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_CAMERA, value);
+    ZoomCamera_Apply(value);
+}
+
 static void WriteCustomKBValues(void) {
     LoadCustomKBRange();
     Options_Main[OPT_MAIN_HITSTRENGTH].val = KBVALS_CUSTOM;
@@ -416,6 +423,11 @@ void Event_Init(GOBJ *gobj) {
     StageSwap_Init();
 
     GetLedgePositions(ledge_positions);
+
+    // The GObj's cleanup restores the stage's camera when the match ends.
+    ZoomCamera_Init(Options_Main[OPT_MAIN_CAMERA].val);
+    GOBJ *camera_gobj = GObj_Create(0, 0, 0);
+    GObj_AddUserData(camera_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
 }
 
 /* The restart saves the card. */

@@ -1,44 +1,12 @@
 #include "events.h"
 #include "stage_swap.h"
+#include "zoom_camera.h"
 
 static Vec2 ledge_positions[2];
 
-// Stage camera settings are outside the practice savestate. Keep the original
-// values so toggling modes never compounds the zoom or affects another event.
-static struct {
-    float left, right, top, bottom;
-    float min_distance, max_distance;
-} normal_camera;
-
-static void RestoreCamera(void *unused) {
-    stc_stage->cambound_left = normal_camera.left;
-    stc_stage->cambound_right = normal_camera.right;
-    stc_stage->cambound_top = normal_camera.top;
-    stc_stage->cambound_bottom = normal_camera.bottom;
-    stc_stage->x34 = normal_camera.min_distance;
-    stc_stage->x38 = normal_camera.max_distance;
-}
-
-static void ApplyCamera(int zoomed_out) {
-    RestoreCamera(0);
-    if (zoomed_out) {
-        // Retain normal tracking of both fighters, with more recovery space on
-        // either side. Widen the tracking limits too: distance alone still
-        // clamps an offstage fighter to the stage's original camera bounds.
-        stc_stage->cambound_left -= 80;
-        stc_stage->cambound_right += 80;
-        stc_stage->cambound_top += 40;
-        stc_stage->cambound_bottom -= 40;
-        stc_stage->x34 *= 1.5f;
-        stc_stage->x38 *= 1.5f;
-    }
-    Match_SetNormalCamera();
-    Match_CorrectCamera();
-}
-
 static void ChangeCamera(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0, value);
-    ApplyCamera(value);
+    ZoomCamera_Apply(value);
 }
 
 static void GetLedgePositions(Vec2 coords_out[2]) {
@@ -158,7 +126,7 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_STRING,
         .name = "Camera",
         .value_num = 2,
-        .values = (const char *[]) { "Normal", "Zoomed Out" },
+        .values = (const char *[]) { ZOOM_CAMERA_VALUES },
         .OnChange = ChangeCamera,
         .desc = {"Zoom out to see farther offstage",
                  "and line up with the ledge."},
@@ -479,19 +447,13 @@ void Event_Init(GOBJ* gobj) {
         TM_GetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0);
     Options_Main[OPT_DJ_HEIGHT].val = Options_Main[OPT_DJ_HEIGHT].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT_DJ, 0);
-    normal_camera.left = stc_stage->cambound_left;
-    normal_camera.right = stc_stage->cambound_right;
-    normal_camera.top = stc_stage->cambound_top;
-    normal_camera.bottom = stc_stage->cambound_bottom;
-    normal_camera.min_distance = stc_stage->x34;
-    normal_camera.max_distance = stc_stage->x38;
-    ApplyCamera(Options_Main[OPT_CAMERA].val);
+    ZoomCamera_Init(Options_Main[OPT_CAMERA].val);
     // Archived underside option was session-only, never memory-card backed.
     // Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val = Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val_prev = 0;
     GetLedgePositions(ledge_positions);
     StageSwap_Init();
     GOBJ *draw_gobj = GObj_Create(0, 0, 0);
-    GObj_AddUserData(draw_gobj, 0, RestoreCamera, &normal_camera);
+    GObj_AddUserData(draw_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
     GObj_AddGXLink(draw_gobj, Draw_Lines, 3, 0);
 }
 

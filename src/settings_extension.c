@@ -49,7 +49,8 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
  * mask's initial value is its recovery menu's defaults in recovery.c.
  * Player Position takes word 60's spare bits 30..31, which every record that
  * owns word 60 zeroed. It is stored as an offset from Close so those zero bits
- * read as Close, the original spot, with no version bump. */
+ * read as Close, the original spot, with no version bump. Camera takes word
+ * 56's spare bit 30 the same way: zero is Normal. */
 #define EDGEGUARD_OFFSET 52
 #define EDGEGUARD_SIZE 12
 #define EDGEGUARD2_OFFSET 64
@@ -62,6 +63,8 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {0,5,32,7}, {5,5,32,7}, {10,5,32,7}, {15,5,32,3}, {20,3,8,3}, {23,4,16,15}, {27,5,32,15},
     /* word 60 again: Player Position */
     {30,2,TM_EG_POSITION_COUNT,TM_EG_POSITION_CLOSE},
+    /* word 56 again: Camera */
+    {30,1,2,0},
 };
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -166,6 +169,7 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
 static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_EDGEGUARD)
         return index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
+            index==TM_EG_CAMERA?EDGEGUARD_OFFSET+4:
             index>=TM_EG_RECOVERY_YOSHI?EDGEGUARD2_OFFSET:
             EDGEGUARD_OFFSET+(index>=TM_EG_HIT_STRENGTH?8:index>=TM_EG_PLAYER_PERCENT?4:0);
     if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || field==TM_SETTING_SWEETSPOT_DJ ||

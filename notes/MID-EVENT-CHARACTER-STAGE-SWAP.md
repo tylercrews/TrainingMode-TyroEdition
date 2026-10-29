@@ -109,7 +109,7 @@ All three events offer the same **Change Stage** submenu ([src/stage_swap.h](../
 
 **What each event keeps:**
 
-- **Eggs-ercise, Low Laser, Side-B Sweetspot and Edgeguard Training** keep everything they already save on the memory card. Nothing else is carried. Low Laser releases its OSD-suppression pointer before the restart, as its Exit does. Side-B Sweetspot's camera zoom is undone by its draw GObj's cleanup when the match ends, the same as on Exit. Edgeguard saves the CPU's recovery toggles first, as its character change does.
+- **Eggs-ercise, Low Laser, Side-B Sweetspot and Edgeguard Training** keep everything they already save on the memory card. Nothing else is carried. Low Laser releases its OSD-suppression pointer before the restart, as its Exit does. Side-B Sweetspot's camera zoom is undone by its draw GObj's cleanup when the match ends, the same as on Exit; Edgeguard's by a cleanup GObj of its own ([src/zoom_camera.h](../src/zoom_camera.h)). Edgeguard saves the CPU's recovery toggles first, as its character change does.
 - **Training Lab** has over 200 unsaved option rows, so it carries them in the buffer (see [Why Training Lab needs a carry](#why-training-lab-needs-a-carry)):
     - **Rows:** General (except the saved Input Display), CPU, Tech, both Info Displays, Hitbox Trails, Character RNG, the CPU's recovery menu, Advanced Counter and Action Log.
     - **Extra state:** Custom TDI values, Custom OSD states with their names, and Action Log states with their names.
