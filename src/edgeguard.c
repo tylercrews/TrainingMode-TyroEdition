@@ -424,8 +424,10 @@ void Event_Init(GOBJ *gobj) {
 
     GetLedgePositions(ledge_positions);
 
-    // The GObj's cleanup restores the stage's camera when the match ends.
-    ZoomCamera_Init(Options_Main[OPT_MAIN_CAMERA].val);
+    // Fighters fall far below the stage here, so Zoomed Out also keeps the
+    // bottom blast zone in view. The GObj's cleanup restores the stage's
+    // camera when the match ends.
+    ZoomCamera_Init(Options_Main[OPT_MAIN_CAMERA].val, 1);
     GOBJ *camera_gobj = GObj_Create(0, 0, 0);
     GObj_AddUserData(camera_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
 }
@@ -466,6 +468,7 @@ void Event_Think(GOBJ *menu) {
     edgeguard_timer++;
     
     Vec2 cpu_pos = { cpu_data->phys.pos.X, cpu_data->phys.pos.Y };
+    ZoomCamera_Follow((hmn_data->phys.pos.X + cpu_pos.X) * 0.5f);
     
     if (
         reset_timer == -1

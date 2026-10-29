@@ -447,7 +447,7 @@ void Event_Init(GOBJ* gobj) {
         TM_GetSetting(TM_SETTING_SWEETSPOT_CAMERA, 0);
     Options_Main[OPT_DJ_HEIGHT].val = Options_Main[OPT_DJ_HEIGHT].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT_DJ, 0);
-    ZoomCamera_Init(Options_Main[OPT_CAMERA].val);
+    ZoomCamera_Init(Options_Main[OPT_CAMERA].val, 0);
     // Archived underside option was session-only, never memory-card backed.
     // Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val = Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val_prev = 0;
     GetLedgePositions(ledge_positions);
