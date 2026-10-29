@@ -15,15 +15,11 @@ Please read [DEVELOPMENT.md](DEVELOPMENT.md).
 The Tyro version and stable game/save identity live in [version.h](version.h). Update `TM_VERSION` for a new release; keep `TM_GAME_ID` stable. Run `./build.sh --version` to see the version, game ID, and output filename.
 
 ## My Settings
-<img width="747" height="587" alt="tm-te settings pg 1" src="https://github.com/user-attachments/assets/93f3f656-36ba-43ca-abdb-62522e2b907e" /> 
-<img width="749" height="615" alt="tm-te settings pg 2" src="https://github.com/user-attachments/assets/75197645-145d-495b-8f2f-efd4fcae1f79" />
-<img width="745" height="611" alt="tm-te settings pg 3" src="https://github.com/user-attachments/assets/6f6c1bb3-7118-4c61-8ace-60afbc2a2920" />
 <img width="740" height="606" alt="tm-te settings fixed order rearranged" src="https://github.com/user-attachments/assets/ea6c4031-5125-4923-9773-09ea5a0e6329" />
-
-
 
 So here's what I have turned on as an aspiring fox player:
 
+<img width="747" height="587" alt="tm-te settings pg 1" src="https://github.com/user-attachments/assets/93f3f656-36ba-43ca-abdb-62522e2b907e" /> 
 - OSD Display is set to Fixed Grid, which is a display that I came up with where all of the OSDs are permanently in a fixed position at the top so you don't have to figure out which is which when they're popping up, and you can always look to the same place to see the one you're currently working on.
 - Page 1, OSDs:
     - **Wavedash - Teal -** still trying to make sure that I'm getting short hops when I wavedash instead of full hops.
@@ -34,6 +30,8 @@ So here's what I have turned on as an aspiring fox player:
     - **Act OoAttack - Red -** I created this one to be similar to Act OoWait, but for attacks. It'll let you see how quickly you start moving again after a smash attack, but the real reason I made it is to see how quickly you start jumping after you upthrow a character. Gotta get that tight, and it pairs extremely well with the overlay to see how well you're doing.
     - **Act OoJump - White -** This one will tell you how quickly you're putting out your aerials, trying to hit those F1 nairs, but this one is a more recent addition for me tbh. I'm not a zumper so I haven't been trying to force the f1 upair tech.
     - **OVERRIDE CPU OSDS OFF -** I don't really care about seeing when the CPUs do their actions, I don't see the use in it and it clutters the screen. So I created this override so that you only see your own actions.
+ 
+<img width="899" height="740" alt="tm-te settings pg 2" src="https://github.com/user-attachments/assets/3eed3447-bb99-4df0-a1a8-1296d8c8c5f1" />
 - Page 2, Overlays:
     - **Hitbox Trails Very Fast -** I think this might be the most useful setting for a new player of anything. Being able to see where moves are hitting at all times gives you a much better idea of spacing, of placing where you're hitting, and visibility into how you're making mistakes. You also notice little quirks of the game better, like when you're running around on FD upsmashing eggs in eggsercise, seeing how much narrower the running upsmash hitbox is compared to standing hitbox, and where it actually hits on the ground is so important. I could not recommend this setting more highly. I made it a global so that you can play friends locally in vs mode and every player slot has their own hitbox trail color.
     - **Missed L Cancel -** tried to make this work like the stock slippi overlay. just a classic.
@@ -41,7 +39,14 @@ So here's what I have turned on as an aspiring fox player:
     - **Actionable Yellow>Green -** This was one of my favorite ideas, and I'm really glad I got it working. There's even slippi code in here to add it to netplay if you end up liking it. At the end of any time that you are inactionable the last two frames will be yellow, and then the first two frames you are actionable you turn green. Kind of like a drag race go signal: it's time to MOVE. And it's just a blink so you don't have to deal with the constant green overlay when your character is standing around, I feel like that didn't really help me much. This one helps you get an idea of when you need to start pushing your stick again after wavedashing and L canceling. It doesn't do hitstun though, I feel like that's a slightly different thing that shouldn't be bundled together with this, but I'll probably do that eventually too.
     - **Invincibility Overlay -** I think the biggest problem smash players have is that they can't count to 3. Internalizing how long invincibility lasts when your opponent comes off the angel platform is crucial, knowing how long before they're damageable from roll, from spotdodge, from the ledge, it's important stuff. I'm also trying to learn how yoshi's power armor works so that's baked in here, and it also covers some moves like marth+roy's counter, and ofc it covers actual invincible moves like the startup of Bowser UpB.
     -  **Infinite Shields -** I suck at shield drops and I'm working on them now. Recently a friend was trying to help me out showing me in vs mode, but I'm so slow that it was driving me crazy trying to wait for my shield to regenerate so we could keep practicing. So this fixes that.
+    - **Blast Zone Overlay -** Gives a nice clear line where your character is going to blow up. I think it could be useful if the camera ever tilts far enough in that direction for some reason. 
     -  **Randall Overlay -** I created this to mark where Randall is when he's behind the stage on yoshi's. I'm quite bad at knowing the timing so I want to start paying attention to it more. This setting will not work in training mode if you leave the Hazards Off setting in character select (and the timer counts up instead of down in training lab anyway so it's less useful), but it works great in vs mode so that's why I made it a global.
+    -  **Don't Reset Timers -** When a savestate loads it resets the timer back to whatever time it was on when the savestate was made. That could be helpful if you're trying to time a sequence out, so I wanted it to still be accessible. But I prefer to see how long I have been playing so that I can keep track of how long I'm practicing things, and makes it easy to know when to switch sides so my practice is balanced.
+
+<img width="745" height="611" alt="tm-te settings pg 3" src="https://github.com/user-attachments/assets/6f6c1bb3-7118-4c61-8ace-60afbc2a2920" />
+- Page 3, OSD Positions
+    - I like a little gap on row 2 in the middle so that event-specific OSDs can go there.
+    - I like the wavedash underneath because I can check it easier when I'm scooting around.
 
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
@@ -86,6 +91,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - New **Camera** setting, under Blast Zone Overlay: **Normal** (the default) or **Zoomed Out**, the same zoom as Side-B Sweetspot's Camera setting, to see farther offstage. Here, Zoomed Out also always keeps the bottom blast zone in view, 20 units below the line, so you can see how close both characters are to it (turn on Blast Zone Overlay to see the line). The camera still follows the fighters side to side. Normally the camera only goes down as far as the lowest fighter, so the blast zone stays off-screen until someone is about to die. It's saved separately from Side-B Sweetspot's, in a spare bit of the Edgeguard save word, so the save format doesn't change.
 
 For T8 I was working with Claude Opus 5.5 Extra High
+<img width="460" height="365" alt="tm-te t8 example" src="https://github.com/user-attachments/assets/3ea9e6be-db4d-411d-ab7b-06e4c6668c42" />
 
 ### T7 (V1.4.1T7) - 2026-10-21
 
