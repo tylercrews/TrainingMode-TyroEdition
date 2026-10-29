@@ -45,3 +45,7 @@ TM-CE/
 .direnv/
 .nix-bin/
 bin/*.orig
+
+# Python bytecode
+__pycache__/
+*.pyc
