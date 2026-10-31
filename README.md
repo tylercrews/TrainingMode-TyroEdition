@@ -56,6 +56,7 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T9
+- act OOWait and (and maybe other OSDs like ooattack?) should clear out if nothing happens after like 20 frames. Similar to how we put FAIL to jump out of shine after 15, but I don't want it to say that you failed all the time, so maybe after 20 frames it just blanks out to indicate no action was taken.
 - Sweet Spot Side B Event should also have knockback variation selectors similar to the edgeguarding practice
 - edgeguarding event should have a camera zoom out view. (Blast zone boxes are done: the Blast Zone Overlay, T8.)
 - split fox+falco's side bs up into to ledge and to stage and to side plat
