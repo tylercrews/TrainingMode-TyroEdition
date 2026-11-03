@@ -120,7 +120,7 @@ class ScoreStorageAudit(unittest.TestCase):
             body = re.search(r"static EventDesc \*" + array + r"\[\] = \{(.*?)\};",
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
-        self.assertEqual(counts, [5, 17, 8])
+        self.assertEqual(counts, [5, 18, 8])
         self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
         self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)
@@ -227,6 +227,7 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],34,4,1)
         machine.cpu.mem_write(BASE + SPARE_START + 68,bytes((index*13+3)&255 for index in range(SPARE_SIZE-68)))  # After the 68-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
+        # Scored events per page; the next index (2v1 Grab Punish, Low Laser) is unscored.
         for page, count, first in ((0, 5, 0), (1, 17, 5), (2, 7, 21)):
             machine.call(functions[28], 2, 0, page)
             for event in range(count):

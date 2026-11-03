@@ -216,6 +216,43 @@ EventDesc LedgeChase = {
     .matchData = &LedgeChase_MatchData,
 };
 
+// 2v1 Grab Punish Practice
+static EventMatchData GrabPunish_MatchData = {
+    .timer = MATCH_TIMER_COUNTUP,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = true,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+/* The VS select picks you, a teammate CPU and an enemy CPU and their team
+ * colors; TM/grabpunishCSS.dat keeps exactly one CPU on your team there, and
+ * GrabPunish_PrepareMatch makes the match the same way. */
+EventDesc GrabPunish = {
+    .tyro_edited = true,
+    .eventName = "2v1 Grab Punish Practice\n",
+    .eventDescription = "Your teammate grabs the enemy. Punish them\nbefore they mash out, without hitting your teammate!",
+    .eventFile = "grabpunish",
+    .jumpTableIndex = -1,
+    .eventCSSFile = "TM/grabpunishCSS.dat",
+    .CSSType = SLCHRKIND_VS,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = -1,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &GrabPunish_MatchData,
+};
+
 // Float Cancel Training
 static EventMatchData FloatCancel_MatchData = {
     .timer = MATCH_TIMER_HIDE,
@@ -795,6 +832,7 @@ static EventDesc *General_Events[] = {
     &SlideOff,
     &GrabMash,
     &LedgeChase,
+    &GrabPunish,
 };
 static EventPage General_Page = {
     .name = "General Tech",
@@ -828,11 +866,12 @@ EventPage *EventPages[] = {
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
 typedef char event_score_map_matches[(countof(Minigames_Events) == 5 &&
-    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 8) ? 1 : -1];
+    countof(General_Events) == 18 && countof(CharacterSpecific_Events) == 8) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
     if (page == 0) return event;
-    if (page == 1) return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : 5 + event;
+    if (page == 1) /* 2v1 Grab Punish (17) is unscored free practice. */
+        return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;
     return event < 7 ? 21 + event : UINT32_MAX; /* Low Laser is unscored free practice. */
 }
 
@@ -1853,6 +1892,51 @@ void HUD_DrawActionLogKey(char **action_names, GXColor *action_colors, int actio
 /// Event Functions ///
 ///////////////////////
 
+static int TeamCostume(int c_kind, int team) {
+    if (team == TEAMKIND_BLUE) return CSS_GetCostumeBlue(c_kind);
+    if (team == TEAMKIND_GREEN) return CSS_GetCostumeGreen(c_kind);
+    return CSS_GetCostumeRed(c_kind);
+}
+
+/* 2v1 Grab Punish Practice is always a team match of you, a teammate CPU and
+ * an enemy CPU. The CPU on your team is the teammate (its CSS keeps that to
+ * one), or else the first CPU; the next CPU is the enemy, on another team.
+ * Anyone else sits out. Everyone wears their team's costume. */
+static void GrabPunish_PrepareMatch(MatchInit *match) {
+    PlayerData *players = match->playerData;
+    int hmn = -1, mate = -1, enemy = -1;
+    for (int i = 0; i < 6 && hmn < 0; i++)
+        if (players[i].p_kind == PKIND_HMN) hmn = i;
+    if (hmn < 0) return;
+    int was_teams = match->is_teams;
+    int team = was_teams ? players[hmn].team : TEAMKIND_RED;
+    if (team > TEAMKIND_GREEN) team = TEAMKIND_RED;
+    for (int i = 0; i < 6 && was_teams && mate < 0; i++)
+        if (players[i].p_kind == PKIND_CPU && players[i].team == team) mate = i;
+    for (int i = 0; i < 6; i++) {
+        if (players[i].p_kind != PKIND_CPU || i == mate) continue;
+        if (mate < 0) mate = i;
+        else if (enemy < 0) enemy = i;
+    }
+
+    int count = 0;
+    for (int i = 0; i < 6; i++) {
+        PlayerData *player = &players[i];
+        if (i != hmn && i != mate && i != enemy) {
+            player->p_kind = PKIND_NONE;
+            continue;
+        }
+        if (i != enemy)
+            player->team = team;
+        else if (!was_teams || player->team == team || player->team > TEAMKIND_GREEN)
+            player->team = (team + 1) % 3;
+        player->costume = TeamCostume(player->c_kind, player->team);
+        count++;
+    }
+    match->is_teams = 1;
+    match->hudPos = count;
+}
+
 void EventInit(int page, int eventID, MatchInit *matchData)
 {
 
@@ -1988,6 +2072,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
         }
         matchData->hudPos = hudPos;
     }
+
+    if (event == &GrabPunish)
+        GrabPunish_PrepareMatch(matchData);
 
     // set to enter fall on match start
     for (int i = 0; i < 6; i++)

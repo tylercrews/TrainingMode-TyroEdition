@@ -17,7 +17,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
 
     def test_general_seventeenth_entry_preserves_existing_order(self):
         pages = self.functions[0]
-        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [5, 17, 8])
+        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [5, 18, 8])
         general = self.word(pages + 4)
         events = self.word(general + 8)
         expected = ['Training Lab', 'L-Cancel Training', 'Ledgedash Training',
@@ -28,6 +28,12 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         descriptor = self.word(events + 16 * 4)
         self.assertEqual(self.text(self.word(descriptor)).strip(), 'Ledgechase Training')
         self.assertEqual(self.text(self.word(descriptor + 8)), 'ledgechase')
+        descriptor = self.word(events + 17 * 4)
+        self.assertEqual(self.text(self.word(descriptor)).strip(), '2v1 Grab Punish Practice')
+        self.assertEqual(self.text(self.word(descriptor + 8)), 'grabpunish')
+        self.assertEqual(self.m.call(self.functions[10], 1, 17), 0)  # SLCHRKIND_VS
+        self.assertEqual(self.m.call(self.functions[11], 1, 17), 1)  # stage select
+        self.assertEqual(self.text(self.m.call(self.functions[15], 1, 17)), 'TM/grabpunishCSS.dat')
 
     def test_both_fighters_selectable_fixed_fd_and_percent_hud_enabled(self):
         functions = self.functions
@@ -49,17 +55,19 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         machine.call(0x8024E858,0,0,stop=0x8024E85C)
         self.assertEqual(machine.cpu.reg_read(gpr(30)),16)
         # Execute the actual native scroll initializer and its page-size hooks.
-        # Nine visible rows put event 17 at row 9, with eight preceding entries.
+        # Nine visible rows over 18 events scroll down to event 10 at most, so
+        # event 17 (index 16) is row 8 and 2v1 Grab Punish (17) the last row.
         machine.install_hook(0x8024E438,0x80612000)
         machine.install_hook(0x8024CFFC,0x80614000)
         scroll=0x8050A000
-        machine.cpu.mem_write(scroll-4,b'\xA5'*0x84)
-        machine.call(0x8024E420,scroll,16)
-        self.assertEqual(bytes(machine.cpu.mem_read(scroll,1)),b'\x08')
-        self.assertEqual(self.word(scroll+4),8)
+        for event, row in ((16, 7), (17, 8)):
+            machine.cpu.mem_write(scroll-4,b'\xA5'*0x84)
+            machine.call(0x8024E420,scroll,event)
+            self.assertEqual(bytes(machine.cpu.mem_read(scroll,1)),bytes((row,)))
+            self.assertEqual(self.word(scroll+4),9)
+            self.assertEqual(bytes(machine.cpu.mem_read(scroll-4,4)),b'\xA5'*4)
+            self.assertEqual(bytes(machine.cpu.mem_read(scroll+0x7C,4)),b'\xA5'*4)
         self.assertEqual(machine.call(functions[27],26,0),16)
-        self.assertEqual(bytes(machine.cpu.mem_read(scroll-4,4)),b'\xA5'*4)
-        self.assertEqual(bytes(machine.cpu.mem_read(scroll+0x7C,4)),b'\xA5'*4)
 
 
 if __name__ == '__main__':
