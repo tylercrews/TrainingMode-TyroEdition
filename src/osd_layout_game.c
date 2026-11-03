@@ -43,6 +43,11 @@ static void sync_split_owners(void) {
     TMOSD_MapSplitOwners(&layout.map, mask);
 }
 static GXColor muted = {180, 190, 205, 255};
+/* History turn: 0 frame, 1 second turn, 2 FAIL, 3 no action ("--"). */
+static void push_result(TMOSDHistory *history, MsgData *msg) {
+    TMOSD_HistoryPush(history, msg->kind, msg->timing_frame, OSD_ResultColor(msg),
+        msg->timing_failed ? 2 : msg->timing_blank ? 3 : msg->timing_second_turn, msg->native_frame);
+}
 static void bar_hidden(JOBJ *joint, int hidden) {
     if(hidden)joint->flags |= JOBJ_HIDDEN; else joint->flags &= ~JOBJ_HIDDEN;
     for(JOBJ *child=joint->child;child;child=child->sibling)bar_hidden(child,hidden);
@@ -115,11 +120,7 @@ int Message_LayoutAdd(GOBJ *object, int queue) {
         MsgData *old = layout.latest[key]->userdata;
         /* Capture finalized metadata before replacement, even if two genuine
          * attempts were emitted between manager updates. */
-        if (!old->layout_captured) {
-            TMOSD_HistoryPush(&layout.history[key], old->kind, old->timing_frame,
-                old->timing_second_turn || old->timing_failed ? 0xFFA2BAFF : OSD_TimingColorFor(old->timing_frame, old->timing_best),
-                old->timing_failed ? 2 : old->timing_second_turn, old->native_frame);
-        }
+        if (!old->layout_captured) push_result(&layout.history[key], old);
         Message_FreeObject(layout.latest[key]);
     }
     layout.latest[key] = object;
@@ -251,9 +252,7 @@ static void footer(GOBJ *object, unsigned mode) {
     MsgData *msg = object->userdata;
     TMOSDHistory *history = &layout.history[msg->layout_key];
     if (!msg->layout_captured) {
-        TMOSD_HistoryPush(history, msg->kind, msg->timing_frame,
-            msg->timing_second_turn || msg->timing_failed ? 0xFFA2BAFF : OSD_TimingColorFor(msg->timing_frame, msg->timing_best),
-            msg->timing_failed ? 2 : msg->timing_second_turn, msg->native_frame);
+        push_result(history, msg);
         msg->layout_captured = 1;
     }
     if (!Message_LayoutVisible(msg)) {
@@ -307,6 +306,7 @@ static void footer(GOBJ *object, unsigned mode) {
                 line[used++] = 0x1B;
                 for (int shift = 28; shift >= 0; shift -= 4) line[used++] = hex[(history->color[i] >> shift) & 15];
                 if (history->turn[i] == 2) strcpy(part, "FAIL");
+                else if (history->turn[i] == 3) strcpy(part, "--");
                 else sprintf(part, history->turn[i] ? "%dtrn" : "%df", history->frame[i]);
                 for (const char *p = part; *p; ++p) line[used++] = *p;
                 line[used] = 0; Text_SetText(msg->layout_footer, 4 + row, "%s", line);

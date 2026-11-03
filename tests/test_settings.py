@@ -1488,6 +1488,17 @@ class OSDLayoutTests(unittest.TestCase):
         object=m.call("TestLayoutEmit",0,20,1,64);m.call("TestLayoutTick",5)
         self.assertNotIn(b"2f",self.footer(object));self.assertNotIn(b"4f",self.footer(object))
 
+    def test_panel_history_keeps_a_no_action_attempt_as_muted_dashes(self):
+        self.start(2);m=self.m
+        m.call("TestLayoutTick",1);m.call("TestLayoutEmit",0,16,3,5);m.call("TestLayoutTick",1)
+        m.call("TestLayoutTick",2);blank=m.call("TestLayoutEmit",0,16,0,5);m.call("TestLayoutBlank",blank)
+        m.call("TestLayoutTick",2)
+        self.assertEqual(bytes(m.call("TestLayoutTimingChar",blank,i) for i in range(11)),b"\x1bB4BECDFF--")
+        self.assertIn(b"3f",self.footer(blank));self.assertNotIn(b"0f",self.footer(blank))
+        m.call("TestLayoutTick",3);latest=m.call("TestLayoutEmit",0,16,2,5);m.call("TestLayoutTick",3)
+        rows=[bytes(m.call("TestLayoutFooterRowChar",latest,row,i) for i in range(20)).split(b"\0",1)[0] for row in (4,5)]
+        self.assertEqual(rows,[b"\x1bB4BECDFF--",b"\x1bFFF000FF3f"])
+
     def test_all_and_cpu_overrides_preserve_human_slot_coordinates(self):
         self.start(1);m=self.m
         human=m.call("TestLayoutEmit",0,20,1,20);m.call("TestLayoutTick",1)
@@ -2067,6 +2078,118 @@ class AttackEpisodeTests(unittest.TestCase):
             m.call("TestCueState",0,after,f,40,100);m.call("TestShineAfter",0)
         self.assertEqual(m.call("TestWaitFrame"),1)
         self.assertEqual("".join(chr(m.call("TestWaitLabelChar",i)) for i in range(12)),"Ledge attack")
+
+
+LANDING, LANDINGAIRN, FALL, JUMPF, JUMPAERIALF, PASS = 42, 70, 29, 25, 27, 244
+GUARD, GUARDSETOFF, DAMAGEFALL, CLIFFWAIT = 179, 181, 38, 253
+
+class NoActionTests(unittest.TestCase):
+    """Act Oo attempts with no result show "--" after TM_NO_ACTION_FRAMES (20)."""
+    def setUp(self):
+        self.m=Machine(); self.wait=0x80404000
+        self.m.cpu.mem_write(self.wait,bytes(12))
+
+    def tick(self,frozen=0,dead=0):
+        return self.m.call("TMNoAction_Tick",self.wait,frozen,dead)
+
+    def test_runs_out_once_after_twenty_unfrozen_updates(self):
+        self.assertEqual(self.tick(),0)  # Nothing pending.
+        self.m.call("TMNoAction_Start",self.wait,0,0)
+        self.assertEqual([self.tick() for _ in range(19)],[0]*19)
+        self.assertEqual(self.tick(frozen=1),0)  # Hitlag does not count.
+        self.assertEqual(self.tick(),1);self.assertEqual(self.tick(),0)
+
+    def test_result_landing_lag_and_death(self):
+        m=self.m
+        m.call("TMNoAction_Start",self.wait,0,0)
+        for _ in range(5): self.tick()
+        m.call("TMNoAction_Result",self.wait)
+        self.assertEqual(sum(self.tick() for _ in range(40)),0)
+        m.call("TMNoAction_Start",self.wait,4,0)  # Four frames of landing lag come first.
+        self.assertEqual([self.tick() for _ in range(23)],[0]*23);self.assertEqual(self.tick(),1)
+        m.call("TMNoAction_Start",self.wait,0,0);self.tick()
+        self.assertEqual(self.tick(dead=1),0)
+        self.assertEqual(sum(self.tick() for _ in range(40)),0)
+
+    def game(self,ids,mode=1):
+        m=self.m;m.init();m.call("TestCueInit")
+        for id in (3,16,18,28): m.write(14,id,6 if id in ids else 0)
+        m.call("Settings_Set",14,27,6 if 27 in ids else 0)  # Act OoAttack's color lives in the extension.
+        m.call("Settings_Set",21,0,mode);m.call("TestWaitClear")
+        self.frame=0
+
+    def step(self,state,count=1,slot=0,attack=False):
+        """Return the update (1-based, within this call) that showed a message; 0 = none."""
+        shown=0
+        for i in range(count):
+            self.frame+=1;m=self.m
+            m.call("TestCueState",slot,state,self.frame,40,100);m.call("TestContextTick",slot,self.frame)
+            if attack: m.call("TestShineBefore",slot);m.call("TestShineAfter",slot)
+            if not shown and m.call("TestWaitTag"): shown=i+1
+        return shown
+
+    def blank(self,id,kind,rows,label=None):
+        m=self.m;tag=m.call("TestWaitTag")
+        self.assertEqual((m.call("OSD_MessageSettings",tag),m.call("OSD_MessageKind",tag)),(id,kind))
+        self.assertEqual(m.call("TestStyleBlank"),1)
+        text,_,raw=styled_ascii(m,rows-1)
+        self.assertEqual(text,"--");self.assertIn(b"\x1bB4BECDFF--",raw)
+        if label: self.assertEqual(bytes(m.call("TestWaitLabelChar",i) for i in range(len(label)+1)),label+b"\0")
+        m.call("TestWaitClear")
+
+    def test_act_oowait_blanks_twenty_frames_after_wait_or_landing_lag(self):
+        m=self.m;self.game([16])
+        self.step(LANDINGAIRN,3)  # The first update only observes.
+        m.call("TestCuePrevious",0,LANDINGAIRN)
+        self.assertEqual(self.step(WAIT,20),20)
+        self.blank(16,5,3,b"Missed L-cancel")
+        self.assertEqual(self.step(WAIT,40),0)  # Once per attempt.
+        m.call("TestCueLanding",0,4,1);m.call("TestCuePrevious",0,FALL)
+        self.assertEqual(self.step(LANDING,24),24)  # Landing lag, then 20 actionable frames.
+        self.blank(16,5,3,b"Landing")
+        m.call("TestCuePrevious",0,WALK);self.step(WALK);self.assertEqual(self.step(WAIT,40),0)  # No source.
+
+    def test_a_result_cancels_and_recent_retires_the_old_popup_instead(self):
+        m=self.m;self.game([16])
+        self.step(LANDINGAIRN);m.call("TestCuePrevious",0,LANDINGAIRN);self.step(WAIT,5)
+        m.call("OSDContext_Result",0,16);self.assertEqual(self.step(WAIT,40),0)
+        self.game([16],mode=0)
+        self.step(LANDINGAIRN);m.call("TestCuePrevious",0,LANDINGAIRN);self.step(WAIT,20)
+        self.assertEqual(m.call("TestWaitTag"),0);self.assertEqual(m.call("TestRetired"),16)
+        self.game([])  # Off: nothing at all.
+        self.step(LANDINGAIRN);m.call("TestCuePrevious",0,LANDINGAIRN);self.step(WAIT,30)
+        self.assertEqual((m.call("TestWaitTag"),m.call("TestRetired")),(0,0xFFFFFFFF))
+        self.game([16])  # Nana never reports.
+        self.step(LANDINGAIRN,slot=1);m.call("TestCuePrevious",1,LANDINGAIRN)
+        self.assertEqual(self.step(WAIT,30,slot=1),0)
+
+    def test_act_oos_and_oohitstun_start_when_stun_ends(self):
+        m=self.m;self.game([3,28])
+        self.step(GUARDSETOFF,4);self.assertEqual(self.step(GUARD,20),20)
+        self.blank(3,3,2)
+        m.call("TestCueHitstun",0,1);self.step(DAMAGE,5)
+        m.call("TestCueHitstun",0,0);self.assertEqual(self.step(DAMAGE,20),20)
+        self.blank(28,5,2)
+        m.call("TestCueHitstun",0,1);self.step(DAMAGE,3)
+        m.call("TestCueHitstun",0,0);self.assertEqual(self.step(WAIT,30),0)  # Hitstun ended outside a damage state.
+
+    def test_act_oojump_blanks_once_per_jump_drop_or_ledge_drop(self):
+        m=self.m;self.game([18])
+        self.step(KNEEBEND,3);self.assertEqual(self.step(JUMPF,20),20)
+        self.blank(18,18,2)
+        m.call("TestCuePrevious",0,JUMPF);self.assertEqual(self.step(FALL,40),0)  # A jump's own fall.
+        m.call("TestCuePrevious",0,FALL);self.assertEqual(self.step(JUMPAERIALF,20),20)
+        self.blank(18,18,2)
+        self.step(WAIT,3);self.assertEqual(self.step(PASS,20),20);self.blank(18,18,2)
+        m.call("TestCuePrevious",0,PASS);self.assertEqual(self.step(FALL,40),0)
+        self.step(CLIFFWAIT,3);m.call("TestCuePrevious",0,CLIFFWAIT)
+        self.assertEqual(self.step(FALL,20),20);self.blank(18,18,2)
+
+    def test_act_ooattack_starts_on_the_first_actionable_update(self):
+        m=self.m;self.game([27])
+        self.step(FTILT,3,attack=True)
+        self.assertEqual(self.step(WAIT,21,attack=True),21)  # Wait 1 is opportunity 1.
+        self.blank(27,27,3,b"Ftilt")
 
 
 class ShineEpisodeTests(unittest.TestCase):

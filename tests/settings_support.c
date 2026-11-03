@@ -105,9 +105,14 @@ int TestStickTip(int x, int y, unsigned axis) {
 static const char *wait_label;
 static GOBJ wait_object;
 static int wave_frame, wave_hop;
+static int retire_queue = -1, retire_id = -1;
+void Message_Retire(int queue, int settings_id) { retire_queue = queue; retire_id = settings_id; }
+int TestRetired(void) { return retire_queue < 0 ? -1 : retire_queue * 64 + retire_id; }
+int TestStyleBlank(void) { return style_message.timing_blank; }
 GOBJ *Message_Display(int tag, int queue, int color, char *format, ...) {
     va_list args; va_start(args, format);
     unsigned id = OSD_MessageSettings(tag);
+    OSDContext_Result(queue, id);
     if (OSD_MessagePointerFirst(tag)) {
         wait_label = va_arg(args, const char *); wait_frame = va_arg(args, int);
     } else {
@@ -141,7 +146,7 @@ int TestStyleEncoded(void) { return style_message.timing_encoded; }
 
 int TestWaitFrame(void) { return wait_frame; }
 unsigned TestWaitLabelChar(unsigned i) { return wait_label ? wait_label[i] : 0; }
-void TestWaitClear(void) { wait_frame = wait_tag = 0; wait_label = 0; }
+void TestWaitClear(void) { wait_frame = wait_tag = 0; wait_label = 0; retire_queue = retire_id = -1; }
 void TestWaitDisplay(unsigned slot) { OSD_ActOutWait(Fighter_GetSubcharGObj(slot / 2, slot & 1)); }
 int TestWaitTag(void) { return wait_tag; }
 void TestContextStep(TMOSDContext *context, unsigned frame, int *sample) {
@@ -491,6 +496,8 @@ void TestCueSpawn(unsigned slot, int spawn, int dead) {
     cue_data[slot].spawn_num = spawn; cue_data[slot].flags.dead = dead;
 }
 void TestCueInputTimer(unsigned slot, int timer) { cue_data[slot].input.timer_trigger_any_ignore_hitlag = timer; }
+void TestCueHitstun(unsigned slot, int hitstun) { cue_data[slot].flags.hitstun = hitstun; }
+void TestCuePrevious(unsigned slot, int state) { cue_data[slot].TM.state_prev[0] = state; }
 unsigned TestCueDrawCount(unsigned slot) { return cue_draw_count[slot]; }
 int TestCueWrapped(unsigned slot) { return cue_objects[slot].gx_cb != TestCueNativeDraw; }
 void TestCueLocal(unsigned slot, unsigned rgba) {
@@ -674,6 +681,7 @@ unsigned TestLayoutFooterRowChar(GOBJ *object,unsigned row,unsigned index) {
     return i>=0 && row<9 ? (unsigned char)layout_texts[i].body[row][index] : 0;
 }
 void TestStyleFailed(int fail) { style_message.timing_failed=fail; }
+void TestLayoutBlank(GOBJ *object) { ((MsgData *)object->userdata)->timing_blank = 1; }
 int TestLayoutFooterMetric(GOBJ *object,unsigned row,unsigned metric){
     int i=layout_text_index(((MsgData *)object->userdata)->layout_footer);
     return i<0 || row>=9 ? 0 : (metric<2 ? layout_texts[i].pos[row][metric] : layout_texts[i].scale[row][metric-2]*100+.5f);

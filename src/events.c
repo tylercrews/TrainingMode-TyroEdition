@@ -2531,6 +2531,7 @@ GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, 
     msg_data->queue_num = queue_num;
     msg_data->layout_key = -1;
     msg_data->native_frame = stc_match->time_frames;
+    OSDContext_Result(queue_num, msg_data->settings_id);
     if (msg_data->settings_id == 0 && msg_data->kind == 0 && (unsigned)queue_num < 6) {
         GOBJ *fighter = Fighter_GetSubcharGObj(queue_num, 0);
         if (fighter && fighter->userdata) {
@@ -2851,6 +2852,17 @@ void Message_EndCombo(int queue_num) {
         msg->lifetime = 60;
         msg->alive_timer = 0;
         Text_SetColor(msg->text, 1, &stc_msg_colors[MSGCOLOR_GREEN]);
+    }
+}
+/* An Act Oo attempt with no result: its OSD's older pop-up leaves now. */
+void Message_Retire(int queue_num, int settings_id) {
+    if ((unsigned)queue_num >= MSGQUEUE_NUM) return;
+    MsgMngrData *manager = stc_msgmgr->userdata;
+    for (unsigned i = 0; i < MSGQUEUE_SIZE; ++i) {
+        GOBJ *gobj = manager->msg_queue[queue_num][i];
+        if (!gobj) continue;
+        MsgData *msg = gobj->userdata;
+        if (msg->settings_id == settings_id && msg->alive_timer < msg->lifetime) msg->alive_timer = msg->lifetime;
     }
 }
 void Message_FreeObject(GOBJ *object) {

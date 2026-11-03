@@ -45,4 +45,17 @@ void TMAttack_Before(TMAttackEpisode *attack, uint32_t frame, int state, unsigne
     int actionable, int frozen);
 /* Return the 1-based actionable frame of the action just taken; 0 = none. */
 unsigned TMAttack_After(TMAttackEpisode *attack, uint32_t frame, int state, unsigned instance, int frozen);
+/* Act Oo OSDs other than Jump Out Of Shine, which reports FAIL: an attempt with
+ * no result after this many unfrozen updates shows a blank "--" result, so a
+ * stable layout never keeps showing an older attempt's frame. */
+#define TM_NO_ACTION_FRAMES 20
+typedef struct TMNoAction {
+    int pending, elapsed;
+    const char *label; /* Source row (Act OoWait/OoAttack); 0 = two-row result. */
+} TMNoAction;
+/* delay: updates before the first actionable one, e.g. normal landing lag. */
+void TMNoAction_Start(TMNoAction *wait, int delay, const char *label);
+void TMNoAction_Result(TMNoAction *wait);
+/* Advance one update; return 1 once, when the attempt runs out. */
+int TMNoAction_Tick(TMNoAction *wait, int frozen, int dead);
 #endif
