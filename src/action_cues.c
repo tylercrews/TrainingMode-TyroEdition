@@ -102,7 +102,9 @@ unsigned TMCue_RedAlpha(unsigned phase) {
     return pulse[phase % TM_CUE_PULSE_FRAMES];
 }
 uint32_t TMCue_CPUInvincibilityColor(unsigned choice) {
-    /* Match the existing player/trail hues and protection opacity. */
+    /* Match the existing player/trail hues and protection opacity.
+     * Lavender (also blue team's second shade) was 0xB48CFF, too pale; if
+     * 0xA06EFF still reads washed out, the next step is 0x9060FF. */
     static const uint32_t palette[] = {
         0x00000000, 0xFF464670, 0x4691FF70, 0xFFE14170,
         0x4BE16470, 0x00FFFF70, 0xFF00FF70, 0xA06EFF70,
