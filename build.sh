@@ -106,13 +106,17 @@ queue_mex_build "tmFunction" "build/eventMenu.dat" "src/events.c src/shield_trai
 queue_mex_build "cssFunction" "build/labCSS.dat" "src/lab_css.c" "dats/labCSS.dat"
 queue_mex_build "evFunction" "build/lab.dat" "src/lab.c src/stadium.c" "dats/lab.dat"
 queue_mex_build "evFunction" "build/lcancel.dat" "src/lcancel.c"
-queue_mex_build "evFunction" "build/ledgedash.dat" "src/ledgedash.c src/ledgedash_logic.c"
+# ledgedash and sweetspot both compile ledgedash_logic.c to build/ledgedash_logic.o, so they can't run at once
+{
+    mex_build "evFunction" "build/ledgedash.dat" "src/ledgedash.c src/ledgedash_logic.c" &&
+    mex_build "evFunction" "build/sweetspot.dat" "src/sweetspot.c src/ledgedash_logic.c"
+} &
+build_jobs+=("$!")
 queue_mex_build "evFunction" "build/wavedash.dat" "src/wavedash.c" "dats/wavedash.dat"
 queue_mex_build "evFunction" "build/powershield.dat" "src/powershield.c"
 queue_mex_build "evFunction" "build/dthrowknee.dat" "src/dthrowknee.c"
 queue_mex_build "evFunction" "build/edgeguard.dat" "src/edgeguard.c"
 queue_mex_build "evFunction" "build/fc.dat" "src/fc.c"
-queue_mex_build "evFunction" "build/sweetspot.dat" "src/sweetspot.c src/ledgedash_logic.c"
 queue_mex_build "evFunction" "build/upbsweetspot.dat" "src/upbsweetspot.c"
 queue_mex_build "evFunction" "build/lowlaser.dat" "src/lowlaser.c"
 queue_mex_build "evFunction" "build/laserland.dat" "src/laserland.c"
