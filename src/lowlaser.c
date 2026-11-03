@@ -7,8 +7,6 @@
 /* FD's main-stage edge. Ground positions scale from FD's original X values
  * to each stage's live edges, so FD keeps exactly 0/±35/±70 and the player ±50. */
 #define FD_EDGE 85.5656967f
-#define MOVE_SPECIAL_N 18 /* Native move ID copied to atk_kind by ActionStateChange. */
-#define FIRST_SPECIAL_STATE (ASID_BARRELCANNONWAIT + 1) /* 341: character-specific states. */
 enum { OPT_POSITION, OPT_HEIGHT, OPT_STAGE, OPT_OSDS, OPT_SUPPRESS, OPT_EXIT, OPT_RESET_PERCENT };
 enum {
     POS_CENTER, POS_FAR_LEFT, POS_CENTER_LEFT, POS_CENTER_RIGHT, POS_FAR_RIGHT,
@@ -17,7 +15,7 @@ enum {
 enum { HEIGHT_GROUNDED, HEIGHT_SHORT, HEIGHT_FULL, HEIGHT_SHORT_DOUBLE, HEIGHT_FULL_DOUBLE, HEIGHT_COUNT };
 typedef struct LowLaserData {
     EventDesc *desc;
-    int initialized, airborne, air_frame, laser_frame, fastfall_frame, fastfall, prev_state;
+    int initialized, airborne, air_frame, laser_frame, fastfall_frame, fastfall;
     unsigned restore_serial;
     Vec3 puff_position; /* Surface point; Puff is held puff_height above it. */
     float puff_height;
@@ -53,7 +51,8 @@ static EventOption options[] = {
     {.kind = OPTKIND_MENU, .name = "Change Stage", .menu = &StageSwap_Menu,
      .desc = {"Restart on another tournament-legal stage.", "Saved settings are kept; Puff's percent resets."}},
     {.kind = OPTKIND_TOGGLE, .name = "Event OSDs", .val = 1, .OnChange = ChangeOSDs,
-     .desc = {"Show Laser Start and the regular Fastfall timing.", "Laser Start counts from the first airborne frame.", "Both results stay white. This setting is saved."}},
+     .desc = {"Show Laser Start and the regular Fastfall timing.", "Laser Start counts from the first airborne frame.",
+              "Other characters show B Press Start for any aerial B.", "Both results stay white. This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .name = "Suppress Global OSDs", .OnChange = ChangeSuppression,
      .desc = {"Hide global OSDs during this event only.", "Event OSDs keep their own On/Off setting.", "Defaults Off. This setting is saved."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = Exit,
@@ -326,7 +325,6 @@ void Event_Init(GOBJ *gobj) {
     EventDesc *desc = data->desc;
     memset(data, 0, sizeof(*data));
     data->desc = desc;
-    data->prev_state = -1;
     ClearTiming(data);
     data->restore_serial = event_vars->get_restore_serial();
     for (int i = 0; i < POS_COUNT; ++i) positions_display[i] = positions[i];
@@ -360,7 +358,7 @@ void Event_Think(GOBJ *gobj) {
     FighterData *hmn = human->userdata, *cpu = puff->userdata;
     if (!data->initialized) {
         data->initialized = 1;
-        if (data->text[0] && !IsBlaster(hmn)) Text_SetText(data->text[0], 0, "Neutral-B Start");
+        if (data->text[0] && !IsBlaster(hmn)) Text_SetText(data->text[0], 0, "B Press Start");
         PlaceFighters();
     }
     if (data->restore_serial != event_vars->get_restore_serial()) {
@@ -381,12 +379,11 @@ void Event_Think(GOBJ *gobj) {
     }
     if (airborne && data->air_frame < 32767) ++data->air_frame;
     /* Fox and Falco share SpecialAirNStart (344), Loop (345), End (346).
-     * Others: entering a character special state whose native move ID is
-     * neutral-B. atk_kind persists after a move, so only a transition counts.
+     * Others: the press itself, so every special counts (Samus's side-B
+     * missiles), and so does a press that starts no move.
      * Grounded shots are not a low aerial-laser attempt. */
-    int neutral_b = IsBlaster(hmn) ? hmn->state_id == 344 :
-        hmn->state_id != data->prev_state && hmn->state_id >= FIRST_SPECIAL_STATE && hmn->atk_kind == MOVE_SPECIAL_N;
-    if (airborne && neutral_b && data->laser_frame < 0)
+    int started = IsBlaster(hmn) ? hmn->state_id == 344 : hmn->input.down & PAD_BUTTON_B;
+    if (airborne && started && data->laser_frame < 0)
         data->laser_frame = data->air_frame;
     if (airborne && hmn->flags.is_fastfall && !data->fastfall) {
         /* Reuse the exact native counter consumed by Display FF Timing.asm:
@@ -395,7 +392,6 @@ void Event_Think(GOBJ *gobj) {
     }
     data->airborne = airborne;
     data->fastfall = airborne && hmn->flags.is_fastfall;
-    data->prev_state = hmn->state_id;
 }
 void Event_Update(void) {
     LowLaserData *data = Data();

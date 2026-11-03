@@ -60,6 +60,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - improve up-b overlay and sweetspot event with indicators on angled characters's arcs where the fixed angle spots are for boxx players
 - new objects in eggsercise. practice hitting in other spots other than on the floor
 - expand the edgeguarding event, i want at least doc and game and watch if I didn't already do doc. get some more in there like dk and all the mid tiers
+- test pikachu's recovery in both the up b sweet spot event and the recovery event. It might be too much for me to try to build out as a non-pika player, but would be nice to expand
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
@@ -145,6 +146,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Where hitstun ends decides what's possible. On Weak and Normal Hit Strength it ends 20 to 40 under the ledge: too low for To Side Plat (one double jump rises about 40) and on Normal usually too far out for Shortest Shorten. Hard ends high enough for To Side Plat about a third to half of the time. When a checked row can't make it, the CPU uses its up-B if a Firefox / Firebird row is checked, or else the closest side-B row that can (Ledge Sweetspot first).
         - **Fast Fall** moved up a row, above the side-B rows. Saved settings carry over, with the old Illusion / Phantasm row as Instant. The five new rows of each use 10 spare bits of the save record (`TYEX` word 68 bits 19-28), so the save format doesn't change.
         - Fox and Falco CPUs now set their buttons fresh every frame, like the newer Edgeguard CPUs, which the shorten needs. The Training Lab's Recovery Options for a Fox or Falco CPU have the same rows (not saved there, as before).
+    - **Low Laser Puff Practice**
+        - For characters other than Fox and Falco, the timing readout is now **B Press Start** instead of Neutral-B Start, and it times your first aerial B press of any kind, so things like Samus's side-B missiles count. It reads the button, so a press that doesn't start a move (like during an aerial) counts too. Fox and Falco keep Laser Start, which still only times the laser.
 
 For T9 I was working with Claude Opus 5.5 Extra High
 

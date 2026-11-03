@@ -70,7 +70,7 @@ To get Fox↔Falco in Low Laser:
 1. For this event only, change Fox's table entry to {Fox, Falco, 1} before the match is set up, and restore it on exit. Every mode reads this table. The preload pass and `SetupPlayerSlot` would then load Falco and create him asleep.
 2. Request Falco's sound bank too. Zelda and Sheik share one bank (`0x08000000`), but Fox (`0x800`) and Falco (`0x400`) don't. TM's CSS ssm hook could OR it in.
 3. Swap with `Fighter_Transform` and a callback that enters Wait (grounded) or Fall (airborne).
-4. Refresh anything the event computed once per match from the character, such as Low Laser's "Laser Start" vs "Neutral-B Start" label.
+4. Refresh anything the event computed once per match from the character, such as Low Laser's "Laser Start" vs "B Press Start" label.
 
 Unknowns to check in Dolphin:
 

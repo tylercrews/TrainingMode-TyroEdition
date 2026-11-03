@@ -225,6 +225,7 @@ class LowLaserTests(unittest.TestCase):
 
 FD_EDGE = struct.unpack('>f', struct.pack('>f', 85.5656967))[0]
 MARIO, FOX = 0, 1
+BUTTON_A, BUTTON_B = 0x100, 0x200
 # Expected apex rises: gravity before movement, from Puff's PlPr.dat values.
 def rise(velocity, gravity=.064):
     height = 0
@@ -399,28 +400,31 @@ class LowLaserStageTests(unittest.TestCase):
         self.choose(0, 8)  # Under Left Plat stays on the main floor.
         self.assertEqual(self.puff(), (-35, 0))
 
-    def test_every_character_times_first_aerial_neutral_b_by_native_move_transition(self):
+    def test_other_characters_time_first_aerial_b_press_and_fox_keeps_laser_start(self):
         m = self.m
-        def sample(state, airborne=1):
-            m.call('TestLaserSample', state, airborne, 0, 0, 0); m.call('TestLaserThink')
-        m.call('TestLaserMove', MARIO, 1); m.call('TestLaserReenter'); m.call('TestLaserThink')
-        self.assertEqual(self.info(36), 1)  # Neutral-B Start label for non-blasters.
-        sample(360, 0)
-        m.call('TestLaserMove', MARIO, 18); sample(361, 0)  # Grounded neutral-B is ignored.
+        def sample(state, airborne=1, down=0, frozen=0):
+            m.call('TestLaserDown', down)
+            m.call('TestLaserSample', state, airborne, 0, 0, frozen); m.call('TestLaserThink')
+        m.call('TestLaserCharacter', MARIO); m.call('TestLaserReenter'); m.call('TestLaserThink')
+        label = bytes(m.cpu.mem_read(self.info(36), 16)).split(b'\0', 1)[0]
+        self.assertEqual(label, b'B Press Start')
+        sample(361, 0, BUTTON_B)  # Grounded press is ignored.
         self.assertEqual(self.info(0), -1)
-        for _ in range(3): sample(25)
-        sample(362)
+        sample(25, down=BUTTON_A); sample(25)
+        sample(25, down=BUTTON_B, frozen=1)  # Hitlag freezes the clock and the press with it.
+        self.assertEqual((self.info(0), self.info(2)), (-1, 2))
+        sample(25); sample(25, down=BUTTON_A | BUTTON_B)  # No move state needed.
         self.assertEqual(self.info(0), 4)
-        sample(14, 0); sample(25)  # atk_kind still 18 after the move: not a new neutral-B.
-        self.assertEqual(self.info(0), -1)
-        m.call('TestLaserMove', MARIO, 20); sample(363)  # Up-B.
-        self.assertEqual(self.info(0), -1)
-        m.call('TestLaserMove', MARIO, 18); sample(363)  # No state transition.
-        self.assertEqual(self.info(0), -1)
-        sample(364)
-        self.assertEqual(self.info(0), 4)
-        m.call('TestLaserMove', FOX, 0); m.call('TestLaserReenter'); m.call('TestLaserThink')
+        sample(25); sample(363, down=BUTTON_B)  # Only the first press of the jump counts.
+        self.assertEqual((self.info(0), self.info(2)), (4, 6))
+        sample(14, 0); sample(25, down=BUTTON_B)  # A new jump clears it; press on frame 1.
+        self.assertEqual(self.info(0), 1)
+        m.call('TestLaserCharacter', FOX); m.call('TestLaserReenter'); m.call('TestLaserThink')
         self.assertEqual(self.info(36), 0)  # Fox and Falco keep Laser Start.
+        sample(14, 0); sample(25, down=BUTTON_B)  # Side-B or a mistimed press isn't a laser.
+        self.assertEqual(self.info(0), -1)
+        sample(344, down=BUTTON_B)
+        self.assertEqual(self.info(0), 2)
 
 
 class LowLaserCatalogueTests(unittest.TestCase):
