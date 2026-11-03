@@ -111,7 +111,7 @@ def build():
              "*For live Slippi and offline VS with its standard required codes enabled.",
              "*Applies to all fighters. Replay file saving may be disabled."]
     lines += [f"{a:08X} {b:08X}" for a, b in struct.iter_unpack(">II", code)]
-    (SOURCE / "actionable.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
+    (SOURCE / "actionable.txt").write_text("\n".join(lines) + "\n", encoding="ascii", newline="\n")
     (SOURCE / "actionable.gct").write_bytes(bytes.fromhex("00D0C0DE 00D0C0DE") + code + bytes.fromhex("F0000000 00000000"))
     print(f"Built {len(code):,} bytes; {len(offsets)} position-independent data relocations.")
     print(SOURCE / "actionable.txt")

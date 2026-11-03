@@ -48,7 +48,7 @@ def build():
              "*Teams: each teammate gets its own shade of the team color.",
              "*Visual only. Replaces Change Colour While Invulnerable."]
     lines += [f"{a:08X} {b:08X}" for a, b in struct.iter_unpack(">II", code)]
-    (SOURCE / "invincibility-overlay.txt").write_text("\n".join(lines) + "\n", encoding="ascii")
+    (SOURCE / "invincibility-overlay.txt").write_text("\n".join(lines) + "\n", encoding="ascii", newline="\n")
     (SOURCE / "invincibility-overlay.gct").write_bytes(
         bytes.fromhex("00D0C0DE 00D0C0DE") + code + bytes.fromhex("F0000000 00000000"))
     print(f"Built {len(code):,} bytes; {len(offsets)} position-independent data relocations.")

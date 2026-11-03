@@ -1,5 +1,9 @@
 # Auto detect text files and perform LF normalization
-* text=auto
+# eol=lf keeps working copies LF as well, whatever core.autocrlf says
+* text=auto eol=lf
+
+# cmd.exe needs CRLF
+*.bat text eol=crlf
 
 # Custom for Visual Studio
 *.cs     diff=csharp
