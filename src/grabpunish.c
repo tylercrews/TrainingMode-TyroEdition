@@ -467,21 +467,33 @@ static void ChooseSpots(void) {
     attempt.dir = facing == FACING_TOWARD ? toward : facing == FACING_AWAY ? -toward : RandomSign();
 }
 
-static void PlaceFighters(void) {
+static void SetPercent(int ply, float percent) {
+    for (int ms = 0; ms < 2; ms++) {
+        GOBJ *fighter = Body(ply, ms);
+        if (!fighter) continue;
+        FighterData *ft = fighter->userdata;
+        ft->dmg.percent = percent;
+        // This field is pending damage to add, not a copy of the current percent.
+        ft->dmg.percent_temp = 0;
+    }
+    Fighter_SetHUDDamage(ply, percent);
+}
+
+/* The pair, your teammate facing the enemy, a gap apart that changes with
+ * each try. Your teammate starts at 0%. */
+static void PlaceCPUs(void) {
     float half = Grab_Gaps[attempt.tries % countof(Grab_Gaps)] * .5f;
     float mid = attempt.mid;
     int dir = attempt.dir;
-    PlacePlayer(hmn_ply, &attempt.you, attempt.you_x, mid > attempt.you_x ? 1 : -1);
     PlacePlayer(mate_ply, &attempt.grab, mid - dir * half, dir);
     PlacePlayer(enemy_ply, &attempt.grab, mid + dir * half, -dir);
     Match_CorrectCamera();
 
-    FighterData *enemy = Data(enemy_ply);
     float percent = Options_Main[OPT_PERCENT].val * 20;
-    enemy->dmg.percent = enemy->dmg.percent_temp = percent;
-    Fighter_SetHUDDamage(enemy_ply, percent);
+    SetPercent(enemy_ply, percent);
+    SetPercent(mate_ply, 0);
     attempt.enemy_pct = percent;
-    attempt.mate_pct = Data(mate_ply)->dmg.percent;
+    attempt.mate_pct = 0;
 }
 
 static void CountAttempt(int result) {
@@ -611,13 +623,17 @@ void Event_Init(GOBJ *gobj) {
     GObj_AddGXLink(gobj, DrawHUD, GXLINK_HUD, 80);
 }
 
+/* A new attempt starts everyone over. Trying the grab again only moves the
+ * pair: a savestate would put you back too and rewind the event timer, which
+ * keeps the pause menu shut for a few frames. */
 static void Reset(int same_attempt) {
-    event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
     if (!same_attempt) {
+        event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
         attempt = (struct attempt) { .time_left = TIME_NONE };
         ChooseSpots();
+        PlacePlayer(hmn_ply, &attempt.you, attempt.you_x, attempt.mid > attempt.you_x ? 1 : -1);
     }
-    PlaceFighters();
+    PlaceCPUs();
     phase = PHASE_SETUP;
     phase_timer = 0;
 }
