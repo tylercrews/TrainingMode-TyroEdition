@@ -18,7 +18,7 @@ It's built to replace Aitch's **Change Colour While Invulnerable** code, which t
 |---|---|---|---|
 | Red | Red | Orange | Pink |
 | Blue | Blue | Lavender | Cyan |
-| Green | Green | Teal | Lime |
+| Green | Green | Lime | Forest green |
 
 Lavender only shows up on blue team in teams mode, so it can't be mistaken for a CPU.
 

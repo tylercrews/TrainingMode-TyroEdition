@@ -3733,9 +3733,9 @@ class ActionCueTests(unittest.TestCase):
     def test_protection_overlay_gives_each_teammate_its_own_shade(self):
         m = self.m
         m.call("Settings_Set", 11, 7, 1)
-        shades = {0: [0xFF464670, 0xFF961E70, 0xFF82D270],  # Red, Orange, Pink
+        shades = {0: [0xFF464670, 0xFF701E70, 0xFF82D270],  # Red, Orange, Pink
                   1: [0x4691FF70, 0xB48CFF70, 0x00FFFF70],  # Blue, Lavender, Cyan
-                  2: [0x4BE16470, 0x14D2B470, 0xB4FF2870]}  # Green, Teal, Lime
+                  2: [0x4BE16470, 0x8CFF2870, 0x228B2270]}  # Green, Lime, Forest
 
         frames = iter(range(1, 1000))
 

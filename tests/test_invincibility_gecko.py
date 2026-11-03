@@ -24,9 +24,9 @@ HOOK = 0x80080E18
 YELLOW = 0xFFF000DC
 RED, BLUE, YELLOW_PORT, GREEN = 0xFF464670, 0x4691FF70, 0xFFE14170, 0x4BE16470
 LAVENDER = 0xB48CFF70
-SHADES = {0: [RED, 0xFF961E70, 0xFF82D270],         # Red, Orange, Pink
+SHADES = {0: [RED, 0xFF701E70, 0xFF82D270],         # Red, Orange, Pink
           1: [BLUE, LAVENDER, 0x00FFFF70],           # Blue, Lavender, Cyan
-          2: [GREEN, 0x14D2B470, 0xB4FF2870]}        # Green, Teal, Lime
+          2: [GREEN, 0x8CFF2870, 0x228B2270]}        # Green, Lime, Forest
 # Native 0x8007B868 (vanilla NTSC 1.02): max(0x221D bit 0x02, script and game hurt status).
 HURT_STATUS = bytes.fromhex(
     "8083002C 8804221D 5400FFFF 4182000C 38600001 48000008 38600000 80041988"
