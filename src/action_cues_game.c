@@ -33,6 +33,18 @@ static int cpu_fighter(FighterData *data) {
     Playerblock *player = Fighter_GetPlayerblock((u8)data->ply);
     return player && player->p_kind == 1;
 }
+/* Teams: teammates (CPUs too) get their own shades of the team color. */
+static uint32_t protection_color(FighterData *data) {
+    unsigned own = (u8)data->ply;
+    Playerblock *player = Fighter_GetPlayerblock(own);
+    uint8_t teams[6];
+    for (unsigned ply = 0; ply < 6; ++ply) {
+        Playerblock *other = Fighter_GetPlayerblock(ply);
+        teams[ply] = other && (other->state || ply == own) ? other->team : TM_TEAM_NONE;
+    }
+    return TMCue_InvincibilityColor(stc_match->match.is_teams ? teams : 0, own,
+        player ? player->color_accent : 0, !player || player->p_kind == 1);
+}
 static void Cue_Draw(GOBJ *gobj, int pass);
 static void Shield_Draw(GOBJ *gobj, int pass);
 /* All four native shield models (startup, hold, hit and reflection) use
@@ -121,7 +133,11 @@ int ActionCues_IsProtected(GOBJ *gobj) {
 
 static CueFighter *get_fighter(GOBJ *gobj) {
     FighterData *data = gobj->userdata;
-    unsigned slot = (unsigned)(u8)data->ply * 2 + !!data->flags.ms;
+    /* Key on the player's fighter object, not ms: Zelda/Sheik transforms swap
+     * the two forms' ms bits, which would hand each the other's renderer. */
+    Playerblock *player = Fighter_GetPlayerblock((u8)data->ply);
+    unsigned second = player ? player->gobj[1] == gobj : !!data->flags.ms;
+    unsigned slot = (unsigned)(u8)data->ply * 2 + second;
     if (slot >= countof(fighters)) return 0;
     CueFighter *entry = &fighters[slot];
     if (entry->object != gobj) {
@@ -344,10 +360,7 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
     if (!cue && !protected && local) color = entry->local_color;
     if (cue == TM_CUE_RED) color.a = TMCue_RedAlpha(entry->cue.red);
     if (protected && cue != TM_CUE_YELLOW && cue != TM_CUE_GREEN) {
-        Playerblock *player = Fighter_GetPlayerblock((u8)data->ply);
-        /* CPUs get Lavender rather than the trail Gray, which is hard to see. */
-        uint32_t rgba = cpu_override ? cpu_color : !player || player->p_kind == 1 ?
-            TMCue_CPUInvincibilityColor(TM_CPU_INVINCIBILITY_DEFAULT) : TMTrail_PlayerColor(player->color_accent, 0);
+        uint32_t rgba = cpu_override ? cpu_color : protection_color(data);
         color = (GXColor){rgba >> 24, rgba >> 16, rgba >> 8, 112};
     }
     /* Dropped invincibility must remain visible even over timing/local tints. */

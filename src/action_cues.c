@@ -109,3 +109,18 @@ uint32_t TMCue_CPUInvincibilityColor(unsigned choice) {
     };
     return choice < TM_CPU_INVINCIBILITY_COUNT ? palette[choice] : 0;
 }
+uint32_t TMCue_InvincibilityColor(const uint8_t *teams, unsigned ply, unsigned accent, int cpu) {
+    /* At most three a side (3 v 1): the first teammate keeps the team color. */
+    static const uint32_t shades[3][3] = {
+        {0xFF464670, 0xFF961E70, 0xFF82D270}, /* Red, Orange, Pink */
+        {0x4691FF70, 0xB48CFF70, 0x00FFFF70}, /* Blue, Lavender, Cyan */
+        {0x4BE16470, 0x14D2B470, 0xB4FF2870}, /* Green, Teal, Lime */
+    };
+    if (teams && ply < 6 && teams[ply] < 3) {
+        unsigned member = 0;
+        for (unsigned i = 0; i < ply; ++i) member += teams[i] == teams[ply];
+        return shades[teams[ply]][member < 3 ? member : 2];
+    }
+    /* CPUs get Lavender rather than the trail Gray, which is hard to see. */
+    return TMCue_CPUInvincibilityColor(!cpu && accent < 4 ? accent + 1 : TM_CPU_INVINCIBILITY_LAVENDER);
+}

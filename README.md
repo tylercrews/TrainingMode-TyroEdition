@@ -59,7 +59,6 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - for the side b sweetspot event I want to have a mode where you get knocked down high enough that you can fall into position, practice where you don't need to double jump at all. there should be some presets instead of having to fiddle with the trajectory
 - I'm failing to punish grabs in doubles with jc upsmash. In fact maybe an entire event where your opponent gets grabbed by your teammate and you have to jc upsmash to kill before they get let go. Be able to pick how far away you are initially and what percent oppo is at. Show a timer for how long you have before they can mash out and a success/failure/partial success/mega failure for hit enemy, didn't hit enemy, hit enemy and teammate, only hit teammate
 - new objects in eggsercise. practice hitting in other spots other than on the floor
-- create a better version of the invincibility overlay that I have in Gecko, but make it more doubles compatible. When opponent team is green and my teammate is invincible with green it feels terrible. There's only ever 3 v 1 at max, so choose 3 different colors per team color (g, b, r) for p1 p2 and p3. Like blue team: 1. blue 2. lavender 3. cyan, green team: 1. green 2. teal 3. lime, red team: 1. red 2. orange 3. pink.
 - have an overlay like a crescent circle around the side of the ledge that shows where you can sweet spot fox's up-b. Maybe even an event where you can practice it too?
 - expand the edgeguarding event, i want at least doc and game and watch if I didn't already do doc. get some more in there like dk and all the mid tiers
 - act OOWait and (and maybe other OSDs like ooattack?) should clear out if nothing happens after like 20 frames. Similar to how we put FAIL to jump out of shine after 15, but I don't want it to say that you failed all the time, so maybe after 20 frames it just blanks out to indicate no action was taken.
@@ -77,6 +76,15 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T9 (V1.4.1T9) - 2026-11-02
+
+- **Program changes**
+    - New [scripts/build_invincibility_gecko.py](scripts/build_invincibility_gecko.py) builds the Invincibility Overlay Gecko code, and [tests/test_invincibility_gecko.py](tests/test_invincibility_gecko.py) runs it in an emulator, on its own and together with the Actionable Yellow-Green code.
+- **Globals and all events**
+    - **Invincibility Overlay** in teams matches now gives each teammate their own shade of the team color, so in doubles your invincible teammate no longer looks like the other team. Teammates are numbered in port order (a team has at most three, 3 v 1): red team is red, orange, pink; blue team is blue, lavender, cyan; green team is green, teal, lime. CPUs on a team get its shades too. Free-for-all is unchanged: port colors, CPUs lavender. The CPU Invincibility Overlay choice in Techchase and Ledgechase still comes first. The colors live in one function shared with the Gecko code, so the two always match.
+        - New [Slippi Gecko code](slippi-gecko-codes/invincibility-overlay/README.md) with the same colors and the same idea of invincible as Tyro's overlay, to replace Aitch's Change Colour While Invulnerable code. It only changes how fighters are drawn, never game state, and runs alongside the other Tyro Gecko codes; with Actionable Yellow-Green, yellow and green win, like in Tyro. It passes emulator tests but hasn't been tested in Dolphin yet.
+    - **Fixed:** Zelda and Sheik turned permanently invisible after transforming while any overlay that tints fighters was on (Invincibility Overlay, Actionable Yellow>Green, Missed L Cancel, Run Turnaround and the event tints). The game swaps which form counts as the player's second fighter on every transform, and the overlays tracked fighters that way, so each form got the other's slot and lost its draw. They now track each form by its own fighter object, which never changes. The Gecko codes weren't affected.
 
 ### T8 (V1.4.1T8) - 2026-10-28
 

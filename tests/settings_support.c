@@ -364,8 +364,9 @@ void GObj_AddGXLink(GOBJ *gobj, void *callback, int link, int priority) {
     if (link == 5) trail_draw = callback;
 }
 void Develop_DrawSphere(float size, Vec3 *a, Vec3 *b, GXColor *diffuse, GXColor *ambient) { ++trail_spheres; }
+/* Native: Playerblock.gobj[isTransformed[sub]]. Zelda/Sheik swap the indexes. */
 GOBJ *Fighter_GetSubcharGObj(int ply, int sub) {
-    unsigned slot = ply * 2 + sub;
+    unsigned slot = ply >= 0 && ply < 6 && sub >= 0 && sub < 2 ? ply * 2 + cue_players[ply].isTransformed[sub] : 12;
     return slot < 12 && cue_active[slot] ? &cue_objects[slot] : 0;
 }
 Playerblock *Fighter_GetPlayerblock(int ply) { return ply >= 0 && ply < 6 ? &cue_players[ply] : 0; }
@@ -414,6 +415,8 @@ void TestCueInit(void) {
         cue_data[slot].state_id = ASID_WAIT;
         cue_data[slot].state.rate = 1;
         cue_lengths[slot] = 40;
+        cue_players[slot / 2].gobj[slot & 1] = &cue_objects[slot];
+        cue_players[slot / 2].isTransformed[slot & 1] = slot & 1;
     }
     stc_match->time_frames = 0;
     ActionCues_MatchStart();
@@ -505,6 +508,16 @@ void TestCueCapsules(unsigned slot, int num, int state) {
 void TestCueCapsule(unsigned slot, unsigned index, int state) { cue_data[slot].hurtbox[index].state = state; }
 void TestCuePlayer(unsigned ply, int accent, int cpu) {
     cue_players[ply].color_accent = accent; cue_players[ply].p_kind = cpu;
+}
+/* Native Zelda/Sheik transform (0x8007EFE0): swap the active index and the ms bits. */
+void TestCueTransform(unsigned ply) {
+    Playerblock *player = &cue_players[ply];
+    u8 index = player->isTransformed[0];
+    player->isTransformed[0] = player->isTransformed[1]; player->isTransformed[1] = index;
+    for (unsigned sub = 0; sub < 2; ++sub) cue_data[ply * 2 + sub].flags.ms ^= 1;
+}
+void TestCueTeam(unsigned ply, int team, int present) {
+    cue_players[ply].team = team; cue_players[ply].state = present ? 2 : 0;
 }
 void TestCueMissed(unsigned slot, int timer) {
     cue_data[slot].input.timer_trigger_any_ignore_hitlag = timer;

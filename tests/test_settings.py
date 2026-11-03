@@ -3531,6 +3531,28 @@ class ActionCueTests(unittest.TestCase):
         self.show(6, 13, 0)
         self.assertEqual(m.call("TestCueDrawCount", 0), before + 5)
 
+    def test_zelda_sheik_transforms_keep_both_renderers(self):
+        # Sheik is Zelda's second fighter (ms set) and each transform swaps the
+        # ms bits, so ply/ms no longer identifies the same object afterward.
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)  # Wraps both forms' renderers.
+        for slot in [0, 1]:
+            m.call("TestCueState", slot, 14, 0, 40, 100)
+        for frame in range(1, 13):
+            m.call("TestCueTick", frame)
+            if frame % 3 == 0:
+                m.call("TestCueTransform", 0)
+            for slot in [0, 1]:
+                before = m.call("TestCueDrawCount", slot)
+                m.call("TestCueDraw", slot)
+                self.assertEqual(m.call("TestCueDrawCount", slot), before + 1, (frame, slot))
+        m.call("TestCueProtection", 1, 0, 1, 0)
+        m.call("TestCueDraw", 1)
+        self.assertEqual(m.call("TestCueDrawColor", 1), 0xFF464670)
+        for flag in range(8): m.call("Settings_Set", 11, flag, 0)
+        m.call("TestCueTick", 13)
+        self.assertEqual([m.call("TestCueWrapped", slot) for slot in [0, 1]], [0, 0])
+
     def test_lcancel_entry_fallback_uses_native_integer_window(self):
         m = self.m
         m.call("Settings_Set", 11, 4, 0)
@@ -3707,6 +3729,42 @@ class ActionCueTests(unittest.TestCase):
         m.call("TestCueProtection", 11, 0, 1, 0)
         m.call("TestCueDraw", 11)
         self.assertEqual(m.call("TestCueDrawColor", 11), palette[4])
+
+    def test_protection_overlay_gives_each_teammate_its_own_shade(self):
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)
+        shades = {0: [0xFF464670, 0xFF961E70, 0xFF82D270],  # Red, Orange, Pink
+                  1: [0x4691FF70, 0xB48CFF70, 0x00FFFF70],  # Blue, Lavender, Cyan
+                  2: [0x4BE16470, 0x14D2B470, 0xB4FF2870]}  # Green, Teal, Lime
+
+        frames = iter(range(1, 1000))
+
+        def color(ply):
+            m.call("TestCueState", ply * 2, 181, 0, 40, 100)
+            m.call("TestCueTick", next(frames))  # Wraps the slot's renderer.
+            m.call("TestCueProtection", ply * 2, 0, 2, 0)
+            m.call("TestCueDraw", ply * 2)
+            return m.call("TestCueDrawColor", ply * 2)
+
+        for teams in [[1, 2, 1, 1], [0, 0, 1, 0], [2, 0, 2, 2], [0, 1, 1, 0]]:
+            with self.subTest(teams=teams):
+                for ply, team in enumerate(teams):
+                    m.call("TestCuePlayer", ply, [0, 1, 3][team], int(ply == 3))  # P4 is a CPU.
+                    m.call("TestCueTeam", ply, team, 1)
+                m.cpu.mem_write(0x8046DB70, b"\x01")  # MatchInfo's teams flag.
+                for ply, team in enumerate(teams):
+                    self.assertEqual(color(ply), shades[team][teams[:ply].count(team)])
+                m.cpu.mem_write(0x8046DB70, b"\x00")  # FFA: back to accents, CPU Lavender.
+                for ply, team in enumerate(teams):
+                    self.assertEqual(color(ply), 0xB48CFF70 if ply == 3 else
+                                     [0xFF464670, 0x4691FF70, 0, 0x4BE16470][[0, 1, 3][team]])
+        m.cpu.mem_write(0x8046DB70, b"\x01")
+        m.call("TestCueTeam", 0, 1, 0)  # An empty port doesn't take a shade.
+        m.call("TestCueTeam", 1, 0, 1)
+        m.call("TestCueTeam", 2, 1, 1)
+        m.call("TestCueTeam", 3, 1, 1)
+        self.assertEqual(color(2), shades[1][0])
+        self.assertEqual(color(3), shades[1][1])
 
     def test_protection_is_live_while_paused_and_timing_has_priority(self):
         m = self.m

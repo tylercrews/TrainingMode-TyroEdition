@@ -12,6 +12,12 @@ enum TMCPUInvincibilityColor {
 };
 #define TM_CPU_INVINCIBILITY_DEFAULT TM_CPU_INVINCIBILITY_LAVENDER
 uint32_t TMCue_CPUInvincibilityColor(unsigned choice);
+/* Invincibility Overlay color. FFA: the port color (accent), Lavender for CPUs.
+ * Teams: teams[ply] is each port's team (Red 0, Blue 1, Green 2), or
+ * TM_TEAM_NONE for an empty port. Teammates are numbered in port order and
+ * each gets its own shade of the team color. Pass NULL teams outside teams. */
+#define TM_TEAM_NONE 0xFF
+uint32_t TMCue_InvincibilityColor(const uint8_t *teams, unsigned ply, unsigned accent, int cpu);
 /* Borrow an event's palette option. NULL returns CPUs to the global setting.
  * Off is an explicit CPU override; other choices enable natural protection.
  * Draw-time reads include paused edits; restore clears retain the binding. */
