@@ -131,6 +131,7 @@ enum TMSettingsField {
     TM_SETTING_COSTUME, /* Index 0 human / 1 CPU: costume of the saved CHARACTER, in the extension. */
     TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
     TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
+    TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -194,6 +195,11 @@ enum TMEdgeguardPreference {
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
     TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE, TM_EG_PREF_COUNT
 };
+/* Side-B Sweetspot: Success Criteria in word 20 bit 26, Knockback in bits
+ * 27-29. Zero, which every record that owns word 20 has there, is the default. */
+enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_PREF_COUNT };
+#define TM_SWEETSPOT_SUCCESS_COUNT 2 /* Sweetspot / Sweetspot + Ledgedash. */
+#define TM_SWEETSPOT_KNOCKBACK_COUNT 8 /* Random, six presets, Random Preset. */
 /* Edgeguard Side choices: which ledge each attempt uses. */
 enum { TM_EG_SIDE_RANDOM, TM_EG_SIDE_LEFT, TM_EG_SIDE_RIGHT, TM_EG_SIDE_COUNT };
 /* Edgeguard Player Position choices, ledge to center. Close is the original spot. */

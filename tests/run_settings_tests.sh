@@ -15,7 +15,7 @@ esac
        src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c \
        src/powershield_osd_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c src/stage_overlay_game.c -dat dats/eventMenu.dat
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
-    -t MexTK/evFunction.txt -o build/sweetspot-reset-test.dat -i src/sweetspot.c
+    -t MexTK/evFunction.txt -o build/sweetspot-reset-test.dat -i src/sweetspot.c src/ledgedash_logic.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgechase-test.dat -i src/ledgechase.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \

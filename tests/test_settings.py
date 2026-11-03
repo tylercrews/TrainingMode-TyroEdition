@@ -3050,6 +3050,18 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual((self.choice(m, editor_row(0)[1], 4), self.choice(m, 27, 4), self.choice(m, 28)), ("Auto", "Auto", "Press A"))
 
 
+def event_exports(dat_path):
+    """An event DAT's evFunction exports: index -> code offset."""
+    dat = dat_path.read_bytes()
+    _, size, relocs, roots, refs = struct.unpack_from('>5I', dat)
+    nodes = 32 + size + relocs * 4; strings = nodes + (roots + refs) * 8
+    for i in range(roots):
+        at, name = struct.unpack_from('>II', dat, nodes + i * 8)
+        if dat[strings+name:].split(b'\0', 1)[0] == b'evFunction':
+            _, _, _, exports, count, _ = struct.unpack_from('>6I', dat, 32+at)
+            return dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
+
+
 class SweetspotCameraTests(unittest.TestCase):
     dat_path = ROOT / 'build/sweetspot-reset-test.dat'
     dat_root = b'evFunction'
@@ -3059,20 +3071,12 @@ class SweetspotCameraTests(unittest.TestCase):
         from unicorn import UC_HOOK_CODE
         RelocatedDATSettingsTests.setUp(self)
         m = self.m; m.init(); m.call('TestTrailInit')
-        dat = self.dat_path.read_bytes()
-        _, size, relocs, roots, refs = struct.unpack_from('>5I', dat)
-        nodes = 32 + size + relocs * 4; strings = nodes + (roots + refs) * 8
-        for i in range(roots):
-            at, name = struct.unpack_from('>II', dat, nodes + i * 8)
-            if dat[strings+name:].split(b'\0', 1)[0] == b'evFunction':
-                _, _, _, exports, count, _ = struct.unpack_from('>6I', dat, 32+at)
-                break
-        exported = dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
+        exported = event_exports(self.dat_path)
         m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
         menu = self.word(self.base + exported[3])
-        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 6)
-        options = self.word(menu+8)
-        self.row = options + 44
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 8)
+        self.options = options = self.word(menu+8)
+        self.row = options + 3 * 44  # Knockback, Success Criteria and Line Guides come first.
         self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
         self.assertEqual(struct.unpack('>H', m.cpu.mem_read(self.row+4, 2))[0], 2)
         names = self.word(self.row+32)
@@ -3176,6 +3180,35 @@ class SweetspotCameraTests(unittest.TestCase):
         self.assertEqual(m.record(), before)  # The core record has no room; it lives in TYEX.
         m.call('DAT_InitSweetspot', 0)
         self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 1, 1))
+
+    def test_knockback_and_success_criteria_default_first_and_save_only_their_extension_bits(self):
+        m = self.m
+        knockback, success = self.options, self.options + 44
+        rows = ((knockback, 'Knockback', ['Random', 'Above, Close', 'Above, Far', 'Level, Close',
+                 'Level, Far', 'Below, Close', 'Below, Far', 'Random Preset']),
+                (success, 'Success Criteria', ['Sweetspot', 'Sweetspot + Ledgedash']))
+        for row, name, values in rows:
+            self.assertEqual(self.text(self.word(row+12)), name)
+            self.assertEqual(struct.unpack('>H', m.cpu.mem_read(row+4, 2))[0], len(values))
+            names = self.word(row+32)
+            self.assertEqual([self.text(self.word(names+i*4)) for i in range(len(values))], values)
+        before = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        for row, _, _ in rows:
+            self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 0, 0))
+        m.symbols['DAT_ChangeKnockback'] = self.word(knockback+36)
+        m.symbols['DAT_ChangeSuccess'] = self.word(success+36)
+        for choice in (7, 1, 6):
+            m.call('DAT_ChangeKnockback', 0, choice)
+            self.assertEqual(m.call('Settings_Get', 41, 1), choice)
+            self.assertEqual(m.call('Settings_Get', 41, 0), 0)  # Success keeps its own bit.
+        m.call('DAT_ChangeSuccess', 0, 1)
+        self.assertEqual([m.call('Settings_Get', 41, i) for i in range(2)], [1, 6])
+        self.assertEqual([m.call('Settings_Get', *key) for key in ((40, 0), (25, 0), (32, 0))], [0, 1, 0])
+        self.assertEqual(m.record(), before)  # Both live in TYEX.
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(knockback+6, 4)), struct.pack('>2h', 6, 6))
+        self.assertEqual(bytes(m.cpu.mem_read(success+6, 4)), struct.pack('>2h', 1, 1))
 
 
 class SweetspotDoubleJumpDrawTests(unittest.TestCase):
@@ -3361,6 +3394,48 @@ class SweetspotResetTests(unittest.TestCase):
         self.attempt(False)
         for frame in range(35): self.step(349, 1)
         self.assertEqual(self.resets, [])
+
+    def ledgedash_criterion(self):
+        """Choose Sweetspot + Ledgedash, the menu's second row, then sweetspot."""
+        menu = struct.unpack('>I', self.m.cpu.mem_read(self.base + event_exports(self.dat_path)[3], 4))[0]
+        options = struct.unpack('>I', self.m.cpu.mem_read(menu + 8, 4))[0]
+        self.m.cpu.mem_write(options + 44 + 6, struct.pack('>h', 1))
+        self.attempt(True)
+        self.step(252)  # CliffCatch unfreezes Marth but waits for the ledgedash.
+        self.assertEqual(self.speeds[-1], 1)
+        for frame in range(90): self.step(253)  # CliffWait.
+        self.assertEqual(self.resets, [])
+
+    def waveland(self, galint):
+        self.m.cpu.mem_write(self.human + 0x1990, struct.pack('>i', galint))  # Ledge intangibility.
+        self.step(29); self.step(236)  # Let go, then air dodge.
+        self.m.cpu.mem_write(self.human + 0x824, struct.pack('>I', 0x18000))  # ECB_GROUND.
+        for frame in range(10): self.step(43, 0)  # LandingFallSpecial is not a failed landing here.
+        self.assertEqual(self.resets, [])
+        self.m.call('TestCuePrevious', 0, 43)
+        self.step(14, 0)  # Actionable in Wait.
+
+    def test_ledgedash_criterion_counts_a_ledgedash_with_galint(self):
+        self.ledgedash_criterion()
+        self.waveland(5)
+        for frame in range(59):
+            self.step(14, 0)
+            self.assertEqual(self.resets, [])
+        self.step(14, 0)
+        self.assertEqual(self.resets, [2])
+
+    def test_ledgedash_criterion_fails_without_galint_or_on_a_ledge_option(self):
+        for fail in ('galint', 'getup'):
+            with self.subTest(fail=fail):
+                self.tearDown(); self.setUp()
+                self.ledgedash_criterion()
+                if fail == 'galint': self.waveland(0)
+                else: self.step(255)  # CliffClimbQuick.
+                for frame in range(29):
+                    self.step(14, 0)
+                    self.assertEqual(self.resets, [])
+                self.step(14, 0)
+                self.assertEqual(self.resets, [2])
 
 
 class UnderFireNativeTests(unittest.TestCase):

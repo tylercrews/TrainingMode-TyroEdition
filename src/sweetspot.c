@@ -1,4 +1,5 @@
 #include "events.h"
+#include "ledgedash_logic.h"
 #include "stage_swap.h"
 #include "zoom_camera.h"
 
@@ -98,8 +99,14 @@ static void ChangeLineGuides(GOBJ *menu, int value) {
 static void ChangeDoubleJumpIndicator(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_SWEETSPOT_DJ, 0, value);
 }
+static void ChangeKnockback(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_KNOCKBACK, value);
+}
+static void ChangeSuccess(GOBJ *menu, int value);
 
 enum menu_options {
+    OPT_KNOCKBACK,
+    OPT_SUCCESS,
     OPT_VERTICAL_LINES,
     OPT_CAMERA,
     OPT_DJ_HEIGHT,
@@ -112,7 +119,69 @@ enum ledge_direction {
     DIRECTION_RIGHT,
 };
 
+enum success_criteria {
+    SUCCESS_SWEETSPOT,
+    SUCCESS_LEDGEDASH,
+};
+
+/* Each preset is named for where you can act again when hitstun ends, with
+ * no stick input: above, level with or below the ledge, and close to it
+ * (about 45 out) or far out (75-80, the end of a full side-B). Random is the
+ * original mix, which always ends 6-36 below the ledge and 55-113 out. See
+ * scripts/sweetspot_knockback_presets.py for every preset's numbers. */
+enum knockback {
+    KB_RANDOM,
+    KB_ABOVE_CLOSE,
+    KB_ABOVE_FAR,
+    KB_LEVEL_CLOSE,
+    KB_LEVEL_FAR,
+    KB_BELOW_CLOSE,
+    KB_BELOW_FAR,
+    KB_RANDOM_PRESET, // One of the six presets, picked each reset.
+};
+static const char *Values_Knockback[] = {
+    "Random", "Above, Close", "Above, Far", "Level, Close", "Level, Far",
+    "Below, Close", "Below, Far", "Random Preset",
+};
+typedef char sweetspot_knockback_names[(countof(Values_Knockback) == TM_SWEETSPOT_KNOCKBACK_COUNT) ? 1 : -1];
+static const char *Values_Success[] = {"Sweetspot", "Sweetspot + Ledgedash"};
+typedef char sweetspot_success_names[(countof(Values_Success) == TM_SWEETSPOT_SUCCESS_COUNT) ? 1 : -1];
+
+// Knockback and launch angle (degrees up from the ground, away from the
+// stage) ranges. The HUD's Knockback row shows the preset of each attempt.
+static const struct { float mag_min, mag_max, ang_min, ang_max; } Knockbacks[KB_RANDOM_PRESET] = {
+    { 105, 135, 45,   60   }, // Random
+    { 149, 153, 78,   81   }, // Above, Close: 19-32 above, 39-50 out
+    { 154, 158, 69.5, 72.5 }, // Above, Far: 17-32 above, 68-81 out
+    { 126, 130, 73.5, 76.5 }, // Level, Close: 3 below to 5 above, 41-50 out
+    { 138, 142, 62.5, 65.5 }, // Level, Far: 5 below to 8 above, 74-85 out
+    {  85,  89, 54,   57   }, // Below, Close: 24-28 below, 43-48 out
+    { 114, 118, 48.5, 51.5 }, // Below, Far: 25-31 below, 75-84 out
+};
+
 static EventOption Options_Main[] = {
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Knockback",
+        .values = Values_Knockback,
+        .value_num = countof(Values_Knockback),
+        .OnChange = ChangeKnockback,
+        .desc = {"Where you can act again after hitstun: above, level",
+                 "with or below the ledge, close to it or far out.",
+                 "Random is the original mix, always below the ledge.",
+                 "Random Preset picks one of the six each reset."},
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Success Criteria",
+        .values = Values_Success,
+        .value_num = countof(Values_Success),
+        .OnChange = ChangeSuccess,
+        .desc = {"Sweetspot: grab the ledge with side-B.",
+                 "Sweetspot + Ledgedash: then ledgedash onto the stage",
+                 "with ledge intangibility left (GALINT).",
+                 "Changing this resets the success rate."},
+    },
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Enable Line Guides",
@@ -156,7 +225,8 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_INFO,
         .name = "Help",
-        .desc = {"Use D-Pad left/right to reset."}
+        .desc = {"Use D-Pad left/right to reset.",
+                 "A D-Pad reset doesn't count as an attempt."}
     },
     {
         .kind = OPTKIND_FUNC,
@@ -178,7 +248,8 @@ enum event_state {
     STATE_WAIT_ATTACK,
     STATE_ATTACK_THINK,
     STATE_RESET,
-}; 
+    STATE_LEDGEDASH, // Sweetspot + Ledgedash: on the ledge, waiting for the ledgedash.
+};
 
 static struct sideb {
     bool attempted;
@@ -189,6 +260,135 @@ static struct sideb {
 } sideb = { 0 };
 static int reset_timer = 0;
 static int state = STATE_ENDLAG;
+
+enum attempt_result {
+    RESULT_NONE,
+    RESULT_SWEETSPOT,
+    RESULT_LEDGEDASH,
+    RESULT_HIT,
+    RESULT_FELL,
+    RESULT_LANDED,
+    RESULT_UP_B,
+    RESULT_AIR_DODGE,
+    RESULT_LEDGE_OPTION,
+    RESULT_NO_GALINT,
+    RESULT_REGRAB,
+    RESULT_TOO_SLOW,
+};
+static const char *Result_Text[] = {
+    "-", "Sweetspot", "Ledgedash", "Got Hit", "Fell", "Landed", "Up-B",
+    "Air Dodge", "Ledge Option", "No GALINT", "Regrabbed", "Too Slow",
+};
+
+// This attempt. A D-pad reset starts a new one without counting it.
+static struct attempt {
+    bool counted;
+    int knockback;          // The preset used, never KB_RANDOM_PRESET.
+    bool grabbed, released; // Sweetspot + Ledgedash: hung on the ledge, then let go.
+    bool airdodged;
+    LdshAttempt ledgedash;
+} attempt = { 0 };
+// This session's totals and the last counted attempt.
+static struct stats {
+    int total, successes;
+    int last, galint;
+} stats = { 0 };
+
+static void CountAttempt(int result) {
+    if (attempt.counted)
+        return;
+    attempt.counted = true;
+    stats.last = result;
+    if (stats.total < 999999) {
+        stats.total++;
+        if (result == RESULT_SWEETSPOT || result == RESULT_LEDGEDASH)
+            stats.successes++;
+    }
+}
+
+static void ChangeSuccess(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_SUCCESS, value);
+    // Rates under different criteria don't mix, and neither does this attempt.
+    stats = (struct stats) { 0 };
+    attempt.counted = true;
+}
+
+/* After the sweetspot, judge the ledgedash like the Ledgedash event's Any
+ * GALINT criterion: let go, and be actionable on the stage with ledge
+ * intangibility left. */
+static void LedgedashThink(FighterData *ft) {
+    int state_id = ft->state_id;
+    if (state_id == ASID_CLIFFWAIT)
+        attempt.grabbed = true;
+    else if (attempt.grabbed && state_id != ASID_CLIFFCATCH)
+        attempt.released = true;
+    if (state_id == ASID_ESCAPEAIR)
+        attempt.airdodged = true;
+
+    int ledge_option = state_id >= ASID_CLIFFCLIMBSLOW && state_id <= ASID_CLIFFJUMPQUICK2;
+    bool regrab = attempt.released && state_id == ASID_CLIFFCATCH;
+    int result = LDSH_FAILURE;
+    if (!regrab) {
+        int landing = state_id == ASID_LANDING || state_id == ASID_LANDINGFALLSPECIAL ||
+            (state_id >= ASID_LANDINGAIRN && state_id <= ASID_LANDINGAIRLW);
+        int attack_dash = Ldsh_IsAttackDash(ft->atk_kind, state_id);
+        LdshSample sample = {
+            .on_ledge = state_id == ASID_CLIFFWAIT,
+            .released = attempt.released,
+            .airdodge = attempt.airdodged,
+            .grounded = !ft->phys.air_state && (ft->coll_data.envFlags & ECB_GROUND),
+            .actionable = state_id == ASID_LANDING ? ft->TM.state_frame >= ft->attr.normal_landing_lag :
+                !landing && (state_id == ASID_WAIT || (state_id >= ASID_WALKSLOW && state_id <= ASID_RUN) ||
+                    ft->TM.state_prev[0] == ASID_LANDING || ft->TM.state_prev[0] == ASID_LANDINGFALLSPECIAL ||
+                    ft->TM.state_prev[1] == ASID_LANDING || ft->TM.state_prev[1] == ASID_LANDINGFALLSPECIAL ||
+                    attack_dash),
+            .galint = ft->hurt.intang_frames.ledge,
+            .dead = ft->flags.dead,
+            .ledge_option = ledge_option,
+            .frozen = ft->flags.hitlag || ft->flags.freeze,
+        };
+        result = LdshAttempt_Step(&attempt.ledgedash, &sample, LDSH_GALINT);
+        if (result == LDSH_PENDING)
+            return;
+    }
+
+    if (result == LDSH_SUCCESS) {
+        CountAttempt(RESULT_LEDGEDASH);
+        stats.galint = attempt.ledgedash.galint_at_landing;
+        SFX_Play(303);
+        reset_timer = 60;
+    } else {
+        CountAttempt(regrab ? RESULT_REGRAB
+            : ledge_option ? RESULT_LEDGE_OPTION
+            : attempt.ledgedash.landing_complete ? RESULT_NO_GALINT
+            : RESULT_TOO_SLOW);
+        SFX_Play(0xAF);
+        reset_timer = 30;
+    }
+    state = STATE_RESET;
+}
+
+static void DrawHUD(GOBJ *gobj, int pass) {
+    if (pass != 2)
+        return;
+    static char last_text[24], rate_text[24];
+    if (stats.last == RESULT_LEDGEDASH)
+        sprintf(last_text, "Ledgedash %df", stats.galint);
+    else
+        sprintf(last_text, "%s", Result_Text[stats.last]);
+    if (stats.total)
+        sprintf(rate_text, "%d/%d (%.1f%%)", stats.successes, stats.total,
+                100.f * stats.successes / stats.total);
+    else
+        sprintf(rate_text, "-");
+    static const char *labels[] = {"Last Attempt", "Success Rate", "Criterion", "Knockback"};
+    const char *info[] = {
+        last_text, rate_text,
+        Options_Main[OPT_SUCCESS].val == SUCCESS_LEDGEDASH ? "+ Ledgedash" : "Sweetspot",
+        Values_Knockback[attempt.knockback],
+    };
+    event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
+}
 
 // NTSC 1.02 PlFxAJ/PlFcAJ SpecialAirS TransN-Z tracks are linear:
 // Fox 0 -> 78, Falco 0 -> 60 over animation frames 0..4. The animation
@@ -441,6 +641,10 @@ void Draw_Lines(void) {
 }
 
 void Event_Init(GOBJ* gobj) {
+    Options_Main[OPT_KNOCKBACK].val = Options_Main[OPT_KNOCKBACK].val_prev =
+        TM_GetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_KNOCKBACK);
+    Options_Main[OPT_SUCCESS].val = Options_Main[OPT_SUCCESS].val_prev =
+        TM_GetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_SUCCESS);
     Options_Main[OPT_VERTICAL_LINES].val = Options_Main[OPT_VERTICAL_LINES].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT_LINES, 0);
     Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
@@ -452,6 +656,7 @@ void Event_Init(GOBJ* gobj) {
     // Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val = Options_Main[OPT_EXTRA_UNDERSIDE_LINES].val_prev = 0;
     GetLedgePositions(ledge_positions);
     StageSwap_Init();
+    GObj_AddGXLink(gobj, DrawHUD, GXLINK_HUD, 80);
     GOBJ *draw_gobj = GObj_Create(0, 0, 0);
     GObj_AddUserData(draw_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
     GObj_AddGXLink(draw_gobj, Draw_Lines, 3, 0);
@@ -484,8 +689,10 @@ void Event_Think(GOBJ *menu) {
     }
 
     // Reset when dead
-    if (hmn_data->flags.dead)
+    if (hmn_data->flags.dead) {
+        CountAttempt(RESULT_FELL);
         Reset(2);
+    }
 
     if (hmn_data->state_id == 350) { // Aerial sideb startup for fox/falco
         sideb.attempted = true;
@@ -504,12 +711,14 @@ void Event_Think(GOBJ *menu) {
 
     /* Landing can occur before Marth reaches down-tilt or after he freezes.
      * During startup/dash, native Side-B collision switches directly to the
-     * grounded special states; endlag lands in LandingFallSpecial instead. */
-    if (sideb.attempted && state != STATE_RESET
+     * grounded special states; endlag lands in LandingFallSpecial instead.
+     * After a sweetspot, landing is the ledgedash, judged on its own. */
+    if (sideb.attempted && state != STATE_RESET && state != STATE_LEDGEDASH
         && (hmn_data->state_id == ASID_LANDING
             || hmn_data->state_id == ASID_LANDINGFALLSPECIAL
             || (hmn_data->phys.air_state == 0
                 && hmn_data->state_id >= 347 && hmn_data->state_id <= 349))) {
+        CountAttempt(RESULT_LANDED);
         FrameSpeedChange(cpu, 1.0);
         reset_timer = 30;
         state = STATE_RESET;
@@ -537,6 +746,7 @@ void Event_Think(GOBJ *menu) {
                 state = STATE_ATTACK_THINK;
             } else if (hmn_data->state_id == 0x162 // up b asid
                     || hmn_data->state_id == ASID_ESCAPEAIR) {
+                CountAttempt(hmn_data->state_id == 0x162 ? RESULT_UP_B : RESULT_AIR_DODGE);
                 SFX_Play(0xAF);
                 reset_timer = 30;
                 state = STATE_RESET;
@@ -547,6 +757,7 @@ void Event_Think(GOBJ *menu) {
             if (cpu_data->state.frame == 7) {
                 FrameSpeedChange(cpu, 0);       // freeze cpu
                 if (hmn_data->victim) {         // if hit
+                    CountAttempt(RESULT_HIT);
                     FrameSpeedChange(cpu, 1.0); // unfreeze
                     reset_timer = 30;
                     state = STATE_RESET;
@@ -555,11 +766,19 @@ void Event_Think(GOBJ *menu) {
             if (hmn_data->state_id == ASID_CLIFFCATCH) {
                 SFX_Play(0xAD);
                 FrameSpeedChange(cpu, 1.0);
-                reset_timer = 60;
-                state = STATE_RESET;
+                if (Options_Main[OPT_SUCCESS].val == SUCCESS_LEDGEDASH) {
+                    state = STATE_LEDGEDASH;
+                } else {
+                    CountAttempt(RESULT_SWEETSPOT);
+                    reset_timer = 60;
+                    state = STATE_RESET;
+                }
             }
             break;
         case STATE_RESET:
+            break;
+        case STATE_LEDGEDASH:
+            LedgedashThink(hmn_data);
             break;
     }
 
@@ -585,6 +804,11 @@ void Reset(int side_idx) {
     sideb.attempted = false;
     sideb.range_locked = false;
 
+    int knockback = Options_Main[OPT_KNOCKBACK].val;
+    if (knockback == KB_RANDOM_PRESET)
+        knockback = KB_ABOVE_CLOSE + HSD_Randi(KB_RANDOM_PRESET - KB_ABOVE_CLOSE);
+    attempt = (struct attempt) { .knockback = knockback };
+
     GOBJ *hmn = Fighter_GetGObj(0);
     FighterData *hmn_data = hmn->userdata;
     GOBJ *cpu = Fighter_GetGObj(1);
@@ -595,7 +819,8 @@ void Reset(int side_idx) {
     cpu_data->facing_direction = side;
 
     hmn_data->phys.pos.X = side * 12 + ledge_positions[side_idx].X;
-    hmn_data->phys.pos.Y = 6;
+    // 6 above the ledge, so each preset ends at the same spot on every stage.
+    hmn_data->phys.pos.Y = ledge_positions[side_idx].Y + 6;
     cpu_data->phys.pos.X = side * -15 + ledge_positions[side_idx].X;
     cpu_data->phys.pos.Y = 0;
 
@@ -624,8 +849,10 @@ void Reset(int side_idx) {
     Fighter_SetHUDDamage(hmn_data->ply, dmg);
     
     // hmn knockback
-    float angle = (15 * HSD_Randf() + 45) * M_1DEGREE;
-    float mag = 30 * HSD_Randf() + 105;
+    float angle = (Knockbacks[knockback].ang_min
+        + (Knockbacks[knockback].ang_max - Knockbacks[knockback].ang_min) * HSD_Randf()) * M_1DEGREE;
+    float mag = Knockbacks[knockback].mag_min
+        + (Knockbacks[knockback].mag_max - Knockbacks[knockback].mag_min) * HSD_Randf();
     float vel = mag * (*stc_ftcommon)->force_applied_to_kb_mag_multiplier;
     hmn_data->phys.kb_vel.X = cos(angle) * vel * side;
     hmn_data->phys.kb_vel.Y = sin(angle) * vel;

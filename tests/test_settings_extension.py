@@ -64,6 +64,7 @@ PREF_COUNTS = {29: 3}
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
+SWEETSPOT = 41  # TM_SETTING_SWEETSPOT: Success Criteria word 20 bit 26, Knockback bits 27-29.
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
 
 class ExtensionTests(unittest.TestCase):
@@ -957,6 +958,48 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
             self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
             self.assertEqual(m.call('Settings_Get',SWEETSPOT_DJ,0), 0)
+
+    def test_sweetspot_success_and_knockback_live_in_word_20_bits_26_to_29(self):
+        m = self.m
+        m.call('Settings_Set',SWEETSPOT_DJ,0,1)  # The earlier Sweetspot bit, 22.
+        m.call('Settings_Set',EDGEGUARD,EG_SIDE,2)  # Edgeguard Side: the neighboring bits 24-25.
+        self.assertEqual([m.call('Settings_Get',SWEETSPOT,i) for i in range(2)], [0, 0])
+        core = m.record()
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',SWEETSPOT,0,1)
+        m.call('Settings_Set',SWEETSPOT,1,7)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[23] |= 0x04 | 7 << 3
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(after[:8], HEADER)  # Still version 19.
+        self.assertEqual(m.record(), core)
+        self.assertEqual([m.call('Settings_Get',SWEETSPOT,i) for i in range(2)], [1, 7])
+        self.assertEqual((m.call('Settings_Get',SWEETSPOT_DJ,0), m.call('Settings_Get',EDGEGUARD,EG_SIDE)), (1, 2))
+        m.call('Settings_Set',SWEETSPOT,0,2)  # Out of range is ignored,
+        m.call('Settings_Set',SWEETSPOT,1,8)
+        m.call('Settings_Set',SWEETSPOT,2,0)  # and so is a third index.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        # Version 11..18 records own word 20, so the bits are read as is.
+        old = bytearray(after); old[4:6] = bytes((18,56))
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual([m.call('TMExtension_Read',EXT,SWEETSPOT,i) for i in range(2)], [1, 7])
+        m.cpu.mem_write(EXT, after)
+        m.call('Settings_Set',SWEETSPOT,0,0)
+        m.call('Settings_Set',SWEETSPOT,1,0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_records_before_version_11_never_read_the_sweetspot_bits(self):
+        for version, payload in ((10,12), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',29,0,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload)); old[23] = 0xFF  # Valid-looking spare score bytes.
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual([m.call('TMExtension_Read',EXT,SWEETSPOT,i) for i in range(2)], [0, 0])
+            m.call('Settings_Set',29,0,0)  # Any edit migrates and claims word 20.
+            self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+            self.assertEqual([m.call('Settings_Get',SWEETSPOT,i) for i in range(2)], [0, 0])
 
     def test_blast_zone_overlay_flag_lives_in_word_20_bit_23(self):
         m = self.m
