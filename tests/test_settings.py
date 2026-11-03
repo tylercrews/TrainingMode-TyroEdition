@@ -3211,6 +3211,91 @@ class SweetspotCameraTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(success+6, 4)), struct.pack('>2h', 1, 1))
 
 
+class EventMenuSaveTests:
+    """Run an event's compiled Event_Init and menu callbacks: each saved row is
+    written to its TYEX bits as it changes, and Event_Init shows the saved
+    choices. Subclasses give the DAT, the setting field and the saved rows
+    (name, number of values, default), which come first in the menu."""
+    dat_root = b'evFunction'
+    extension = 0x8045A6C0 + 0x1AE0
+    natives = ('Match_SetNormalCamera', 'Match_CorrectCamera', 'Stage_GetExternalID',
+               'Stage_GetLeftOfLineCoordinates', 'Stage_GetRightOfLineCoordinates', 'Stage_GetBlastzoneBottom',
+               'CameraSubject_Alloc', 'GObj_Create', 'GObj_AddGXLink', 'GObj_AddUserData')
+
+    def setUp(self):
+        from unicorn import UC_HOOK_CODE
+        RelocatedDATSettingsTests.setUp(self)
+        m = self.m; m.init(); m.call('TestTrailInit')
+        exported = event_exports(self.dat_path)
+        m.symbols['DAT_EventInit'] = self.base + exported[0]
+        options = self.word(self.word(self.base + exported[3]) + 8)
+        self.rows = [options + i * 44 for i in range(len(self.saved))]
+        for row, (name, count, _) in zip(self.rows, self.saved):
+            self.assertEqual(self.text(self.word(row+12)), name)
+            toggle = m.cpu.mem_read(row, 1)[0] == 5  # OPTKIND_TOGGLE has no value count.
+            self.assertEqual(struct.unpack('>H', m.cpu.mem_read(row+4, 2))[0], 0 if toggle else count, name)
+        link = (ROOT/'MexTK/melee.link').read_text().splitlines()
+        natives = {int(next(line.split(':')[0] for line in link if line.endswith(':'+name)), 16): name
+                   for name in self.natives}
+        def dependencies(cpu, address, size, user):
+            name = natives.get(address)
+            if not name: return
+            if name == 'Stage_GetExternalID': cpu.reg_write(gpr(3), 32)
+            elif name in ('GObj_Create', 'CameraSubject_Alloc'): cpu.reg_write(gpr(3), 0x8040D000)
+            cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        self.hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
+
+    def tearDown(self): self.m.cpu.hook_del(self.hook)
+    def word(self, address): return struct.unpack('>I', self.m.cpu.mem_read(address, 4))[0]
+    def text(self, address): return bytes(self.m.cpu.mem_read(address, 80)).split(b'\0', 1)[0].decode()
+    def shown(self): return [struct.unpack('>2h', self.m.cpu.mem_read(row+6, 4)) for row in self.rows]
+    def saved_values(self): return [self.m.call('Settings_Get', self.field, i) for i in range(len(self.saved))]
+
+    def change(self, index, value):
+        row = self.rows[index]
+        self.m.cpu.mem_write(row+6, struct.pack('>2h', value, self.shown()[index][0]))
+        self.m.symbols['DAT_Change'] = self.word(row+36)
+        self.m.call('DAT_Change', 0, value)
+
+    def test_defaults_show_without_a_saved_record_and_init_writes_nothing(self):
+        m = self.m
+        core, extension = m.record(), bytes(m.cpu.mem_read(self.extension, 88))
+        m.call('DAT_EventInit', 0)
+        self.assertEqual(self.shown(), [(default, default) for _, _, default in self.saved])
+        self.assertEqual((m.record(), bytes(m.cpu.mem_read(self.extension, 88))), (core, extension))
+        self.assertEqual(m.call('TestDirty'), 0)
+
+    def test_each_row_saves_as_it_changes_and_init_shows_the_saved_choices(self):
+        m = self.m
+        core = m.record()
+        m.call('DAT_EventInit', 0)
+        chosen = [default for _, _, default in self.saved]
+        for index, (name, count, default) in enumerate(self.saved):
+            for value in list(range(count)) + [(default + 1) % count]:
+                self.change(index, value)
+                chosen[index] = value
+                self.assertEqual(self.saved_values(), chosen, name)
+        self.assertEqual(m.record(), core)  # Both events live in TYEX,
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x14\x40')  # on the card itself.
+        for row, (_, _, default) in zip(self.rows, self.saved):
+            m.cpu.mem_write(row+6, struct.pack('>2h', default, default))
+        m.call('DAT_EventInit', 0)
+        self.assertEqual(self.shown(), [(value, value) for value in chosen])
+
+
+class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/grabpunish-test.dat'
+    field = 42  # TM_SETTING_GRAB_PUNISH
+    saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 6, 3),
+             ('CPU Mashing', 4, 1), ('Teammate Facing', 3, 0))
+
+
+class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/upbsweetspot-test.dat'
+    field = 43  # TM_SETTING_UPB_SWEETSPOT
+    saved = (('Enable Line Guides', 2, 1), ('Marth', 2, 0), ('Camera', 2, 0))
+
+
 class SweetspotDoubleJumpDrawTests(unittest.TestCase):
     """Run the event's compiled Draw_Lines for a vanilla Fox or Falco on Final
     Destination and read the Double-Jump Height Indicator back from the GX FIFO."""

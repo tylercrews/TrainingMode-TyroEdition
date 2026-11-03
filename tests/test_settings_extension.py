@@ -15,8 +15,8 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 19, 60  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x13\x3C\xA5\x5A'
+CURRENT, PAYLOAD = 20, 64  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x14\x40\xA5\x5A'
 # Bytes 52..63 appended by version 18: Edgeguard's three words at their defaults
 # (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
 # CPU's default recovery toggles).
@@ -35,10 +35,18 @@ EG_CAMERA = 21  # TM_EG_CAMERA
 EG_SIDE = 22  # TM_EG_SIDE
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
-# Bytes 24..67 appended by versions 15 to 19: one color nibble per OSD (all
+# Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Light
+# Mash, Random) in bits 0-12 and Up-B Sweetspot (Line Guides On, Tipper, Normal)
+# in bits 16-18.
+GRAB_PUNISH = 42  # TM_SETTING_GRAB_PUNISH
+UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
+GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 6, 4, 3), (0, 0, 3, 1, 0)
+UPB_COUNTS, UPB_DEFAULTS = (2, 2, 2), (1, 0, 0)
+EVENT_MENU_BYTES = bytes.fromhex('c0020100')
+# Bytes 24..71 appended by versions 15 to 20: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
-# human/CPU costumes (Default) and the Edgeguard defaults.
-COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES
+# human/CPU costumes (Default), the Edgeguard defaults and the event menus.
+COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -49,7 +57,7 @@ def upgraded(raw):
     value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
-    value[24:68] = COLOR_BYTES
+    value[24:72] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
@@ -58,7 +66,7 @@ def upgraded(raw):
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 68
+REGION_SIZE, OWNED_SIZE = 88, 72
 # Under Fire's Lava Overlay (index 2) lives in word 20, outside FIELDS' pre-v11 words.
 PREF_COUNTS = {29: 3}
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
@@ -100,7 +108,7 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 11, 10, 1)
         self.assertEqual(m.call('Settings_Get', 11, 10), 1)
         self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0], TIMERS | (6 << 4) | RANDALL | 5)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)  # Still version 19.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)  # Still version 20.
         self.assertEqual(m.record(), core)
         m.call('Settings_Set', 11, 10, 2)  # Out of range is ignored.
         self.assertEqual(m.call('Settings_Get', 11, 10), 1)
@@ -241,11 +249,11 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 14, 20, 12); m.call('Settings_Set', 30, 2, 9)
         m.call('Settings_Set', GRID, 3, 17); m.call('Settings_Set', GRID, 21, 30)
         old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
-        old[4:6] = bytes((16, 42)); old[50:68] = b'\x03' + b'\xFF' * 17  # Version 16 never owned these bytes.
+        old[4:6] = bytes((16, 42)); old[50:72] = b'\x03' + b'\xFF' * 21  # Version 16 never owned these bytes.
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (0, 0))
         expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[50:52] = bytes(2)
-        expected[52:68] = EDGEGUARD_BYTES + EDGEGUARD2_BYTES
+        expected[52:72] = EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(tuple(m.call('Settings_Get', f, i) for f, i in ((14, 20), (30, 2), (GRID, 3), (GRID, 21))),
                          (12, 9, 17, 30))
@@ -255,11 +263,11 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 14, 20, 12); m.call('Settings_Set', GRID, 21, 30)
         m.call('Settings_Set', COSTUME, 0, 5); m.call('Settings_Set', COSTUME, 1, 2)
         old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
-        old[4:6] = bytes((17, 44)); old[52:68] = b'\x07' * 16  # Version 17 never owned these bytes.
+        old[4:6] = bytes((17, 44)); old[52:72] = b'\x07' * 20  # Version 17 never owned these bytes.
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(EG_COUNT)), EDGEGUARD_DEFAULTS)
         expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD))
-        expected[52:68] = EDGEGUARD_BYTES + EDGEGUARD2_BYTES
+        expected[52:72] = EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(tuple(m.call('Settings_Get', f, i) for f, i in ((14, 20), (GRID, 21), (COSTUME, 0), (COSTUME, 1))),
                          (12, 30, 5, 2))
@@ -271,11 +279,11 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set', EDGEGUARD, index, value)
         m.call('Settings_Set', COSTUME, 1, 2)
         old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
-        old[4:6] = bytes((18, 56)); old[64:68] = b'\x00\x00\x00\x00'  # Version 18 never owned word 64.
+        old[4:6] = bytes((18, 56)); old[64:72] = bytes(8)  # Version 18 never owned words 64 and 68.
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in range(EG_COUNT)),
                          customized + EDGEGUARD_DEFAULTS[EG_FIRST_NEW:])
-        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[64:68] = EDGEGUARD2_BYTES
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[64:72] = EDGEGUARD2_BYTES + EVENT_MENU_BYTES
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(m.call('Settings_Get', COSTUME, 1), 2)
 
@@ -287,6 +295,71 @@ class ExtensionTests(unittest.TestCase):
         values = [m.call('TMExtension_Read', EXT, EDGEGUARD, i) for i in range(EG_FIRST_NEW, EG_COUNT)]
         self.assertEqual(tuple(values), EDGEGUARD_DEFAULTS[EG_FIRST_NEW:])
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_version_19_migration_keeps_every_byte_and_claims_only_word_68(self):
+        m = self.m
+        m.call('Settings_Set', EDGEGUARD, 19, 9)  # Samus, the end of word 64.
+        m.call('Settings_Set', EDGEGUARD, EG_POSITION, 3); m.call('Settings_Set', EDGEGUARD, EG_SIDE, 2)
+        m.call('Settings_Set', COSTUME, 1, 2)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((19, 60)); old[68:72] = b'\xFF' * 4  # Version 19 never owned word 68.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in range(len(GRAB_PUNISH_COUNTS))),
+                         GRAB_PUNISH_DEFAULTS)
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[68:72] = EVENT_MENU_BYTES
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(tuple(m.call('Settings_Get', EDGEGUARD, i) for i in (19, EG_POSITION, EG_SIDE)), (9, 3, 2))
+        self.assertEqual(m.call('Settings_Get', COSTUME, 1), 2)
+
+    def test_version_19_records_read_event_menu_defaults_without_writing(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        for spare in (bytes(4), b'\xFF' * 4):  # Spare score bytes are not menu choices.
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((19, 60)); old[68:72] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(tuple(m.call('TMExtension_Read', EXT, GRAB_PUNISH, i) for i in range(len(GRAB_PUNISH_COUNTS))),
+                             GRAB_PUNISH_DEFAULTS)
+            self.assertEqual(tuple(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, i) for i in range(len(UPB_COUNTS))),
+                             UPB_DEFAULTS)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_event_menus_round_trip_in_word_68_reject_and_repair_invalid_values(self):
+        m = self.m
+        core = m.record()
+        fields = ((GRAB_PUNISH, GRAB_PUNISH_COUNTS), (UPB_SWEETSPOT, UPB_COUNTS))
+        def saved(machine=m):
+            return tuple(tuple(machine.call('Settings_Get', f, i) for i in range(len(c))) for f, c in fields)
+        self.assertEqual(saved(), (GRAB_PUNISH_DEFAULTS, UPB_DEFAULTS))  # Without a record.
+        m.call('Settings_Set', EDGEGUARD, 19, 9)  # Samus, the end of word 64 just before.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[68:72], EVENT_MENU_BYTES)
+        values = [list(GRAB_PUNISH_DEFAULTS), list(UPB_DEFAULTS)]
+        for n, (field, counts) in enumerate(fields):
+            for index, count in enumerate(counts):
+                for value in range(count):
+                    m.call('Settings_Set', field, index, value)
+                    values[n][index] = value
+                    self.assertEqual(saved(), tuple(map(tuple, values)))
+                snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                for value in (count, 0xFFFFFFFF):  # Out of range is ignored,
+                    m.call('Settings_Set', field, index, value)
+                    self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+            m.call('Settings_Set', field, len(counts), 0)  # and so is another index.
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual((after[:68], after[72:]), (before[:68], before[72:]))  # Only word 68 changes.
+        word = int.from_bytes(after[68:72], 'little')
+        self.assertEqual(word & ~0x71FFF, 0)  # Bits 13-15 and 19-31 stay spare.
+        self.assertEqual(m.record(), core)
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, 19), 9)
+        fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, after)
+        self.assertEqual(saved(fresh), tuple(map(tuple, values)))
+        # A damaged Enemy Percent (7) and Teammate Facing (3) repair to their
+        # defaults and leave their neighbors.
+        m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 11).to_bytes(4, 'little'))
+        self.assertEqual(saved(), ((7, 7, 3, 3, 0), (1, 1, 1)))
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'), word & ~(7 << 6 | 3 << 11) | 3 << 6)
 
     def test_recovery_menu_defaults_match_saved_initial_masks(self):
         # settings_extension.c and recovery.c build into different DATs; keep
@@ -971,7 +1044,7 @@ class ExtensionTests(unittest.TestCase):
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         expected = bytearray(before); expected[23] |= 0x04 | 7 << 3
         self.assertEqual(after, bytes(expected))
-        self.assertEqual(after[:8], HEADER)  # Still version 19.
+        self.assertEqual(after[:8], HEADER)  # Still version 20.
         self.assertEqual(m.record(), core)
         self.assertEqual([m.call('Settings_Get',SWEETSPOT,i) for i in range(2)], [1, 7])
         self.assertEqual((m.call('Settings_Get',SWEETSPOT_DJ,0), m.call('Settings_Get',EDGEGUARD,EG_SIDE)), (1, 2))
@@ -1013,7 +1086,7 @@ class ExtensionTests(unittest.TestCase):
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         expected = bytearray(before); expected[22] |= 0x80
         self.assertEqual(after, bytes(expected))
-        self.assertEqual(after[:8], HEADER)  # Still version 19.
+        self.assertEqual(after[:8], HEADER)  # Still version 20.
         self.assertEqual(m.record(), core)
         self.assertEqual([m.call('Settings_Get',*key) for key in ((11,BLAST_ZONES), (29,2), (SWEETSPOT_DJ,0), (11,10), (11,9))], [1,1,1,1,0])
         m.call('Settings_Set',11,BLAST_ZONES,2)  # Out of range is ignored.

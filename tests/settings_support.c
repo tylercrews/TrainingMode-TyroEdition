@@ -432,6 +432,7 @@ static const TMTrailAPI test_trail_api = {Trails_Configure, Trails_Clear, Trails
 static const TMSettingsAPI test_trail_settings = {Settings_Get, Settings_Set, Settings_Status};
 static EventVars test_trail_vars;
 static void TestTrailTangibility(const s16 *option) {}
+static const void *TestTrailCarryTake(u32 tag, u32 size) { return 0; } /* No Change Stage restart. */
 void TestTrailInit(void) {
     TestCueInit();
     *stc_gobj_lookup = trail_lookup;
@@ -440,6 +441,7 @@ void TestTrailInit(void) {
     test_trail_vars.trails=&test_trail_api;
     test_trail_vars.settings=&test_trail_settings;
     test_trail_vars.set_tangibility_overlay=TestTrailTangibility;
+    test_trail_vars.carry_take=TestTrailCarryTake;
     *event_vars_ptr_loc=&test_trail_vars;
 }
 void TestTrailHit(int active) {

@@ -30,7 +30,7 @@
 
 #define ARC_STEPS 40
 
-// Menu settings, the side and the totals survive Change Stage's restart.
+// The side and the totals survive Change Stage's restart; the menu is saved.
 #define UPB_CARRY_TAG 0x55704273 /* "UpBs" */
 
 static Vec2 ledge_positions[2];
@@ -287,7 +287,14 @@ static float AimedDistance(FighterData *ft, float tilt) {
 // Event state -----------------------------------------------------------
 
 static void Exit(GOBJ *menu);
+static void ChangeGuides(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_GUIDES, value);
+}
+static void ChangeMarth(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH, value);
+}
 static void ChangeCamera(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_CAMERA, value);
     ZoomCamera_Apply(value);
 }
 
@@ -309,6 +316,7 @@ static EventOption Options_Main[] = {
         .name = "Enable Line Guides",
         .val = 1,
         .val_prev = 1,
+        .OnChange = ChangeGuides,
         .desc = {"Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu:",
                  "up-B on the blue ring, then hold the white line.",
                  "Mario, Luigi, Marth, Falcon and more: up-B at the",
@@ -319,6 +327,7 @@ static EventOption Options_Main[] = {
         .name = "Marth",
         .values = Values_Marth,
         .value_num = countof(Values_Marth),
+        .OnChange = ChangeMarth,
         .desc = {"Tipper: Marth freezes his forward smash with",
                  "the tipper just inland of the ledge, so",
                  "overshooting onto the stage gets you hit."},
@@ -410,7 +419,6 @@ typedef struct Stats {
 static Stats stats = { 0 };
 
 typedef struct UpBCarry {
-    s16 guides, marth, camera;
     int side;
     float tipper_reach;
     Stats stats;
@@ -767,9 +775,6 @@ static void StageSwap_BeforeRestart(void) {
     UpBCarry *carry = event_vars->carry_store(UPB_CARRY_TAG, sizeof(UpBCarry));
     if (!carry)
         return;
-    carry->guides = Options_Main[OPT_GUIDES].val;
-    carry->marth = Options_Main[OPT_MARTH].val;
-    carry->camera = Options_Main[OPT_CAMERA].val;
     carry->side = side_idx;
     carry->tipper_reach = tipper_reach;
     carry->stats = stats;
@@ -777,11 +782,14 @@ static void StageSwap_BeforeRestart(void) {
 
 void Event_Init(GOBJ *gobj) {
     restarting = false;
+    Options_Main[OPT_GUIDES].val = Options_Main[OPT_GUIDES].val_prev =
+        TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_GUIDES);
+    Options_Main[OPT_MARTH].val = Options_Main[OPT_MARTH].val_prev =
+        TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH);
+    Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
+        TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_CAMERA);
     const UpBCarry *carry = event_vars->carry_take(UPB_CARRY_TAG, sizeof(UpBCarry));
     if (carry) {
-        Options_Main[OPT_GUIDES].val = Options_Main[OPT_GUIDES].val_prev = carry->guides;
-        Options_Main[OPT_MARTH].val = Options_Main[OPT_MARTH].val_prev = carry->marth;
-        Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev = carry->camera;
         side_idx = carry->side;
         tipper_reach = carry->tipper_reach;
         stats = carry->stats;

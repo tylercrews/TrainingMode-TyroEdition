@@ -86,12 +86,20 @@ static const char *Values_Facing[] = { "Random", "Toward You", "Away From You" }
 
 static const char *Values_Percent[] = { "0%", "20%", "40%", "60%", "80%", "100%" };
 
+// Each saved row's preference ID is its row number.
+typedef char grabpunish_saved_rows[((int)OPT_GRAB_SPOT == TM_GP_GRAB_SPOT && (int)OPT_YOUR_SPOT == TM_GP_YOUR_SPOT &&
+    (int)OPT_PERCENT == TM_GP_PERCENT && (int)OPT_MASH == TM_GP_MASH && (int)OPT_FACING == TM_GP_FACING &&
+    countof(Values_Location) == TM_GP_LOCATION_COUNT && countof(Values_Percent) == TM_GP_PERCENT_COUNT &&
+    countof(Values_Mash) == TM_GP_MASH_COUNT && countof(Values_Facing) == TM_GP_FACING_COUNT) ? 1 : -1];
+static void SaveSettings(GOBJ *menu, int value);
+
 static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_STRING,
         .name = "Grab Location",
         .values = Values_Location,
         .value_num = countof(Values_Location),
+        .OnChange = SaveSettings,
         .desc = {"Where your teammate grabs the enemy.",
                  "Without that platform (like on Final Destination),",
                  "the ground where it usually is gets used.",
@@ -102,6 +110,7 @@ static EventOption Options_Main[] = {
         .name = "Your Location",
         .values = Values_Location,
         .value_num = countof(Values_Location),
+        .OnChange = SaveSettings,
         .desc = {"Where you start. The grab's spot, or one too close",
                  "to it, puts you beside the pair instead, so your",
                  "teammate never grabs you instead of the enemy.",
@@ -114,6 +123,7 @@ static EventOption Options_Main[] = {
         .value_num = countof(Values_Percent),
         .val = 3,
         .val_prev = 3,
+        .OnChange = SaveSettings,
         .desc = {"The enemy's percent when grabbed. Higher percents",
                  "are held longer: 75 + 1.6 frames per percent",
                  "before mashing (0%: 75f, 60%: 171f, 100%: 235f).",
@@ -126,6 +136,7 @@ static EventOption Options_Main[] = {
         .value_num = countof(Values_Mash),
         .val = MASH_LIGHT,
         .val_prev = MASH_LIGHT,
+        .OnChange = SaveSettings,
         .desc = {"How hard the enemy mashes. Each mash input takes",
                  "6 frames off the hold, on top of 1 a frame.",
                  "Light holds 1/2 as long, Heavy 1/4, Inhuman 1/13.",
@@ -136,6 +147,7 @@ static EventOption Options_Main[] = {
         .name = "Teammate Facing",
         .values = Values_Facing,
         .value_num = countof(Values_Facing),
+        .OnChange = SaveSettings,
         .desc = {"Toward You: the enemy is between you and your",
                  "teammate. Away From You: your teammate is in",
                  "front, so it's easier to hit them too.",
@@ -172,6 +184,16 @@ static EventMenu Menu_Main = {
     .options = Options_Main,
 };
 EventMenu *Event_Menu = &Menu_Main;
+
+// The menu is saved to the memory card as it changes.
+static void SaveSettings(GOBJ *menu, int value) {
+    for (int i = 0; i < TM_GP_PREF_COUNT; i++)
+        TM_SetSetting(TM_SETTING_GRAB_PUNISH, i, Options_Main[i].val);
+}
+static void LoadSettings(void) {
+    for (int i = 0; i < TM_GP_PREF_COUNT; i++)
+        Options_Main[i].val = Options_Main[i].val_prev = TM_GetSetting(TM_SETTING_GRAB_PUNISH, i);
+}
 
 enum phase {
     PHASE_SETUP,    // Your teammate is grabbing the enemy.
@@ -583,6 +605,7 @@ static void DrawHUD(GOBJ *gobj, int pass) {
 }
 
 void Event_Init(GOBJ *gobj) {
+    LoadSettings();
     stats = (struct stats) { 0 };
     attempt = (struct attempt) { .time_left = TIME_NONE };
     GObj_AddGXLink(gobj, DrawHUD, GXLINK_HUD, 80);
