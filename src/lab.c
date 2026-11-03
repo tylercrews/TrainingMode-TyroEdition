@@ -6093,7 +6093,7 @@ void Event_PostThink(GOBJ *gobj)
  * and the recording setup are left alone. Stage menus belong to one stage, so
  * Reset includes the current one but a stage change does not carry them. */
 #define LAB_SESSION_MAX 272
-#define LAB_RECOVERY_MAX 8
+#define LAB_RECOVERY_MAX 11
 typedef char lab_session_capacity[(OPTGEN_COUNT + OPTCPU_COUNT + OPTTECH_COUNT + 2 * OPTINF_COUNT +
     OPTHITBOXTRAILS_COUNT + OPTCHARRNG_MAXCOUNT + LAB_RECOVERY_MAX + ADV_COUNTER_COUNT * OPTCTR_COUNT +
     ACTION_LOG_MAX * OPTACTIONLOG_COUNT + OPTSTAGE_STADIUM_COUNT + OPTSTAGE_FOD_COUNT <= LAB_SESSION_MAX) ? 1 : -1];

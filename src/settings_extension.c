@@ -74,10 +74,13 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {30,1,2,0},
     /* word 20: Side */
     {24,2,TM_EG_SIDE_COUNT,TM_EG_SIDE_RANDOM},
+    /* word 68: Fox's and Falco's side-B rows after their first six */
+    {19,5,32,0}, {24,5,32,0},
 };
 /* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..12 and Up-B
- * Sweetspot's in bits 16..18. Bits 13..15 and 19..31 are spare, and every
- * record that owns word 68 zeroed them, so either event can grow into them. */
+ * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
+ * so Edgeguard's spacie side-B masks took bits 19..28 with no version bump
+ * (zero is every row off). Bits 13..15 and 29..31 are still spare. */
 #define EVENT_MENUS_OFFSET 68
 #define EVENT_MENUS_SIZE 4
 static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
@@ -199,7 +202,8 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
 static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
-        return index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
+        return index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
+            index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
             index==TM_EG_CAMERA?EDGEGUARD_OFFSET+4:
             index==TM_EG_SIDE?20:
             index>=TM_EG_RECOVERY_YOSHI?EDGEGUARD2_OFFSET:
@@ -392,9 +396,10 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return supported(r)||v11||v12||v13||v14||v15||v16||v17||v18||v19?!!(r[BLAST_ZONES_BYTE]&BLAST_ZONES_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
-    /* Version 18 records own the first Edgeguard words, version 19 on all of them. */
+    /* Version 18 records own the first Edgeguard words, version 19 the rest
+     * but word 68, which only version 20 records own. */
     if(field==TM_SETTING_EDGEGUARD) {
-        int owned=supported(r)||v19||(v18 && index<TM_EG_RECOVERY_YOSHI);
+        int owned=supported(r)||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)));
         unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }

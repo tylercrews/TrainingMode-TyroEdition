@@ -197,9 +197,32 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 - **Guides:**
     - Aimed up-Bs and fixed paths are drawn as described above. The physics group (DK, Bowser, Link, Young Link, Ness, Game & Watch, Ice Climbers) only gets the ledge target.
     - The aimed lines lock to the travel's real velocity on its first frame, not to the stick.
-- **Marth:** forward smash starts when your up-B does and freezes on frame 10, with hitboxes 0-2 off. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth so it sits 12 inland, then later resets use that measured reach.
-- **Settings:** session-only, carried through Change Stage with `carry_store`. Nothing is saved to the card yet.
+- **Marth:** forward smash starts when your up-B does and freezes on frame 10 with all four hitboxes out. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach.
+    - The first Dolphin test had only the tipper on, 12 inland. It was too far back, and the whole forward smash was wanted.
+- **The white X** uses the ECB side facing the ledge (`ecb.right` facing right, `-ecb.left` facing left), like `mpColl_800443C4` and its mirror. The first version used `ecb.right` on both ledges.
+- **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card. The success rate is session-only, carried through Change Stage with `carry_store`.
 - **Stages:** the first-frame guard from [Stages](#stages), option 1.
+
+## Slippi Gecko codes
+
+[slippi-gecko-codes/up-b-overlay](../slippi-gecko-codes/up-b-overlay/README.md) has one code per character with a guide. They draw the blue guides and white X with fixed numbers that [scripts/upb_overlay_numbers.py](../scripts/upb_overlay_numbers.py) reads from the ISO. The only number the ISO can't give directly is the ECB's front, which the event reads live on the platform:
+
+- **How the game sizes it** (`mpColl_LoadECB_JObj`): the box around six joints from `ftData + 0x44`, relative to TopN. If that box is narrower than 10 (the minimum `10 × scale`), it's re-centered at half its width. Each side is then at least 2 out. (The +2 padding only applies when the ledge-grab flag is off. `mpColl_LoadECB` uses 6 and grounded collision 5, which both have it.)
+- **Measured** by posing each skeleton in Wait1 (`RebirthWait`'s motion) across its loop, with the melee-decomp-animations tools, at the model scale (common attribute 0x8C) and facing the ledge:
+
+| Fighter | ECB front | Fighter | ECB front |
+| --- | --- | --- | --- |
+| Mario | 2.15 | Dr. Mario | 2.14 |
+| Luigi | 2.36 | Marth | 2.00 |
+| Roy | 2.21 | Captain Falcon | 4.07 |
+| Ganondorf | 5.67 | Peach | 2.00 |
+| Kirby | 2.00 | Samus | 2.03 |
+| Fox | 2.00 | Falco | 2.30 |
+| Sheik | 3.07 | Zelda | 2.00 |
+| Mewtwo | 3.14 | Pikachu | 2.00 |
+| Pichu | 2.00 | | |
+
+Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge snap x) out, a unit of difference in the ECB moves the X half a unit.
 
 ## Check in Dolphin before building on these numbers
 
@@ -209,6 +232,7 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 4. Roy's 40° angle range against Marth's 20°.
 5. Pikachu's 5-frame first zip (the earlier Edgeguard note estimated about 50 at full tilt, which agrees).
 6. The event's angel platform: every character can leave it in every way, the platform shows, and Marth's tipper hits right after you leave.
-7. Marth's tipper height on frame 10. If it's too high or low for a slight overshoot, change `MARTH_TIPPER_FRAME` (the hitbox is active through frame 13) or `MARTH_TIPPER_INLAND`.
+7. Marth's tipper on frame 10, now right over the ledge with the whole forward smash out. If it's too high or low for a slight overshoot, change `MARTH_TIPPER_FRAME` (the hitboxes are active through frame 13) or `MARTH_TIPPER_INLAND`.
 8. The white X (`LedgeTarget`): an up-B ending there should grab the ledge right away.
 9. The Ice Climbers: Nana leaves her platform with Popo.
+10. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's.

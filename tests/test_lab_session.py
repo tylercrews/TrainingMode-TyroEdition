@@ -107,8 +107,8 @@ class LabSessionTests(unittest.TestCase):
     def test_session_lists_only_unsaved_lab_rows(self):
         lab = Lab(); lab.init()
         # General 12 (no Input Display), CPU 18, Tech 16, Info 2x10, Trails 2, Peach RNG 2,
-        # Fox recovery 6, Advanced Counter 10x8, Action Log 10x7. Reset adds Stadium's row.
-        self.assertEqual((lab.info(20), lab.info(21)), (226, 227))
+        # Fox recovery 11, Advanced Counter 10x8, Action Log 10x7. Reset adds Stadium's row.
+        self.assertEqual((lab.info(20), lab.info(21)), (231, 232))
 
     def test_reset_restores_every_default_and_its_effect_in_place(self):
         lab = Lab(); lab.init()

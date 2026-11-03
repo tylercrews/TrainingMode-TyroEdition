@@ -38,6 +38,47 @@ static int RecoveryPref(EventMenu *menu) {
     return -1;
 }
 
+/* Fox's and Falco's first mask keeps the six bits it had before the side-B
+ * rows: bit N there is row SpacieSavedRows[N], so the old Illusion bit is now
+ * Instant. Their other side-B rows are a second mask, in row order. */
+static const u8 SpacieSavedRows[] = {
+    OPT_SPACIES_FF_LOW, OPT_SPACIES_FF_MID, OPT_SPACIES_FF_HIGH, OPT_SPACIES_JUMP,
+    OPT_SPACIES_SIDEB_INSTANT, OPT_SPACIES_FASTFALL,
+};
+#define SPACIE_SIDEB_FIRST OPT_SPACIES_SIDEB_SWEETSPOT
+typedef char edgeguard_spacie_masks[(countof(SpacieSavedRows) == SPACIE_SIDEB_FIRST &&
+    OPT_SPACIES_COUNT - SPACIE_SIDEB_FIRST == 5) ? 1 : -1];
+
+static int RecoveryPrefSideB(EventMenu *menu) {
+    if (menu == &RecMenu_Fox) return TM_EG_RECOVERY_FOX_SIDEB;
+    if (menu == &RecMenu_Falco) return TM_EG_RECOVERY_FALCO_SIDEB;
+    return -1;
+}
+
+/* The saved rows of a recovery menu: bit N is row N. */
+static u32 LoadRecoveryRows(EventMenu *menu, int pref) {
+    u32 mask = TM_GetSetting(TM_SETTING_EDGEGUARD, pref);
+    int sideb = RecoveryPrefSideB(menu);
+    if (sideb < 0)
+        return mask;
+    u32 rows = TM_GetSetting(TM_SETTING_EDGEGUARD, sideb) << SPACIE_SIDEB_FIRST;
+    for (u32 bit = 0; bit < countof(SpacieSavedRows); ++bit)
+        rows |= ((mask >> bit) & 1) << SpacieSavedRows[bit];
+    return rows;
+}
+
+static void SaveRecoveryRows(EventMenu *menu, int pref, u32 rows) {
+    int sideb = RecoveryPrefSideB(menu);
+    if (sideb >= 0) {
+        TM_SetSetting(TM_SETTING_EDGEGUARD, sideb, rows >> SPACIE_SIDEB_FIRST);
+        u32 mask = 0;
+        for (u32 bit = 0; bit < countof(SpacieSavedRows); ++bit)
+            mask |= ((rows >> SpacieSavedRows[bit]) & 1) << bit;
+        rows = mask;
+    }
+    TM_SetSetting(TM_SETTING_EDGEGUARD, pref, rows);
+}
+
 static void SaveSettings(void) {
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE, Options_Main[OPT_MAIN_SIDE].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT, Options_Main[OPT_MAIN_PERCENT].val);
@@ -69,13 +110,12 @@ static void LoadSettings(EventMenu *recovery_menu) {
     Options_Main[OPT_MAIN_CAMERA].val = Options_Main[OPT_MAIN_CAMERA].val_prev =
         TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_CAMERA);
 
-    // bit N of the saved mask is row N of this CPU's recovery menu
     int pref = RecoveryPref(recovery_menu);
     if (pref < 0)
         return;
-    u32 mask = TM_GetSetting(TM_SETTING_EDGEGUARD, pref);
+    u32 rows = LoadRecoveryRows(recovery_menu, pref);
     for (int opt = 0; opt < recovery_menu->option_num; ++opt)
-        recovery_menu->options[opt].val = (mask >> opt) & 1;
+        recovery_menu->options[opt].val = (rows >> opt) & 1;
 }
 
 /* The recovery toggles are shared with the Lab, so they have no OnChange.
@@ -85,9 +125,10 @@ static void SaveRecovery(GOBJ *cpu, u32 opt_flags) {
         return;
     saved_recovery = opt_flags;
     FighterData *cpu_data = cpu->userdata;
-    int pref = RecoveryPref(RecoveryMenus[cpu_data->kind]);
+    EventMenu *menu = RecoveryMenus[cpu_data->kind];
+    int pref = RecoveryPref(menu);
     if (pref >= 0)
-        TM_SetSetting(TM_SETTING_EDGEGUARD, pref, opt_flags);
+        SaveRecoveryRows(menu, pref, opt_flags);
 }
 
 /* Toggles changed in the pause menu before any Think frame. */

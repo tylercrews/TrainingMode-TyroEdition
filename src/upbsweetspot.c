@@ -14,12 +14,12 @@
 // Nana's platform, beside Popo's on the stage side.
 #define NANA_PLATFORM_GAP 8
 
-// Marth's forward smash tipper (hitbox 3, 20%) comes out on frame 10. He
-// freezes there, like Side-B's down-tilt, with the tipper centered this far
-// inland of the ledge, where a slight overshoot comes down.
+// Marth's forward smash comes out on frame 10, the tipper as hitbox 3 (20%).
+// He freezes there with the whole swing out, like Side-B's down-tilt, and the
+// tipper centered this far inland of the ledge: 0 is right over it.
 #define MARTH_TIPPER_HITBOX 3
 #define MARTH_TIPPER_FRAME 10
-#define MARTH_TIPPER_INLAND 12
+#define MARTH_TIPPER_INLAND 0
 
 #define RESET_SUCCESS 60
 #define RESET_FAILURE 30
@@ -329,7 +329,7 @@ static EventOption Options_Main[] = {
         .value_num = countof(Values_Marth),
         .OnChange = ChangeMarth,
         .desc = {"Tipper: Marth freezes his forward smash with",
-                 "the tipper just inland of the ledge, so",
+                 "the tipper right over the ledge, so",
                  "overshooting onto the stage gets you hit."},
     },
     {
@@ -440,11 +440,12 @@ static void CountAttempt(int result) {
 }
 
 /* The fighter's position when the ledge sits in the middle of its ledge-grab
- * box: the box reaches cliffgrab_width past the ECB's side toward the ledge,
- * and is centered cliffgrab_y_offset above the feet. */
+ * box: the box reaches cliffgrab_width past the ECB's side toward the ledge
+ * (the side it faces), and is centered cliffgrab_y_offset above the feet. */
 static Vec2 LedgeTarget(FighterData *ft) {
     Vec2 ledge = ledge_positions[side_idx];
-    float reach = ft->coll_data.ecbCurr_right.X + ft->coll_data.cliffgrab_width;
+    float front = ft->facing_direction > 0 ? ft->coll_data.ecbCurr_right.X : -ft->coll_data.ecbCurr_left.X;
+    float reach = front + ft->coll_data.cliffgrab_width;
     return (Vec2) { ledge.X + Outward() * reach * 0.5f, ledge.Y - ft->coll_data.cliffgrab_y_offset };
 }
 
@@ -474,9 +475,9 @@ static void StartMarth(GOBJ *cpu) {
     marth.swinging = true;
 }
 
-/* Freeze on the tipper's first frame so it lingers, as Side-B does with the
- * down-tilt. Only the tipper is left on. The first freeze measures how far in
- * front of Marth it is and moves him so it sits MARTH_TIPPER_INLAND in. */
+/* Freeze on the first active frame so the whole forward smash lingers, as
+ * Side-B does with the down-tilt. The first freeze measures how far in front
+ * of Marth the tipper is and moves him so it sits MARTH_TIPPER_INLAND in. */
 static void MarthThink(GOBJ *cpu) {
     FighterData *cpu_data = cpu->userdata;
     int state = cpu_data->state_id;
@@ -489,9 +490,6 @@ static void MarthThink(GOBJ *cpu) {
         FrameSpeedChange(cpu, 0);
         marth.frozen = true;
     }
-    for (int i = 0; i < (int)countof(cpu_data->hitbox); i++)
-        if (i != MARTH_TIPPER_HITBOX)
-            cpu_data->hitbox[i].active = 0;
     ftHit *tipper = &cpu_data->hitbox[MARTH_TIPPER_HITBOX];
     if (!tipper->active)
         return;
@@ -505,9 +503,11 @@ static void MarthThink(GOBJ *cpu) {
     if (fabs(shift) > 0.5f) {
         cpu_data->phys.pos.X += shift;
         UpdatePosition(cpu);
-        // Move the hitbox too, so it doesn't sweep across the gap next frame.
-        tipper->pos.X += shift;
-        tipper->pos_prev.X += shift;
+        // Move the hitboxes too, so they don't sweep across the gap next frame.
+        for (int i = 0; i < (int)countof(cpu_data->hitbox); i++) {
+            cpu_data->hitbox[i].pos.X += shift;
+            cpu_data->hitbox[i].pos_prev.X += shift;
+        }
     }
 }
 

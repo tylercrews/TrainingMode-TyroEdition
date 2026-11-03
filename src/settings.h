@@ -187,7 +187,8 @@ enum TMAttackShieldPreference {
  * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu).
  * Append; the CPUs from Yoshi on live in a later TYEX word. Player Position
  * uses word 60's spare top bits, Camera (Normal / Zoomed Out) word 56's bit 30,
- * Side word 20's bits 24-25. */
+ * Side word 20's bits 24-25. Fox's and Falco's side-B rows past their first
+ * six are a second 5-bit mask each, in word 68's bits 19-23 and 24-28. */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
@@ -195,7 +196,8 @@ enum TMEdgeguardPreference {
     TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH,
     TM_EG_RECOVERY_YOSHI, TM_EG_RECOVERY_PEACH, TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_DRMARIO,
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
-    TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE, TM_EG_PREF_COUNT
+    TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE,
+    TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB, TM_EG_PREF_COUNT
 };
 /* Side-B Sweetspot: Success Criteria in word 20 bit 26, Knockback in bits
  * 27-29. Zero, which every record that owns word 20 has there, is the default. */

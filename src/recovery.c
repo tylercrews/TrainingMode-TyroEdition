@@ -17,6 +17,8 @@ static void Think_IceClimbers(GOBJ *cpu, u32 opt_flags);
 static void Think_Puff(GOBJ *cpu, u32 opt_flags);
 static void Think_Samus(GOBJ *cpu, u32 opt_flags);
 static bool RecoveryAssignsInputs(int kind);
+static void Press(FighterData *ft, int buttons);
+static void SetStick(FighterData *ft, float x, float y);
 
 typedef void (*ThinkFn)(GOBJ *, u32);
 static ThinkFn ThinkFnLookup[] = {
@@ -159,14 +161,21 @@ void Recovery_Think(GOBJ *cpu, u32 opt_flags) {
     }
 }
 
+/* Edgeguard saves the first six rows in their pre-T9 bits (Instant has the
+ * old Illusion row's bit 4, Fast Fall bit 5) and the rest in a second mask. */
 enum options_spacies {
     OPT_SPACIES_FF_LOW,
     OPT_SPACIES_FF_MID,
     OPT_SPACIES_FF_HIGH,
     OPT_SPACIES_JUMP,
-    OPT_SPACIES_ILLUSION,
     OPT_SPACIES_FASTFALL,
-    
+    OPT_SPACIES_SIDEB_INSTANT,
+    OPT_SPACIES_SIDEB_SWEETSPOT,
+    OPT_SPACIES_SIDEB_TO_LEDGE,
+    OPT_SPACIES_SIDEB_TO_STAGE,
+    OPT_SPACIES_SIDEB_TO_PLAT,
+    OPT_SPACIES_SIDEB_SHORTEN,
+
     OPT_SPACIES_COUNT
 };
 
@@ -291,17 +300,52 @@ static EventOption RecOptions_Fox[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Double Jump",
-        .desc = {"Allow Fox to double jump."},
-    },
-    {
-        .kind = OPTKIND_TOGGLE,
-        .name = "Illusion",
-        .desc = {"Allow Fox to side special."},
+        .desc = {"Allow Fox to double jump.",
+                 "The Illusion rows jump on their own."},
     },
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Fast Fall",
         .desc = {"Allow Fox to fast fall."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Illusion Instant",
+        .desc = {"Allow Fox to side special as soon as",
+                 "hitstun ends, without jumping."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Illusion Ledge Sweetspot",
+        .desc = {"Allow Fox to jump up and side special",
+                 "into the ledge, grabbing it mid-dash."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Illusion To Ledge",
+        .desc = {"Allow Fox to jump up and side special",
+                 "short of the ledge, then drift into it,",
+                 "lingering at the edge for a few frames."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Illusion To Stage",
+        .desc = {"Allow Fox to jump up and side special onto",
+                 "the stage, through you if you're near the ledge."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Illusion To Side Plat",
+        .desc = {"Allow Fox to jump high and side special onto",
+                 "the side platform. Without one, like on Final",
+                 "Destination, he goes to the stage instead."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Illusion Shortest Shorten",
+        .desc = {"Allow Fox to jump up close to the ledge and",
+                 "side special with the earliest shorten,",
+                 "grabbing the ledge out of it."},
     },
 };
 static EventMenu RecMenu_Fox = {
@@ -332,17 +376,52 @@ static EventOption RecOptions_Falco[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Double Jump",
-        .desc = {"Allow Falco to double jump."},
-    },
-    {
-        .kind = OPTKIND_TOGGLE,
-        .name = "Phantasm",
-        .desc = {"Allow Falco to side special."},
+        .desc = {"Allow Falco to double jump.",
+                 "The Phantasm rows jump on their own."},
     },
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Fast Fall",
         .desc = {"Allow Falco to fast fall."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Phantasm Instant",
+        .desc = {"Allow Falco to side special as soon as",
+                 "hitstun ends, without jumping."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Phantasm Ledge Sweetspot",
+        .desc = {"Allow Falco to jump up and side special",
+                 "into the ledge, grabbing it mid-dash."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Phantasm To Ledge",
+        .desc = {"Allow Falco to jump up and side special",
+                 "short of the ledge, then drift into it,",
+                 "lingering at the edge for a few frames."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Phantasm To Stage",
+        .desc = {"Allow Falco to jump up and side special onto",
+                 "the stage, through you if you're near the ledge."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Phantasm To Side Plat",
+        .desc = {"Allow Falco to jump high and side special onto",
+                 "the side platform. Without one, like on Final",
+                 "Destination, he goes to the stage instead."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Phantasm Shortest Shorten",
+        .desc = {"Allow Falco to jump up close to the ledge and",
+                 "side special with the earliest shorten,",
+                 "grabbing the ledge out of it."},
     },
 };
 static EventMenu RecMenu_Falco = {
@@ -904,22 +983,561 @@ static float ProjectedDistance(FighterData *a, FighterData *b, int future) {
 
 // Spacies ------------------------------------------------
 
-#define SP_UPB_CHANCE 12 
+#define SP_UPB_CHANCE 12
 #define SP_JUMP_CHANCE_BELOW_LEDGE 4
 #define SP_JUMP_CHANCE_ABOVE_LEDGE 30
-#define SP_ILLUSION_CHANCE_ABOVE_LEDGE 30
-#define SP_ILLUSION_CHANCE_TO_LEDGE 12
 #define SP_FASTFALL_CHANCE 8
 
-#define SP_MAX_ILLUSION_HEIGHT 30.f
-#define SP_MIN_ILLUSION_HEIGHT -15.f
-#define SP_ILLUSION_DISTANCE 75.f
 #define SP_FIREFOX_DISTANCE 80.f
 #define SP_FIREBIRD_DISTANCE 70.f
 
 #define SP_SWEETSPOT_OFFSET_X 16
 #define SP_SWEETSPOT_OFFSET_Y 5
-    
+
+// Side-B (Illusion / Phantasm). From the decompiled move (ftfoxspecials.c) and
+// the NTSC 1.02 special attributes, which Fox and Falco share but for the dash:
+// - Startup: Y speed 0, X speed divided by 1.5 (0x28), then 0.05 (0x2C) slower
+//   a frame. No fall for 15 frames (0x24), then 1/60 (0x30) a frame. Fox's
+//   runs 19 physics frames (a 1/6 drop), Falco's 15 (none).
+// - Dash: three steps of 78/4 (Fox) or 60/4 (Falco) times the model scale, at
+//   a fixed height. A fresh B on its first two frames ends it before the first
+//   step (see sweetspot.c).
+// - Endlag: 2.0 (0x3C) forward, 0.07 (0x40) slower a frame. No fall for 5
+//   frames (0x44), then 0.08 (0x48) a frame. Then special fall.
+// - All three can grab the ledge. The grab box (mpcoll.c) spans cliffgrab_y_offset
+//   +/- half of cliffgrab_height above the feet (8.5 to 17.5) and reaches
+//   cliffgrab_width past the front of the ECB, whose bottom must still be
+//   outside the ledge and under it. Holding down refuses the grab
+//   (ftCliffCommon_80081298).
+#define SP_FOX_STARTUP_FRAMES 19
+#define SP_FALCO_STARTUP_FRAMES 15
+#define SP_ENDLAG_FRAMES 40
+#define SP_ATTR(ft, offset) (((float *)(ft)->special_attributes)[(offset) / sizeof(float)])
+
+#define ASID_SPECIALAIRS 0x15F // the dash
+
+// To Ledge's endlag drifts into the ledge for 6 to 12 frames (where it aims),
+// and never grabs it in fewer than 5 (when it side-Bs).
+#define SP_LINGER_FEWEST 5
+#define SP_LINGER_AIM_MIN 6
+#define SP_LINGER_AIM_MAX 12
+
+enum spacie_plan {
+    SP_PLAN_NONE,        // not chosen yet this attempt
+    SP_PLAN_UPB,         // the up special logic, also used with nothing checked
+    SP_PLAN_LAST_RESORT, // no side-B can make it and no up special is checked
+    // one per side-B row, in row order
+    SP_PLAN_INSTANT,
+    SP_PLAN_SWEETSPOT,
+    SP_PLAN_TO_LEDGE,
+    SP_PLAN_TO_STAGE,
+    SP_PLAN_TO_PLAT,
+    SP_PLAN_SHORTEN,
+};
+
+typedef struct SpaciePlan {
+    int kind;
+    float lo, hi;    // side-B with the feet this high above the ledge
+    float aim;       // and this far outside it when the dash starts
+    float jump_at;   // double jump on the way down past this height
+    bool shorten;    // B again on the dash's first frame
+} SpaciePlan;
+
+static SpaciePlan sp_plan = { SP_PLAN_NONE };
+
+// Positions are relative to the CPU's ledge: `out` is how far outside it
+// (negative over the stage), `h` how far above it. X speeds are toward the stage.
+typedef struct SpacieGeo {
+    Vec2 ledge;
+    float dir;            // 1 when the stage is to the right
+    float out, h;
+    float vx, vy;         // own speed
+    float kbx, kby;       // knockback still carrying the CPU
+    float reach;          // how far past the feet the ledge-grab box reaches
+    bool has_plat;
+    float plat_h;         // the side platform's height
+    float plat_near;      // and the outs of its ends
+    float plat_far;
+} SpacieGeo;
+
+enum sideb_result {
+    SIDEB_NOTHING = -1,
+    SIDEB_MISS,
+    SIDEB_GRAB, // only from SideBStep; the simulation names the part
+    SIDEB_GRAB_STARTUP,
+    SIDEB_GRAB_DASH,
+    SIDEB_GRAB_ENDLAG,
+    SIDEB_LAND_STAGE,
+    SIDEB_LAND_PLAT,
+};
+
+typedef struct SideBSim {
+    const SpacieGeo *g;
+    float out, h, kbx, kby;
+    float box_lo, box_hi, bottom, decay;
+} SideBSim;
+
+static float SpacieRand(float lo, float hi) { return lo + (hi - lo) * HSD_Randf(); }
+
+static int SpacieStartupFrames(FighterData *ft) {
+    return ft->kind == FTKIND_FOX ? SP_FOX_STARTUP_FRAMES : SP_FALCO_STARTUP_FRAMES;
+}
+
+static float SpacieDashStep(FighterData *ft) {
+    float step = (ft->kind == FTKIND_FOX ? 78.f : 60.f) / 4.f;
+    return step * ft->attr.model_scaling * ft->scale.Y;
+}
+
+static float SpacieSlow(float speed, float by) {
+    return speed > 0.f ? fmax(speed - by, 0.f) : fmin(speed + by, 0.f);
+}
+
+// How far the startup carries the CPU toward the stage from X speed vx.
+static float SpacieStartupDrift(FighterData *ft, float vx) {
+    float drift = 0.f;
+    vx /= SP_ATTR(ft, 0x28);
+    for (int i = SpacieStartupFrames(ft); i > 0; --i) {
+        vx = SpacieSlow(vx, SP_ATTR(ft, 0x2C));
+        drift += vx;
+    }
+    return drift;
+}
+
+// How far the endlag carries the CPU in its first `frames` frames.
+static float SpacieEndlagDrift(FighterData *ft, int frames) {
+    float speed = SP_ATTR(ft, 0x3C), drift = 0.f;
+    while (frames-- > 0 && (speed -= SP_ATTR(ft, 0x40)) > 0.f)
+        drift += speed;
+    return drift;
+}
+
+// Endlag frames until the CPU has fallen `drop`.
+static int SpacieEndlagFallFrames(FighterData *ft, float drop) {
+    float vy = 0.f, fallen = 0.f;
+    int delay = SP_ATTR(ft, 0x44), n = 0;
+    while (fallen < drop && n < SP_ENDLAG_FRAMES) {
+        if (delay > 0)
+            --delay;
+        else
+            vy += SP_ATTR(ft, 0x48);
+        fallen += vy;
+        ++n;
+    }
+    return n;
+}
+
+// The double jump's rise, and how many frames it rises for. Gravity applies
+// on its first frame (ftCo_JumpAerial_Enter_Basic).
+static float SpacieJumpRise(FighterData *ft, int *frames) {
+    float speed = ft->attr.jump_v_initial_velocity * ft->attr.air_jump_v_multiplier;
+    float rise = 0.f;
+    int n = 0;
+    while ((speed -= ft->attr.gravity) > 0.f && n < 120) {
+        rise += speed;
+        ++n;
+    }
+    *frames = n;
+    return rise;
+}
+
+// Frames for the feet to fall from h to `to`, from Y speed vy.
+static int SpacieFallFrames(FighterData *ft, float h, float vy, float to) {
+    int n = 0;
+    while (h > to && n < 300) {
+        vy = fmax(vy - ft->attr.gravity, -ft->attr.terminal_velocity);
+        h += vy;
+        ++n;
+    }
+    return n;
+}
+
+// The one-way platform on this ledge's half of the stage nearest the ledge,
+// like Battlefield's side platforms. Live vertices, so it follows Fountain of
+// Dreams' platforms; Final Destination has none.
+static void SpacieFindPlatform(SpacieGeo *g) {
+    g->has_plat = false;
+    CollDataStage *stage = *stc_colldata;
+    CollLine *lines = *stc_collline;
+    CollVert *verts = *stc_collvert;
+    if (!stage || !lines || !verts)
+        return;
+    for (int i = 0; i < stage->line_num; ++i) {
+        CollLineDesc *line = lines[i].desc;
+        // native MapLine.lo_flags LINE_FLAG_PLATFORM is 0x0100
+        if (!line || !line->is_floor || line->disabled || !(((u8 *)line)[0xE] & 1)
+            || !GrColl_CheckIfLineEnabled(i)
+            || line->vert_prev < 0 || line->vert_next < 0
+            || line->vert_prev >= stage->vert_num || line->vert_next >= stage->vert_num)
+            continue;
+        Vec2 a = verts[line->vert_prev].pos_curr;
+        Vec2 b = verts[line->vert_next].pos_curr;
+        float out_a = (g->ledge.X - a.X) * g->dir;
+        float out_b = (g->ledge.X - b.X) * g->dir;
+        float near = fmax(out_a, out_b), far = fmin(out_a, out_b);
+        float h = (a.Y + b.Y) * 0.5f - g->ledge.Y;
+        bool this_half = (a.X + b.X) * 0.5f * g->dir < -10.f;
+        if (!this_half || near - far < 10.f || h < 5.f || h > 80.f)
+            continue;
+        if (!g->has_plat || near > g->plat_near) {
+            g->has_plat = true;
+            g->plat_h = h;
+            g->plat_near = near;
+            g->plat_far = far;
+        }
+    }
+}
+
+static SpacieGeo SpacieGetGeo(FighterData *ft) {
+    SpacieGeo g;
+    float x = ft->phys.pos.X;
+    g.dir = x > 0.f ? -1.f : 1.f;
+    g.ledge = ledge_positions[x > 0.f];
+    g.out = (g.ledge.X - x) * g.dir;
+    g.h = ft->phys.pos.Y - g.ledge.Y;
+    g.vx = ft->phys.self_vel.X * g.dir;
+    g.vy = ft->phys.self_vel.Y;
+    g.kbx = ft->phys.kb_vel.X * g.dir;
+    g.kby = ft->phys.kb_vel.Y;
+    CollData *coll = &ft->coll_data;
+    float front = g.dir > 0.f ? coll->ecbCurr_right.X : -coll->ecbCurr_left.X;
+    g.reach = front + coll->cliffgrab_width;
+    SpacieFindPlatform(&g);
+    return g;
+}
+
+// Move one frame by (vx, vy) plus the knockback left, which decays like the
+// game's, and say what the frame ended in.
+static int SideBStep(SideBSim *s, float vx, float vy) {
+    float out0 = s->out, h0 = s->h;
+    float kb = sqrtf(s->kbx * s->kbx + s->kby * s->kby);
+    if (kb <= s->decay) {
+        s->kbx = s->kby = 0.f;
+    } else {
+        s->kbx -= s->decay * s->kbx / kb;
+        s->kby -= s->decay * s->kby / kb;
+    }
+    s->out -= vx + s->kbx;
+    s->h += vy + s->kby;
+
+    // The box covers the frame's sweep, so a fast step can't skip the ledge.
+    if (s->out > 0.f && fmin(s->out, out0) <= s->g->reach
+        && fmin(s->h, h0) + s->box_lo <= 0.f && 0.f <= fmax(s->h, h0) + s->box_hi
+        && s->h + s->bottom < 0.f)
+        return SIDEB_GRAB;
+
+    const SpacieGeo *g = s->g;
+    if (g->has_plat && h0 + s->bottom >= g->plat_h && s->h + s->bottom < g->plat_h
+        && g->plat_far <= s->out && s->out <= g->plat_near)
+        return SIDEB_LAND_PLAT;
+
+    // Inside the ledge and under it: onto the stage from above, or into the wall.
+    if (s->out <= 0.f && s->h + s->bottom < 0.f)
+        return h0 + s->bottom >= 0.f ? SIDEB_LAND_STAGE : SIDEB_MISS;
+    return SIDEB_NOTHING;
+}
+
+// Where a side-B started on the next frame ends: a ledge grab (in the startup,
+// dash or endlag, with the endlag frame), a landing, or a miss. `shorten`
+// presses B again on the dash's first frame.
+static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int *frame) {
+    CollData *coll = &ft->coll_data;
+    SideBSim s = {
+        .g = g, .out = g->out, .h = g->h, .kbx = g->kbx, .kby = g->kby,
+        .box_lo = coll->cliffgrab_y_offset - coll->cliffgrab_height * 0.5f,
+        .box_hi = coll->cliffgrab_y_offset + coll->cliffgrab_height * 0.5f,
+        .bottom = coll->ecbCurr_bot.Y,
+        .decay = (*stc_ftcommon)->kb_frameDecay,
+    };
+    float terminal = ft->attr.terminal_velocity;
+    int result;
+    *frame = 0;
+
+    float vx = g->vx / SP_ATTR(ft, 0x28), vy = 0.f;
+    int delay = SP_ATTR(ft, 0x24);
+    for (int i = SpacieStartupFrames(ft); i > 0; --i) {
+        if (delay > 0)
+            --delay;
+        else
+            vy = fmax(vy - SP_ATTR(ft, 0x30), -terminal);
+        vx = SpacieSlow(vx, SP_ATTR(ft, 0x2C));
+        if ((result = SideBStep(&s, vx, vy)) != SIDEB_NOTHING)
+            return result == SIDEB_GRAB ? SIDEB_GRAB_STARTUP : result;
+    }
+
+    // A frame before the steps, or only that frame when shortened.
+    float step = SpacieDashStep(ft);
+    for (int i = 0; i <= (shorten ? 0 : 3); ++i) {
+        if ((result = SideBStep(&s, i ? step : 0.f, 0.f)) != SIDEB_NOTHING)
+            return result == SIDEB_GRAB ? SIDEB_GRAB_DASH : result;
+    }
+
+    vx = SP_ATTR(ft, 0x3C);
+    vy = 0.f;
+    delay = SP_ATTR(ft, 0x44);
+    for (int i = 1; i <= SP_ENDLAG_FRAMES; ++i) {
+        if (delay > 0)
+            --delay;
+        else
+            vy = fmax(vy - SP_ATTR(ft, 0x48), -terminal);
+        vx = SpacieSlow(vx, SP_ATTR(ft, 0x40));
+        if ((result = SideBStep(&s, vx, vy)) != SIDEB_NOTHING) {
+            *frame = i;
+            return result == SIDEB_GRAB ? SIDEB_GRAB_ENDLAG : result;
+        }
+    }
+    return SIDEB_MISS;
+}
+
+// Whether a side-B started on the next frame ends the way the plan wants.
+static bool SpacieSideBWorks(FighterData *ft, const SpacieGeo *g, const SpaciePlan *p) {
+    int frame;
+    int result = SimulateSideB(ft, g, p->shorten, &frame);
+    switch (p->kind) {
+        case SP_PLAN_SWEETSPOT: return result == SIDEB_GRAB_DASH;
+        case SP_PLAN_TO_LEDGE: return result == SIDEB_GRAB_ENDLAG && frame >= SP_LINGER_FEWEST;
+        case SP_PLAN_SHORTEN: return result == SIDEB_GRAB_ENDLAG;
+        case SP_PLAN_TO_STAGE: return result == SIDEB_LAND_STAGE;
+        case SP_PLAN_TO_PLAT: return result == SIDEB_LAND_PLAT;
+    }
+    return false;
+}
+
+// Out at the dash's start for a side-B started from here, past where the
+// knockback left will still carry the CPU.
+static float SpacieDashStartOut(FighterData *ft, const SpacieGeo *g) {
+    float kb = sqrtf(g->kbx * g->kbx + g->kby * g->kby);
+    float carry = g->kbx * kb / (2.f * (*stc_ftcommon)->kb_frameDecay);
+    return g->out - SpacieStartupDrift(ft, g->vx) - carry;
+}
+
+// How far the CPU drifts in `frames` frames holding one way from X speed v
+// that way (ftCommon_CalcSelfAccel_DriftFrom).
+static float SpacieDriftReach(FighterData *ft, float v, int frames) {
+    float accel = ft->attr.aerial_drift_stick_mult + ft->attr.aerial_drift_base;
+    float max = ft->attr.aerial_drift_max, drift = 0.f;
+    while (frames-- > 0) {
+        v = v + accel > max ? fmax(v - ft->attr.aerial_friction, max) : v + accel;
+        drift += v;
+    }
+    return drift;
+}
+
+// Whether the CPU can still drift to the plan's aim by its last pass through
+// the height band, saving the double jump for as late as it still reaches.
+static bool SpacieCanReach(FighterData *ft, const SpacieGeo *g, const SpaciePlan *p) {
+    if (p->kind == SP_PLAN_INSTANT)
+        return true;
+    bool can_jump = ft->jump.jumps_used < ft->attr.max_jumps;
+    int rise_frames;
+    float rise = SpacieJumpRise(ft, &rise_frames);
+    float latest_jump = p->lo - rise + 3.f;
+    float vy = g->vy + g->kby;
+    // The top of a rise already underway; jumping there goes highest.
+    float peak = g->h + (vy > 0.f ? vy * vy / (2.f * ft->attr.gravity) : 0.f);
+    int frames;
+    if (can_jump) {
+        if (peak + rise < p->lo)
+            return false;
+        frames = SpacieFallFrames(ft, g->h, vy, latest_jump) + rise_frames;
+    } else if (g->h >= p->lo) {
+        frames = SpacieFallFrames(ft, g->h, vy, p->lo);
+    } else {
+        if (peak < p->lo)
+            return false;
+        frames = vy / ft->attr.gravity;
+    }
+    float need = SpacieDashStartOut(ft, g) - p->aim; // > 0: must drift in
+    return fabs(need) <= SpacieDriftReach(ft, need > 0.f ? g->vx : -g->vx, frames) + 3.f;
+}
+
+// Of a plan's aims (each with or without the earliest shorten), a random one
+// the CPU can reach, or else the nearest.
+static void SpaciePickAim(FighterData *ft, const SpacieGeo *g, SpaciePlan *p,
+                          const float *aims, const bool *shortens, int n) {
+    float here = SpacieDashStartOut(ft, g);
+    int first = HSD_Randi(n), nearest = 0;
+    for (int i = 0; i < n; ++i) {
+        int k = (first + i) % n;
+        p->aim = aims[k];
+        p->shorten = shortens[k];
+        if (SpacieCanReach(ft, g, p))
+            return;
+        if (fabs(aims[i] - here) < fabs(aims[nearest] - here))
+            nearest = i;
+    }
+    p->aim = aims[nearest];
+    p->shorten = shortens[nearest];
+}
+
+// Where and how high each plan side-Bs from, a little different every attempt.
+static SpaciePlan SpacieMakePlan(FighterData *ft, const SpacieGeo *g, int kind) {
+    SpaciePlan p = { .kind = kind };
+    float step = SpacieDashStep(ft);
+    float dash = 3.f * step;
+    int rise_frames;
+    float rise = SpacieJumpRise(ft, &rise_frames);
+    switch (kind) {
+        case SP_PLAN_SWEETSPOT: {
+            // The ledge 3 or more inside the box after one, two or three steps.
+            p.lo = -16.f;
+            p.hi = -10.f;
+            float inside = SpacieRand(3.f, g->reach - 3.f);
+            float aims[] = { step + inside, 2.f * step + inside, dash + inside };
+            bool shortens[] = { false, false, false };
+            SpaciePickAim(ft, g, &p, aims, shortens, countof(aims));
+            break;
+        }
+        case SP_PLAN_TO_LEDGE: {
+            // The dash (whole, or shortened at once when close) ends short of
+            // the ledge, and the endlag drifts in for a few frames.
+            int linger = SP_LINGER_AIM_MIN + HSD_Randi(SP_LINGER_AIM_MAX - SP_LINGER_AIM_MIN + 1);
+            float endlag = g->reach + SpacieEndlagDrift(ft, linger);
+            p.lo = -14.5f;
+            p.hi = -9.f;
+            float aims[] = { dash + endlag, endlag };
+            bool shortens[] = { false, true };
+            SpaciePickAim(ft, g, &p, aims, shortens, countof(aims));
+            break;
+        }
+        case SP_PLAN_SHORTEN:
+            // Close enough that the endlag alone reaches the ledge.
+            p.lo = -15.f;
+            p.hi = -6.f;
+            p.aim = g->reach + SpacieRand(3.f, 8.f);
+            p.shorten = true;
+            break;
+        case SP_PLAN_TO_STAGE: {
+            // From near where the CPU is, through a player standing near the ledge.
+            float lo = 4.f, hi = dash - 6.f;
+            FighterData *hmn = Fighter_GetGObj(0)->userdata;
+            float hmn_out = (g->ledge.X - hmn->phys.pos.X) * g->dir;
+            if (hmn->phys.air_state == 0 && hmn_out <= 0.f && hmn_out > 10.f - dash) {
+                lo = fmax(lo, hmn_out + 6.f);
+                hi = hmn_out + dash - 6.f;
+            }
+            p.lo = 3.f;
+            p.hi = 10.f;
+            p.aim = fclamp(SpacieDashStartOut(ft, g) + SpacieRand(-8.f, 8.f), lo, hi);
+            break;
+        }
+        case SP_PLAN_TO_PLAT: {
+            // Land in the platform's middle from the band's middle: the endlag
+            // drifts on until the fall reaches the platform.
+            p.lo = g->plat_h + 3.f;
+            p.hi = g->plat_h + 9.f;
+            float drop = (p.lo + p.hi) * 0.5f - g->plat_h + ft->coll_data.ecbCurr_bot.Y;
+            float drift = SpacieEndlagDrift(ft, SpacieEndlagFallFrames(ft, drop));
+            p.aim = (g->plat_near + g->plat_far) * 0.5f + drift + dash;
+            break;
+        }
+    }
+    p.jump_at = SpacieRand(p.lo - rise + 4.f, p.lo - 6.f);
+    return p;
+}
+
+static bool SpacieUpBChecked(u32 opt_flags) {
+    return OptEnabled(OPT_SPACIES_FF_LOW) || OptEnabled(OPT_SPACIES_FF_MID)
+        || OptEnabled(OPT_SPACIES_FF_HIGH);
+}
+
+// When the checked side-B rows can't make it and no Firefox row is checked:
+// the first side-B that still can, or a double jump and a side-B.
+static SpaciePlan SpacieBestEffortPlan(FighterData *ft, const SpacieGeo *g) {
+    static const u8 order[] = { SP_PLAN_SWEETSPOT, SP_PLAN_TO_STAGE, SP_PLAN_SHORTEN, SP_PLAN_TO_LEDGE };
+    for (u32 i = 0; i < countof(order); ++i) {
+        SpaciePlan p = SpacieMakePlan(ft, g, order[i]);
+        if (SpacieCanReach(ft, g, &p))
+            return p;
+    }
+    return (SpaciePlan) { .kind = SP_PLAN_LAST_RESORT };
+}
+
+// Each attempt picks one checked side-B row the CPU can still reach, or the
+// up special logic as one more choice when a Firefox row is checked.
+static void SpacieChoosePlan(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
+    SpaciePlan choices[OPT_SPACIES_COUNT];
+    int n = 0;
+    bool any_sideb = false;
+    for (int opt = OPT_SPACIES_SIDEB_INSTANT; opt <= OPT_SPACIES_SIDEB_SHORTEN; ++opt) {
+        if (!OptEnabled(opt))
+            continue;
+        any_sideb = true;
+        int kind = SP_PLAN_INSTANT + opt - OPT_SPACIES_SIDEB_INSTANT;
+        if (kind == SP_PLAN_TO_PLAT && !g->has_plat)
+            kind = SP_PLAN_TO_STAGE;
+        SpaciePlan plan = SpacieMakePlan(ft, g, kind);
+        if (SpacieCanReach(ft, g, &plan))
+            choices[n++] = plan;
+    }
+    if (SpacieUpBChecked(opt_flags) || (n == 0 && !any_sideb))
+        choices[n++] = (SpaciePlan) { .kind = SP_PLAN_UPB };
+    if (n == 0)
+        choices[n++] = SpacieBestEffortPlan(ft, g);
+    sp_plan = choices[HSD_Randi(n)];
+}
+
+static void SpacieFallBack(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
+    sp_plan = SpacieUpBChecked(opt_flags) ? (SpaciePlan) { .kind = SP_PLAN_UPB }
+        : SpacieBestEffortPlan(ft, g);
+}
+
+static void SpacieSideB(FighterData *ft, const SpacieGeo *g) {
+    SetStick(ft, g->dir, 0.f);
+    Press(ft, PAD_BUTTON_B);
+}
+
+// One actionable frame of a side-B plan: side-B once the simulation agrees,
+// else drift toward the aim and double jump to get back up to the band.
+// False when the plan fell through to another this frame.
+static bool SpacieSideBThink(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
+    SpaciePlan *p = &sp_plan;
+    if (p->kind == SP_PLAN_INSTANT) {
+        SpacieSideB(ft, g);
+        return true;
+    }
+    if (p->lo <= g->h && g->h <= p->hi && SpacieSideBWorks(ft, g, p)) {
+        SpacieSideB(ft, g);
+        return true;
+    }
+
+    bool can_jump = ft->jump.jumps_used < ft->attr.max_jumps;
+    bool rising = g->vy + g->kby > 0.f;
+    int rise_frames;
+    float rise = SpacieJumpRise(ft, &rise_frames);
+    float off = SpacieDashStartOut(ft, g) - p->aim; // > 0: too far out
+    float stick_x = off > 2.f ? g->dir : off < -2.f ? -g->dir : 0.f;
+
+    if (g->h < p->lo && !rising) {
+        if (!can_jump || g->h + rise < p->lo) {
+            SpacieFallBack(ft, opt_flags, g);
+            return false;
+        }
+        // Jump at the planned height if the rise is time enough to drift the
+        // rest of the way, or at the last height it still reaches the band.
+        bool drift_in_time = fabs(off) <= ft->attr.aerial_drift_max * rise_frames * 0.8f;
+        if (g->h <= p->lo - rise + 4.f || (g->h <= p->jump_at && drift_in_time)) {
+            Press(ft, PAD_BUTTON_Y);
+            SetStick(ft, fclamp(off / 8.f, -1.f, 1.f) * g->dir, 0.f);
+            return true;
+        }
+    }
+    if (can_jump && !SpacieCanReach(ft, g, p)) {
+        SpacieFallBack(ft, opt_flags, g);
+        return false;
+    }
+
+    float stick_y = 0.f;
+    if (
+        OptEnabled(OPT_SPACIES_FASTFALL)
+        && !ft->flags.is_fastfall
+        && g->vy < 0.f
+        && g->h > p->hi + 15.f
+    )
+        stick_y = -1.f;
+    SetStick(ft, stick_x, stick_y);
+    return true;
+}
+
 static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
     FighterData *cpu_data = cpu->userdata;
 
@@ -940,14 +1558,12 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
         .Y = target_ledgegrab.Y - pos.Y,
     };
     float distance_to_ledgegrab = Vec2_Length(&vec_to_ledgegrab);
-    
-    int dj_chance, illusion_chance;
+
+    int dj_chance;
     if (cpu_data->phys.pos.Y > target_ledge.Y) {
         dj_chance = SP_JUMP_CHANCE_ABOVE_LEDGE;
-        illusion_chance = SP_ILLUSION_CHANCE_ABOVE_LEDGE;
     } else {
         dj_chance = SP_JUMP_CHANCE_BELOW_LEDGE;
-        illusion_chance = SP_ILLUSION_CHANCE_TO_LEDGE;
     }
     
     bool is_past_ledge = fabs(target_ledgegrab.X) > fabs(pos.X);
@@ -960,16 +1576,41 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
     
     float upb_distance = cpu_data->kind == FTKIND_FOX ?
         SP_FIREFOX_DISTANCE : SP_FIREBIRD_DISTANCE;
-    
+
+    // A new plan every attempt (each starts in hitlag) and after landing.
+    if (cpu_data->flags.hitlag || cpu_data->phys.air_state == 0)
+        sp_plan.kind = SP_PLAN_NONE;
+
     // HITSTUN
     if (cpu_data->flags.hitlag) {
         DIIn(cpu_data);
-        
+
     // ACTIONABLE
     } else if (IsAirActionable(cpu)) {
+        SpacieGeo geo = SpacieGetGeo(cpu_data);
+        if (sp_plan.kind == SP_PLAN_NONE)
+            SpacieChoosePlan(cpu_data, opt_flags, &geo);
+        bool sideb = sp_plan.kind >= SP_PLAN_INSTANT && SpacieSideBThink(cpu_data, opt_flags, &geo);
+        // A plan that fell through to another side-B starts it right away.
+        if (!sideb && sp_plan.kind >= SP_PLAN_INSTANT)
+            sideb = SpacieSideBThink(cpu_data, opt_flags, &geo);
+
+        // SIDE-B PLANS
+        if (sideb) {
+
+        // LAST RESORT: side-B at the top of the double jump
+        } else if (sp_plan.kind == SP_PLAN_LAST_RESORT) {
+            if (cpu_data->jump.jumps_used < cpu_data->attr.max_jumps) {
+                Press(cpu_data, PAD_BUTTON_Y);
+                SetStick(cpu_data, dir, 0.f);
+            } else if (vel.Y <= 0.f) {
+                SpacieSideB(cpu_data, &geo);
+            } else {
+                SetStick(cpu_data, dir, 0.f);
+            }
 
         // JUMP
-        if (
+        } else if (
             OptEnabled(OPT_SPACIES_JUMP)
             && can_jump
             && (
@@ -983,31 +1624,9 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
             cpu_data->cpu.held |= PAD_BUTTON_Y;
             if (distance_to_ledgegrab > upb_distance)
                 cpu_data->cpu.lstickX = 127 * dir;
-            else 
+            else
                 cpu_data->cpu.lstickX = 127 * (HSD_Randi(3) - 1);
-            
-        // ILLUSION
-        } else if (
-            OptEnabled(OPT_SPACIES_ILLUSION) && (
-                // force illusion to ledge if no jump and cannot upb
-                (
-                    !can_upb && !can_jump
-                    && SP_MIN_ILLUSION_HEIGHT < pos.Y
-                    && pos.Y < SP_MIN_ILLUSION_HEIGHT + 5.f
-                )
-            
-                // random chance to illusion
-                || (
-                    pos.Y > SP_MIN_ILLUSION_HEIGHT
-                    && pos.Y < SP_MAX_ILLUSION_HEIGHT
-                    && fabs(vec_to_ledgegrab.X) < SP_ILLUSION_DISTANCE
-                    && HSD_Randi(illusion_chance) == 0
-                )
-            )
-        ) {
-            cpu_data->cpu.lstickX = 127 * dir;
-            cpu_data->cpu.held |= PAD_BUTTON_B;
-            
+
         // FIREFOX
         } else if (
             vel.Y <= 1.5f
@@ -1042,7 +1661,12 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
             // drift towards stage
             cpu_data->cpu.lstickX = 127 * dir;
         }
-        
+
+    // ILLUSION DASH: the earliest shorten
+    } else if (state == ASID_SPECIALAIRS) {
+        if (sp_plan.kind >= SP_PLAN_INSTANT && sp_plan.shorten)
+            Press(cpu_data, PAD_BUTTON_B);
+
     // FIREFOX STARTUP
     } else if (0x161 <= state && state <= 0x162) {
         // compute firefox angle
@@ -1766,7 +2390,9 @@ static bool pe_float_after_jump = false;
 static int pr_high = -1; // Jigglypuff's plan this attempt: 1 high, 0 low, -1 undecided
 
 static bool RecoveryAssignsInputs(int kind) {
-    return kind == FTKIND_YOSHI || kind == FTKIND_PEACH || kind == FTKIND_LUIGI
+    // The spacies' side-B shorten needs a fresh B press mid-move.
+    return kind == FTKIND_FOX || kind == FTKIND_FALCO
+        || kind == FTKIND_YOSHI || kind == FTKIND_PEACH || kind == FTKIND_LUIGI
         || kind == FTKIND_DRMARIO || kind == FTKIND_POPO || kind == FTKIND_JIGGLYPUFF
         || kind == FTKIND_SAMUS;
 }
