@@ -57,7 +57,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T10
 - new objects in eggsercise. practice hitting in other spots other than on the floor
-- have an overlay like a crescent circle around the side of the ledge that shows where you can sweet spot fox's up-b. Maybe even an event where you can practice it too? (Research for every character: [notes/UPB-SWEETSPOT-RESEARCH.md](notes/UPB-SWEETSPOT-RESEARCH.md))
+- have an overlay like a crescent circle around the side of the ledge that shows where you can sweet spot fox's up-b. Maybe even an event where you can practice it too? (Research for every character: [notes/UPB-SWEETSPOT-RESEARCH.md](notes/UPB-SWEETSPOT-RESEARCH.md)) **Added in T9 as the Up-B Sweetspot event, not yet tested in Dolphin.**
 - expand the edgeguarding event, i want at least doc and game and watch if I didn't already do doc. get some more in there like dk and all the mid tiers
 - edgeguarding event split up options for fox+falco's side bs up into 'instant', 'to ledge', 'to stage' and 'to side plat'
 - make a new event where you practice getting to ledge as quickly as possible (counted in frames) from various distances away from the ledge. Should be able to switch what ledge you're working on and what way your character is facing. should also be able to set platforms as spawn points, 
@@ -96,6 +96,26 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - **Teammate Facing**: Random (the default), Toward You (the enemy is between you and your teammate) or Away From You (your teammate is in front).
         - **Mashing Info** in the menu, and the top of [src/grabpunish.c](src/grabpunish.c), explain how mashing changes the hold. The game holds a grab for 30 + 1.6 × percent frames, plus 8 per handicap step below 9 (handicap off is 9) and 15 for each place the grabbed player is above fourth. Every frame takes 1 off, and every fresh A/B/X/Y press and every new stick direction takes 6 more, so mashing can take 13 a frame at most. This event holds every grab as if the match were tied with handicap off, 75 + 1.6 × percent frames, so your KOs don't shorten later grabs. At 60% that's 171 frames with no mash, 86 light, 43 heavy and 14 inhuman; at 100%, 235, 118, 59 and 19.
         - The settings last for the session; they aren't saved.
+    - New **Up-B Sweetspot** event, right under Side-B Sweetspot on the Character-specific Tech page. You start on an angel platform off a ledge and recover to it with your up-B, while Marth waits on the stage to punish an overshoot. It hasn't been tested in Dolphin yet. The research behind it is in [the up-B sweetspot notes](notes/UPB-SWEETSPOT-RESEARCH.md).
+        - **Characters:** everyone with a recovery up-B, so not Yoshi or Jigglypuff. **Stages:** the six legal stages. Pick any other stage and the event restarts on Battlefield.
+        - **Angel platform:** 40 out from the ledge and 15 above it, close enough for every character to recover. Leave it any way the game allows: fall, jump, or up-B straight off it. The platform's respawn invincibility ends as soon as you leave, so Marth can hit you. With the Ice Climbers, Nana gets her own platform beside Popo.
+        - **Marth:** when your up-B starts, he forward smashes and freezes on its first active frame, so the tipper lingers like Side-B's down-tilt. Only the tipper (20%) is left on, centered 12 inland of the ledge, where a slight overshoot comes down. The first swing measures where the tipper is and moves Marth to line it up; later resets start him in the right spot. **Marth: Off** leaves him standing.
+        - **Resets:** right away when you die, 30 frames after you're hit or land on the stage, and 60 frames after you grab the ledge. **D-pad left/right** resets on the left or right ledge without counting the attempt. The automatic resets stay on the ledge you were on.
+        - **HUD panel** like Side-B's:
+            - **Last Attempt:** Sweetspot (with the frames from your up-B to the ledge), Got Hit, Fell, Landed, or No Up-B (you reached the ledge or stage without one).
+            - **Success Rate:** successes / attempts and the percentage.
+            - **Held / Need**, for Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu and Pichu: the angle you're holding and the angle to the ledge, in degrees above level toward the stage.
+        - **Enable Line Guides** (on by default) draws a line out from each ledge and a white X where your position grabs the ledge: the middle of your own ledge-grab box. Then, per character:
+            - **Aimed up-Bs** (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a blue ring around the X at the up-B's travel distance. Up-B on it and aim at the X.
+                - The teleports and Quick Attack go farther the more you tilt the stick, so their dim inner ring is the least tilt.
+                - While the up-B charges, a white line runs from where the travel will start to the X. A second line shows where the angle you're holding would send you: green if it reaches the ledge, yellow if close, red if not. Both freeze when the up-B locks in.
+            - **Fixed paths** (Mario, Dr. Mario, Luigi, Marth, Roy, Captain Falcon, Ganondorf, Peach, Kirby, Samus): a blue dot where to up-B from for the fastest grab, at the top of the up-B, and a line up from it to where it still grabs, more slowly.
+                - Mario, Dr. Mario, Marth and Roy also get a dim dot and line for the stick held toward the stage.
+                - A yellow X marks where your up-B started.
+            - Donkey Kong, Bowser, Link, Young Link, Ness, Game & Watch and the Ice Climbers only get the ledge X for now.
+        - **Camera:** Normal or Zoomed Out, like Edgeguard's; Zoomed Out keeps the bottom blast zone in view. **Change Stage** restarts on another legal stage.
+        - The settings and success rate last for the session and carry over through Change Stage. They aren't saved to the memory card.
+        - The event is unscored, so the Character-specific Tech events after it keep their score slots.
     - **Side-B Sweetspot**
         - New **HUD panel** that counts your attempts, like the Ledgedash event's. **Last Attempt** says what happened: Sweetspot, Got Hit (Marth's down-tilt), Fell, Landed (on the stage after side-B), Up-B or Air Dodge, or with Sweetspot + Ledgedash, Ledgedash with its GALINT, No GALINT, Ledge Option, Regrabbed or Too Slow (3 seconds after letting go). **Success Rate** shows successes / attempts and the percentage. **Criterion** and **Knockback** show what this attempt is using. D-pad resets don't count as attempts, and the counts last for the session.
         - New **Success Criteria** setting (saved), second in the menu: **Sweetspot** (the default, as before: grab the ledge with side-B) or **Sweetspot + Ledgedash** (after the sweetspot, ledgedash onto the stage with ledge intangibility left). The ledgedash is judged like the Ledgedash event's Any GALINT, with the same code. Changing it resets the success rate.

@@ -17,7 +17,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
 
     def test_general_seventeenth_entry_preserves_existing_order(self):
         pages = self.functions[0]
-        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [5, 18, 8])
+        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [5, 18, 9])
         general = self.word(pages + 4)
         events = self.word(general + 8)
         expected = ['Training Lab', 'L-Cancel Training', 'Ledgedash Training',
@@ -34,6 +34,13 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         self.assertEqual(self.m.call(self.functions[10], 1, 17), 0)  # SLCHRKIND_VS
         self.assertEqual(self.m.call(self.functions[11], 1, 17), 1)  # stage select
         self.assertEqual(self.text(self.m.call(self.functions[15], 1, 17)), 'TM/grabpunishCSS.dat')
+
+    def test_upb_sweetspot_sits_under_side_b_sweetspot_with_a_stage_select(self):
+        character = self.word(self.word(self.functions[0] + 8) + 8)
+        names = [self.text(self.word(self.word(character + index * 4))).strip() for index in (2, 3)]
+        self.assertEqual(names, ['Side-B Sweetspot', 'Up-B Sweetspot'])
+        self.assertEqual(self.text(self.word(self.word(character + 3 * 4) + 8)), 'upbsweetspot')
+        self.assertEqual(self.m.call(self.functions[11], 2, 3), 1)  # stage select
 
     def test_both_fighters_selectable_fixed_fd_and_percent_hud_enabled(self):
         functions = self.functions

@@ -320,6 +320,32 @@ EventDesc Sweetspot = {
     .matchData = &Sweetspot_MatchData,
 };
 
+/* Every character with a recovery up-B: Yoshi's and Jigglypuff's don't recover. */
+EventDesc UpBSweetspot = {
+    .tyro_edited = true,
+    .eventName = "Up-B Sweetspot\n",
+    .eventDescription = "Up-B from the right spot to grab the\nledge, and don't overshoot into Marth!",
+    .eventFile = "upbsweetspot",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = {
+        .hmn = CSSID_DOCTOR_MARIO | CSSID_MARIO | CSSID_LUIGI | CSSID_BOWSER | CSSID_PEACH
+            | CSSID_DONKEY_KONG | CSSID_CAPTAIN_FALCON | CSSID_GANONDORF | CSSID_FALCO | CSSID_FOX
+            | CSSID_NESS | CSSID_ICE_CLIMBERS | CSSID_KIRBY | CSSID_SAMUS | CSSID_ZELDA | CSSID_LINK
+            | CSSID_YOUNG_LINK | CSSID_PICHU | CSSID_PIKACHU | CSSID_MEWTWO | CSSID_GAME_AND_WATCH
+            | CSSID_MARTH | CSSID_ROY,
+        .cpu = -1,
+    },
+    .playerKind = -1,
+    .cpuKind = CKIND_MARTH,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &Sweetspot_MatchData,
+};
+
 static EventMatchData LowLaser_MatchData = {
     .timer = MATCH_TIMER_HIDE, .matchType = MATCH_MATCHTYPE_TIME,
     .hideGo = true, .hideReady = true, .isCreateHUD = true,
@@ -845,6 +871,7 @@ static EventDesc *CharacterSpecific_Events[] = {
     &TechCounter,
     &Edgeguard,
     &Sweetspot,
+    &UpBSweetspot,
     &LaserLand,
     &EscapeSheik,
     &EscapeDThrowKnee,
@@ -866,13 +893,15 @@ EventPage *EventPages[] = {
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
 typedef char event_score_map_matches[(countof(Minigames_Events) == 5 &&
-    countof(General_Events) == 18 && countof(CharacterSpecific_Events) == 8) ? 1 : -1];
+    countof(General_Events) == 18 && countof(CharacterSpecific_Events) == 9) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
     if (page == 0) return event;
     if (page == 1) /* 2v1 Grab Punish (17) is unscored free practice. */
         return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;
-    return event < 7 ? 21 + event : UINT32_MAX; /* Low Laser is unscored free practice. */
+    /* Up-B Sweetspot (3) and Low Laser (8) are unscored free practice; the
+     * events after Up-B Sweetspot keep their original slots. */
+    return event == 3 || event > 7 ? UINT32_MAX : 21 + event - (event > 3);
 }
 
 ////////////////////////

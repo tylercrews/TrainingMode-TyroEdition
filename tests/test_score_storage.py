@@ -120,7 +120,7 @@ class ScoreStorageAudit(unittest.TestCase):
             body = re.search(r"static EventDesc \*" + array + r"\[\] = \{(.*?)\};",
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
-        self.assertEqual(counts, [5, 18, 8])
+        self.assertEqual(counts, [5, 18, 9])
         self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
         self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)
@@ -227,16 +227,21 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],34,4,1)
         machine.cpu.mem_write(BASE + SPARE_START + 68,bytes((index*13+3)&255 for index in range(SPARE_SIZE-68)))  # After the 68-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
-        # Scored events per page; the next index (2v1 Grab Punish, Low Laser) is unscored.
-        for page, count, first in ((0, 5, 0), (1, 17, 5), (2, 7, 21)):
+        # Scored events per page and their slots. 2v1 Grab Punish (page 1, 17),
+        # Up-B Sweetspot (page 2, 3) and Low Laser (page 2, 8) are unscored, and
+        # the events after Up-B Sweetspot keep their original slots.
+        scored = {0: {event: event for event in range(5)},
+                  1: {**{event: 5 + event for event in range(16)}, 16: 50},
+                  2: {event: 21 + event - (event > 3) for event in (0, 1, 2, 4, 5, 6, 7)}}
+        unscored = {0: (5, 6), 1: (17, 18), 2: (3, 8, 9)}
+        for page in range(3):
             machine.call(functions[28], 2, 0, page)
-            for event in range(count):
-                slot = 50 if page==1 and event==16 else first+event
+            for event, slot in scored[page].items():
                 value = 0xAABB0000 | slot
                 machine.call(0x8015CF70, event, value)
                 self.assertEqual(machine.call(0x8015CF5C, event), value)
                 self.assertEqual(machine.call(functions[43], event), BASE + SCORE_START + slot * 4)
-            for event in (count, count + 1, 28, 50, 51, 0xFFFFFFFF):
+            for event in (*unscored[page], 28, 50, 51, 0xFFFFFFFF):
                 before = bytes(machine.cpu.mem_read(BASE + SCORE_START, 204))
                 self.assertEqual(machine.call(functions[43], event), 0)
                 self.assertEqual(machine.call(0x8015CF5C, event), 0)

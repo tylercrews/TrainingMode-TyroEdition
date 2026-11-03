@@ -424,18 +424,18 @@ class LowLaserStageTests(unittest.TestCase):
 
 
 class LowLaserCatalogueTests(unittest.TestCase):
-    def test_eighth_character_event_allows_every_character_and_stage_select_without_score_bytes(self):
+    def test_ninth_character_event_allows_every_character_and_stage_select_without_score_bytes(self):
         m=NativeMachine(); functions=m.load_services()
-        desc=m.call(functions[1],2,7)
+        desc=m.call(functions[1],2,8)
         word=lambda at: struct.unpack('>I',m.cpu.mem_read(at,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(word(desc),80)).split(b'\0',1)[0],b'Low Laser Puff Practice\n')
         self.assertEqual(bytes(m.cpu.mem_read(word(desc+8),12)).split(b'\0',1)[0],b'lowlaser')
-        whitelist=m.call(functions[25],7,2)
+        whitelist=m.call(functions[25],8,2)
         self.assertEqual(word(whitelist),0xFFFFFFFF)  # Every human character.
-        self.assertEqual(m.call(functions[12],2,7),15)  # External Jigglypuff ID.
-        self.assertEqual(m.call(functions[13],2,7)&0xFFFF,0xFFFF)  # -1: stage select.
+        self.assertEqual(m.call(functions[12],2,8),15)  # External Jigglypuff ID.
+        self.assertEqual(m.call(functions[13],2,8)&0xFFFF,0xFFFF)  # -1: stage select.
         m.call(functions[28],2,0,2)
-        self.assertEqual(m.call(functions[43],7),0)
+        self.assertEqual(m.call(functions[43],8),0)
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

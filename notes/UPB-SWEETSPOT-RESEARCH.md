@@ -1,6 +1,6 @@
 # Up-B Sweetspot Practice: research
 
-**Status (November 3, 2026):** research only, nothing is implemented. The idea is an event like Side-B Sweetspot, but for every character's up-B: an overlay that shows where to up-B from (and, for aimed up-Bs, the angle to hold), a live line for the angle you're holding while the up-B charges, Normal/Zoomed Out camera like Edgeguard, and a Marth on the stage spaced to tipper forward smash you if you overshoot.
+**Status (November 3, 2026):** a first version of the event is in T9 ([src/upbsweetspot.c](../src/upbsweetspot.c)), not yet tested in Dolphin; see [what's implemented](#implemented-in-t9). The idea is an event like Side-B Sweetspot, but for every character's up-B: an overlay that shows where to up-B from (and, for aimed up-Bs, the angle to hold), a live line for the angle you're holding while the up-B charges, Normal/Zoomed Out camera like Edgeguard, and a Marth on the stage spaced to tipper forward smash you if you overshoot.
 
 Sources: the Melee decompilation (doldecomp/melee, `src/melee/ft/kinds/*/ft*specialhi.c`, `src/melee/mp/mpcoll.c`) for the move logic, and the vanilla ISO for the numbers. Root motion comes from [`scripts/fighter_move_data.py`](../scripts/fighter_move_data.py) (e.g. `python -I scripts/fighter_move_data.py melee.iso PlMs SpecialAirHi`); attribute values were read from each `PlXx.dat`'s special attributes (`ftData + 0x04`). Distances are world units.
 
@@ -187,6 +187,20 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 - **Save data.** About 1 byte: camera, overlay, Marth, start position, criterion. The [memory map](SAVE-DATA-MEMORY-MAP.md) had 20 free bytes as of T6.
 - **Which characters first.** Fox and Falco (the angle overlay, and the README's crescent idea), then Marth, Roy, Falcon, Ganondorf, Mario, Dr. Mario and Luigi (path tables), then the rest.
 
+## Implemented in T9
+
+[src/upbsweetspot.c](../src/upbsweetspot.c) follows this note, with these choices:
+
+- **Start:** an angel platform 40 out and 15 above the ledge, placed the way Ledgedash places its Respawn Platform start. Unlike Ledgedash, the game's own `RebirthWait` interrupt still decides when you leave, so any action works, up-B included.
+    - That exit grants respawn invincibility (`ftColl_8007B7A4`). The event sets the remaining frames to 1 once you're off, so the game ends it itself, flashing included.
+- **Up-B detection:** each character's up-B action-state range, from the decompilation's motion-state enums (clones share their original's). Yoshi and Jigglypuff are left off the CSS.
+- **Guides:**
+    - Aimed up-Bs and fixed paths are drawn as described above. The physics group (DK, Bowser, Link, Young Link, Ness, Game & Watch, Ice Climbers) only gets the ledge target.
+    - The aimed lines lock to the travel's real velocity on its first frame, not to the stick.
+- **Marth:** forward smash starts when your up-B does and freezes on frame 10, with hitboxes 0-2 off. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth so it sits 12 inland, then later resets use that measured reach.
+- **Settings:** session-only, carried through Change Stage with `carry_store`. Nothing is saved to the card yet.
+- **Stages:** the first-frame guard from [Stages](#stages), option 1.
+
 ## Check in Dolphin before building on these numbers
 
 1. Fox and Falco travel ends 81.5 and 60.1 from the launch point (no collision), and the charge drops about 6.
@@ -194,3 +208,7 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 3. Sheik's Vanish distance: 40 at full tilt seems short, so check the 36-frame startup and 20-frame travel.
 4. Roy's 40° angle range against Marth's 20°.
 5. Pikachu's 5-frame first zip (the earlier Edgeguard note estimated about 50 at full tilt, which agrees).
+6. The event's angel platform: every character can leave it in every way, the platform shows, and Marth's tipper hits right after you leave.
+7. Marth's tipper height on frame 10. If it's too high or low for a slight overshoot, change `MARTH_TIPPER_FRAME` (the hitbox is active through frame 13) or `MARTH_TIPPER_INLAND`.
+8. The white X (`LedgeTarget`): an up-B ending there should grab the ledge right away.
+9. The Ice Climbers: Nana leaves her platform with Popo.
