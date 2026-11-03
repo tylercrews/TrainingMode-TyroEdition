@@ -5,7 +5,7 @@ import unittest
 from test_settings import Machine
 
 
-COLORS = [0,0xFF464670,0x4691FF70,0xFFE14170,0x4BE16470,0x00FFFF70,0xFF00FF70,0xB48CFF70]
+COLORS = [0,0xFF464670,0x4691FF70,0xFFE14170,0x4BE16470,0x00FFFF70,0xFF00FF70,0xA06EFF70]
 
 
 class CPUInvincibilityOverlayTests(unittest.TestCase):

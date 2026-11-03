@@ -3710,7 +3710,7 @@ class ActionCueTests(unittest.TestCase):
     def test_protection_overlay_uses_trail_palette_for_all_sources_and_lavender_for_cpu(self):
         m = self.m
         m.call("Settings_Set", 11, 7, 1)
-        palette = [0xFF464670, 0x4691FF70, 0xFFE14170, 0x4BE16470, 0xB48CFF70]
+        palette = [0xFF464670, 0x4691FF70, 0xFFE14170, 0x4BE16470, 0xA06EFF70]
         for source in [(0, 1), (0, 2), (1, 0), (2, 0)]:
             for accent, color in enumerate(palette):
                 m.call("TestCuePlayer", 5, accent, accent == 4)
@@ -3734,7 +3734,7 @@ class ActionCueTests(unittest.TestCase):
         m = self.m
         m.call("Settings_Set", 11, 7, 1)
         shades = {0: [0xFF464670, 0xFF701E70, 0xFF82D270],  # Red, Orange, Pink
-                  1: [0x4691FF70, 0xB48CFF70, 0x00FFFF70],  # Blue, Lavender, Cyan
+                  1: [0x4691FF70, 0xA06EFF70, 0x00FFFF70],  # Blue, Lavender, Cyan
                   2: [0x4BE16470, 0x8CFF2870, 0x228B2270]}  # Green, Lime, Forest
 
         frames = iter(range(1, 1000))
@@ -3756,7 +3756,7 @@ class ActionCueTests(unittest.TestCase):
                     self.assertEqual(color(ply), shades[team][teams[:ply].count(team)])
                 m.cpu.mem_write(0x8046DB70, b"\x00")  # FFA: back to accents, CPU Lavender.
                 for ply, team in enumerate(teams):
-                    self.assertEqual(color(ply), 0xB48CFF70 if ply == 3 else
+                    self.assertEqual(color(ply), 0xA06EFF70 if ply == 3 else
                                      [0xFF464670, 0x4691FF70, 0, 0x4BE16470][[0, 1, 3][team]])
         m.cpu.mem_write(0x8046DB70, b"\x01")
         m.call("TestCueTeam", 0, 1, 0)  # An empty port doesn't take a shade.
