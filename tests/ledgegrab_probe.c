@@ -6,7 +6,11 @@ static EventVars vars;
 static GOBJ event, fighters[2], menu_object;
 static FighterData ft[2];
 static JOBJ joints[2];
-static CmSubject subject;
+static CmSubject subject, ledge_subjects[2];
+static int ledge_subject_count;
+static int gfx_count, gfx_shape, gfx_no_depth, gx_link, gx_priority;
+static void (*gx_callback)(GOBJ *, int);
+static GOBJ marker_gobj;
 static MenuData menu_data;
 static Text text;
 static CollDataStage test_stage;
@@ -24,6 +28,14 @@ void memcpy(void *dest, const void *src, int size) { u8 *d = dest; const u8 *s =
 static int Save(void *state, int flags) { ++saves; return 1; }
 static int Load(void *state, int flags) { ++loads; return 1; }
 static void Restart(int stage) { restarted = stage; }
+static void GFXStart(u16 count, GFX_Params params) {
+    gfx_count = count; gfx_shape = params.shape; gfx_no_depth = params.no_depth;
+}
+GOBJ *GObj_Create(int entity_class, int p_link, int p_priority) { return &marker_gobj; }
+void GObj_AddGXLink(GOBJ *gobj, void *cb, int link, int priority) {
+    gx_callback = cb; gx_link = link; gx_priority = priority;
+}
+CmSubject *CameraSubject_Alloc() { return &ledge_subjects[ledge_subject_count++ % 2]; }
 static void *CarryStore(u32 tag, u32 size) { carry_tag = tag; carry_size = size; return carry_data; }
 static const void *CarryTake(u32 tag, u32 size) {
     if (!tag || tag != carry_tag || size != carry_size) return 0;
@@ -71,6 +83,7 @@ int TestLedgeInit(void) {
     *event_vars_ptr_loc = &vars;
     vars.event_gobj = &event; vars.menu_gobj = &menu_object;
     vars.Savestate_Save_v1 = (void *)Save; vars.Savestate_Load_v1 = (void *)Load;
+    vars.GFX_Start = GFXStart;
     vars.restart_on_stage = Restart; vars.carry_store = CarryStore; vars.carry_take = CarryTake;
     menu_object.userdata = &menu_data;
     for (int i = 0; i < 2; ++i) {
@@ -99,6 +112,26 @@ void TestLedgeChoice(int row, int value) {
 }
 void TestLedgeStageSwap(int row) { StageSwap_Options[row].OnSelect(0); }
 void TestLedgeExit(void) { Exit(0); }
+void TestLedgeDraw(int pass) { gx_callback(&marker_gobj, pass); }
+/* Runs on the next frame, so a run can stand in for the fighter reading input. */
+void TestLedgeNext(void) { ++vars.game_timer; Event_Think(&event); }
+unsigned TestLedgeDesc(int row, int line) { return (unsigned)options[row].desc[line]; }
+int TestLedgeOptionCount(void) { return countof(options); }
+int TestLedgeSubject(int ledge, int key) {
+    CmSubject *cam = &ledge_subjects[ledge];
+    switch (key) {
+    case 0: return cam->cam_pos.X * 1000;
+    case 1: return cam->cam_pos.Y * 1000;
+    case 2: return cam->kind;
+    case 3: return cam->boundleft_proj * 1000;
+    case 4: return cam->boundright_proj * 1000;
+    case 5: return cam->boundtop_proj * 1000;
+    case 6: return cam->boundbottom_proj * 1000;
+    case 7: return cam->boundleft_curr == cam->boundleft_proj && cam->boundright_curr == cam->boundright_proj &&
+        cam->boundtop_curr == cam->boundtop_proj && cam->boundbottom_curr == cam->boundbottom_proj;
+    }
+    return -1;
+}
 int TestLedgeStage(int stage) { test_stage_id = stage; test_stage.line_num = test_stage.vert_num = 0; return stage; }
 int TestLedgeAddLine(int ax, int ay, int bx, int by, int native_flags, int enabled) {
     int i = test_stage.line_num++;
@@ -149,6 +182,13 @@ int TestLedgeInfo(int key) {
     case 28: return ft[1].cpu.leader_log[0].pos.X * 1000;
     case 29: return run.frames;
     case 30: return ft[0].state_id;
+    case 31: return ft[0].input.down;
+    case 32: return gfx_count;
+    case 33: return gfx_shape;
+    case 34: return gfx_no_depth;
+    case 35: return gx_link;
+    case 36: return gx_priority;
+    case 37: return ledge_subject_count;
     }
     return -1;
 }

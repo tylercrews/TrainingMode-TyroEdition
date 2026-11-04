@@ -5,11 +5,13 @@ import subprocess
 import unittest
 import test_settings as fixtures
 from test_lowlaser import LEGAL, load_probe
+from unicorn import UC_HOOK_MEM_WRITE
 
 ROOT = Path(__file__).resolve().parents[1]
-WAIT, DASH, CLIFFCATCH, CLIFFWAIT = 14, 20, 252, 253
+WAIT, DASH, CLIFFCATCH, CLIFFWAIT, APPEAL = 14, 20, 252, 253, 264
 WHITE, CYAN, GREEN, YELLOW, RED = 0xFFFFFFFF, 0x00FFFFFF, 0x00FF00FF, 0xFFE000FF, 0xFF0000FF
-DPAD_LEFT, DPAD_RIGHT = 1, 2
+DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP = 1, 2, 4, 8
+FIFO = 0xCC008000
 GOAL, START, FACING = 0, 1, 2
 AT_LEDGE, AT_FAR, UNDER_CLOSE, UNDER_FAR, CENTER, TOP, CLOSE, FAR = range(8)
 LEFT, RIGHT = 0, 1
@@ -42,6 +44,10 @@ class Harness:
         # In chunks: one emulator call has an instruction budget.
         for done in range(0, frames, 200):
             self.m.call('TestLedgeThink', min(frames - done, 200))
+    def press(self, button):
+        self.m.call('TestLedgeDown', button)
+        self.step()
+        self.m.call('TestLedgeDown', 0)
     def choose(self, row, value):
         self.m.call('TestLedgeChoice', row, value)
         self.step()
@@ -64,6 +70,22 @@ class Harness:
         self.move(frames)
         self.grab(x)
         self.step(LINGER)
+    def capture(self):
+        self.m.cpu.mem_map(FIFO, 0x1000)
+        self.fifo = []
+        def write(cpu, access, address, size, value, user):
+            self.fifo.append(value & 0xFFFFFFFF)
+        self.m.cpu.hook_add(UC_HOOK_MEM_WRITE, write, begin=FIFO, end=FIFO + 3)
+    def quads(self, pass_=2):
+        """What one GX pass draws: (color, [(x, y) * 4]), in draw order."""
+        self.fifo.clear()
+        self.m.call('TestLedgeDraw', pass_)
+        result = []
+        for at in range(0, len(self.fifo), 7 * 4):
+            corners = [struct.unpack('>2f', struct.pack('>2I', *self.fifo[at + i:at + i + 2]))
+                       for i in range(0, 7 * 4, 7)]
+            result.append((bytes(self.fifo[at + 3:at + 7]), corners))
+        return result
 
 
 class LedgegrabRunTests(Harness, unittest.TestCase):
@@ -132,8 +154,9 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
 
     def test_colors_grade_a_run_against_the_session_best(self):
         self.finish(100)
-        # 1/20 of 100 is 5 frames: green through 105, yellow through 115.
-        for frames, color in ((105, GREEN), (106, YELLOW), (115, YELLOW), (116, RED), (100, CYAN), (99, CYAN)):
+        # Green through 4 frames off, yellow through 10, red past that.
+        for frames, color in ((101, GREEN), (104, GREEN), (105, YELLOW), (110, YELLOW), (111, RED),
+                              (100, CYAN), (99, CYAN)):
             with self.subTest(frames=frames):
                 self.move(frames)
                 self.grab()
@@ -141,14 +164,16 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
                 self.step(LINGER)
         self.assertEqual(self.rows()[1], 99)
 
-    def test_short_runs_keep_a_two_frame_green_window(self):
-        self.finish(10)
-        for frames, color in ((12, GREEN), (13, YELLOW), (16, YELLOW), (17, RED)):
-            with self.subTest(frames=frames):
-                self.move(frames)
-                self.grab()
-                self.assertEqual(self.color(), color)
-                self.step(LINGER)
+    def test_color_ranges_are_the_same_for_short_and_long_runs(self):
+        for best in (10, 1000):
+            self.choose(START, CENTER if best == 10 else AT_FAR)
+            self.finish(best)
+            for off, color in ((4, GREEN), (10, YELLOW), (11, RED)):
+                with self.subTest(best=best, off=off):
+                    self.move(best + off)
+                    self.grab()
+                    self.assertEqual(self.color(), color)
+                    self.step(LINGER)
 
     def test_thirty_seconds_is_a_red_dnf_that_lingers_and_restarts(self):
         self.move(DNF - 1)
@@ -217,26 +242,87 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
                 self.choose(START, start); self.choose(FACING, facing)
                 self.assertEqual(self.rows(), (0, 10 + start + 8 * facing, 10 + start + 8 * facing))
 
-    def test_dpad_picks_that_goal_and_restarts_without_counting_the_run(self):
-        self.move(20)
-        self.m.call('TestLedgeDown', DPAD_RIGHT)
-        self.step()
-        self.m.call('TestLedgeDown', 0)
-        self.assertEqual((self.info(13), self.rows(), self.info(30)), (RIGHT, (0, NONE, NONE), WAIT))
+    def test_dpad_left_and_right_cycle_the_start_and_wrap_around(self):
+        for button, start in ((DPAD_RIGHT, AT_FAR), (DPAD_RIGHT, UNDER_CLOSE), (DPAD_LEFT, AT_FAR),
+                              (DPAD_LEFT, AT_LEDGE), (DPAD_LEFT, FAR), (DPAD_RIGHT, AT_LEDGE)):
+            loads = self.info(9)
+            self.press(button)
+            self.assertEqual((self.info(14), self.info(9)), (start, loads + 1))
+        self.assertEqual((self.info(13), self.info(15)), (LEFT, TOWARD))  # Goal and facing stay.
+
+    def test_dpad_left_and_right_move_you_to_the_start(self):
+        self.assertAlmostEqual(self.info(5) / 1000, -63.4, 2)
+        self.press(DPAD_RIGHT)
         self.assertAlmostEqual(self.info(5) / 1000, 63.4, 2)
-        self.m.call('TestLedgeDown', DPAD_LEFT)
-        self.step()
-        self.m.call('TestLedgeDown', 0)
+
+    def test_dpad_skips_starts_this_stage_lacks_in_both_directions(self):
+        self.m.call('TestLedgeStage', FD)
+        self.line(-85, 0, 85, 0)
+        self.choose(START, CENTER)
+        self.press(DPAD_RIGHT)
+        self.assertEqual(self.info(14), AT_LEDGE)
+        self.press(DPAD_LEFT)
+        self.assertEqual(self.info(14), CENTER)
+        self.press(DPAD_LEFT)
+        self.assertEqual(self.info(14), AT_FAR)
+
+    def test_dpad_down_switches_the_goal_ledge_and_restarts(self):
+        self.assertEqual(self.info(7), -1)
+        self.press(DPAD_DOWN)
+        self.assertEqual((self.info(13), self.info(14), self.info(15)), (RIGHT, AT_LEDGE, TOWARD))
+        self.assertAlmostEqual(self.info(5) / 1000, 63.4, 2)
+        self.assertEqual(self.info(7), 1)  # Still toward the goal, now the other way.
+        self.press(DPAD_DOWN)
         self.assertEqual(self.info(13), LEFT)
         self.assertAlmostEqual(self.info(5) / 1000, -63.4, 2)
 
-    def test_dpad_during_a_linger_keeps_the_finished_run_as_previous(self):
+    def test_dpad_up_switches_facing_and_restarts_in_place(self):
+        self.assertEqual(self.info(7), -1)
+        self.press(DPAD_UP)
+        self.assertEqual((self.info(15), self.info(7), self.info(13), self.info(14)), (AWAY, 1, LEFT, AT_LEDGE))
+        self.assertAlmostEqual(self.info(5) / 1000, -63.4, 2)
+        self.press(DPAD_UP)
+        self.assertEqual((self.info(15), self.info(7)), (TOWARD, -1))
+
+    def test_dpad_up_never_starts_the_count_with_a_taunt(self):
+        # The press is gone before the fighter can read it...
+        self.m.call('TestLedgeDown', DPAD_UP)
+        self.step()
+        self.assertEqual(self.info(31), 0)
+        # ...and a taunt it read first ends with the restart.
+        self.m.call('TestLedgeDown', DPAD_UP)
+        self.m.call('TestLedgeState', APPEAL, 0)
+        self.step()
+        self.assertEqual((self.info(30), self.rows()[0]), (WAIT, 0))
+        self.step(10)
+        self.assertEqual(self.rows()[0], 0)
+
+    def test_any_dpad_press_drops_a_run_without_counting_it(self):
+        for button in (DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP):
+            with self.subTest(button=button):
+                self.move(20)
+                self.press(button)
+                self.assertEqual((self.rows(), self.info(30)), ((0, NONE, NONE), WAIT))
+
+    def test_dpad_during_a_linger_files_the_result_under_the_run_it_was(self):
         self.move(50)
         self.grab()
-        self.m.call('TestLedgeDown', DPAD_LEFT)
-        self.step()
-        self.m.call('TestLedgeDown', 0)
-        self.assertEqual(self.rows(), (0, 50, 50))
+        self.press(DPAD_RIGHT)
+        self.assertEqual((self.info(14), self.rows()), (AT_FAR, (0, NONE, NONE)))
+        self.press(DPAD_LEFT)
+        self.assertEqual((self.info(14), self.rows()), (AT_LEDGE, (0, 50, 50)))
+
+    def test_help_explains_the_dpad_and_the_menu_text_fits(self):
+        def desc(row, line):
+            pointer = self.m.call('TestLedgeDesc', row, line)
+            return bytes(self.m.cpu.mem_read(pointer, 80)).split(b'\0', 1)[0].decode() if pointer else ''
+        help_text = ' '.join(desc(4, line) for line in range(4))
+        for controls in ('D-Pad left/right: previous or next start position', 'D-Pad down: switch ledge',
+                         'D-Pad up: switch facing'):
+            self.assertIn(controls, help_text)
+        for row in range(self.m.call('TestLedgeOptionCount')):
+            for line in range(4):
+                self.assertLessEqual(len(desc(row, line)), 53)  # Low Laser's longest line.
 
     def test_changing_a_start_during_a_linger_files_the_result_under_the_old_start(self):
         self.move(50)
@@ -249,7 +335,7 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
     def test_pausing_stops_the_count_hides_the_readout_and_ignores_the_dpad(self):
         self.move(10)
         self.m.call('TestLedgePause', 1)
-        self.m.call('TestLedgeDown', DPAD_RIGHT)
+        self.m.call('TestLedgeDown', DPAD_DOWN)
         self.step(100)
         self.assertEqual((self.rows()[0], self.info(4), self.info(13)), (10, 1, LEFT))
         self.m.call('TestLedgeDown', 0)
@@ -300,6 +386,101 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
         self.line(-50, 0, 50, 0)
         self.step()
         self.assertEqual((self.info(11), self.info(9), self.info(10)), (BATTLEFIELD, 0, 0))
+
+
+class LedgegrabMarkerTests(Harness, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.start()
+        self.battlefield()
+        self.capture()
+
+    def test_nothing_draws_until_the_ledges_are_found(self):
+        self.assertEqual(self.quads(), [])
+        self.step()
+        self.assertEqual(len(self.quads()), 8)
+
+    def test_markers_draw_once_a_frame_over_the_stage_and_fighters(self):
+        self.step()
+        self.assertEqual(self.quads(pass_=0), [])
+        self.assertEqual(self.quads(pass_=1), [])
+        self.assertEqual(len(self.quads()), 8)
+        self.assertEqual((self.info(32), self.info(33), self.info(34)), (32, 128, 1))  # GX_QUADS, no depth.
+        self.assertEqual((self.info(35), self.info(36)), (7, 255))  # Last in MATCHGX_EFFECT.
+
+    def test_black_edges_go_under_a_red_x_and_a_green_exclamation_point(self):
+        self.step()
+        colors = [color for color, _ in self.quads()]
+        black, red, green = bytes((0, 0, 0, 255)), bytes((255, 0, 0, 255)), bytes((0, 255, 0, 255))
+        self.assertEqual(colors, [black] * 4 + [red, red, green, green])
+
+    @staticmethod
+    def bounds(quad):
+        xs, ys = zip(*quad[1])
+        return min(xs), max(xs), min(ys), max(ys)
+
+    def assert_near(self, actual, expected):
+        for a, e in zip(actual, expected):
+            self.assertAlmostEqual(a, e, delta=.001)
+
+    def test_goal_ledge_gets_the_exclamation_point_and_the_other_the_x(self):
+        self.step()
+        for wrong, target, press in ((68.4, -68.4, False), (-68.4, 68.4, True)):
+            if press:
+                self.press(DPAD_DOWN)
+            quads = self.quads()
+            for stroke in quads[4:6]:
+                self.assert_near(self.bounds(stroke), (wrong - 12.5, wrong + 12.5, -12.5, 12.5))
+            self.assert_near(self.bounds(quads[6]), (target - 3, target + 3, 20, 26))
+            self.assert_near(self.bounds(quads[7]), (target - 3.5, target + 3.5, 28, 45))
+
+    def test_x_strokes_cross_and_the_exclamation_bar_narrows_to_the_dot(self):
+        self.step()
+        quads = self.quads()
+        rising, falling = quads[4][1], quads[5][1]
+        self.assert_near(rising[0], (68.4 - 7.5, -12.5))
+        self.assert_near(rising[2], (68.4 + 7.5, 12.5))
+        self.assert_near(falling[0], (68.4 + 7.5, -12.5))
+        self.assert_near(falling[2], (68.4 - 7.5, 12.5))
+        bar = quads[7][1]
+        self.assertAlmostEqual(bar[1][0] - bar[0][0], 3.5, delta=.001)
+        self.assertAlmostEqual(bar[2][0] - bar[3][0], 7, delta=.001)
+
+    def test_black_edge_surrounds_each_shape(self):
+        self.step()
+        quads = self.quads()
+        # A stroke grows in length and thickness, so 2 along each axis.
+        for edge, shape, grown in zip(quads[:4], quads[4:], (2, 2, 1, 1)):
+            left, right, bottom, top = self.bounds(shape)
+            self.assert_near(self.bounds(edge), (left - grown, right + grown, bottom - grown, top + grown))
+
+    def test_marker_moves_with_the_goal_from_the_menu_too(self):
+        self.step()
+        self.choose(GOAL, RIGHT)
+        self.assert_near(self.bounds(self.quads()[6])[:2], (65.4, 71.4))
+
+    def test_camera_keeps_both_ledges_and_the_exclamation_point_in_frame(self):
+        self.step()
+        self.assertEqual(self.info(37), 2)
+        for ledge, x in ((0, -68.4), (1, 68.4)):
+            subject = [self.m.call('TestLedgeSubject', ledge, key) for key in range(8)]
+            signed = [v if v < 0x80000000 else v - 0x100000000 for v in subject]
+            self.assertAlmostEqual(signed[0] / 1000, x, delta=.01)
+            self.assertEqual(signed[1], 0)
+            self.assertEqual(signed[2], 0)  # Focused.
+            self.assertLess(signed[3], 0)
+            self.assertGreater(signed[4], 0)
+            self.assertGreaterEqual(signed[5] / 1000, 46)  # Past the top of the black edge.
+            self.assertLess(signed[6], 0)
+            self.assertEqual(signed[7], 1)
+
+    def test_restarts_do_not_add_camera_subjects(self):
+        self.step()
+        self.press(DPAD_DOWN)
+        self.finish(20, x=68)
+        self.assertEqual(self.info(37), 2)
 
 
 class LedgegrabPlatformTests(Harness, unittest.TestCase):
@@ -375,6 +556,23 @@ class LedgegrabStageTests(Harness, unittest.TestCase):
     def ground_y(lines, x):
         return max(ay + (by - ay) * (x - ax) / (bx - ax) for ax, ay, bx, by, platform in lines
                    if not platform and ax <= x <= bx and bx > ax)
+
+    def test_markers_sit_on_each_stage_real_ledges(self):
+        self.capture()
+        for filename, stage, normal in LEGAL:
+            with self.subTest(stage=filename):
+                lines = self.load(filename, stage, normal)
+                self.m.call('TestLedgeReset')
+                self.step()
+                left = min(l[0] for l in lines if not l[4]); right = max(l[2] for l in lines if not l[4])
+                self.m.call('TestLedgeChoice', GOAL, LEFT)
+                quads = self.quads()
+                x_left, x_right, x_bottom, x_top = LedgegrabMarkerTests.bounds(quads[4])
+                self.assertAlmostEqual((x_left + x_right) / 2, right, delta=.01)
+                self.assertAlmostEqual((x_bottom + x_top) / 2, self.ground_y(lines, right), delta=.01)
+                bang_left, bang_right, bang_bottom, _ = LedgegrabMarkerTests.bounds(quads[6])
+                self.assertAlmostEqual((bang_left + bang_right) / 2, left, delta=.01)
+                self.assertAlmostEqual(bang_bottom - 20, self.ground_y(lines, left), delta=.01)
 
     def test_every_start_is_mirrored_from_the_goal_ledge_on_every_legal_stage(self):
         for filename, stage, normal in LEGAL:
@@ -459,6 +657,14 @@ class LedgegrabDATTests(unittest.TestCase):
             self.assertEqual(m.call('TestLedgeInfo', 3), color)
             frame(LINGER)
         self.assertEqual(m.call('TestLedgeInfo', 2), 28)
+        # The DAT's own GX callback, through its relocated tables.
+        writes = []
+        m.cpu.mem_map(FIFO, 0x1000)
+        m.cpu.hook_add(UC_HOOK_MEM_WRITE, lambda cpu, access, address, size, value, user: writes.append(size),
+                       begin=FIFO, end=FIFO + 3)
+        m.call('TestLedgeDraw', 2)
+        self.assertEqual(writes, [4, 4, 4, 1, 1, 1, 1] * 32)
+        self.assertEqual(m.call('TestLedgeInfo', 34), 1)
 
 
 if __name__ == '__main__':

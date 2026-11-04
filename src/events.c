@@ -1563,6 +1563,9 @@ void GFX_Start(u16 vtx_count, GFX_Params params)
     HSD_StateSetLineWidth(params.size, 5);
     HSD_StateSetPointSize(params.size, 5);
     HSD_SetupRenderMode(0x68000002);
+    // Through HSD's cached state, so later draws restore their own modes.
+    if (params.no_depth)
+        HSD_StateSetZMode(GX_DISABLE, GX_ALWAYS, GX_DISABLE);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
     GXSetVtxDesc(GX_VA_POS, GX_DIRECT);

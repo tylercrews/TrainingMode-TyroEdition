@@ -15,11 +15,10 @@
 // At Ledge stands this far inland of the edge, so nobody starts out teetering.
 #define LEDGE_INSET 5
 
-// Within 1/20 of the best, and at least 2 frames, is close (green). Up to three
-// times that is yellow, and any further off is red.
-#define CLOSE_FRACTION 20
-#define CLOSE_MINIMUM 2
-#define YELLOW_RANGE 3
+// How many frames off the best a run can be and still be green, then yellow.
+// Any further off is red.
+#define GREEN_RANGE 4
+#define YELLOW_RANGE 10
 
 // The menu choices survive Change Stage's restart; the results don't.
 #define LEDGEGRAB_CARRY_TAG 0x4C677253 /* "LgrS" */
@@ -63,23 +62,25 @@ static EventOption options[] = {
      .OnChange = ChangeRun,
      .desc = {"The ledge to reach. Starts are named from it:",
               "Close is on its side of the stage, Far the other.",
-              "D-Pad left/right also picks it and restarts."}},
+              "D-Pad down also switches it and restarts."}},
     {.kind = OPTKIND_STRING, .name = "Start Position", .value_num = START_COUNT, .values = start_display,
      .OnChange = ChangeStart,
      .desc = {"Where you start. Each start and facing keeps",
               "its own Session Best and Previous time.",
-              "Platforms this stage doesn't have are skipped."}},
+              "Platforms this stage doesn't have are skipped.",
+              "D-Pad left/right also cycles these and restarts."}},
     {.kind = OPTKIND_STRING, .name = "Facing", .value_num = FACING_COUNT, .values = facing_names,
      .OnChange = ChangeRun,
-     .desc = {"Start facing toward or away from the goal ledge."}},
+     .desc = {"Start facing toward or away from the goal ledge.",
+              "D-Pad up also switches it and restarts."}},
     {.kind = OPTKIND_MENU, .name = "Change Stage", .menu = &StageSwap_Menu,
      .desc = {"Restart on another tournament-legal stage.",
               "This clears every Session Best and Previous time."}},
     {.kind = OPTKIND_INFO, .name = "Help",
      .desc = {"Grab the goal ledge in as few frames as you can.",
-              "The count starts on your first move. Dying, or",
-              "taking 30 seconds, is a DNF. Session times are",
-              "forgotten when you leave the event."}},
+              "The count starts when you move. 30 seconds is a DNF.",
+              "D-Pad left/right: previous or next start position.",
+              "D-Pad down: switch ledge. D-Pad up: switch facing."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = Exit,
      .desc = {"Return to the Event Select Screen."}},
 };
@@ -164,11 +165,93 @@ static GXColor *ResultColor(int frames, int best) {
         return &Red;
     if (!best || frames <= best)
         return &Cyan;
-    int close = best / CLOSE_FRACTION;
-    if (close < CLOSE_MINIMUM)
-        close = CLOSE_MINIMUM;
     int off = frames - best;
-    return off <= close ? &Green : off <= close * YELLOW_RANGE ? &Yellow : &Red;
+    return off <= GREEN_RANGE ? &Green : off <= YELLOW_RANGE ? &Yellow : &Red;
+}
+
+// Ledges ----------------------------------------------------------------
+
+// All in stage units. The black edge sits about this far outside each marker.
+#define MARKER_EDGE 1
+// The wrong ledge's X: center to the end of a stroke along each axis, and half
+// a stroke's thickness.
+#define X_ARM 10
+#define X_STROKE 2.5f
+// The goal ledge's !, raised to clear a fighter standing at the ledge. The dot
+// is square; the bar narrows toward it.
+#define BANG_RAISE 20
+#define BANG_DOT 3
+#define BANG_GAP 2
+#define BANG_LENGTH 17
+#define BANG_NARROW 1.75f
+#define BANG_WIDE 3.5f
+#define BANG_TOP (BANG_RAISE + BANG_DOT * 2 + BANG_GAP + BANG_LENGTH)
+// Two strokes, or a dot and a bar, for each marker.
+#define MARKER_QUADS 4
+// Room the camera keeps around each ledge, and above the !.
+#define LEDGE_CAMERA_MARGIN 15
+
+static Vec2 ledges[2]; // Left, then right.
+static bool ledges_found = false;
+
+/* A lone fighter's camera zooms in, which would leave the markers off-screen
+ * from across the stage, so each ledge gets a camera subject too. The match
+ * frees them. */
+static void FindLedges(void) {
+    float edges[2];
+    GroundEdges(&edges[0], &edges[1]);
+    for (int i = 0; i < 2; ++i) {
+        Vec3 point;
+        int line;
+        GroundPoint(edges[i], &point, &line);
+        ledges[i] = (Vec2){point.X, point.Y};
+
+        CmSubject *cam = CameraSubject_Alloc();
+        cam->kind = 0;
+        cam->cam_pos = point;
+        cam->boundleft_proj = cam->boundleft_curr = -LEDGE_CAMERA_MARGIN;
+        cam->boundright_proj = cam->boundright_curr = LEDGE_CAMERA_MARGIN;
+        cam->boundtop_proj = cam->boundtop_curr = BANG_TOP + LEDGE_CAMERA_MARGIN;
+        cam->boundbottom_proj = cam->boundbottom_curr = -LEDGE_CAMERA_MARGIN;
+    }
+    ledges_found = true;
+}
+
+// The diagonal through at: flip 1 rises to the right, -1 to the left.
+static void AddStroke(Vec2 at, float flip, float arm, float half, GXColor color) {
+    GFX_AddVtx(at.X + flip * (-arm + half), at.Y - arm - half, 0, color);
+    GFX_AddVtx(at.X + flip * (arm + half), at.Y + arm - half, 0, color);
+    GFX_AddVtx(at.X + flip * (arm - half), at.Y + arm + half, 0, color);
+    GFX_AddVtx(at.X + flip * (-arm - half), at.Y - arm + half, 0, color);
+}
+
+static void AddBar(float x, float bottom, float top, float half_bottom, float half_top, GXColor color) {
+    GFX_AddVtx(x - half_bottom, bottom, 0, color);
+    GFX_AddVtx(x + half_bottom, bottom, 0, color);
+    GFX_AddVtx(x + half_top, top, 0, color);
+    GFX_AddVtx(x - half_top, top, 0, color);
+}
+
+// Both markers, grown by edge on every side.
+static void AddMarkers(float edge, GXColor x_color, GXColor bang_color) {
+    int goal = options[OPT_GOAL].val;
+    Vec2 wrong = ledges[!goal], target = ledges[goal];
+    AddStroke(wrong, 1, X_ARM + edge, X_STROKE + edge, x_color);
+    AddStroke(wrong, -1, X_ARM + edge, X_STROKE + edge, x_color);
+
+    float dot = target.Y + BANG_RAISE, bar = dot + BANG_DOT * 2 + BANG_GAP;
+    AddBar(target.X, dot - edge, dot + BANG_DOT * 2 + edge, BANG_DOT + edge, BANG_DOT + edge, bang_color);
+    AddBar(target.X, bar - edge, bar + BANG_LENGTH + edge, BANG_NARROW + edge, BANG_WIDE + edge, bang_color);
+}
+
+/* With no depth test the stage can't hide them, and they stack in draw order:
+ * the black edges first, the colors on top. */
+static void DrawMarkers(GOBJ *gobj, int pass) {
+    if (pass != 2 || !ledges_found)
+        return;
+    event_vars->GFX_Start(MARKER_QUADS * 2 * 4, (GFX_Params) { .shape = GX_QUADS, .no_depth = true });
+    AddMarkers(MARKER_EDGE, Outline, Outline);
+    AddMarkers(0, Red, Green);
 }
 
 // Starts ----------------------------------------------------------------
@@ -292,11 +375,6 @@ static bool OnGoalLedge(FighterData *ft) {
         && ft->phys.pos.X * Outward() > 0;
 }
 
-static void SetGoal(int side) {
-    options[OPT_GOAL].val = options[OPT_GOAL].val_prev = side;
-    restart_pending = true;
-}
-
 // Menu ------------------------------------------------------------------
 
 /* The menu runs paused, so these leave the restart for the next frame. */
@@ -327,6 +405,33 @@ static void StageSwap_BeforeRestart(void) {
     carry->facing = options[OPT_FACING].val;
 }
 
+// D-pad -----------------------------------------------------------------
+
+// Unlike the menu's selector, the D-pad wraps around.
+static void CycleStart(int direction) {
+    ChangeStart(0, (options[OPT_START].val + direction + START_COUNT) % START_COUNT);
+}
+
+static void ToggleOption(int row) {
+    options[row].val = options[row].val_prev = !options[row].val;
+    restart_pending = true;
+}
+
+static void ReadDPad(FighterData *ft) {
+    int down = ft->input.down;
+    // Up is also the taunt. If the fighter reads this after the restart, a taunt
+    // out of the new Wait would start the count.
+    ft->input.down &= ~HSD_BUTTON_DPAD_UP;
+    if (down & HSD_BUTTON_DPAD_LEFT)
+        CycleStart(-1);
+    else if (down & HSD_BUTTON_DPAD_RIGHT)
+        CycleStart(1);
+    else if (down & HSD_BUTTON_DPAD_DOWN)
+        ToggleOption(OPT_GOAL);
+    else if (down & HSD_BUTTON_DPAD_UP)
+        ToggleOption(OPT_FACING);
+}
+
 // Event -----------------------------------------------------------------
 
 void Event_Init(GOBJ *gobj) {
@@ -341,6 +446,8 @@ void Event_Init(GOBJ *gobj) {
         start_display[i] = start_names[i];
     StageSwap_Init();
     CreateHUD();
+    // The in-game effects link draws after the stage and fighters.
+    GObj_AddGXLink(GObj_Create(0, 7, 0), DrawMarkers, MATCHGX_EFFECT, 255);
 }
 
 void Event_Think(GOBJ *gobj) {
@@ -354,16 +461,14 @@ void Event_Think(GOBJ *gobj) {
             return;
         }
         event_vars->Savestate_Save_v1(event_vars->savestate, Savestate_Silent);
+        FindLedges();
         Reset();
     }
 
     FighterData *hmn_data = Fighter_GetGObj(0)->userdata;
 
-    if (hmn_data->input.down & HSD_BUTTON_DPAD_LEFT)
-        SetGoal(0);
-    else if (hmn_data->input.down & HSD_BUTTON_DPAD_RIGHT)
-        SetGoal(1);
-    else if (hmn_data->flags.dead) {
+    ReadDPad(hmn_data);
+    if (hmn_data->flags.dead) {
         if (!run.linger)
             Finish(DNF_FRAMES);
         restart_pending = true;

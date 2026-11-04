@@ -196,6 +196,7 @@ static inline void RectSplitD(Rect *dst, Rect *src, float size, float padding)
 typedef struct GFX_Params {
     u8 shape; // GX_TRIANGLES, GX_LINES, etc.
     u8 size; // width of lines and points
+    u8 no_depth; // draw over everything, even what's in front of it
 
     // more fields may be added in the future
 } GFX_Params;
