@@ -17,7 +17,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
 
     def test_general_seventeenth_entry_preserves_existing_order(self):
         pages = self.functions[0]
-        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [5, 18, 9])
+        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [6, 18, 9])
         general = self.word(pages + 4)
         events = self.word(general + 8)
         expected = ['Training Lab', 'L-Cancel Training', 'Ledgedash Training',
@@ -41,6 +41,21 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         self.assertEqual(names, ['Side-B Sweetspot', 'Up-B Sweetspot'])
         self.assertEqual(self.text(self.word(self.word(character + 3 * 4) + 8)), 'upbsweetspot')
         self.assertEqual(self.m.call(self.functions[11], 2, 3), 1)  # stage select
+
+    def test_ledgegrab_speedrun_ends_the_minigames_page_with_no_cpu_or_score_slot(self):
+        functions, machine = self.functions, self.m
+        minigames = self.word(self.word(functions[0]) + 8)
+        descriptor = self.word(minigames + 5 * 4)
+        self.assertEqual(self.text(self.word(descriptor)).strip(), 'Ledgegrab Speedrun')
+        self.assertEqual(self.text(self.word(descriptor + 8)), 'ledgegrab')
+        self.assertEqual(machine.call(functions[11], 0, 5), 1)  # stage select
+        self.assertEqual(machine.call(functions[12], 0, 5), 0xFFFFFFFF)  # no CPU
+        machine.call(functions[28], 2, 0, 0)  # TM_SETTING_EVENT_PAGE
+        self.assertEqual(machine.call(functions[43], 5), 0)
+        reaction = machine.call(functions[43], 3)
+        self.assertNotEqual(reaction, 0)
+        machine.call(functions[28], 2, 0, 1)
+        self.assertEqual(machine.call(functions[43], 0), reaction + 2 * 4)  # Slot 5 stays Training Lab's.
 
     def test_both_fighters_selectable_fixed_fd_and_percent_hud_enabled(self):
         functions = self.functions

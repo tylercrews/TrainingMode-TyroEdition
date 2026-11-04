@@ -125,6 +125,7 @@ queue_mex_build "evFunction" "build/techchase.dat" "src/techchase.c"
 queue_mex_build "evFunction" "build/ledgechase.dat" "src/ledgechase.c"
 queue_mex_build "evFunction" "build/slalom.dat" "src/slalom.c" "dats/wavedash.dat"
 queue_mex_build "evFunction" "build/grabpunish.dat" "src/grabpunish.c"
+queue_mex_build "evFunction" "build/ledgegrab.dat" "src/ledgegrab.c"
 queue_mex_build "cssFunction" "build/grabpunishCSS.dat" "src/grabpunish_css.c"
 
 # wait for compilation to finish
@@ -174,7 +175,7 @@ ${gc_fst} fs "${tyro_output_iso}" \
     insert TM/ledgechase.dat build/ledgechase.dat \
     insert TM/slalom.dat build/slalom.dat \
     insert TM/grabpunish.dat build/grabpunish.dat \
-    insert TM/grabpunishCSS.dat build/grabpunishCSS.dat \
+    insert TM/grabpunishCSS.dat build/grabpunishCSS.dat     insert TM/ledgegrab.dat build/ledgegrab.dat \
     insert codes.gct build/codes.gct \
     insert Start.dol build/Start.dol \
     insert opening.bnr build/opening.bnr

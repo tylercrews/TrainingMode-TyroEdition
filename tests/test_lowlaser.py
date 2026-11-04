@@ -18,8 +18,8 @@ def build():
     ], cwd=ROOT, check=True)
 
 
-def load_probe(machine):
-    elf = (ROOT / 'build/lowlaser-probe.elf').read_bytes()
+def load_probe(machine, name='lowlaser-probe.elf', init='TestLaserInit'):
+    elf = (ROOT / 'build' / name).read_bytes()
     at = struct.unpack_from('>I', elf, 0x20)[0]
     stride, count = struct.unpack_from('>HH', elf, 0x2E)
     sections = [struct.unpack_from('>10I', elf, at + i * stride) for i in range(count)]
@@ -32,7 +32,7 @@ def load_probe(machine):
             for i in range(0, size, entry):
                 name, value, *_ = struct.unpack_from('>IIIBBH', elf, offset+i)
                 machine.symbols[names[name:].split(b'\0',1)[0].decode()] = value
-    machine.call('TestLaserInit')
+    machine.call(init)
 
 
 class LowLaserTests(unittest.TestCase):

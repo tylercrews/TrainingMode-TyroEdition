@@ -26,6 +26,7 @@ esac
     -t MexTK/evFunction.txt -o build/ledgedash-trails-test.dat -i src/ledgedash.c src/ledgedash_logic.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/lowlaser-test.dat -i src/lowlaser.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction     -t MexTK/evFunction.txt -o build/ledgegrab-test.dat -i src/ledgegrab.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/powershield-test.dat -i src/powershield.c
 powerpc-eabi-gcc -O2 -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
@@ -51,6 +52,7 @@ python tests/test_event_trails.py -v
 python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
 python tests/test_lowlaser.py -v
+python tests/test_ledgegrab.py -v
 python tests/test_stage_swap.py -v
 python tests/test_lab_session.py -v
 python tests/test_powershield.py -v

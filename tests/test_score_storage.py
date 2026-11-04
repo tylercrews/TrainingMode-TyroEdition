@@ -120,7 +120,7 @@ class ScoreStorageAudit(unittest.TestCase):
             body = re.search(r"static EventDesc \*" + array + r"\[\] = \{(.*?)\};",
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
-        self.assertEqual(counts, [5, 18, 9])
+        self.assertEqual(counts, [6, 18, 9])
         self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
         self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)

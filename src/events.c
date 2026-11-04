@@ -821,6 +821,23 @@ EventDesc Ledgestall = {
     .matchData = 0,
 };
 
+static EventMatchData LedgegrabSpeedrun_MatchData = {
+    .timer = MATCH_TIMER_HIDE, .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true, .hideReady = true, .isCreateHUD = true,
+    .isCheckForZRetry = true,
+};
+EventDesc LedgegrabSpeedrun = {
+    .tyro_edited = true,
+    .eventName = "Ledgegrab Speedrun\n",
+    .eventDescription = "How few frames can you reach the ledge\nin? Start = more options.",
+    .eventFile = "ledgegrab", .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = {.hmn = -1, .cpu = -1},
+    .playerKind = -1, .cpuKind = -1, .stage = -1,
+    .disable_hazards = true, .scoreType = SCORETYPE_KO, .callbackPriority = 3,
+    .matchData = &LedgegrabSpeedrun_MatchData,
+};
+
 ///////////////////////
 /// Page Defintions ///
 ///////////////////////
@@ -832,6 +849,7 @@ static EventDesc *Minigames_Events[] = {
     &Multishine,
     &Reaction,
     &Ledgestall,
+    &LedgegrabSpeedrun,
 };
 static EventPage Minigames_Page = {
     .name = "Minigames",
@@ -892,11 +910,12 @@ EventPage *EventPages[] = {
 /* Persisted score identities do not follow menu insertion order. The original
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
-typedef char event_score_map_matches[(countof(Minigames_Events) == 5 &&
+typedef char event_score_map_matches[(countof(Minigames_Events) == 6 &&
     countof(General_Events) == 18 && countof(CharacterSpecific_Events) == 9) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
-    if (page == 0) return event;
+    if (page == 0) /* Ledgegrab Speedrun (5) only keeps session bests, in RAM. */
+        return event < 5 ? event : UINT32_MAX;
     if (page == 1) /* 2v1 Grab Punish (17) is unscored free practice. */
         return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;
     /* Up-B Sweetspot (3) and Low Laser (8) are unscored free practice; the
