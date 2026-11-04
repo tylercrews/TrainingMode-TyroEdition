@@ -1987,6 +1987,11 @@ static void GrabPunish_PrepareMatch(MatchInit *match) {
     }
     match->is_teams = 1;
     match->hudPos = count;
+
+    // The next time, grabpunish_css.c starts from these teams.
+    Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_YOUR_TEAM, team);
+    if (enemy >= 0)
+        Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_ENEMY_TEAM, players[enemy].team);
 }
 
 void EventInit(int page, int eventID, MatchInit *matchData)
@@ -3421,6 +3426,11 @@ void Settings_EventCharacters(unsigned save) {
     unsigned event = stc_memcard->EventBackup.event;
     if (page >= sizeof(EventPages) / sizeof(EventPages[0]) || event >= (unsigned)EventPages[page]->eventNum) return;
     EventDesc *desc = GetEventDesc(page, event);
+    // A team select's picks are that event's own: see Settings_RestoreCharacters.
+    if (save && desc->CSSType == SLCHRKIND_VS) {
+        Settings_RestoreCharacters();
+        return;
+    }
     Settings_Characters(save, desc->allowed_characters.hmn, desc->allowed_characters.cpu,
         desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1);
 }

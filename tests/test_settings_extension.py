@@ -44,7 +44,10 @@ EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # in bits 16-18.
 GRAB_PUNISH = 42  # TM_SETTING_GRAB_PUNISH
 UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
-GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 6, 4, 3, 2), (0, 0, 3, 1, 0, 0)
+# Its menu rows, with Teammate Percent in byte 50's top bits, then your team in
+# word 68's bits 14-15 and the enemy's in word 20's bits 30-31.
+GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 6, 6, 4, 3, 2, 3, 3), (0, 0, 3, 0, 1, 0, 0, 0, 0)
+GP_MATE_PERCENT, GP_YOUR_TEAM, GP_ENEMY_TEAM = 3, 7, 8
 UPB_COUNTS, UPB_DEFAULTS = (2, 2, 2), (1, 0, 0)
 EVENT_MENU_BYTES = bytes.fromhex('c0020100')
 # Bytes 24..71 appended by versions 15 to 20: one color nibble per OSD (all
@@ -73,9 +76,10 @@ FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2)
 REGION_SIZE, OWNED_SIZE = 88, 72
 # Under Fire's Lava Overlay (index 2) lives in word 20, outside FIELDS' pre-v11 words.
 PREF_COUNTS = {29: 3}
-GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
+GRID = 37  # TM_SETTING_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 EGGS_COUNTER = 44  # TM_SETTING_EGGS_COUNTER: byte 51's top three bits.
+EGGS_SPAWN = 45  # TM_SETTING_EGGS_SPAWN: byte 49's top two bits.
 SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
 SWEETSPOT = 41  # TM_SETTING_SWEETSPOT: Success Criteria word 20 bit 26, Knockback bits 27-29.
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
@@ -386,9 +390,15 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set', field, len(counts), 0)  # and so is another index.
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        self.assertEqual((after[:68], after[72:]), (before[:68], before[72:]))  # Only word 68 changes.
+        # Only word 68 changes, but for Teammate Percent and the enemy's team.
+        def others(record):
+            record = bytearray(record)
+            record[23] &= 0x3F; record[50] &= 0x1F
+            return bytes(record[:68] + record[72:])
+        self.assertEqual(others(after), others(before))
+        self.assertEqual((after[23] >> 6, after[50] >> 5), (2, 5))
         word = int.from_bytes(after[68:72], 'little')
-        self.assertEqual(word & ~0x73FFF, 0)  # Bits 14-15 and 19-31 stay spare.
+        self.assertEqual(word & ~0x7FFFF, 0)  # Bits 19-31 stay spare.
         self.assertEqual(m.record(), core)
         self.assertEqual(m.call('Settings_Get', EDGEGUARD, 19), 9)
         fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, after)
@@ -396,7 +406,7 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (7) and Teammate Facing (3) repair to their
         # defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 3, 0, 1), (1, 1, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 5, 3, 0, 1, 2, 2), (1, 1, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'), word & ~(7 << 6 | 3 << 11) | 3 << 6)
 
     def test_recovery_menu_defaults_match_saved_initial_masks(self):
@@ -530,6 +540,69 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT + 51, b'\x09')  # A damaged byte repairs to Default.
         self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (5, 0))
         self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0)
+
+    def test_teammate_percent_shares_the_human_costume_byte_without_disturbing_it(self):
+        m = self.m
+        core = m.record()
+        m.call('Settings_Set', COSTUME, 0, 5)
+        for percent in range(6):
+            m.call('Settings_Set', GRAB_PUNISH, GP_MATE_PERCENT, percent)
+            self.assertEqual(m.cpu.mem_read(EXT + 50, 1)[0], 5 | percent << 5)
+            self.assertEqual(m.call('Settings_Get', COSTUME, 0), 5)
+        m.call('Settings_Set', COSTUME, 0, 2)  # And a costume change keeps the percent.
+        self.assertEqual(m.call('Settings_Get', GRAB_PUNISH, GP_MATE_PERCENT), 5)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 4, 2)), bytes((CURRENT, PAYLOAD)))
+        self.assertEqual(m.record(), core)
+        m.cpu.mem_write(EXT + 50, bytes((2 | 6 << 5,)))  # A damaged percent keeps the costume.
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_MATE_PERCENT), m.call('Settings_Get', COSTUME, 0)), (0, 2))
+        self.assertEqual(m.cpu.mem_read(EXT + 50, 1)[0], 2)
+
+    def test_team_colors_are_saved_apart_from_the_costumes(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 3); m.call('Settings_Set', COSTUME, 1, 4)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', GRAB_PUNISH, GP_YOUR_TEAM, 2); m.call('Settings_Set', GRAB_PUNISH, GP_ENEMY_TEAM, 1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(int.from_bytes(after[68:72], 'little') >> 14 & 3, 2)
+        self.assertEqual(after[23] >> 6, 1)
+        self.assertEqual((after[50], after[51]), (before[50], before[51]))
+        self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (3, 4))
+        fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, after)
+        self.assertEqual((fresh.call('Settings_Get', GRAB_PUNISH, GP_YOUR_TEAM), fresh.call('Settings_Get', GRAB_PUNISH, GP_ENEMY_TEAM)), (2, 1))
+        record = bytearray(after); record[23] |= 0xC0  # A team that doesn't exist reads as Red.
+        m.cpu.mem_write(EXT, bytes(record))
+        self.assertEqual(m.call('Settings_Get', GRAB_PUNISH, GP_ENEMY_TEAM), 0)
+        self.assertEqual(m.call('Settings_Get', GRAB_PUNISH, GP_YOUR_TEAM), 2)
+        self.assertEqual(m.cpu.mem_read(EXT + 23, 1)[0] >> 6, 3)  # Word 20's padding is left alone.
+
+    def test_egg_spawn_options_share_the_last_grid_byte_without_disturbing_it(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual((m.call('Settings_Get', EGGS_SPAWN, 0), m.call('Settings_Get', EGGS_SPAWN, 1)), (0, 0))
+        m.call('Settings_Set', GRID, 21, 30)  # JC Shine, the byte's other owner.
+        for under, air in ((1, 0), (0, 1), (1, 1), (0, 0)):
+            m.call('Settings_Set', EGGS_SPAWN, 0, under); m.call('Settings_Set', EGGS_SPAWN, 1, air)
+            self.assertEqual(m.cpu.mem_read(EXT + 49, 1)[0] >> 6, under | air << 1)
+            self.assertEqual((m.call('Settings_Get', EGGS_SPAWN, 0), m.call('Settings_Get', EGGS_SPAWN, 1)), (under, air))
+            self.assertEqual(m.call('Settings_Get', GRID, 21), 30)
+        m.call('Settings_Set', EGGS_SPAWN, 1, 1)
+        m.call('Settings_Set', GRID, 21, 7)  # And a grid change keeps the option.
+        self.assertEqual(m.call('Settings_Get', EGGS_SPAWN, 1), 1)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for index, value in ((0, 2), (1, 0xFFFFFFFF), (2, 1)):
+            m.call('Settings_Set', EGGS_SPAWN, index, value)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        self.assertEqual(m.record(), core)
+
+    def test_records_that_own_the_grid_bytes_read_egg_spawn_options_as_off(self):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+            with self.subTest(version=version):
+                m = fixtures.Machine(); m.init()
+                m.call('Settings_Set', COSTUME, 1, 4)
+                old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+                old[4:6] = bytes((version, payload))
+                m.cpu.mem_write(EXT, bytes(old))
+                self.assertEqual((m.call('TMExtension_Read', EXT, EGGS_SPAWN, 0), m.call('TMExtension_Read', EXT, EGGS_SPAWN, 1)), (0, 0))
 
     def test_egg_counter_position_shares_the_cpu_costume_byte_without_disturbing_it(self):
         m = self.m

@@ -13,6 +13,8 @@ enum options_main
     OPT_DAMAGETHRESHOLD,
     OPT_SCALE,
     OPT_VELOCITY,
+    OPT_UNDERPLATFORMS,
+    OPT_INAIR,
     OPT_COLLISION,
     OPT_HITBOXTRAILS,
     OPT_COUNTERPOSITION,
@@ -34,6 +36,7 @@ int Egg_OnTakeDamage(GOBJ *gobj);
 void Event_Think(GOBJ *event);
 void Eggs_ChangeHitboxTrails(GOBJ *menu_gobj, int value);
 void Eggs_ChangeSavedSetting(GOBJ *menu_gobj, int value);
+void Eggs_ChangeSpawnSetting(GOBJ *menu_gobj, int value);
 void Eggs_ChangeCounterPosition(GOBJ *menu_gobj, int value);
 void Eggs_ResetSettings(GOBJ *menu);
 
@@ -133,6 +136,25 @@ static EventOption Options_Main[OPT_COUNT] = {
         .val = TM_EGGS_DEFAULT_VELOCITY,
         .disable = 1,
         .OnChange = Eggs_ChangeSavedSetting,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Eggs Under Platforms",
+        .desc = { "Put about half the eggs on the ground under a side",
+                  "platform, with no hop to lift them up through it.",
+                  "A third, if Eggs In The Air is on too.",
+                  "Stages without side platforms ignore this." },
+        .disable = 1,
+        .OnChange = Eggs_ChangeSpawnSetting,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Eggs In The Air",
+        .desc = { "Put about half the eggs high in the air, slowly",
+                  "falling to the stage.",
+                  "A third, if Eggs Under Platforms is on too." },
+        .disable = 1,
+        .OnChange = Eggs_ChangeSpawnSetting,
     },
     {
         .kind = OPTKIND_TOGGLE,

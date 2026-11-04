@@ -80,14 +80,24 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
 /* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..13 and Up-B
  * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
  * so Edgeguard's spacie side-B masks took bits 19..28, its Knockback Distance
- * bits 29..31 and Grab Punish's Count Release Hits bit 13 with no version bump
- * (zero is off, or a save from before Distance). Bits 14..15 are still spare. */
+ * bits 29..31, and Grab Punish's Count Release Hits bit 13 and your team bits
+ * 14..15, with no version bump (zero is off, Red, or a save from before Distance). */
 #define EVENT_MENUS_OFFSET 68
 #define EVENT_MENUS_SIZE 4
 static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
     {0,3,TM_GP_LOCATION_COUNT,0}, {3,3,TM_GP_LOCATION_COUNT,0},
-    {6,3,TM_GP_PERCENT_COUNT,TM_GP_DEFAULT_PERCENT}, {9,2,TM_GP_MASH_COUNT,TM_GP_DEFAULT_MASH},
+    {6,3,TM_GP_PERCENT_COUNT,TM_GP_DEFAULT_PERCENT},
+    /* Teammate Percent takes the top bits of the human costume's byte, word 48
+     * bits 21..23, the way Egg Counter Position took the CPU costume's. Zero is
+     * 0%, the teammate's old fixed percent. */
+    {21,3,TM_GP_PERCENT_COUNT,0},
+    {9,2,TM_GP_MASH_COUNT,TM_GP_DEFAULT_MASH},
     {11,2,TM_GP_FACING_COUNT,0}, {13,1,2,0},
+    /* The teams take word 68's last spare bits and word 20's. Zero is Red, and
+     * the event never puts the enemy on your team, so a fresh save is Red vs Blue.
+     * Word 20's padding is kept through migrations, as for Edgeguard's Side, so
+     * only a match writes the enemy's team, and an invalid 3 reads as Red. */
+    {14,2,TM_GP_TEAM_COUNT,0}, {30,2,TM_GP_TEAM_COUNT,0},
 };
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
     {16,1,2,1}, {17,1,2,0}, {18,1,2,0},
@@ -156,8 +166,12 @@ static void set_color_extra(uint8_t *r,unsigned slot,unsigned value) {
  * every record that owns that byte has them clear: zero is Top Left, the
  * original spot, with no version bump. The low five bits stay the costume, so
  * a damaged byte still repairs to Default. */
-#define EGGS_COUNTER_OFFSET 48
+#define COSTUME_WORD_OFFSET 48
 static const ExtensionPreference eggs_counter_preference = {29,3,TM_EGGS_COUNTER_COUNT,TM_EGGS_COUNTER_TOP_LEFT};
+/* Free Practice's egg spots take the two bits above the last Fixed Grid cell,
+ * byte 49 bits 6..7 (word 48 bits 14..15). Every migration to version 16 zeroed
+ * them and set_grid_cell keeps them, so zero is Off with no version bump. */
+static const ExtensionPreference eggs_spawn_preferences[TM_EGGS_SPAWN_PREF_COUNT] = {{14,1,2,0}, {15,1,2,0}};
 typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIONS<32 &&
     GRID_END<=COSTUME_OFFSET && COSTUME_OFFSET+2<=EDGEGUARD_OFFSET &&
     EDGEGUARD_OFFSET+EDGEGUARD_SIZE<=EDGEGUARD2_OFFSET && EDGEGUARD2_OFFSET+EDGEGUARD2_SIZE<=EVENT_MENUS_OFFSET &&
@@ -192,7 +206,8 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_SWEETSPOT ? TM_SWEETSPOT_PREF_COUNT :
         field==TM_SETTING_GRAB_PUNISH ? TM_GP_PREF_COUNT :
         field==TM_SETTING_UPB_SWEETSPOT ? TM_UPB_PREF_COUNT :
-        field==TM_SETTING_EGGS_COUNTER ? 1 : 0;
+        field==TM_SETTING_EGGS_COUNTER ? 1 :
+        field==TM_SETTING_EGGS_SPAWN ? TM_EGGS_SPAWN_PREF_COUNT : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -208,11 +223,14 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_GRAB_PUNISH && index<TM_GP_PREF_COUNT) return &grab_punish_preferences[index];
     if(field==TM_SETTING_UPB_SWEETSPOT && index<TM_UPB_PREF_COUNT) return &upb_sweetspot_preferences[index];
     if(field==TM_SETTING_EGGS_COUNTER && index==0) return &eggs_counter_preference;
+    if(field==TM_SETTING_EGGS_SPAWN && index<TM_EGGS_SPAWN_PREF_COUNT) return &eggs_spawn_preferences[index];
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
-    if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
-    if(field==TM_SETTING_EGGS_COUNTER) return EGGS_COUNTER_OFFSET;
+    if(field==TM_SETTING_GRAB_PUNISH)
+        return index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
+    if(field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
+    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
         return index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
             index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
@@ -261,7 +279,7 @@ static void init_edgeguard_preferences(uint8_t *r, unsigned first) {
 /* Initialize the event menus in word 68, which the caller has just claimed. */
 static void init_event_menu_preferences(uint8_t *r) {
     for(unsigned i=0;i<TM_GP_PREF_COUNT;++i)
-        set_preference(r,TM_SETTING_GRAB_PUNISH,i,grab_punish_preferences[i].initial);
+        if(i!=TM_GP_ENEMY_TEAM) set_preference(r,TM_SETTING_GRAB_PUNISH,i,grab_punish_preferences[i].initial);
     for(unsigned i=0;i<TM_UPB_PREF_COUNT;++i)
         set_preference(r,TM_SETTING_UPB_SWEETSPOT,i,upb_sweetspot_preferences[i].initial);
 }
@@ -373,7 +391,8 @@ int TMExtension_Prepare(uint8_t *r) {
             /* Every value of a field this wide is valid (the toggle masks);
              * Reversal's attack has a fifth bit elsewhere. */
             if(p->count==(1u<<p->width) && !(field==TM_SETTING_REVERSAL && i==TM_REV_ATTACK)) continue;
-            if(field==TM_SETTING_EDGEGUARD && i==TM_EG_SIDE) continue; /* Read-tolerant padding. */
+            /* Read-tolerant padding. */
+            if((field==TM_SETTING_EDGEGUARD && i==TM_EG_SIDE) || (field==TM_SETTING_GRAB_PUNISH && i==TM_GP_ENEMY_TEAM)) continue;
             unsigned value=preference_value(r,field,i);
             if(value>=p->count) { set_preference(r,field,i,p->initial); changed=1; }
         }
@@ -416,7 +435,7 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return value<p->count?value:p->initial;
     }
     /* Version 17 is the first to own the costume bytes. */
-    if(field==TM_SETTING_EGGS_COUNTER) {
+    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) {
         unsigned value=supported(r)||v17||v18||v19?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }

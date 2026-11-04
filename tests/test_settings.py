@@ -221,7 +221,7 @@ class Machine:
         for i, value in enumerate(args, 3):
             self.cpu.reg_write(gpr(i), value & 0xFFFFFFFF)
         self.cpu.reg_write(reg.UC_PPC_REG_LR, STOP)
-        self.cpu.emu_start(self.symbols[name], STOP, count=300000)
+        self.cpu.emu_start(self.symbols[name], STOP, count=400000)
         if self.cpu.reg_read(reg.UC_PPC_REG_PC) != STOP:
             raise AssertionError(f"{name} did not return")
         return self.cpu.reg_read(gpr(3))
@@ -1037,6 +1037,33 @@ class CharacterPreferenceTests(unittest.TestCase):
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')  # Saved costume returns with Falco.
         fresh.cpu.mem_write(backup+104,b'\x21');fresh.call('Settings_Characters',1,-1,-1,1)
         self.assertEqual(fresh.call('Settings_Get',24,0),20)
+
+    def test_a_team_select_leaves_the_normal_characters_and_costumes_alone(self):
+        m=self.m;backup=0x8045A6C0+3344
+        m.cpu.mem_write(backup+104,b'\x02');m.cpu.mem_write(backup+107,b'\x03')
+        m.cpu.mem_write(backup+140,b'\x09');m.cpu.mem_write(backup+143,b'\x04')
+        m.call('Settings_Characters',1,-1,-1,1)
+        record=m.record()
+        # The select's exit backed up its team costumes, and other characters.
+        m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+107,b'\x01')
+        m.cpu.mem_write(backup+140,b'\x02');m.cpu.mem_write(backup+143,b'\x02')
+        m.call('Settings_RestoreCharacters')
+        self.assertEqual(m.record(),record)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+104,4))[0::3],b'\x02\x03')
+        self.assertEqual(bytes(m.cpu.mem_read(backup+140,4))[0::3],b'\x09\x04')
+        self.assertEqual((m.call('Settings_Get',24,0),m.call('Settings_Get',38,0)),(2,3))
+        # The same character in a team costume, the reported case.
+        m.cpu.mem_write(backup+107,b'\x01');m.call('Settings_RestoreCharacters')
+        m.call('Settings_Characters',0,-1,-1,1)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+107,1)),b'\x03')
+
+    def test_a_team_select_with_nothing_saved_yet_saves_nothing(self):
+        m=self.m;backup=0x8045A6C0+3344
+        record=m.record()
+        m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+107,b'\x01')
+        m.call('Settings_RestoreCharacters')
+        self.assertEqual(m.record(),record)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+107,1)),b'\0')
 
     def test_assembled_css_hooks_restore_and_commit_native_selected_characters(self):
         m=self.m;dol=(ROOT/'build/Start.dol').read_bytes()
@@ -3286,7 +3313,7 @@ class EventMenuSaveTests:
 class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/grabpunish-test.dat'
     field = 42  # TM_SETTING_GRAB_PUNISH
-    saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 6, 3),
+    saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 6, 3), ('Teammate Percent', 6, 0),
              ('CPU Mashing', 4, 1), ('Teammate Facing', 3, 0), ('Count Release Hits', 2, 0))
 
 

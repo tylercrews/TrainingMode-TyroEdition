@@ -1,6 +1,9 @@
 #include "events.h"
 #include "menu_controller_ui.h"
 
+// Frames A waits on a function row, in case it's the start of the exit combo.
+#define MENU_SELECT_WAIT 6
+
 GOBJ *EventMenu_Init(EventMenu *start_menu)
 {
     // Ensure this event has a menu
@@ -59,6 +62,7 @@ void EventMenu_ExitMenu(GOBJ *gobj) {
     menu_data->mode = MenuMode_Normal;
     menu_data->hide_menu = 1;
     menu_data->picker = 0;
+    menu_data->select_option = 0;
 
     // Allow the custom submenu to clean itself up before we exit
     if (menu_data->custom_gobj_destroy) {
@@ -170,17 +174,63 @@ static int EventMenu_RowInput(GOBJ *gobj, HSD_Pad *pad)
     return 1;
 }
 
+// Which of the exit combo's other three buttons are held, A aside.
+// Match native LRAS, including analog-only triggers on either shoulder.
+static int EventMenu_ExitButtons(HSD_Pad *pad)
+{
+    int buttons = pad->held & HSD_BUTTON_START;
+    if ((pad->held & HSD_TRIGGER_L) || pad->triggerLeft >= ANALOG_TRIGGER_THRESHOLD)
+        buttons |= HSD_TRIGGER_L;
+    if ((pad->held & HSD_TRIGGER_R) || pad->triggerRight >= ANALOG_TRIGGER_THRESHOLD)
+        buttons |= HSD_TRIGGER_R;
+    return buttons;
+}
+
 int Event_CheckExitInput(void)
 {
-    // Match native LRAS, including analog-only triggers on either shoulder.
     for (int i = 0; i < 4; i++) {
         HSD_Pad *pad = PadGetMaster(i);
-        if ((pad->held & (HSD_BUTTON_A | HSD_BUTTON_START)) == (HSD_BUTTON_A | HSD_BUTTON_START)
-            && ((pad->held & HSD_TRIGGER_L) || pad->triggerLeft >= ANALOG_TRIGGER_THRESHOLD)
-            && ((pad->held & HSD_TRIGGER_R) || pad->triggerRight >= ANALOG_TRIGGER_THRESHOLD))
+        if ((pad->held & HSD_BUTTON_A)
+            && EventMenu_ExitButtons(pad) == (HSD_BUTTON_START | HSD_TRIGGER_L | HSD_TRIGGER_R))
             return 1;
     }
     return 0;
+}
+
+/* The exit combo beats the open menu. All four buttons rarely land together,
+ * and a function row on its own can restart or end the match, so A there waits
+ * briefly: another button of the combo joining in cancels it. Returns nonzero
+ * when the menu gets no input this frame. */
+static int EventMenu_ExitComboFirst(GOBJ *gobj, HSD_Pad *pad)
+{
+    MenuData *menu_data = gobj->userdata;
+    if (!menu_data->root_menu->on_exit)
+        return 0;
+    int buttons = EventMenu_ExitButtons(pad);
+    if (menu_data->select_option) {
+        if (buttons & ~menu_data->select_buttons) {
+            menu_data->select_option = 0;
+        } else if (--menu_data->select_timer == 0) {
+            EventOption *option = menu_data->select_option;
+            menu_data->select_option = 0;
+            EventMenu_RunFuncOption(gobj, option);
+        }
+        return 1;
+    }
+    return (buttons & HSD_BUTTON_START)
+        || (buttons & (HSD_TRIGGER_L | HSD_TRIGGER_R)) == (HSD_TRIGGER_L | HSD_TRIGGER_R);
+}
+
+void EventMenu_SelectFuncOption(GOBJ *gobj, EventOption *func_option)
+{
+    MenuData *menu_data = gobj->userdata;
+    if (!menu_data->root_menu->on_exit) {
+        EventMenu_RunFuncOption(gobj, func_option);
+        return;
+    }
+    menu_data->select_option = func_option;
+    menu_data->select_timer = MENU_SELECT_WAIT;
+    menu_data->select_buttons = EventMenu_ExitButtons(PadGetMaster(menu_data->controller_index));
 }
 
 void EventMenu_Update(GOBJ *gobj)
@@ -240,6 +290,9 @@ void EventMenu_Update(GOBJ *gobj)
 
     menu_data->hide_menu = 0;
     HSD_Pad *pad = PadGetMaster(menu_data->controller_index);
+
+    if (EventMenu_ExitComboFirst(gobj, pad))
+        return;
 
     if (TM_GetSetting(TM_SETTING_OSD_LAYOUT, 0) && (pad->down & (HSD_TRIGGER_L | HSD_TRIGGER_R))) {
         unsigned pages = Message_LayoutPageCount();
@@ -449,7 +502,7 @@ void EventMenu_MenuThink(GOBJ *gobj, EventMenu *curr_menu) {
         }
         else if (curr_option->kind == OPTKIND_FUNC)
         {
-            EventMenu_RunFuncOption(gobj, curr_option);
+            EventMenu_SelectFuncOption(gobj, curr_option);
         }
     }
 }

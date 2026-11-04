@@ -197,7 +197,7 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 - **Guides:**
     - Aimed up-Bs and fixed paths are drawn as described above. The physics group (DK, Bowser, Link, Young Link, Ness, Game & Watch, Ice Climbers) only gets the ledge target.
     - The aimed lines lock to the travel's real velocity on its first frame, not to the stick.
-- **Marth:** forward smash starts when your up-B does and freezes on frame 10 with all four hitboxes out. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach.
+- **Marth:** forward smash starts as each attempt does and freezes on frame 10 with all four hitboxes out, while you're still on the platform, so a hit doesn't depend on when you up-B. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach.
     - The first Dolphin test had only the tipper on, 12 inland. It was too far back, and the whole forward smash was wanted.
 - **The white X** uses the ECB side facing the ledge (`ecb.right` facing right, `-ecb.left` facing left), like `mpColl_800443C4` and its mirror. The first version used `ecb.right` on both ledges.
 - **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card. The success rate is session-only, carried through Change Stage with `carry_store`.

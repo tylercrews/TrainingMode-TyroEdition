@@ -12,9 +12,9 @@ static CollLine test_line;
 static CollLineDesc test_descriptor;
 static CollVert test_vertices[2];
 static ftCommonData common;
-static unsigned preferences[TM_GP_PREF_COUNT] = {0, 0, TM_GP_DEFAULT_PERCENT, TM_GP_DEFAULT_MASH, 0, 0};
+static unsigned preferences[TM_GP_PREF_COUNT] = {0, 0, TM_GP_DEFAULT_PERCENT, 0, TM_GP_DEFAULT_MASH, 0, 0, 2, 1};
 static int loads, saves, sfx, hud_percent[PLAYERS], panel_rows, grab_misses, release_length = 30;
-static float big_size;
+static float big_size, big_y;
 static char panel_label[3][24], panel_info[3][24], big_text_shown[8];
 static GXColor big_color, overlay[PLAYERS];
 static int overlay_on[PLAYERS], overlay_max[PLAYERS];
@@ -75,6 +75,7 @@ static void DrawTextEx(const char *text, Rect *pos, float size, GXColor text_col
     Copy(big_text_shown, text);
     big_color = text_color;
     big_size = size;
+    big_y = pos->y;
 }
 static void SetOverlay(GOBJ *fighter, const GXColor *color) {
     int i = fighter - fighters;
@@ -211,6 +212,12 @@ int TestGPInfo(int key) {
     case 17: return preferences[TM_GP_RELEASE_HITS];
     case 18: return phase;
     case 19: return ft[MATE].cpu.held;
+    case 20: return ft[MATE].dmg.percent;
+    case 21: return ft[MATE].dmg.percent_temp;
+    case 22: return hud_percent[MATE];
+    case 23: return preferences[TM_GP_MATE_PERCENT];
+    case 24: return preferences[TM_GP_YOUR_TEAM] * 10 + preferences[TM_GP_ENEMY_TEAM];
+    case 25: return big_y * 10;
     }
     return -1;
 }

@@ -8,6 +8,7 @@ from test_menu import Machine, ROOT, UC_HOOK_CODE, reg
 
 A, START, L, R = 0x100, 0x1000, 0x40, 0x20
 COMBO = A | START | L | R
+SELECT_WAIT = 6  # MENU_SELECT_WAIT
 
 
 def build():
@@ -32,6 +33,10 @@ class MenuExitTests(unittest.TestCase):
         for name in ('EventMenu_UpdateText', 'EventMenu_MenuThink'):
             address = self.m.symbols[name]
             self.m.cpu.hook_add(UC_HOOK_CODE, skip, begin=address, end=address)
+        self.menu_thinks = 0
+        def counted(cpu, address, size, user): self.menu_thinks += 1
+        address = self.m.symbols['EventMenu_MenuThink']
+        self.m.cpu.hook_add(UC_HOOK_CODE, counted, begin=address, end=address)
 
     def state(self, paused=0, nested=0, custom=0, timer=10):
         self.m.call('TestMenuExitState', paused, nested, custom, timer)
@@ -73,6 +78,86 @@ class MenuExitTests(unittest.TestCase):
         self.pad(0, A | START, 0)
         self.pad(1, L | R, 0)
         self.assertEqual(self.update()[:2], [0, 0])
+
+    def func_runs(self): return self.m.call('TestMenuExitResult', 9)
+
+    def press_a_on_function_row(self, held=A):
+        self.state(paused=1)
+        self.pad(held=held, down=0)
+        self.m.call('TestMenuExitSelect')
+
+    def test_a_function_row_runs_after_a_short_wait(self):
+        self.press_a_on_function_row()
+        for frame in range(SELECT_WAIT - 1):
+            self.update()
+            self.assertEqual(self.func_runs(), 0)
+        self.update()
+        self.assertEqual(self.func_runs(), 1)
+        self.update()
+        self.assertEqual(self.func_runs(), 1)
+
+    def test_the_rest_of_the_combo_landing_after_a_beats_retry(self):
+        for joined in ([L, R, START], [R, L, START], [L | R, START]):
+            with self.subTest(joined=joined):
+                self.setUp()
+                self.press_a_on_function_row()
+                self.update()  # A alone for a frame, as when A lands first.
+                held = A
+                for button in joined:
+                    held |= button
+                    self.pad(held=held, down=0)
+                    result = self.update()
+                self.assertEqual(result[:2], [1, 1])
+                self.assertEqual(self.func_runs(), 0)
+
+    def test_analog_shoulders_cancel_too(self):
+        self.press_a_on_function_row()
+        self.pad(held=A, down=0, left=43)
+        self.update()
+        self.pad(held=A, down=0)
+        for frame in range(SELECT_WAIT + 2):
+            self.update()
+        self.assertEqual(self.func_runs(), 0)
+
+    def test_a_shoulder_held_for_fast_scrolling_doesnt_cancel(self):
+        self.press_a_on_function_row(A | R)
+        for frame in range(SELECT_WAIT):
+            self.update()
+        self.assertEqual(self.func_runs(), 1)
+
+    def test_both_shoulders_or_start_keep_the_menu_from_reading_a(self):
+        for held, left, right in ((L | R, 0, 0), (0, 43, 43), (L, 0, 43), (START, 0, 0)):
+            with self.subTest(held=held, left=left, right=right):
+                self.setUp()
+                self.state(paused=1)
+                self.pad(held=held | A, down=0, left=left, right=right)
+                self.update()
+                self.assertEqual(self.menu_thinks, 0)
+        for held in (A, L | A, R | A):
+            with self.subTest(held=held):
+                self.setUp()
+                self.state(paused=1)
+                self.pad(held=held, down=0)
+                self.update()
+                self.assertEqual(self.menu_thinks, 1)
+
+    def test_unpausing_drops_a_waiting_function_row(self):
+        self.press_a_on_function_row()
+        self.pad(held=START, down=START)
+        self.assertEqual(self.update()[4], 0)
+        self.pad(held=0, down=0)
+        for frame in range(SELECT_WAIT + 2):
+            self.update()
+        self.assertEqual(self.func_runs(), 0)
+
+    def test_a_menu_without_the_exit_combo_runs_rows_at_once(self):
+        self.m.call('TestMenuExitNoExitOption')
+        self.press_a_on_function_row()
+        self.assertEqual(self.func_runs(), 1)
+        self.pad(held=L | R, down=0)
+        self.state(paused=1)
+        self.update()
+        self.assertEqual(self.menu_thinks, 1)
 
     def test_start_still_pauses_and_unpauses_with_original_entry_guard(self):
         self.state(timer=0)

@@ -3,9 +3,10 @@
 #include "zoom_camera.h"
 
 /* Up-B Sweetspot: start on an angel platform off one ledge and grab the ledge
- * with your up-B. Marth waits on the stage and freezes his forward smash with
- * the tipper out, so overshooting onto the stage gets you hit. The guides and
- * every number behind them are in notes/UPB-SWEETSPOT-RESEARCH.md. */
+ * with your up-B. Marth swings his forward smash as each attempt starts and
+ * freezes with the tipper out, so its hitboxes are simply there whenever you
+ * arrive and overshooting onto the stage gets you hit. The guides and every
+ * number behind them are in notes/UPB-SWEETSPOT-RESEARCH.md. */
 
 // Where the angel platform sits, from the ledge: far enough out that you have
 // to recover, close enough that every character here can.
@@ -330,7 +331,8 @@ static EventOption Options_Main[] = {
         .OnChange = ChangeMarth,
         .desc = {"Tipper: Marth freezes his forward smash with",
                  "the tipper right over the ledge, so",
-                 "overshooting onto the stage gets you hit."},
+                 "overshooting onto the stage gets you hit.",
+                 "Takes effect on the next reset."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -465,7 +467,7 @@ static void PlaceMarth(GOBJ *cpu) {
     UpdateCameraBox(cpu);
 }
 
-// Your up-B has started: swing, so the tipper is out by the time you arrive.
+// Swing as the attempt starts: nothing about hitting you depends on your timing.
 static void StartMarth(GOBJ *cpu) {
     FighterData *cpu_data = cpu->userdata;
     if (Options_Main[OPT_MARTH].val != MARTH_TIPPER || marth.swinging
@@ -760,7 +762,9 @@ static void Reset(int new_side) {
     hmn_data->dmg.percent = dmg;
     Fighter_SetHUDDamage(hmn_data->ply, dmg);
 
-    PlaceMarth(Fighter_GetGObj(1));
+    GOBJ *cpu = Fighter_GetGObj(1);
+    PlaceMarth(cpu);
+    StartMarth(cpu);
 }
 
 // Event -----------------------------------------------------------------
@@ -843,6 +847,7 @@ void Event_Think(GOBJ *menu) {
 
     Fighter_ZeroCPUInputs(cpu_data);
     ZoomCamera_Follow((hmn_data->phys.pos.X + cpu_data->phys.pos.X) * 0.5f);
+    MarthThink(cpu);
 
     // The target settles while you stand on the platform, then stays put.
     int state = hmn_data->state_id;
@@ -861,14 +866,12 @@ void Event_Think(GOBJ *menu) {
     if (info && !upb.used && state >= info->first && state <= info->last) {
         upb.used = true;
         upb.start = (Vec2) { hmn_data->phys.pos.X, hmn_data->phys.pos.Y };
-        StartMarth(cpu);
     }
     if (upb.used) {
         upb.frames++;
         if (info)
             TrackAim(hmn_data, info);
     }
-    MarthThink(cpu);
 
     if (attempt.done)
         return;

@@ -132,9 +132,10 @@ enum TMSettingsField {
     TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
     TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
     TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
-    TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu, TYEX word 68 bits 0-13. */
+    TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu and team colors; see TMGrabPunishPreference. */
     TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18. */
     TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
+    TM_SETTING_EGGS_SPAWN, /* Free Practice's egg spots, TYEX byte 49 bits 6-7. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -152,6 +153,8 @@ enum TMEggsCounterPosition {
     TM_EGGS_COUNTER_TOP_LEFT, TM_EGGS_COUNTER_TOP_RIGHT, TM_EGGS_COUNTER_BOTTOM_LEFT,
     TM_EGGS_COUNTER_BOTTOM_RIGHT, TM_EGGS_COUNTER_UNDER_TIMER, TM_EGGS_COUNTER_COUNT,
 };
+/* Eggs Under Platforms and Eggs In The Air, both off by default. */
+enum TMEggsSpawnPreference { TM_EGGS_UNDER_PLATFORMS, TM_EGGS_IN_AIR, TM_EGGS_SPAWN_PREF_COUNT };
 enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUNT };
 enum TMTechchasePreference {
     TM_TECHCHASE_PRESET, TM_TECHCHASE_REACTION_OSD, TM_TECHCHASE_TIMING_OSD,
@@ -213,16 +216,22 @@ enum TMEdgeguardPreference {
 enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_PREF_COUNT };
 #define TM_SWEETSPOT_SUCCESS_COUNT 2 /* Sweetspot / Sweetspot + Ledgedash. */
 #define TM_SWEETSPOT_KNOCKBACK_COUNT 8 /* Random, six presets, Random Preset. */
-/* 2v1 Grab Punish: Grab Location, Your Location, Enemy Percent, CPU Mashing,
- * Teammate Facing and Count Release Hits (default Off), in word 68 (version 20). */
+/* 2v1 Grab Punish: its menu rows in row order (Grab Location, Your Location,
+ * Enemy Percent, Teammate Percent, CPU Mashing, Teammate Facing and Count
+ * Release Hits), then the teams its character select last started a match with.
+ * Those are this event's own, so the normal saved costume stays out of it. The
+ * rows are in word 68 (version 20) but for Teammate Percent, in byte 50's spare
+ * top bits; the teams take word 68's bits 14-15 and word 20's bits 30-31. */
 enum TMGrabPunishPreference {
-    TM_GP_GRAB_SPOT, TM_GP_YOUR_SPOT, TM_GP_PERCENT, TM_GP_MASH, TM_GP_FACING,
-    TM_GP_RELEASE_HITS, TM_GP_PREF_COUNT
+    TM_GP_GRAB_SPOT, TM_GP_YOUR_SPOT, TM_GP_PERCENT, TM_GP_MATE_PERCENT, TM_GP_MASH, TM_GP_FACING,
+    TM_GP_RELEASE_HITS, TM_GP_ROW_COUNT,
+    TM_GP_YOUR_TEAM = TM_GP_ROW_COUNT, TM_GP_ENEMY_TEAM, TM_GP_PREF_COUNT
 };
 #define TM_GP_LOCATION_COUNT 8 /* Random, then seven spots. */
 #define TM_GP_PERCENT_COUNT 6 /* 0% to 100% in steps of 20. */
 #define TM_GP_MASH_COUNT 4
 #define TM_GP_FACING_COUNT 3
+#define TM_GP_TEAM_COUNT 3 /* Red, Blue, Green. */
 #define TM_GP_DEFAULT_PERCENT 3 /* 60% */
 #define TM_GP_DEFAULT_MASH 1 /* Light Mash */
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Tipper / Off) and
@@ -283,6 +292,7 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value);
 int Settings_Status(void);
 void Settings_CommitPending(void);
 void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable);
+void Settings_RestoreCharacters(void);
 void Settings_EventCharacters(unsigned save);
 void Settings_ResetEventRecords(void *card);
 void *Settings_EventScoreSlot(unsigned event);

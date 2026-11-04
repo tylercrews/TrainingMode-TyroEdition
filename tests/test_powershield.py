@@ -235,6 +235,27 @@ class EventTests(unittest.TestCase):
                 self.assertEqual(self.info(0),frame)
                 self.assertEqual(self.info(7)&0xFFFFFFFF,color)
 
+    def test_rolling_or_spotdodging_out_of_laser_stun_fails_in_shines_fail_color(self):
+        for which,label in enumerate(('ROLL','ROLL','DODGE')):
+            for kind in (0,1,2):
+                with self.subTest(which=which,kind=kind):
+                    self.m.call('TestPSRestore'); self.contact(kind)
+                    self.sample(1,178 if kind else 14); self.phase(0)
+                    self.phase(2,self.m.call('TestPSEscape',which))
+                    self.assertEqual(self.label(0,1),label)
+                    self.assertEqual(self.info(7)&0xFFFFFFFF,0xFFA2BAFF)
+                    self.assertEqual(self.info(0),1)  # Still counted as the action.
+
+    def test_the_next_laser_clears_a_fail(self):
+        self.contact(); self.sample(1,14); self.phase(0)
+        self.phase(2,self.m.call('TestPSEscape',2))
+        self.contact()
+        self.assertEqual(self.label(0,1),'-')
+        self.assertEqual(self.info(7)&0xFFFFFFFF,0xFFFFFFFF)
+        self.sample(2,14); self.phase(0); self.phase(2,20)
+        self.assertEqual(self.info(0),1)
+        self.assertEqual(self.info(7)&0xFFFFFFFF,0x00FFFFFF)
+
     def test_new_contact_replaces_pending_and_cpu_or_nana_never_owns_human_result(self):
         self.contact();self.sample(1,87,1)
         self.contact(2,1,0,1);self.contact(2,1,0,2)

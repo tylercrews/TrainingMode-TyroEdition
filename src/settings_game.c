@@ -98,7 +98,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
         u32 extra=TMExtension_Read(extension_view(),TM_SETTING_OSD_COLOR_EXTRA,slot);
         return extra?TM_COLOR_LEGACY_COUNT-1+extra:base;
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER)
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN)
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index))
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
@@ -124,7 +124,7 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
         extension_set(TM_SETTING_OSD_COLOR_EXTRA,slot,extended?value-TM_COLOR_LEGACY_COUNT+1:0);
         if(extended) value=legacy_color[value-TM_COLOR_LEGACY_COUNT];
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER) {
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) {
         extension_set(field,index,value); return;
     }
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index)) {
@@ -240,5 +240,19 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
             backup[costume] = color < character_costumes[kind] ? color : 0;
         }
         backup[offset] = kind;
+    }
+}
+/* A team character select dresses everyone in their team's costume, so what
+ * the native backup just copied from it is nobody's normal choice. Put the
+ * saved choices back, for the next event's character select. */
+void Settings_RestoreCharacters(void) {
+    u8 *backup = (u8 *)stc_memcard + 3344;
+    for (unsigned player = 0; player < 2; ++player) {
+        unsigned offset = player ? 140 : 104, costume = player ? 143 : 107;
+        unsigned kind = Settings_Get(TM_SETTING_CHARACTER, player);
+        if (kind >= 26) { backup[costume] = 0; continue; }
+        unsigned color = Settings_Get(TM_SETTING_COSTUME, player);
+        backup[offset] = kind;
+        backup[costume] = color < character_costumes[kind] ? color : 0;
     }
 }

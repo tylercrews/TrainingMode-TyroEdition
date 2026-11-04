@@ -6,7 +6,8 @@
  * and the team colors. grabpunish_css.c keeps exactly one CPU on your team
  * there, and EventInit (GrabPunish_PrepareMatch in events.c) makes the match
  * the same way, so the CPU on your team is your teammate and the other is
- * the enemy.
+ * the enemy. The teams are saved for this event alone, and nothing picked
+ * there changes your normal character or costume.
  *
  * How long a grab holds. NTSC 1.02 sets the grabbed player's grab timer when
  * the grab connects (800DA944), with these PlCo.dat ftLoadCommonData values:
@@ -51,9 +52,10 @@
 #define KO_WAIT 60
 #define GRAB_IMMUNE 0x1FF        // grab.vuln: no grab type can catch this fighter.
 // The big countdown's HUD rect, just under the match timer, with its text's
-// size and black border. Bigger text sits lower in the rect.
+// size and black border. Bigger text sits lower in the rect: from this Y its
+// digits are 77 to 95 down the 640x480 screen, and the timer's end at 74.
 #define BIG_X -5.f
-#define BIG_Y 15.9f
+#define BIG_Y 12.9f
 #define BIG_WIDTH 10.f
 #define BIG_HEIGHT 2.5f
 #define BIG_SIZE 1.f
@@ -71,6 +73,7 @@ enum menu_options {
     OPT_GRAB_SPOT,
     OPT_YOUR_SPOT,
     OPT_PERCENT,
+    OPT_MATE_PERCENT,
     OPT_MASH,
     OPT_FACING,
     OPT_RELEASE_HITS,
@@ -103,7 +106,8 @@ static const char *Values_Percent[] = { "0%", "20%", "40%", "60%", "80%", "100%"
 
 // Each saved row's preference ID is its row number.
 typedef char grabpunish_saved_rows[((int)OPT_GRAB_SPOT == TM_GP_GRAB_SPOT && (int)OPT_YOUR_SPOT == TM_GP_YOUR_SPOT &&
-    (int)OPT_PERCENT == TM_GP_PERCENT && (int)OPT_MASH == TM_GP_MASH && (int)OPT_FACING == TM_GP_FACING &&
+    (int)OPT_PERCENT == TM_GP_PERCENT && (int)OPT_MATE_PERCENT == TM_GP_MATE_PERCENT &&
+    (int)OPT_MASH == TM_GP_MASH && (int)OPT_FACING == TM_GP_FACING &&
     (int)OPT_RELEASE_HITS == TM_GP_RELEASE_HITS &&
     countof(Values_Location) == TM_GP_LOCATION_COUNT && countof(Values_Percent) == TM_GP_PERCENT_COUNT &&
     countof(Values_Mash) == TM_GP_MASH_COUNT && countof(Values_Facing) == TM_GP_FACING_COUNT) ? 1 : -1];
@@ -144,6 +148,16 @@ static EventOption Options_Main[] = {
         .desc = {"The enemy's percent when grabbed. Higher percents",
                  "are held longer: 75 + 1.6 frames per percent",
                  "before mashing (0%: 75f, 60%: 171f, 100%: 235f).",
+                 "Takes effect on the next reset."},
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Teammate Percent",
+        .values = Values_Percent,
+        .value_num = countof(Values_Percent),
+        .OnChange = SaveSettings,
+        .desc = {"Your teammate's percent at the start of each grab.",
+                 "It doesn't change how long the enemy is held.",
                  "Takes effect on the next reset."},
     },
     {
@@ -213,11 +227,11 @@ EventMenu *Event_Menu = &Menu_Main;
 
 // The menu is saved to the memory card as it changes.
 static void SaveSettings(GOBJ *menu, int value) {
-    for (int i = 0; i < TM_GP_PREF_COUNT; i++)
+    for (int i = 0; i < TM_GP_ROW_COUNT; i++)
         TM_SetSetting(TM_SETTING_GRAB_PUNISH, i, Options_Main[i].val);
 }
 static void LoadSettings(void) {
-    for (int i = 0; i < TM_GP_PREF_COUNT; i++)
+    for (int i = 0; i < TM_GP_ROW_COUNT; i++)
         Options_Main[i].val = Options_Main[i].val_prev = TM_GetSetting(TM_SETTING_GRAB_PUNISH, i);
 }
 
@@ -509,7 +523,7 @@ static void SetPercent(int ply, float percent) {
 }
 
 /* The pair, your teammate facing the enemy, a gap apart that changes with
- * each try. Your teammate starts at 0%. */
+ * each try. Each try starts them both at their menu percents. */
 static void PlaceCPUs(void) {
     float half = Grab_Gaps[attempt.tries % countof(Grab_Gaps)] * .5f;
     float mid = attempt.mid;
@@ -519,10 +533,11 @@ static void PlaceCPUs(void) {
     Match_CorrectCamera();
 
     float percent = Options_Main[OPT_PERCENT].val * 20;
+    float mate_percent = Options_Main[OPT_MATE_PERCENT].val * 20;
     SetPercent(enemy_ply, percent);
-    SetPercent(mate_ply, 0);
+    SetPercent(mate_ply, mate_percent);
     attempt.enemy_pct = percent;
-    attempt.mate_pct = 0;
+    attempt.mate_pct = mate_percent;
 }
 
 static void CountAttempt(void) {

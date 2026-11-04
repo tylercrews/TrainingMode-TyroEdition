@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HMN, MATE, ENEMY = 0, 1, 2
 WAIT, CATCH = 14, 0xD4
 DPAD_LEFT = 1
-PERCENT_ROW, MASH_ROW, RELEASE_ROW = 2, 3, 5
+PERCENT_ROW, MATE_PERCENT_ROW, MASH_ROW, RELEASE_ROW = 2, 3, 4, 6
 NO_MASH = 0
 RED, WHITE, YELLOW = 0xFF2828, 0xFFFFFF, 0xFFF000
 RED_PULSE = (180, 140, 100, 60, 20, 60, 100, 140)
@@ -73,6 +73,39 @@ class GrabPunishTests(unittest.TestCase):
         self.step(30)
         self.assertEqual((self.info(3), self.info(4), self.info(5)), (60, 0, 60))
         self.assertEqual((self.info(0), self.info(1)), (1, 1))  # One save, one load, no loop.
+
+    def test_teammate_percent_defaults_to_zero_and_is_set_without_counting_as_a_hit(self):
+        self.step(30)
+        self.assertEqual((self.info(20), self.info(22)), (0, 0))
+        self.m.call('TestGPChoose', MATE_PERCENT_ROW, 4)
+        self.assertEqual(self.info(23), 4)
+        self.m.call('TestGPDown', DPAD_LEFT)
+        self.step()
+        self.m.call('TestGPDown', 0)
+        self.step(4)
+        self.assertEqual((self.info(20), self.info(21), self.info(22)), (80, 0, 80))
+        self.assertEqual((self.info(3), self.info(5)), (60, 60))  # The enemy's is separate.
+        self.assertEqual(self.info(19) & 0x10, 0)
+
+    def test_teammate_percent_doesnt_read_as_your_hit_on_them(self):
+        self.m.call('TestGPChoose', MATE_PERCENT_ROW, 2)
+        self.m.call('TestGPDown', DPAD_LEFT)
+        self.step()
+        self.m.call('TestGPDown', 0)
+        self.grab()
+        self.let_go()
+        self.assertEqual(self.time(), 'Release 30f')
+        self.step(35)
+        self.assertEqual(self.shown()[2], '0/1 (0.0%)')
+
+    def test_saving_a_row_leaves_the_saved_teams_alone(self):
+        self.m.call('TestGPChoose', MATE_PERCENT_ROW, 1)
+        self.assertEqual(self.info(24), 21)
+
+    def test_big_countdown_stays_under_the_timer(self):
+        self.grab(100)
+        self.assertEqual(self.big(), '100')
+        self.assertLessEqual(self.info(25), 129)
 
     def test_a_missed_grab_moves_only_the_cpus(self):
         self.m.call('TestGPMissGrabs', 1)

@@ -369,7 +369,7 @@ static void MC_Think(GOBJ *gobj)
         else if (!option || option->disable) { SFX_PlayCommon(4); return; }
         else if (option->kind == OPTKIND_MENU && option->menu) { EventMenu_NextMenu(gobj, option->menu); return; }
         else if (option->kind == OPTKIND_RESUME) { EventMenu_ExitMenu(gobj); return; }
-        else if (option->kind == OPTKIND_FUNC) { EventMenu_RunFuncOption(gobj, option); return; }
+        else if (option->kind == OPTKIND_FUNC) { EventMenu_SelectFuncOption(gobj, option); return; }
         else if (option->kind == OPTKIND_STRING || option->kind == OPTKIND_INT || option->kind == OPTKIND_TOGGLE) {
             data->picker = option; data->picker_value = option->val; data->picker_scroll = 0;
         } else return;

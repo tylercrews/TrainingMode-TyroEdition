@@ -140,6 +140,9 @@ typedef struct MenuData
     u8 preview_page;
     u8 preview_pages;
     JOBJ *row_icons[MENU_MAXOPTION]; /* stock icons for styled rows, made on first use */
+    EventOption *select_option;      /* A function row waiting on EventMenu_SelectFuncOption. */
+    u16 select_buttons;              /* The exit buttons already held when A was pressed. */
+    u8 select_timer;
 } MenuData;
 
 static inline int EventMenu_OptionCount(EventMenu *menu) {
@@ -172,6 +175,7 @@ void EventMenu_CreateText(GOBJ *gobj);
 void EventMenu_CreateModel(GOBJ *gobj);
 void EventMenu_MenuThink(GOBJ *gobj, EventMenu *currMenu);
 void EventMenu_RunFuncOption(GOBJ *gobj, EventOption *func_option);
+void EventMenu_SelectFuncOption(GOBJ *gobj, EventOption *func_option);
 void EventMenu_TextGX(GOBJ *gobj, int pass);
 void EventMenu_MenuGX(GOBJ *gobj, int pass);
 void EventMenu_Update(GOBJ *gobj);

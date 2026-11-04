@@ -15,8 +15,13 @@ SPOTS = {
     TOP_RIGHT: (590, 25, RIGHT),
     BOTTOM_LEFT: (50, 408, LEFT),
     BOTTOM_RIGHT: (590, 408, RIGHT),
-    UNDER_TIMER: (320, 55, CENTER),
+    UNDER_TIMER: (320, 75, CENTER),
 }
+PLATFORM_LEFT, PLATFORM_RIGHT, PLATFORM_Y = 20, 58, 27
+INSET, AIR_HEIGHT, CAMERA_TOP, AIR_CEILING = 5, 70, 150, 15
+UNDER, IN_AIR = 0, 1
+DIGIT_TOP = 4  # A full-size digit starts this far into its line.
+TIMER_BOTTOM = 74  # The HUD timer's digits, measured from a Dolphin screenshot.
 
 
 def build():
@@ -109,6 +114,117 @@ class EggCounterPositionTests(unittest.TestCase):
         self.assertEqual(self.info(8), 0)  # The rest of the reset still applies.
         self.m.call('TestEggsInit', self.info(0), 0)
         self.assert_placed(TOP_LEFT)
+
+
+    def test_under_timer_clears_the_timer(self):
+        self.start(UNDER_TIMER)
+        self.assertGreater(self.spot(SCORE)[1] + DIGIT_TOP, TIMER_BOTTOM)
+
+
+class EggSpawnTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def start(self, free_practice=1, platforms=1):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'eggs-probe.elf', 'TestEggsLoaded')
+        self.m.call('TestEggsStage', self.stage_id(platforms), platforms)
+        self.m.call('TestEggsInit', TOP_LEFT, free_practice)
+
+    def stage_id(self, platforms):
+        return self.m.call('TestEggsStageID', platforms)
+    def signed(self, value): return value - (1 << 32) if value >> 31 else value
+    def spawned(self, key): return self.signed(self.m.call('TestEggsSpawned', key)) / 1000
+    def info(self, key): return self.m.call('TestEggsSpawnInfo', key)
+    def spawn(self, pick, side=1):
+        self.m.call('TestEggsSpawn', pick, side)
+        return self.spawned(0), self.spawned(1), self.spawned(2)
+    def set(self, option, value=1): self.m.call('TestEggsSpawnOption', option, value)
+    def fall(self, velocity): return self.signed(self.m.call('TestEggsFall', velocity))
+
+    def test_the_rows_are_free_practice_only_and_saved(self):
+        self.start(free_practice=0)
+        self.assertEqual((self.info(4), self.info(5)), (1, 1))
+        self.start(free_practice=1)
+        self.assertEqual((self.info(4), self.info(5)), (0, 0))
+        self.set(IN_AIR)
+        self.assertEqual((self.info(0), self.info(1)), (0, 1))
+        self.set(UNDER)
+        self.assertEqual((self.info(0), self.info(1)), (1, 1))
+
+    def test_reset_event_settings_turns_them_off(self):
+        self.start()
+        self.set(UNDER); self.set(IN_AIR)
+        self.m.call('TestEggsResetSpawn')
+        self.assertEqual([self.info(key) for key in range(4)], [0, 0, 0, 0])
+
+    def test_timed_runs_ignore_the_options(self):
+        self.start(free_practice=0)
+        self.set(UNDER); self.set(IN_AIR)
+        for pick in (0, 1, 2):
+            x, y, velocity = self.spawn(pick)
+            self.assertGreaterEqual(velocity, 2)
+            self.assertIn(y, (0, PLATFORM_Y))
+
+    def test_with_both_off_eggs_spawn_as_before(self):
+        self.start()
+        for pick in (0, 1):
+            x, y, velocity = self.spawn(pick)
+            self.assertGreaterEqual(velocity, 2)
+            self.assertIn(y, (0, PLATFORM_Y))
+
+    def test_under_platform_eggs_are_on_the_ground_below_either_platform_with_no_hop(self):
+        self.start()
+        self.set(UNDER)
+        for side in (1, 0, 1, 0, 1, 0):
+            x, y, velocity = self.spawn(1, side)
+            self.assertEqual((y, velocity), (0, 0))
+            self.assertLessEqual(PLATFORM_LEFT + INSET, abs(x))
+            self.assertLessEqual(abs(x), PLATFORM_RIGHT - INSET)
+            self.assertEqual(x > 0, bool(side))
+
+    def test_a_stage_without_side_platforms_spawns_a_normal_egg_instead(self):
+        self.start(platforms=0)
+        self.set(UNDER)
+        x, y, velocity = self.spawn(1)
+        self.assertEqual(y, 0)
+        self.assertGreaterEqual(velocity, 2)
+
+    def test_eggs_in_the_air_start_high_with_no_hop(self):
+        self.start()
+        self.set(IN_AIR)
+        heights = []
+        for i in range(8):
+            x, y, velocity = self.spawn(1)
+            ground = self.spawned(4)
+            self.assertEqual(velocity, 0)
+            self.assertEqual(self.spawned(3), y)
+            self.assertGreaterEqual(y, ground + AIR_HEIGHT)
+            self.assertLessEqual(y, CAMERA_TOP - AIR_CEILING)
+            heights.append(y)
+        self.assertGreater(len(set(heights)), 1)
+
+    def test_only_eggs_in_the_air_fall_slowly(self):
+        self.start()
+        self.set(IN_AIR)
+        self.spawn(1)
+        self.assertEqual(self.fall(-3000), -600)
+        self.assertEqual(self.fall(-300), -300)
+        self.assertEqual(self.fall(2000), 2000)
+        self.spawn(0)
+        self.assertEqual(self.fall(-3000), -3000)
+
+    def test_both_on_share_the_draw_with_normal_eggs(self):
+        self.start()
+        self.set(UNDER); self.set(IN_AIR)
+        x, y, velocity = self.spawn(0)
+        self.assertGreaterEqual(velocity, 2)
+        # The far platform: eggs don't spawn right next to the last one.
+        x, y, velocity = self.spawn(1, 0 if x > 0 else 1)
+        self.assertEqual((y, velocity), (0, 0))
+        x, y, velocity = self.spawn(2)
+        self.assertEqual(velocity, 0)
+        self.assertGreaterEqual(y, AIR_HEIGHT)
 
 
 if __name__ == '__main__':
