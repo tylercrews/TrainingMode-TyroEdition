@@ -245,8 +245,8 @@ Hit Number selects one of ten records. Counter Logic gates the six custom action
 
 | CPU / menu title | Rows, in current order |
 | --- | --- |
-| Fox / Fox Recovery | 1. Firefox Low; 2. Firefox Mid; 3. Firefox High; 4. Double Jump; 5. Fast Fall; 6. Illusion Instant; 7. Illusion Ledge Sweetspot; 8. Illusion To Ledge; 9. Illusion To Stage; 10. Illusion To Side Plat; 11. Illusion Shortest Shorten (T9) |
-| Falco / Falco Recovery | 1. Firebird Low; 2. Firebird Mid; 3. Firebird High; 4. Double Jump; 5. Fast Fall; 6. Phantasm Instant; 7. Phantasm Ledge Sweetspot; 8. Phantasm To Ledge; 9. Phantasm To Stage; 10. Phantasm To Side Plat; 11. Phantasm Shortest Shorten (T9) |
+| Fox / Fox Recovery | 1. Firefox Low; 2. Firefox Mid; 3. Firefox High; 4. Double Jump; 5. Fast Fall; 6. Illusion Instant; 7. Illusion Ledge Sweetspot; 8. Illusion To Ledge; 9. Illusion To Main Stage; 10. Illusion To Side Plat; 11. Illusion Shortest Shorten (T9) |
+| Falco / Falco Recovery | 1. Firebird Low; 2. Firebird Mid; 3. Firebird High; 4. Double Jump; 5. Fast Fall; 6. Phantasm Instant; 7. Phantasm Ledge Sweetspot; 8. Phantasm To Ledge; 9. Phantasm To Main Stage; 10. Phantasm To Side Plat; 11. Phantasm Shortest Shorten (T9) |
 | Sheik / Sheik Recovery | 1. Vanish to Ledge; 2. Vanish to Stage; 3. Vanish High; 4. Double Jump; 5. Fair; 6. Amsah Tech |
 | Captain Falcon / Falcon Recovery | 1. Falcon Dive; 2. Drift Back; 3. Double Jump; 4. Fast Fall; 5. Falcon Kick |
 | Marth / Marth Recovery | 1. Dolphin Slash Early; 2. Double Jump; 3. Dancing Blade; 4. Fair |

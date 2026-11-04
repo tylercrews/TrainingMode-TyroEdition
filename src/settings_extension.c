@@ -65,7 +65,7 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
 static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {0,9,301,100}, {9,9,301,120}, {18,7,91,45}, {25,7,91,60},
     {0,10,999,0}, {10,10,1000,50}, {20,10,1000,80},
-    {0,3,5,1}, {3,6,64,1}, {9,6,64,1}, {15,6,64,7}, {21,5,32,3}, {26,4,16,3},
+    {0,3,TM_EG_KB_HEIGHT_COUNT,1}, {3,6,64,1}, {9,6,64,1}, {15,6,64,7}, {21,5,32,3}, {26,4,16,3},
     /* word 64: Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus */
     {0,5,32,7}, {5,5,32,7}, {10,5,32,7}, {15,5,32,3}, {20,3,8,3}, {23,4,16,15}, {27,5,32,15},
     /* word 60 again: Player Position */
@@ -74,14 +74,14 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {30,1,2,0},
     /* word 20: Side */
     {24,2,TM_EG_SIDE_COUNT,TM_EG_SIDE_RANDOM},
-    /* word 68: Fox's and Falco's side-B rows after their first six */
-    {19,5,32,0}, {24,5,32,0},
+    /* word 68: Fox's and Falco's side-B rows after their first six, Knockback Distance */
+    {19,5,32,0}, {24,5,32,0}, {29,3,TM_EG_KB_DISTANCE_COUNT+1,0},
 };
 /* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..13 and Up-B
  * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
- * so Edgeguard's spacie side-B masks took bits 19..28 and Grab Punish's Count
- * Release Hits bit 13 with no version bump (zero is off). Bits 14..15 and
- * 29..31 are still spare. */
+ * so Edgeguard's spacie side-B masks took bits 19..28, its Knockback Distance
+ * bits 29..31 and Grab Punish's Count Release Hits bit 13 with no version bump
+ * (zero is off, or a save from before Distance). Bits 14..15 are still spare. */
 #define EVENT_MENUS_OFFSET 68
 #define EVENT_MENUS_SIZE 4
 static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
@@ -208,7 +208,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
             index==TM_EG_CAMERA?EDGEGUARD_OFFSET+4:
             index==TM_EG_SIDE?20:
             index>=TM_EG_RECOVERY_YOSHI?EDGEGUARD2_OFFSET:
-            EDGEGUARD_OFFSET+(index>=TM_EG_HIT_STRENGTH?8:index>=TM_EG_PLAYER_PERCENT?4:0);
+            EDGEGUARD_OFFSET+(index>=TM_EG_KB_HEIGHT?8:index>=TM_EG_PLAYER_PERCENT?4:0);
     if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || field==TM_SETTING_SWEETSPOT_DJ ||
         field==TM_SETTING_SWEETSPOT || (field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY)) return 20;
     if(field==TM_SETTING_LEDGECHASE && (index==TM_LEDGECHASE_PRESET || index==TM_LEDGECHASE_AIR_ATTACK)) return 16;

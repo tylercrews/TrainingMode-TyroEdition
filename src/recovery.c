@@ -329,9 +329,10 @@ static EventOption RecOptions_Fox[] = {
     },
     {
         .kind = OPTKIND_TOGGLE,
-        .name = "Illusion To Stage",
-        .desc = {"Allow Fox to jump up and side special onto",
-                 "the stage, through you if you're near the ledge."},
+        .name = "Illusion To Main Stage",
+        .desc = {"Allow Fox to jump up and side special right",
+                 "above the ledge, onto the main stage and",
+                 "through you if you're near the ledge."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -405,9 +406,10 @@ static EventOption RecOptions_Falco[] = {
     },
     {
         .kind = OPTKIND_TOGGLE,
-        .name = "Phantasm To Stage",
-        .desc = {"Allow Falco to jump up and side special onto",
-                 "the stage, through you if you're near the ledge."},
+        .name = "Phantasm To Main Stage",
+        .desc = {"Allow Falco to jump up and side special right",
+                 "above the ledge, onto the main stage and",
+                 "through you if you're near the ledge."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -1037,7 +1039,8 @@ enum spacie_plan {
 
 typedef struct SpaciePlan {
     int kind;
-    float lo, hi;    // side-B with the feet this high above the ledge
+    float lo, hi;    // side-B with the feet this high above the ledge (for
+                     // To Main Stage, the height of the dash itself)
     float aim;       // and this far outside it when the dash starts
     float jump_at;   // double jump on the way down past this height
     bool shorten;    // B again on the dash's first frame
@@ -1236,10 +1239,11 @@ static int SideBStep(SideBSim *s, float vx, float vy) {
     return SIDEB_NOTHING;
 }
 
-// Where a side-B started on the next frame ends: a ledge grab (in the startup,
-// dash or endlag, with the endlag frame), a landing, or a miss. `shorten`
-// presses B again on the dash's first frame.
-static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int *frame) {
+// Where a side-B started this frame ends: a ledge grab (in the startup, dash
+// or endlag, with the endlag frame), a landing, or a miss, and the height the
+// dash runs at. `shorten` presses B again on the dash's first frame. The press
+// takes effect this frame: Event_Think runs before Fighter_procInput.
+static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int *frame, float *dash_h) {
     CollData *coll = &ft->coll_data;
     SideBSim s = {
         .g = g, .out = g->out, .h = g->h, .kbx = g->kbx, .kby = g->kby,
@@ -1251,6 +1255,7 @@ static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int 
     float terminal = ft->attr.terminal_velocity;
     int result;
     *frame = 0;
+    *dash_h = g->h;
 
     float vx = g->vx / SP_ATTR(ft, 0x28), vy = 0.f;
     int delay = SP_ATTR(ft, 0x24);
@@ -1263,6 +1268,8 @@ static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int 
         if ((result = SideBStep(&s, vx, vy)) != SIDEB_NOTHING)
             return result == SIDEB_GRAB ? SIDEB_GRAB_STARTUP : result;
     }
+
+    *dash_h = s.h;
 
     // A frame before the steps, or only that frame when shortened.
     float step = SpacieDashStep(ft);
@@ -1288,15 +1295,17 @@ static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int 
     return SIDEB_MISS;
 }
 
-// Whether a side-B started on the next frame ends the way the plan wants.
+// Whether a side-B started this frame ends the way the plan wants.
 static bool SpacieSideBWorks(FighterData *ft, const SpacieGeo *g, const SpaciePlan *p) {
     int frame;
-    int result = SimulateSideB(ft, g, p->shorten, &frame);
+    float dash_h;
+    int result = SimulateSideB(ft, g, p->shorten, &frame, &dash_h);
     switch (p->kind) {
         case SP_PLAN_SWEETSPOT: return result == SIDEB_GRAB_DASH;
         case SP_PLAN_TO_LEDGE: return result == SIDEB_GRAB_ENDLAG && frame >= SP_LINGER_FEWEST;
         case SP_PLAN_SHORTEN: return result == SIDEB_GRAB_ENDLAG;
-        case SP_PLAN_TO_STAGE: return result == SIDEB_LAND_STAGE;
+        case SP_PLAN_TO_STAGE:
+            return result == SIDEB_LAND_STAGE && p->lo <= dash_h && dash_h <= p->hi;
         case SP_PLAN_TO_PLAT: return result == SIDEB_LAND_PLAT;
     }
     return false;
@@ -1308,6 +1317,14 @@ static float SpacieDashStartOut(FighterData *ft, const SpacieGeo *g) {
     float kb = sqrtf(g->kbx * g->kbx + g->kby * g->kby);
     float carry = g->kbx * kb / (2.f * (*stc_ftcommon)->kb_frameDecay);
     return g->out - SpacieStartupDrift(ft, g->vx) - carry;
+}
+
+// The height the knockback left will still add.
+static float SpacieCarryUp(const SpacieGeo *g) {
+    if (g->kby <= 0.f)
+        return 0.f;
+    float kb = sqrtf(g->kbx * g->kbx + g->kby * g->kby);
+    return g->kby * kb / (2.f * (*stc_ftcommon)->kb_frameDecay);
 }
 
 // How far the CPU drifts in `frames` frames holding one way from X speed v
@@ -1333,7 +1350,7 @@ static bool SpacieCanReach(FighterData *ft, const SpacieGeo *g, const SpaciePlan
     float latest_jump = p->lo - rise + 3.f;
     float vy = g->vy + g->kby;
     // The top of a rise already underway; jumping there goes highest.
-    float peak = g->h + (vy > 0.f ? vy * vy / (2.f * ft->attr.gravity) : 0.f);
+    float peak = g->h + SpacieCarryUp(g) + (vy > 0.f ? vy * vy / (2.f * ft->attr.gravity) : 0.f);
     int frames;
     if (can_jump) {
         if (peak + rise < p->lo)
@@ -1407,17 +1424,22 @@ static SpaciePlan SpacieMakePlan(FighterData *ft, const SpacieGeo *g, int kind) 
             p.shorten = true;
             break;
         case SP_PLAN_TO_STAGE: {
-            // From near where the CPU is, through a player standing near the ledge.
-            float lo = 4.f, hi = dash - 6.f;
+            // The dash runs right above the ledge, from near where the CPU is.
+            // It can start a little past a full dash: the endlag carries it
+            // the rest of the way.
+            float here = SpacieDashStartOut(ft, g) + SpacieRand(-8.f, 8.f);
+            p.lo = 1.f;
+            p.hi = 5.f;
+            p.aim = fclamp(here, 4.f, dash + 6.f);
+            // Through a player standing near the ledge, when it can get there.
             FighterData *hmn = Fighter_GetGObj(0)->userdata;
             float hmn_out = (g->ledge.X - hmn->phys.pos.X) * g->dir;
             if (hmn->phys.air_state == 0 && hmn_out <= 0.f && hmn_out > 10.f - dash) {
-                lo = fmax(lo, hmn_out + 6.f);
-                hi = hmn_out + dash - 6.f;
+                SpaciePlan through = p;
+                through.aim = fclamp(here, fmax(4.f, hmn_out + 6.f), hmn_out + dash - 6.f);
+                if (SpacieCanReach(ft, g, &through))
+                    p.aim = through.aim;
             }
-            p.lo = 3.f;
-            p.hi = 10.f;
-            p.aim = fclamp(SpacieDashStartOut(ft, g) + SpacieRand(-8.f, 8.f), lo, hi);
             break;
         }
         case SP_PLAN_TO_PLAT: {
@@ -1495,7 +1517,10 @@ static bool SpacieSideBThink(FighterData *ft, u32 opt_flags, const SpacieGeo *g)
         SpacieSideB(ft, g);
         return true;
     }
-    if (p->lo <= g->h && g->h <= p->hi && SpacieSideBWorks(ft, g, p)) {
+    // Knockback left lifts the CPU through the startup, so To Main Stage goes
+    // by where the dash will run, not by where the press is.
+    bool in_band = p->kind == SP_PLAN_TO_STAGE || (p->lo <= g->h && g->h <= p->hi);
+    if (in_band && SpacieSideBWorks(ft, g, p)) {
         SpacieSideB(ft, g);
         return true;
     }
@@ -1508,7 +1533,7 @@ static bool SpacieSideBThink(FighterData *ft, u32 opt_flags, const SpacieGeo *g)
     float stick_x = off > 2.f ? g->dir : off < -2.f ? -g->dir : 0.f;
 
     if (g->h < p->lo && !rising) {
-        if (!can_jump || g->h + rise < p->lo) {
+        if (!can_jump || g->h + rise + SpacieCarryUp(g) < p->lo) {
             SpacieFallBack(ft, opt_flags, g);
             return false;
         }

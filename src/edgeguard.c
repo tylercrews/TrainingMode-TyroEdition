@@ -6,6 +6,9 @@
 // how far inland the hmn starts with Player Position on At Ledge
 #define AT_LEDGE_DISTANCE 5
 
+// how far off the ledge a launch starts when it can't start on the stage
+#define LAUNCH_OFF_LEDGE 2
+
 // how many frames it takes to reset after the cpu dies or successfully recovers
 #define RESET_DELAY 30
 
@@ -16,8 +19,8 @@ EventMenu *Event_Menu = &Menu_Main;
 
 // Saved settings ---------------------------------------
 
-/* Saved field for each Custom Hit Strength row, in row order. */
-static const u8 CustomHitStrength_Prefs[OPT_CUSTOMHIT_COUNT] = {
+/* Saved field for each Custom Knockback row, in row order. */
+static const u8 CustomKnockback_Prefs[OPT_CUSTOMKB_COUNT] = {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
 };
@@ -79,32 +82,45 @@ static void SaveRecoveryRows(EventMenu *menu, int pref, u32 rows) {
     TM_SetSetting(TM_SETTING_EDGEGUARD, pref, rows);
 }
 
+/* Height shares the field of the Hit Strength it replaced. Distance is stored
+ * plus 1, so 0 is a save from before these rows, which only has Hit Strength:
+ * each of its choices becomes the nearest spot. */
+static void LoadKnockback(void) {
+    static const u8 from_hit_strength[TM_EG_KB_HEIGHT_COUNT][2] = {
+        { KB_HEIGHT_LOW, KB_DISTANCE_CLOSE },      // Weak
+        { KB_HEIGHT_LOW, KB_DISTANCE_NEAR },       // Normal
+        { KB_HEIGHT_HIGH, KB_DISTANCE_MEDIUM },    // Hard
+        { KB_HEIGHT_VERY_LOW, KB_DISTANCE_FAR },   // Shallow
+        { KB_HEIGHT_CUSTOM, KB_DISTANCE_NEAR },    // Custom
+    };
+    int height = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_KB_HEIGHT);
+    int distance = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_KB_DISTANCE);
+    if (distance == 0) {
+        distance = from_hit_strength[height][1] + 1;
+        height = from_hit_strength[height][0];
+    }
+    Options_Main[OPT_MAIN_KB_HEIGHT].val = height;
+    Options_Main[OPT_MAIN_KB_DISTANCE].val = distance - 1;
+    Options_Main[OPT_MAIN_KB_DISTANCE].disable = height == KB_HEIGHT_CUSTOM;
+}
+
 static void SaveSettings(void) {
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE, Options_Main[OPT_MAIN_SIDE].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT, Options_Main[OPT_MAIN_PERCENT].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION, Options_Main[OPT_MAIN_POSITION].val);
-    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH, Options_Main[OPT_MAIN_HITSTRENGTH].val);
-    for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
-        TM_SetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i], Options_CustomHitStrength[i].val);
-}
-
-static void LoadCustomKBRange(void) {
-    HitStrength_KBRange[KBVALS_CUSTOM].mag_min = Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMIN].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].mag_max = Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMAX].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].ang_min = Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMIN].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].ang_max = Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMAX].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].dmg_min = Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMIN].val;
-    HitStrength_KBRange[KBVALS_CUSTOM].dmg_max = Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMAX].val;
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_KB_HEIGHT, Options_Main[OPT_MAIN_KB_HEIGHT].val);
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_KB_DISTANCE, Options_Main[OPT_MAIN_KB_DISTANCE].val + 1);
+    for (int i = 0; i < OPT_CUSTOMKB_COUNT; ++i)
+        TM_SetSetting(TM_SETTING_EDGEGUARD, CustomKnockback_Prefs[i], Options_CustomKnockback[i].val);
 }
 
 static void LoadSettings(EventMenu *recovery_menu) {
     Options_Main[OPT_MAIN_SIDE].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE);
     Options_Main[OPT_MAIN_PERCENT].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT);
     Options_Main[OPT_MAIN_POSITION].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION);
-    Options_Main[OPT_MAIN_HITSTRENGTH].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_HIT_STRENGTH);
-    for (int i = 0; i < OPT_CUSTOMHIT_COUNT; ++i)
-        Options_CustomHitStrength[i].val = TM_GetSetting(TM_SETTING_EDGEGUARD, CustomHitStrength_Prefs[i]);
-    LoadCustomKBRange();
+    LoadKnockback();
+    for (int i = 0; i < OPT_CUSTOMKB_COUNT; ++i)
+        Options_CustomKnockback[i].val = TM_GetSetting(TM_SETTING_EDGEGUARD, CustomKnockback_Prefs[i]);
     Options_Main[OPT_MAIN_BLAST_ZONES].val = Options_Main[OPT_MAIN_BLAST_ZONES].val_prev =
         !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES);
     Options_Main[OPT_MAIN_CAMERA].val = Options_Main[OPT_MAIN_CAMERA].val_prev =
@@ -333,6 +349,83 @@ static void Reset_CPU(GOBJ *cpu, int side_idx, int dmg, float kb_mag, float kb_a
     Fighter_SetHUDDamage(cpu_data->ply, dmg);
 }
 
+/* The knockback and angle that end this CPU's hitstun (x, y) from where it's
+ * launched. Hitstun lasts floor(0.4 * knockback) frames. Every frame the
+ * knockback speed, 0.03 * knockback less 0.051 a frame, carries the CPU along
+ * the angle and it falls by its own speed (Fighter_procUpdate), so each length
+ * of hitstun has one knockback that covers the distance. The right length is
+ * the first that knockback doesn't outlast. */
+static void SolveLaunch(FighterData *ft, float x, float y, float *mag, float *angle) {
+    float speed = (*stc_ftcommon)->force_applied_to_kb_mag_multiplier;
+    float rate = (*stc_ftcommon)->x154;
+    float decay = (*stc_ftcommon)->kb_frameDecay;
+    float fall = 0.f, fall_speed = 0.f;
+    for (int frames = 1; frames < 300; ++frames) {
+        fall_speed = fmin(fall_speed + ft->attr.gravity, ft->attr.terminal_velocity);
+        fall += fall_speed;
+        float rise = y + fall;
+        float distance = sqrtf(x * x + rise * rise);
+        *mag = (distance / frames + decay * (frames + 1) * 0.5f) / speed;
+        *angle = atan2(rise, x) / M_1DEGREE;
+        if ((int)(rate * *mag) <= frames) {
+            *mag = fmax(*mag, (frames + 0.01f) / rate); // exactly `frames` of hitstun
+            return;
+        }
+    }
+}
+
+/* Whether a launch from `inland` of the ledge stays off the stage. Landing in
+ * hitstun would be a knockdown, not a recovery. */
+static bool LaunchClearsStage(FighterData *ft, float inland, float mag, float angle) {
+    float speed = mag * (*stc_ftcommon)->force_applied_to_kb_mag_multiplier;
+    float cos_angle = cos(angle * M_1DEGREE), sin_angle = sin(angle * M_1DEGREE);
+    float out = -inland, height = 0.f, fall_speed = 0.f;
+    while (out < 0.f) {
+        speed -= (*stc_ftcommon)->kb_frameDecay;
+        if (speed <= 0.f)
+            return false;
+        fall_speed = fmin(fall_speed + ft->attr.gravity, ft->attr.terminal_velocity);
+        out += speed * cos_angle;
+        height += speed * sin_angle - fall_speed;
+        if (height < 1.f)
+            return false;
+    }
+    return true;
+}
+
+/* This attempt's knockback and angle, from `distance` inland of the ledge or,
+ * if that launch would touch the stage, from just off it. Floaty CPUs need that
+ * to end low: they fall too little in hitstun for an upward launch to get
+ * there. Returns the CPU's percent. */
+static int ChooseLaunch(FighterData *ft, int side_idx, float *distance, float *mag, float *angle) {
+    int height = Options_Main[OPT_MAIN_KB_HEIGHT].val;
+    if (height == KB_HEIGHT_CUSTOM) {
+        EventOption *custom = Options_CustomKnockback;
+        int mag_min = custom[OPT_CUSTOMKB_MAGMIN].val, mag_max = custom[OPT_CUSTOMKB_MAGMAX].val;
+        int ang_min = custom[OPT_CUSTOMKB_ANGMIN].val, ang_max = custom[OPT_CUSTOMKB_ANGMAX].val;
+        int dmg_min = custom[OPT_CUSTOMKB_DMGMIN].val, dmg_max = custom[OPT_CUSTOMKB_DMGMAX].val;
+        *mag = mag_min + (mag_max - mag_min) * HSD_Randf();
+        *angle = ang_min + (ang_max - ang_min) * HSD_Randf();
+        return dmg_min + HSD_Randi(dmg_max - dmg_min);
+    }
+    if (height == KB_HEIGHT_RANDOM)
+        height = KB_HEIGHT_VERY_HIGH + HSD_Randi(KB_HEIGHT_CUSTOM - KB_HEIGHT_VERY_HIGH);
+    int spot = Options_Main[OPT_MAIN_KB_DISTANCE].val;
+    if (spot == KB_DISTANCE_RANDOM)
+        spot = KB_DISTANCE_CLOSE + HSD_Randi(KB_DISTANCE_COUNT - KB_DISTANCE_CLOSE);
+
+    KBRange ups = Knockback_Heights[height], outs = Knockback_Distances[spot];
+    float up = ups.min + (ups.max - ups.min) * HSD_Randf();
+    float out = outs.min + (outs.max - outs.min) * HSD_Randf();
+    float y = ledge_positions[side_idx].Y + up; // launches start at y = 0
+    SolveLaunch(ft, out + *distance, y, mag, angle);
+    if (!LaunchClearsStage(ft, *distance, *mag, *angle)) {
+        *distance = -LAUNCH_OFF_LEDGE;
+        SolveLaunch(ft, out + *distance, y, mag, angle);
+    }
+    return KB_PERCENT_MIN + HSD_Randi(KB_PERCENT_MAX - KB_PERCENT_MIN);
+}
+
 static void Reset(void) {
     event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
     edgeguard_timer = 0;
@@ -347,11 +440,7 @@ static void Reset(void) {
     // launched leftward. 1 is the right.
     int side = Options_Main[OPT_MAIN_SIDE].val;
     int side_idx = side == TM_EG_SIDE_LEFT ? 0 : side == TM_EG_SIDE_RIGHT ? 1 : HSD_Randi(2);
-    KBValues vals = HitStrength_KBRange[Options_Main[OPT_MAIN_HITSTRENGTH].val];
-    float kb_mag = vals.mag_min + (vals.mag_max - vals.mag_min) * HSD_Randf();
-    float kb_angle = vals.ang_min + (vals.ang_max - vals.ang_min) * HSD_Randf();
     int hmn_dmg = Options_Main[OPT_MAIN_PERCENT].val;
-    int cpu_dmg = vals.dmg_min + HSD_Randi(vals.dmg_max - vals.dmg_min);
 
     // The cpu keeps its usual launch spot, unless the hmn starts closer to the
     // ledge: then the cpu is launched from the hmn's spot, so the bair still
@@ -361,6 +450,8 @@ static void Reset(void) {
 
     GOBJ *hmn = Fighter_GetSubcharGObj(0, 0);
     GOBJ *cpu = Fighter_GetSubcharGObj(1, 0);
+    float kb_mag, kb_angle;
+    int cpu_dmg = ChooseLaunch(cpu->userdata, side_idx, &cpu_distance, &kb_mag, &kb_angle);
     Reset_HMN(hmn, side_idx, hmn_dmg, hmn_distance);
     Reset_CPU(cpu, side_idx, cpu_dmg, kb_mag, kb_angle, cpu_distance);
     
@@ -395,7 +486,12 @@ static void ChangePlayerPosition(GOBJ *menu_gobj, int value) {
     SaveSettings();
 }
 
-static void ChangeHitStrength(GOBJ *menu_gobj, int value) {
+static void ChangeKnockbackHeight(GOBJ *menu_gobj, int value) {
+    Options_Main[OPT_MAIN_KB_DISTANCE].disable = value == KB_HEIGHT_CUSTOM;
+    SaveSettings();
+}
+
+static void ChangeKnockbackDistance(GOBJ *menu_gobj, int value) {
     SaveSettings();
 }
 
@@ -409,44 +505,44 @@ static void ChangeCamera(GOBJ *menu_gobj, int value) {
 }
 
 static void WriteCustomKBValues(void) {
-    LoadCustomKBRange();
-    Options_Main[OPT_MAIN_HITSTRENGTH].val = KBVALS_CUSTOM;
+    Options_Main[OPT_MAIN_KB_HEIGHT].val = KB_HEIGHT_CUSTOM;
+    Options_Main[OPT_MAIN_KB_DISTANCE].disable = 1;
     SaveSettings();
 }
 
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value) {
-    s16 *min = &Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMIN].val;
-    s16 *max = &Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMAX].val;
+    s16 *min = &Options_CustomKnockback[OPT_CUSTOMKB_MAGMIN].val;
+    s16 *max = &Options_CustomKnockback[OPT_CUSTOMKB_MAGMAX].val;
     if (*min > *max) *max = *min;
     WriteCustomKBValues();
 }
 static void ChangeCustomKB_MagMax(GOBJ *menu_gobj, int value) {
-    s16 *min = &Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMIN].val;
-    s16 *max = &Options_CustomHitStrength[OPT_CUSTOMHIT_MAGMAX].val;
+    s16 *min = &Options_CustomKnockback[OPT_CUSTOMKB_MAGMIN].val;
+    s16 *max = &Options_CustomKnockback[OPT_CUSTOMKB_MAGMAX].val;
     if (*min > *max) *min = *max;
     WriteCustomKBValues();
 }
 static void ChangeCustomKB_AngMin(GOBJ *menu_gobj, int value) {
-    s16 *min = &Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMIN].val;
-    s16 *max = &Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMAX].val;
+    s16 *min = &Options_CustomKnockback[OPT_CUSTOMKB_ANGMIN].val;
+    s16 *max = &Options_CustomKnockback[OPT_CUSTOMKB_ANGMAX].val;
     if (*min > *max) *max = *min;
     WriteCustomKBValues();
 }
 static void ChangeCustomKB_AngMax(GOBJ *menu_gobj, int value) {
-    s16 *min = &Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMIN].val;
-    s16 *max = &Options_CustomHitStrength[OPT_CUSTOMHIT_ANGMAX].val;
+    s16 *min = &Options_CustomKnockback[OPT_CUSTOMKB_ANGMIN].val;
+    s16 *max = &Options_CustomKnockback[OPT_CUSTOMKB_ANGMAX].val;
     if (*min > *max) *min = *max;
     WriteCustomKBValues();
 }
 static void ChangeCustomKB_DmgMin(GOBJ *menu_gobj, int value) {
-    s16 *min = &Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMIN].val;
-    s16 *max = &Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMAX].val;
+    s16 *min = &Options_CustomKnockback[OPT_CUSTOMKB_DMGMIN].val;
+    s16 *max = &Options_CustomKnockback[OPT_CUSTOMKB_DMGMAX].val;
     if (*min > *max) *max = *min;
     WriteCustomKBValues();
 }
 static void ChangeCustomKB_DmgMax(GOBJ *menu_gobj, int value) {
-    s16 *min = &Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMIN].val;
-    s16 *max = &Options_CustomHitStrength[OPT_CUSTOMHIT_DMGMAX].val;
+    s16 *min = &Options_CustomKnockback[OPT_CUSTOMKB_DMGMIN].val;
+    s16 *max = &Options_CustomKnockback[OPT_CUSTOMKB_DMGMAX].val;
     if (*min > *max) *min = *max;
     WriteCustomKBValues();
 }

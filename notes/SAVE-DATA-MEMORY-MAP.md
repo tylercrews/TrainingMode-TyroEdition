@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **34 loose bits** inside the record |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **30 loose bits** inside the record |
 | **Unallocated spare score slots** | `0x1B28..0x1B37` | **16 bytes** | nothing | **16 bytes (128 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -134,9 +134,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 51 | Character select | **CPU costume** (0..5) | top 5 bits |
 | 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bit 31 of word 56 |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
-| 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows) | word 68 (table below) | bits 13-15, 29-31 |
+| 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | bits 14-15 |
 
-Free bits inside the record: 2 + 6 + 2 + 4 + 1 + 2 + 10 + 1 + 6 = **34 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 2 + 6 + 2 + 4 + 1 + 2 + 10 + 1 + 2 = **30 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -216,7 +216,7 @@ Free bits inside the record: 2 + 6 + 2 + 4 + 1 + 2 + 10 + 1 + 6 = **34 bits**. T
 | 27-29 | Side-B Sweetspot: Knockback (T9): 0 Random (default), 1..6 the presets (Above, Close to Below, Far), 7 Random Preset. No version bump, same reason |
 | 30-31 | *free* |
 
-**Word 52: Edgeguard Custom Hit Strength** (fully used)
+**Word 52: Edgeguard Custom Knockback** (fully used)
 
 | Bits | Setting |
 | --- | --- |
@@ -235,13 +235,13 @@ Free bits inside the record: 2 + 6 + 2 + 4 + 1 + 2 + 10 + 1 + 6 = **34 bits**. T
 | 30 | Camera (T8): 0 Normal (default), 1 Zoomed Out. Every record that owned word 56 had this bit clear, so older saves read as Normal with no version bump. |
 | 31 | *free* |
 
-**Word 60: Edgeguard Hit Strength, recovery options and Player Position** (fully used)
+**Word 60: Edgeguard Knockback Height, recovery options and Player Position** (fully used)
 
 Each recovery mask has one bit per row of that CPU's Recovery Options menu, in row order ([src/recovery.c](../src/recovery.c)). Defaults match the menu's defaults.
 
 | Bits | Setting |
 | --- | --- |
-| 0-2 | Hit Strength (Weak / Normal / Hard / Shallow / Custom, default Normal) |
+| 0-2 | Knockback Height (T9): 0 Random, 1 Very High, 2 High, 3 Level, 4 Low, 5 Very Low, 6 Custom. While word 68's Knockback Distance is still 0, this field is the Hit Strength it replaced (0 Weak, 1 Normal, 2 Hard, 3 Shallow, 4 Custom, default Normal), which `LoadKnockback` converts ([the knockback notes](EDGEGUARD-KNOCKBACK.md)) |
 | 3-8 | Fox recovery, first six bits (default Firefox Low). Since T9 these are rows 1-4, then Illusion Instant (row 6, the old Illusion bit), then Fast Fall (row 5); the other side-B rows are in word 68 |
 | 9-14 | Falco recovery, first six bits (default Firebird Low), laid out like Fox's |
 | 15-20 | Sheik recovery (6 rows, default the three Vanish rows) |
@@ -265,7 +265,7 @@ Same layout as word 60's masks. These CPUs' recoveries are described in [the Edg
 
 **Word 68: 2v1 Grab Punish, Up-B Sweetspot and Edgeguard** (T9, version 20)
 
-Migrating to version 20 zeroes this word and then writes the defaults, so the spare bits are zero in every record that owns it. Any event can grow into its spare bits with no version bump if the new setting's default is 0, which is how Edgeguard took bits 19-28. Version 19 and older records read the defaults.
+Migrating to version 20 zeroes this word and then writes the defaults, so the spare bits are zero in every record that owns it. Any event can grow into its spare bits with no version bump if the new setting's default is 0, which is how Edgeguard took bits 19-31. Version 19 and older records read the defaults.
 
 | Bits | Setting |
 | --- | --- |
@@ -274,13 +274,14 @@ Migrating to version 20 zeroes this word and then writes the defaults, so the sp
 | 6-8 | Grab Punish: Enemy Percent (0% to 100% in steps of 20, default 60%) |
 | 9-10 | Grab Punish: CPU Mashing (No / Light / Heavy / Inhuman, default Light) |
 | 11-12 | Grab Punish: Teammate Facing (Random / Toward You / Away From You, default Random) |
-| 13-15 | *free* |
+| 13 | Grab Punish: Count Release Hits (default Off) |
+| 14-15 | *free* |
 | 16 | Up-B Sweetspot: Enable Line Guides (default On) |
 | 17 | Up-B Sweetspot: Marth (Tipper / Off, default Tipper) |
 | 18 | Up-B Sweetspot: Camera (Normal / Zoomed Out, default Normal) |
-| 19-23 | Edgeguard: Fox's side-B rows 7-11 (Ledge Sweetspot, To Ledge, To Stage, To Side Plat, Shortest Shorten), default all off |
+| 19-23 | Edgeguard: Fox's side-B rows 7-11 (Ledge Sweetspot, To Ledge, To Main Stage, To Side Plat, Shortest Shorten), default all off |
 | 24-28 | Edgeguard: Falco's side-B rows 7-11, the same way |
-| 29-31 | *free* |
+| 29-31 | Edgeguard: Knockback Distance plus 1: 1 Random, 2 Close, 3 Near, 4 Medium, 5 Far. 0 means no choice saved yet, so word 60 bits 0-2 still hold Hit Strength |
 
 ## Not saved
 

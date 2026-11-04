@@ -25,16 +25,18 @@ EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
 # Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus. Then Player
 # Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31,
 # Camera (Normal / Zoomed Out) in word 56's spare bit 30, Side (Random / Left /
-# Right) in word 20's spare bits 24-25, and Fox's and Falco's side-B rows after
-# their first six in word 68's spare bits 19-23 and 24-28.
-EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 5, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32)
-EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0)
+# Right) in word 20's spare bits 24-25, Fox's and Falco's side-B rows after
+# their first six in word 68's spare bits 19-23 and 24-28, and Knockback
+# Distance, stored plus 1 so 0 is a save from before it, in bits 29-31.
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 7, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32, 6)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0, 0)
 EG_COUNT = len(EDGEGUARD_COUNTS)
 EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index added after version 18
 EG_POSITION = 20  # TM_EG_PLAYER_POSITION
 EG_CAMERA = 21  # TM_EG_CAMERA
 EG_SIDE = 22  # TM_EG_SIDE
 EG_FOX_SIDEB, EG_FALCO_SIDEB = 23, 24  # TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB
+EG_KB_DISTANCE = 25  # TM_EG_KB_DISTANCE
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Light
@@ -324,9 +326,23 @@ class ExtensionTests(unittest.TestCase):
                              GRAB_PUNISH_DEFAULTS)
             self.assertEqual(tuple(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, i) for i in range(len(UPB_COUNTS))),
                              UPB_DEFAULTS)
-            self.assertEqual(tuple(m.call('TMExtension_Read', EXT, EDGEGUARD, i) for i in (EG_FOX_SIDEB, EG_FALCO_SIDEB)),
-                             (0, 0))
+            self.assertEqual(tuple(m.call('TMExtension_Read', EXT, EDGEGUARD, i) for i in (EG_FOX_SIDEB, EG_FALCO_SIDEB, EG_KB_DISTANCE)),
+                             (0, 0, 0))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_knockback_distance_uses_only_word_68_bits_29_to_31(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        m.call('Settings_Set', EDGEGUARD, EG_FALCO_SIDEB, 31)  # The neighbor below it.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for stored in range(1, 6):
+            m.call('Settings_Set', EDGEGUARD, EG_KB_DISTANCE, stored)
+            self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_KB_DISTANCE), stored)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            word = int.from_bytes(after[68:72], 'little')
+            self.assertEqual(word >> 29, stored)
+            self.assertEqual(after[:68] + after[72:], before[:68] + before[72:])
+            self.assertEqual(word & 0x1FFFFFFF, int.from_bytes(before[68:72], 'little'))
 
     def test_spacie_side_b_masks_use_only_word_68_bits_19_to_28(self):
         m = self.m

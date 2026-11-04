@@ -183,21 +183,24 @@ enum TMReversalPreference {
 enum TMAttackShieldPreference {
     TM_AOS_ACTION, TM_AOS_HITS, TM_AOS_INFINITE, TM_AOS_DISTANCE, TM_AOS_SHIELD_DI, TM_AOS_PREF_COUNT
 };
-/* Custom Hit Strength ranges, then the percents, then Hit Strength and one
+/* Custom Knockback ranges, then the percents, then Knockback Height and one
  * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu).
  * Append; the CPUs from Yoshi on live in a later TYEX word. Player Position
  * uses word 60's spare top bits, Camera (Normal / Zoomed Out) word 56's bit 30,
  * Side word 20's bits 24-25. Fox's and Falco's side-B rows past their first
- * six are a second 5-bit mask each, in word 68's bits 19-23 and 24-28. */
+ * six are a second 5-bit mask each, in word 68's bits 19-23 and 24-28.
+ * Knockback Height took over Hit Strength's field; Knockback Distance, word
+ * 68's bits 29-31, is stored plus 1, so 0 means that field is still Hit
+ * Strength (LoadKnockback in edgeguard.c). */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
-    TM_EG_HIT_STRENGTH, TM_EG_RECOVERY_FOX, TM_EG_RECOVERY_FALCO, TM_EG_RECOVERY_SHEIK,
+    TM_EG_KB_HEIGHT, TM_EG_RECOVERY_FOX, TM_EG_RECOVERY_FALCO, TM_EG_RECOVERY_SHEIK,
     TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH,
     TM_EG_RECOVERY_YOSHI, TM_EG_RECOVERY_PEACH, TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_DRMARIO,
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
     TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE,
-    TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB, TM_EG_PREF_COUNT
+    TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB, TM_EG_KB_DISTANCE, TM_EG_PREF_COUNT
 };
 /* Side-B Sweetspot: Success Criteria in word 20 bit 26, Knockback in bits
  * 27-29. Zero, which every record that owns word 20 has there, is the default. */
@@ -221,6 +224,8 @@ enum TMGrabPunishPreference {
 enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
 /* Edgeguard Side choices: which ledge each attempt uses. */
 enum { TM_EG_SIDE_RANDOM, TM_EG_SIDE_LEFT, TM_EG_SIDE_RIGHT, TM_EG_SIDE_COUNT };
+#define TM_EG_KB_HEIGHT_COUNT 7 /* Random, five heights, Custom. */
+#define TM_EG_KB_DISTANCE_COUNT 5 /* Random, four distances. */
 /* Edgeguard Player Position choices, ledge to center. Close is the original spot. */
 enum { TM_EG_POSITION_AT_LEDGE, TM_EG_POSITION_CLOSE, TM_EG_POSITION_HALFWAY,
     TM_EG_POSITION_MID_STAGE, TM_EG_POSITION_COUNT };
