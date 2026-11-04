@@ -32,7 +32,7 @@ static u8 saved_input_flags;
 static int fighter_reads_first, camera_snaps;
 static u32 saved_reset_speed = TM_LEDGEGRAB_RESET_SHORT;
 static const char *counter_format;
-static int counter_time[3];
+static int counter_time[2];
 static const char *best_format;
 static char best_text[2][8];
 static int shown_right[SUBTEXTS];
@@ -92,7 +92,17 @@ void Fighter_SetGrounded(FighterData *f) { f->phys.air_state = 0; }
 int GrColl_CheckIfLineEnabled(int line) { return test_enabled[line]; }
 int Stage_GetExternalID(void) { return test_stage_id; }
 void Fighter_SetAllHurtboxState(GOBJ *f, int kind) { }
-void Fighter_UpdateCameraBox(GOBJ *f) { }
+/* As native (0x800761C8), for Fox on a stage that widens his front by 1.5. */
+void Fighter_UpdateCameraBox(GOBJ *f) {
+    FighterData *fighter = f->userdata;
+    CmSubject *cam = fighter->camera_subject;
+    int right = fighter->facing_direction > 0;
+    cam->direction = right ? 1 : -1;
+    cam->boundleft_proj = right ? -9 : -33;
+    cam->boundright_proj = right ? 33 : 9;
+    cam->cam_pos = fighter->phys.pos;
+    cam->cam_pos.Y += 10;
+}
 void EnvironmentCollision_WaitLanding(GOBJ *f) { }
 void Fighter_EnterWait(GOBJ *f) { ((FighterData *)f->userdata)->state_id = ASID_WAIT; }
 void Fighter_EnterSleep(GOBJ *f, int ms) { }
@@ -144,7 +154,7 @@ void Text_SetText(Text *t, int subtext, const char *fmt, ...) {
         shown_value[subtext] = fmt[4] == '%' ? va_arg(args, int) : fmt[4] == 'D' ? -2 : -1;
         if (fmt[4] == '%' && fmt[7]) { // The counter's time.
             counter_format = fmt;
-            for (int i = 0; i < 3; ++i) counter_time[i] = va_arg(args, int);
+            for (int i = 0; i < 2; ++i) counter_time[i] = va_arg(args, int);
         }
     }
     va_end(args);
@@ -167,6 +177,7 @@ int TestLedgeInit(void) {
         fighters[i].userdata = &ft[i]; fighters[i].hsd_object = &joints[i];
         ft[i].camera_subject = &subject;
     }
+    subject.boundtop_proj = 16; subject.boundbottom_proj = -9;
     *stc_colldata = &test_stage; *stc_collline = test_lines; *stc_collvert = test_vertices;
     text_rows = 0;
     Event_Init(&event);
@@ -286,7 +297,6 @@ int TestLedgeInfo(int key) {
     case 42: return saved_reset_speed;
     case 43: return counter_time[0];
     case 44: return counter_time[1];
-    case 45: return counter_time[2];
     }
     return -1;
 }

@@ -113,27 +113,27 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
         self.assertLess(self.info(22), self.info(23))
         self.assertLess(self.info(23), self.info(24))
 
-    def time(self): return tuple(self.info(key) for key in (43, 44, 45))
+    def time(self): return tuple(self.info(key) for key in (43, 44))
 
-    def test_counter_reads_frames_then_the_time_in_minutes_seconds_and_hundredths(self):
+    def test_counter_reads_frames_then_the_time_in_seconds_and_milliseconds(self):
         pointer = self.m.call('TestLedgeCounterFormat')
         text = bytes(self.m.cpu.mem_read(pointer, 40)).split(b'\0', 1)[0].decode()
-        self.assertEqual(text, '%s: %d (%02d:%02d.%02d)')
-        self.assertEqual(self.time(), (0, 0, 0))
+        self.assertEqual(text, '%s: %d (%02d.%03ds)')
+        self.assertEqual(self.time(), (0, 0))
 
     def test_counter_time_counts_up_with_the_frames(self):
         self.move(1)
-        self.assertEqual(self.time(), (0, 0, 1))
+        self.assertEqual(self.time(), (0, 16))
         self.step(29)  # 30 frames.
-        self.assertEqual(self.time(), (0, 0, 50))
+        self.assertEqual(self.time(), (0, 500))
         self.step(30)  # 60.
-        self.assertEqual(self.time(), (0, 1, 0))
+        self.assertEqual(self.time(), (1, 0))
         self.step(1739)  # 1799, the last frame before a DNF.
-        self.assertEqual((self.rows()[0], self.time()), (1799, (0, 29, 98)))
+        self.assertEqual((self.rows()[0], self.time()), (1799, (29, 983)))
 
     def test_counter_time_clears_with_the_restart(self):
         self.finish(90)
-        self.assertEqual(self.time(), (0, 0, 0))
+        self.assertEqual(self.time(), (0, 0))
 
     def test_count_waits_for_your_first_move_and_is_white_while_it_runs(self):
         self.step(500)
@@ -574,11 +574,11 @@ class LedgegrabMarkerTests(Harness, unittest.TestCase):
         self.assertEqual((self.info(32), self.info(33), self.info(34)), (32, 128, 1))  # GX_QUADS, no depth.
         self.assertEqual((self.info(35), self.info(36)), (7, 255))  # Last in MATCHGX_EFFECT.
 
-    def test_black_edges_go_under_a_red_x_and_a_green_exclamation_point(self):
+    def test_black_edges_go_under_a_red_x_and_a_gold_exclamation_point(self):
         self.step()
         colors = [color for color, _ in self.quads()]
-        black, red, green = bytes((0, 0, 0, 255)), bytes((255, 0, 0, 255)), bytes((0, 255, 0, 255))
-        self.assertEqual(colors, [black] * 4 + [red, red, green, green])
+        black, red, gold = bytes((0, 0, 0, 255)), bytes((255, 0, 0, 255)), bytes((0xFF, 0xE1, 0x41, 255))
+        self.assertEqual(colors, [black] * 4 + [red, red, gold, gold])
 
     @staticmethod
     def bounds(quad):
@@ -596,51 +596,74 @@ class LedgegrabMarkerTests(Harness, unittest.TestCase):
                 self.press(DPAD_DOWN)
             quads = self.quads()
             for stroke in quads[4:6]:
-                self.assert_near(self.bounds(stroke), (wrong - 9.5, wrong + 9.5, -9.5, 9.5))
-            self.assert_near(self.bounds(quads[6]), (target - 2.25, target + 2.25, 20, 24.5))
-            self.assert_near(self.bounds(quads[7]), (target - 2.75, target + 2.75, 26, 39))
+                self.assert_near(self.bounds(stroke), (wrong - 4.75, wrong + 4.75, -4.75, 4.75))
+            self.assert_near(self.bounds(quads[6]), (target - 1.125, target + 1.125, 20, 22.25))
+            self.assert_near(self.bounds(quads[7]), (target - 1.375, target + 1.375, 23, 29.5))
 
     def test_x_strokes_cross_and_the_exclamation_bar_narrows_to_the_dot(self):
         self.step()
         quads = self.quads()
         rising, falling = quads[4][1], quads[5][1]
-        self.assert_near(rising[0], (68.4 - 5.5, -9.5))
-        self.assert_near(rising[2], (68.4 + 5.5, 9.5))
-        self.assert_near(falling[0], (68.4 + 5.5, -9.5))
-        self.assert_near(falling[2], (68.4 - 5.5, 9.5))
+        self.assert_near(rising[0], (68.4 - 2.75, -4.75))
+        self.assert_near(rising[2], (68.4 + 2.75, 4.75))
+        self.assert_near(falling[0], (68.4 + 2.75, -4.75))
+        self.assert_near(falling[2], (68.4 - 2.75, 4.75))
         bar = quads[7][1]
-        self.assertAlmostEqual(bar[1][0] - bar[0][0], 2.5, delta=.001)
-        self.assertAlmostEqual(bar[2][0] - bar[3][0], 5.5, delta=.001)
+        self.assertAlmostEqual(bar[1][0] - bar[0][0], 1.25, delta=.001)
+        self.assertAlmostEqual(bar[2][0] - bar[3][0], 2.75, delta=.001)
 
     def test_black_edge_surrounds_each_shape(self):
         self.step()
         quads = self.quads()
-        # A stroke grows in length and thickness, so 1.5 along each axis.
-        for edge, shape, grown in zip(quads[:4], quads[4:], (1.5, 1.5, .75, .75)):
+        # A stroke grows in length and thickness, so 1 along each axis.
+        for edge, shape, grown in zip(quads[:4], quads[4:], (1, 1, .5, .5)):
             left, right, bottom, top = self.bounds(shape)
             self.assert_near(self.bounds(edge), (left - grown, right + grown, bottom - grown, top + grown))
 
     def test_marker_moves_with_the_goal_from_the_menu_too(self):
         self.step()
         self.choose(GOAL, RIGHT)
-        self.assert_near(self.bounds(self.quads()[6])[:2], (66.15, 70.65))
+        self.assert_near(self.bounds(self.quads()[6])[:2], (67.275, 69.525))
 
     def framed(self):
         return tuple(self.m.call('TestLedgeSubject', ledge, 2) for ledge in (0, 1))
 
-    def test_a_ledge_camera_subject_stands_at_the_ledge_and_keeps_the_marker_in_frame(self):
+    def subject(self, ledge):
+        values = [self.m.call('TestLedgeSubject', ledge, key) for key in range(8)]
+        return [v if v < 0x80000000 else v - 0x100000000 for v in values]
+
+    def test_a_fake_player_has_the_box_of_a_fighter_at_the_ledge_facing_off_the_stage(self):
         self.step()
         self.assertEqual(self.info(37), 2)
-        for ledge, x in ((0, -68.4), (1, 68.4)):
-            subject = [self.m.call('TestLedgeSubject', ledge, key) for key in range(8)]
-            signed = [v if v < 0x80000000 else v - 0x100000000 for v in subject]
-            self.assertAlmostEqual(signed[0] / 1000, x, delta=.01)
-            self.assertEqual(signed[1], 0)
-            self.assertLess(signed[3], 0)
-            self.assertGreater(signed[4], 0)
-            self.assertGreaterEqual(signed[5] / 1000, 39.75)  # Past the top of the black edge.
-            self.assertLess(signed[6], 0)
-            self.assertEqual(signed[7], 1)
+        for ledge, x, left, right in ((0, -68.4, -33, 9), (1, 68.4, -9, 33)):
+            box = self.subject(ledge)
+            self.assertAlmostEqual(box[0] / 1000, x, delta=.01)
+            self.assertEqual(box[1], 10000)  # A fighter's box sits above its feet.
+            self.assertEqual(box[3:7], [left * 1000, right * 1000, 16000, -9000])
+            self.assertEqual(box[7], 1)  # Already settled, so the camera doesn't drift to it.
+
+    def test_a_fake_player_keeps_its_box_whichever_way_you_face(self):
+        self.step()
+        def boxes():  # Without kind, which follows the goal.
+            return [self.subject(ledge)[:2] + self.subject(ledge)[3:] for ledge in (0, 1)]
+        first = boxes()
+        for row, value in ((FACING, AWAY), (GOAL, RIGHT), (FACING, TOWARD)):
+            self.choose(row, value)
+            self.assertEqual(boxes(), first)
+
+    def test_a_fake_player_stands_on_its_ledge_whatever_the_height(self):
+        self.start()
+        self.m.call('TestLedgeStage', FD)
+        self.line(-85, 7, 85, 7)
+        self.step()
+        self.assertEqual((self.subject(0)[1], self.subject(1)[1]), (17000, 17000))
+
+    def test_the_marker_stays_inside_the_box_the_camera_keeps_in_frame(self):
+        self.step()
+        top = max(self.bounds(quad)[3] for quad in self.quads())
+        multiplier = 1.32  # Two subjects, on a stage that adds nothing.
+        box = self.subject(0)
+        self.assertLessEqual(top, box[1] / 1000 + box[5] / 1000 * multiplier)
 
     def test_the_camera_starts_on_a_fake_player_at_the_goal_ledge_alone(self):
         self.step()

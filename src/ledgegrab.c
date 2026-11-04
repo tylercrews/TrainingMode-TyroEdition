@@ -171,13 +171,13 @@ static void SetRow(int row, const char *label, int frames) {
         return;
     row_shown[row] = frames;
     int seconds = frames / FRAMES_PER_SECOND;
-    int hundredths = frames % FRAMES_PER_SECOND * 100 / FRAMES_PER_SECOND;
+    int milliseconds = frames % FRAMES_PER_SECOND * 1000 / FRAMES_PER_SECOND;
     for (int i = 0; i < ROW_SUBTEXTS; ++i) {
         int subtext = row * ROW_SUBTEXTS + i;
         if (frames == DNF_FRAMES)
             Text_SetText(hud_text, subtext, "%s: DNF", label);
         else if (row == ROW_COUNTER)
-            Text_SetText(hud_text, subtext, "%s: %d (%02d:%02d.%02d)", label, frames, seconds / 60, seconds % 60, hundredths);
+            Text_SetText(hud_text, subtext, "%s: %d (%02d.%03ds)", label, frames, seconds, milliseconds);
         else if (frames)
             Text_SetText(hud_text, subtext, "%s: %d", label, frames);
         else
@@ -215,24 +215,21 @@ static GXColor *ResultColor(int frames, int best) {
 // Ledges ----------------------------------------------------------------
 
 // All in stage units. The black edge sits about this far outside each marker.
-#define MARKER_EDGE .75f
+#define MARKER_EDGE .5f
 // The wrong ledge's X: center to the end of a stroke along each axis, and half
 // a stroke's thickness.
-#define X_ARM 7.5f
-#define X_STROKE 2
+#define X_ARM 3.75f
+#define X_STROKE 1
 // The goal ledge's !, raised to clear a fighter standing at the ledge. The dot
 // is square; the bar narrows toward it.
 #define BANG_RAISE 20
-#define BANG_DOT 2.25f
-#define BANG_GAP 1.5f
-#define BANG_LENGTH 13
-#define BANG_NARROW 1.25f
-#define BANG_WIDE 2.75f
-#define BANG_TOP (BANG_RAISE + BANG_DOT * 2 + BANG_GAP + BANG_LENGTH)
+#define BANG_DOT 1.125f
+#define BANG_GAP .75f
+#define BANG_LENGTH 6.5f
+#define BANG_NARROW .625f
+#define BANG_WIDE 1.375f
 // Two strokes, or a dot and a bar, for each marker.
 #define MARKER_QUADS 4
-// Room the camera keeps around each ledge, and above the !.
-#define LEDGE_CAMERA_MARGIN 15
 
 static Vec2 ledges[2]; // Left, then right.
 static CmSubject *ledge_cameras[2];
@@ -252,12 +249,26 @@ static void FindLedges(void) {
 
         CmSubject *cam = ledge_cameras[i] = CameraSubject_Alloc();
         cam->cam_pos = point;
-        cam->boundleft_proj = cam->boundleft_curr = -LEDGE_CAMERA_MARGIN;
-        cam->boundright_proj = cam->boundright_curr = LEDGE_CAMERA_MARGIN;
-        cam->boundtop_proj = cam->boundtop_curr = BANG_TOP + LEDGE_CAMERA_MARGIN;
-        cam->boundbottom_proj = cam->boundbottom_curr = -LEDGE_CAMERA_MARGIN;
     }
     ledges_found = true;
+}
+
+/* The box the game would give you standing at each ledge and facing off the
+ * stage, so the camera frames you and a fake player as it would two fighters.
+ * The zoom follows the merged boxes, so a bigger one holds the camera back. */
+static void StandFakePlayers(FighterData *ft) {
+    CmSubject *own = ft->camera_subject;
+    bool facing_right = own->direction > 0;
+    float front = facing_right ? own->boundright_proj : -own->boundleft_proj;
+    float back = facing_right ? -own->boundleft_proj : own->boundright_proj;
+    for (int i = 0; i < 2; ++i) {
+        CmSubject *cam = ledge_cameras[i];
+        cam->cam_pos.Y = ledges[i].Y + own->cam_pos.Y - ft->phys.pos.Y;
+        cam->boundleft_proj = cam->boundleft_curr = i ? -back : -front;
+        cam->boundright_proj = cam->boundright_curr = i ? front : back;
+        cam->boundtop_proj = cam->boundtop_curr = own->boundtop_proj;
+        cam->boundbottom_proj = cam->boundbottom_curr = own->boundbottom_proj;
+    }
 }
 
 static void ApplyCamera(void) {
@@ -304,7 +315,7 @@ static void DrawMarkers(GOBJ *gobj, int pass) {
         return;
     event_vars->GFX_Start(MARKER_QUADS * 2 * 4, (GFX_Params) { .shape = GX_QUADS, .no_depth = true });
     AddMarkers(MARKER_EDGE, Outline, Outline);
-    AddMarkers(0, Red, Green);
+    AddMarkers(0, Red, Gold);
 }
 
 // Starts ----------------------------------------------------------------
@@ -374,6 +385,7 @@ static void UpdateCameraBox(GOBJ *fighter) {
     subject->boundleft_curr = subject->boundleft_proj;
     subject->boundright_curr = subject->boundright_proj;
 
+    StandFakePlayers(data);
     Match_CorrectCamera();
 }
 
