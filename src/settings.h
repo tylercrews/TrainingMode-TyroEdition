@@ -134,6 +134,7 @@ enum TMSettingsField {
     TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
     TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu, TYEX word 68 bits 0-13. */
     TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18. */
+    TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -145,6 +146,11 @@ enum TMLedgedashPreference {
 enum TMEggsPreference {
     TM_EGGS_DAMAGE, TM_EGGS_SCALE, TM_EGGS_VELOCITY, TM_EGGS_COLLISION,
     TM_EGGS_FREE_PRACTICE, TM_EGGS_PREF_COUNT,
+};
+/* Where Eggs-ercise draws its egg count and the label under it. */
+enum TMEggsCounterPosition {
+    TM_EGGS_COUNTER_TOP_LEFT, TM_EGGS_COUNTER_TOP_RIGHT, TM_EGGS_COUNTER_BOTTOM_LEFT,
+    TM_EGGS_COUNTER_BOTTOM_RIGHT, TM_EGGS_COUNTER_UNDER_TIMER, TM_EGGS_COUNTER_COUNT,
 };
 enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUNT };
 enum TMTechchasePreference {

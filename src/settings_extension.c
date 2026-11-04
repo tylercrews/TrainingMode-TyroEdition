@@ -150,6 +150,14 @@ static void set_color_extra(uint8_t *r,unsigned slot,unsigned value) {
 /* Version 17 appends bytes 50..51: the human and CPU costume (0..5) of the
  * saved character. Every migration to 17 zeroes them (Default costume). */
 #define COSTUME_OFFSET 50
+#define COSTUME_MASK 0x1Fu
+/* Egg Counter Position takes the top bits of the CPU costume's byte, word 48
+ * bits 29..31. A costume is at most 5 and a higher byte always repaired to 0, so
+ * every record that owns that byte has them clear: zero is Top Left, the
+ * original spot, with no version bump. The low five bits stay the costume, so
+ * a damaged byte still repairs to Default. */
+#define EGGS_COUNTER_OFFSET 48
+static const ExtensionPreference eggs_counter_preference = {29,3,TM_EGGS_COUNTER_COUNT,TM_EGGS_COUNTER_TOP_LEFT};
 typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIONS<32 &&
     GRID_END<=COSTUME_OFFSET && COSTUME_OFFSET+2<=EDGEGUARD_OFFSET &&
     EDGEGUARD_OFFSET+EDGEGUARD_SIZE<=EDGEGUARD2_OFFSET && EDGEGUARD2_OFFSET+EDGEGUARD2_SIZE<=EVENT_MENUS_OFFSET &&
@@ -183,7 +191,8 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_SWEETSPOT_DJ ? 1 :
         field==TM_SETTING_SWEETSPOT ? TM_SWEETSPOT_PREF_COUNT :
         field==TM_SETTING_GRAB_PUNISH ? TM_GP_PREF_COUNT :
-        field==TM_SETTING_UPB_SWEETSPOT ? TM_UPB_PREF_COUNT : 0;
+        field==TM_SETTING_UPB_SWEETSPOT ? TM_UPB_PREF_COUNT :
+        field==TM_SETTING_EGGS_COUNTER ? 1 : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -198,10 +207,12 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_SWEETSPOT && index<TM_SWEETSPOT_PREF_COUNT) return &sweetspot_preferences[index];
     if(field==TM_SETTING_GRAB_PUNISH && index<TM_GP_PREF_COUNT) return &grab_punish_preferences[index];
     if(field==TM_SETTING_UPB_SWEETSPOT && index<TM_UPB_PREF_COUNT) return &upb_sweetspot_preferences[index];
+    if(field==TM_SETTING_EGGS_COUNTER && index==0) return &eggs_counter_preference;
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
+    if(field==TM_SETTING_EGGS_COUNTER) return EGGS_COUNTER_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
         return index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
             index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
@@ -351,10 +362,10 @@ int TMExtension_Prepare(uint8_t *r) {
     for(unsigned slot=0;slot<TM_OSD_GRID_SLOTS;++slot)
         if(grid_cell(r,slot)>TM_OSD_GRID_POSITIONS) { set_grid_cell(r,slot,0); changed=1; }
     for(unsigned player=0;player<2;++player)
-        if(r[COSTUME_OFFSET+player]>=TM_EXTENSION_COSTUMES) { r[COSTUME_OFFSET+player]=0; changed=1; }
+        if((r[COSTUME_OFFSET+player]&COSTUME_MASK)>=TM_EXTENSION_COSTUMES) { r[COSTUME_OFFSET+player]&=~COSTUME_MASK; changed=1; }
     static const uint8_t fields[]={TM_SETTING_TECHCHASE,TM_SETTING_LEDGECHASE,TM_SETTING_UNDERFIRE,
         TM_SETTING_LOW_LASER,TM_SETTING_POWERSHIELD,TM_SETTING_REVERSAL,TM_SETTING_ATTACK_SHIELD,TM_SETTING_EDGEGUARD,
-        TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT};
+        TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER};
     for(unsigned f=0;f<sizeof(fields);++f) {
         unsigned field=fields[f], count=preference_count(field);
         for(unsigned i=0;i<count;++i) {
@@ -381,7 +392,7 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return value<=TM_OSD_GRID_POSITIONS?value:0;
     }
     if(field==TM_SETTING_COSTUME) {
-        unsigned value=(supported(r)||v17||v18||v19) && index<2?r[COSTUME_OFFSET+index]:0;
+        unsigned value=(supported(r)||v17||v18||v19) && index<2?r[COSTUME_OFFSET+index]&COSTUME_MASK:0;
         return value<TM_EXTENSION_COSTUMES?value:0;
     }
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)
@@ -402,6 +413,11 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     if(field==TM_SETTING_EDGEGUARD) {
         int owned=supported(r)||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)));
         unsigned value=owned?preference_value(r,field,index):p->initial;
+        return value<p->count?value:p->initial;
+    }
+    /* Version 17 is the first to own the costume bytes. */
+    if(field==TM_SETTING_EGGS_COUNTER) {
+        unsigned value=supported(r)||v17||v18||v19?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
     /* Only version 20 records own the event menus' word. */
@@ -465,7 +481,7 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     else if(blast) r[BLAST_ZONES_BYTE]=(r[BLAST_ZONES_BYTE]&~BLAST_ZONES_BIT)|(value?BLAST_ZONES_BIT:0);
     else if(extra) set_color_extra(r,index,value);
     else if(grid) set_grid_cell(r,index,value);
-    else if(costume) r[COSTUME_OFFSET+index]=value;
+    else if(costume) r[COSTUME_OFFSET+index]=(r[COSTUME_OFFSET+index]&~COSTUME_MASK)|value;
     else set_preference(r,field,index,value);
     for(unsigned i=0;i<TM_EXTENSION_SIZE;++i) if(before[i]!=r[i]) return 1;
     return 0;

@@ -53,6 +53,7 @@ python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
 python tests/test_lowlaser.py -v
 python tests/test_ledgegrab.py -v
+python tests/test_eggs.py -v
 python tests/test_edgeguard.py -v
 python tests/test_grabpunish.py -v
 python tests/test_stage_swap.py -v

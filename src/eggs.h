@@ -15,6 +15,7 @@ enum options_main
     OPT_VELOCITY,
     OPT_COLLISION,
     OPT_HITBOXTRAILS,
+    OPT_COUNTERPOSITION,
     OPT_DEFAULTS,
     OPT_EXIT,
 
@@ -33,6 +34,7 @@ int Egg_OnTakeDamage(GOBJ *gobj);
 void Event_Think(GOBJ *event);
 void Eggs_ChangeHitboxTrails(GOBJ *menu_gobj, int value);
 void Eggs_ChangeSavedSetting(GOBJ *menu_gobj, int value);
+void Eggs_ChangeCounterPosition(GOBJ *menu_gobj, int value);
 void Eggs_ResetSettings(GOBJ *menu);
 
 static GXColor text_gold = {255, 211, 0, 255};
@@ -40,6 +42,9 @@ static GXColor text_white = {255, 255, 255, 255};
 
 static float EggOptions_Size[] = {1.0f, .5f, 2.0f};
 static const char *EggOptions_SizeText[] = {"Normal", "Small", "Large"};
+static const char *EggOptions_CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
+    "Top Left", "Top Right", "Bottom Left", "Bottom Right", "Under Timer"
+};
 
 enum options_hitbox_trails
 {
@@ -143,6 +148,15 @@ static EventOption Options_Main[OPT_COUNT] = {
         .menu = &Menu_HitboxTrails,
         .name = "Hitbox Trails",
         .desc = {"Create a trail of your hitboxes to visualize spacing."},
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .value_num = countof(EggOptions_CounterPositionText),
+        .name = "Egg Counter Position",
+        .desc = { "Move the egg count and the text under it to a",
+                  "corner of the screen or under the timer." },
+        .values = EggOptions_CounterPositionText,
+        .OnChange = Eggs_ChangeCounterPosition,
     },
     {
         .kind = OPTKIND_FUNC, .name = "Reset Event Settings",

@@ -13,12 +13,39 @@ static JOBJ *hud_score_jobj, *hud_best_jobj;
 static int canvas;
 static Text *hud_score_text, *hud_best_text;
 
+/* Where the score goes for each Egg Counter Position. trans.X is the edge or
+ * center the text lines up on, given the alignment. Text fills a 32 tall line
+ * from trans.Y, and a smaller label sits at the bottom of its line, so with
+ * the label's line COUNTER_LABEL_Y lower the pair runs from y to y + 47: the
+ * bottom corners keep the top ones' 25 margin. Under Timer is Ledgegrab
+ * Speedrun's counter spot, which sits just under the timer. */
+#define COUNTER_LABEL_Y 15
+static const struct { float x, y; u8 align; } EggCounter_Spots[TM_EGGS_COUNTER_COUNT] = {
+    [TM_EGGS_COUNTER_TOP_LEFT] = {50, 25, 0},
+    [TM_EGGS_COUNTER_TOP_RIGHT] = {590, 25, 2},
+    [TM_EGGS_COUNTER_BOTTOM_LEFT] = {50, 408, 0},
+    [TM_EGGS_COUNTER_BOTTOM_RIGHT] = {590, 408, 2},
+    [TM_EGGS_COUNTER_UNDER_TIMER] = {320, 55, 1},
+};
+
 static const u8 saved_eggs_rows[] = {OPT_DAMAGETHRESHOLD, OPT_SCALE, OPT_VELOCITY, OPT_COLLISION};
 static void Eggs_LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_eggs_rows); ++i) {
         EventOption *option = &Options_Main[saved_eggs_rows[i]];
         option->val = option->val_prev = TM_GetSetting(TM_SETTING_EGGS, i);
     }
+    Options_Main[OPT_COUNTERPOSITION].val = Options_Main[OPT_COUNTERPOSITION].val_prev =
+        TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
+}
+static void Eggs_PlaceCounter(int position) {
+    hud_score_text->trans.X = hud_best_text->trans.X = EggCounter_Spots[position].x;
+    hud_score_text->trans.Y = EggCounter_Spots[position].y;
+    hud_best_text->trans.Y = EggCounter_Spots[position].y + COUNTER_LABEL_Y;
+    hud_score_text->align = hud_best_text->align = EggCounter_Spots[position].align;
+}
+void Eggs_ChangeCounterPosition(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_EGGS_COUNTER, 0, value);
+    Eggs_PlaceCounter(value);
 }
 void Eggs_ChangeSavedSetting(GOBJ *menu, int value) {
     MenuData *data = menu->userdata;
@@ -29,6 +56,7 @@ void Eggs_ChangeSavedSetting(GOBJ *menu, int value) {
 }
 void Eggs_ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_EVENT_RESET, TM_EVENT_EGGS, 1);
+    TM_SetSetting(TM_SETTING_EGGS_COUNTER, 0, TM_EGGS_COUNTER_TOP_LEFT);
     Eggs_LoadSettings();
     Options_HitboxTrails[OPT_HITBOXTRAILS_ENABLED].val =
         Options_HitboxTrails[OPT_HITBOXTRAILS_ENABLED].val_prev = 0;
@@ -221,23 +249,19 @@ void Event_Init(GOBJ *gobj)
     // Create text objects
     hud_score_text = Text_CreateText(2, canvas);
     hud_score_text->kerning = 1;
-    hud_score_text->align = 0;
     hud_score_text->use_aspect = 1;
-    hud_score_text->trans.X = 50;
-    hud_score_text->trans.Y = 25;
     hud_score_text->viewport_scale.X = 1;
     hud_score_text->viewport_scale.Y = 1;
-    
+
     hud_best_text = Text_CreateText(2, canvas);
     hud_best_text->kerning = 1;
-    hud_best_text->align = 0;
     hud_best_text->use_aspect = 1;
-    hud_best_text->trans.X = 50;
-    hud_best_text->trans.Y = 40;
     hud_best_text->scale.X = 0.35;
     hud_best_text->scale.Y = 0.35;
     hud_best_text->viewport_scale.X = 1;
     hud_best_text->viewport_scale.Y = 1;
+
+    Eggs_PlaceCounter(Options_Main[OPT_COUNTERPOSITION].val);
 
     // dummy text
     Text_AddSubtext(hud_score_text, 0, 0, "-");

@@ -75,6 +75,7 @@ REGION_SIZE, OWNED_SIZE = 88, 72
 PREF_COUNTS = {29: 3}
 GRID = 37  # TM_SETTING_OSD_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
+EGGS_COUNTER = 44  # TM_SETTING_EGGS_COUNTER: byte 51's top three bits.
 SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
 SWEETSPOT = 41  # TM_SETTING_SWEETSPOT: Success Criteria word 20 bit 26, Knockback bits 27-29.
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
@@ -528,6 +529,56 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         m.cpu.mem_write(EXT + 51, b'\x09')  # A damaged byte repairs to Default.
         self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (5, 0))
+        self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0)
+
+    def test_egg_counter_position_shares_the_cpu_costume_byte_without_disturbing_it(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(m.call('Settings_Get', EGGS_COUNTER, 0), 0)
+        m.call('Settings_Set', COSTUME, 0, 5); m.call('Settings_Set', COSTUME, 1, 2)
+        for position in range(5):
+            m.call('Settings_Set', EGGS_COUNTER, 0, position)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT + 50, 2)), bytes((5, 2 | position << 5)))
+            self.assertEqual((m.call('Settings_Get', EGGS_COUNTER, 0), m.call('Settings_Get', COSTUME, 0),
+                              m.call('Settings_Get', COSTUME, 1)), (position, 5, 2))
+        m.call('Settings_Set', COSTUME, 1, 3)  # And a costume change keeps the position.
+        self.assertEqual((m.call('Settings_Get', EGGS_COUNTER, 0), m.call('Settings_Get', COSTUME, 1)), (4, 3))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 4, 2)), bytes((CURRENT, PAYLOAD)))
+        self.assertEqual(m.record(), core)  # The core record has no room; it lives in TYEX.
+
+    def test_egg_counter_position_rejects_bad_writes_and_repairs_to_top_left(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 1, 2); m.call('Settings_Set', EGGS_COUNTER, 0, 3)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for index, value in ((0, 5), (0, 0xFFFFFFFF), (1, 1)):
+            m.call('Settings_Set', EGGS_COUNTER, index, value)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        self.assertEqual(m.call('Settings_Get', EGGS_COUNTER, 1), 0)
+        m.cpu.mem_write(EXT + 51, bytes((2 | 5 << 5,)))  # A damaged position keeps the costume.
+        self.assertEqual((m.call('Settings_Get', EGGS_COUNTER, 0), m.call('Settings_Get', COSTUME, 1)), (0, 2))
+        self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 2)
+
+    def test_records_that_own_the_costume_bytes_read_their_clear_top_bits_as_top_left(self):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+            with self.subTest(version=version):
+                m = fixtures.Machine(); m.init()
+                m.call('Settings_Set', COSTUME, 1, 4)
+                old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+                old[4:6] = bytes((version, payload))
+                m.cpu.mem_write(EXT, bytes(old))
+                self.assertEqual(m.call('TMExtension_Read', EXT, EGGS_COUNTER, 0), 0)
+                self.assertEqual((m.call('Settings_Get', EGGS_COUNTER, 0), m.call('Settings_Get', COSTUME, 1)), (0, 4))
+                m.call('Settings_Set', EGGS_COUNTER, 0, 4)
+                self.assertEqual((m.call('Settings_Get', EGGS_COUNTER, 0), m.call('Settings_Get', COSTUME, 1)), (4, 4))
+
+    def test_older_records_do_not_read_a_position_from_bytes_they_never_owned(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((16, 42)); old[50:72] = b'\x80' * 22  # Would read as Under Timer.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, EGGS_COUNTER, 0), 0)
+        self.assertEqual(m.call('Settings_Get', EGGS_COUNTER, 0), 0)  # Migrating claims the byte, zeroed.
         self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0)
 
     def test_grid_cells_pack_five_bits_round_trip_and_reject_or_repair_invalid_values(self):
@@ -1207,6 +1258,16 @@ class RelocatedExtensionTests(unittest.TestCase):
         fixture = fixtures.RelocatedDATSettingsTests(); fixture.setUp()
         fixture.m.put(m.record()); fixture.m.cpu.mem_write(EXT, saved)
         self.assertEqual((fixture.m.call('DAT_Get', 30, 2), fixture.m.call('DAT_Get', 30, 3)), (9, 4))
+
+    def test_egg_counter_position_roundtrip_in_optimized_production_dat(self):
+        m = self.m
+        m.init()
+        m.call('DAT_Set', COSTUME, 1, 3); m.call('DAT_Set', EGGS_COUNTER, 0, 4)
+        saved = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(saved[51], 3 | 4 << 5)
+        fixture = fixtures.RelocatedDATSettingsTests(); fixture.setUp()
+        fixture.m.put(m.record()); fixture.m.cpu.mem_write(EXT, saved)
+        self.assertEqual((fixture.m.call('DAT_Get', EGGS_COUNTER, 0), fixture.m.call('DAT_Get', COSTUME, 1)), (4, 3))
 
     def test_v1_migration_uses_real_production_dat_relocations(self):
         m = self.m; m.init()

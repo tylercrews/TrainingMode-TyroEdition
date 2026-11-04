@@ -176,6 +176,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
             - The default, Low and Near, is the closest spot to the old Normal. Saved choices carry over: Weak is now Low, Close; Normal is Low, Near; Hard is High, Medium; Shallow is Very Low, Far; Custom stays Custom. The CPU's percent is 50-80 on every spot, Normal's range. Height uses Hit Strength's saved field and Distance 3 spare bits of the save record (`TYEX` word 68 bits 29-31), so the save format doesn't change.
     - **Low Laser Puff Practice**
         - For characters other than Fox and Falco, the timing readout is now **B Press Start** instead of Neutral-B Start, and it times your first aerial B press of any kind, so things like Samus's side-B missiles count. It reads the button, so a press that doesn't start a move (like during an aerial) counts too. Fox and Falco keep Laser Start, which still only times the laser.
+    - **Eggs-ercise**
+        - New **Egg Counter Position** setting (under Hitbox Trails): put the egg count and the **Best** or **Free Practice** text under it in any corner of the screen or **Under Timer**. It's saved, it works in timed runs and Free Practice without restarting, and Reset Event Settings puts it back on **Top Left**, the original spot. It uses 3 spare bits of the save record (`TYEX` byte 51 bits 5-7), so the save format doesn't change.
 
 For T9 I was working with Claude Opus 5.5 Extra High
 

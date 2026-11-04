@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **30 loose bits** inside the record |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **27 loose bits** inside the record |
 | **Unallocated spare score slots** | `0x1B28..0x1B37` | **16 bytes** | nothing | **16 bytes (128 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -131,12 +131,12 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 35 | Low Laser Puff Practice | bits 0-3 Puff position, bits 4-6 Puff height | bit 7 |
 | 36..49 | Fixed Grid OSD positions | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell | byte 49 bits 6-7 |
 | 50 | Character select | **Player costume** (0..5) | top 5 bits |
-| 51 | Character select | **CPU costume** (0..5) | top 5 bits |
+| 51 | Character select, Eggs-ercise | bits 0-2 **CPU costume** (0..5), bits 5-7 Eggs-ercise Egg Counter Position (T9): 0 Top Left (default), 1 Top Right, 2 Bottom Left, 3 Bottom Right, 4 Under Timer. No version bump: a costume is at most 5 and a higher byte always repaired to 0, so these bits are clear in every record that owns the byte. Read only from records that do (version 17 on). The costume is read and repaired through the low 5 bits, so a damaged byte still repairs to Default and keeps the position | bits 3-4 |
 | 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bit 31 of word 56 |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | bits 14-15 |
 
-Free bits inside the record: 2 + 6 + 2 + 4 + 1 + 2 + 10 + 1 + 2 = **30 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 2 + 6 + 2 + 4 + 1 + 2 + 7 + 1 + 2 = **27 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
