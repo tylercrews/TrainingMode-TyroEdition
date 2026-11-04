@@ -104,6 +104,9 @@ static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = 
 };
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
+/* Reset Speed is stored the same way, so a clear field reads as its default. */
+#define LEDGEGRAB_RESET_STORED(value) (((value)+TM_LEDGEGRAB_RESET_COUNT-TM_LEDGEGRAB_RESET_SHORT)%TM_LEDGEGRAB_RESET_COUNT)
+#define LEDGEGRAB_RESET_READ(stored) (((stored)+TM_LEDGEGRAB_RESET_SHORT)%TM_LEDGEGRAB_RESET_COUNT)
 typedef char TMExtension_EdgeguardPosition[(TM_EG_POSITION_COUNT==4) ? 1 : -1]; /* Exactly fills bits 30..31. */
 static int signature(const uint8_t *r) { return r[0]=='T' && r[1]=='Y' && r[2]=='E' && r[3]=='X'; }
 static int format(const uint8_t *r, unsigned version, unsigned payload_size) {
@@ -172,6 +175,11 @@ static const ExtensionPreference eggs_counter_preference = {29,3,TM_EGGS_COUNTER
  * byte 49 bits 6..7 (word 48 bits 14..15). Every migration to version 16 zeroed
  * them and set_grid_cell keeps them, so zero is Off with no version bump. */
 static const ExtensionPreference eggs_spawn_preferences[TM_EGGS_SPAWN_PREF_COUNT] = {{14,1,2,0}, {15,1,2,0}};
+/* Ledgegrab Speedrun's Reset Speed takes the spare nibble after the last extra
+ * color, byte 34 bits 4..5 (word 32 bits 20..21). Every migration to version 15
+ * zeroed it and set_color_extra keeps it, so no version bump is needed. */
+#define LEDGEGRAB_RESET_OFFSET 32
+static const ExtensionPreference ledgegrab_reset_preference = {20,2,TM_LEDGEGRAB_RESET_COUNT,TM_LEDGEGRAB_RESET_SHORT};
 typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIONS<32 &&
     GRID_END<=COSTUME_OFFSET && COSTUME_OFFSET+2<=EDGEGUARD_OFFSET &&
     EDGEGUARD_OFFSET+EDGEGUARD_SIZE<=EDGEGUARD2_OFFSET && EDGEGUARD2_OFFSET+EDGEGUARD2_SIZE<=EVENT_MENUS_OFFSET &&
@@ -207,7 +215,8 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_GRAB_PUNISH ? TM_GP_PREF_COUNT :
         field==TM_SETTING_UPB_SWEETSPOT ? TM_UPB_PREF_COUNT :
         field==TM_SETTING_EGGS_COUNTER ? 1 :
-        field==TM_SETTING_EGGS_SPAWN ? TM_EGGS_SPAWN_PREF_COUNT : 0;
+        field==TM_SETTING_EGGS_SPAWN ? TM_EGGS_SPAWN_PREF_COUNT :
+        field==TM_SETTING_LEDGEGRAB_RESET ? 1 : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -224,6 +233,7 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_UPB_SWEETSPOT && index<TM_UPB_PREF_COUNT) return &upb_sweetspot_preferences[index];
     if(field==TM_SETTING_EGGS_COUNTER && index==0) return &eggs_counter_preference;
     if(field==TM_SETTING_EGGS_SPAWN && index<TM_EGGS_SPAWN_PREF_COUNT) return &eggs_spawn_preferences[index];
+    if(field==TM_SETTING_LEDGEGRAB_RESET && index==0) return &ledgegrab_reset_preference;
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
@@ -231,6 +241,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
         return index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
+    if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
         return index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
             index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
@@ -254,11 +265,13 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     /* Retain the original four attack bits; the fifth occupies new padding. */
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) value|=((bits>>20)&1)<<4;
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_READ(value);
+    if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_READ(value);
     return value;
 }
 static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned value) {
     const ExtensionPreference *p=preference(field,index);
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_STORED(value);
+    if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_STORED(value);
     unsigned offset=preference_offset(field,index), mask=((1u<<p->width)-1)<<p->shift;
     unsigned bits=(read_bits(r,offset)&~mask)|((value<<p->shift)&mask);
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) bits=(bits&~(1u<<20))|((value>>4)<<20);
@@ -439,6 +452,9 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         unsigned value=supported(r)||v17||v18||v19?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
+    /* Version 15 is the first to own byte 34. */
+    if(field==TM_SETTING_LEDGEGRAB_RESET)
+        return supported(r)||v15||v16||v17||v18||v19?preference_value(r,field,index):p->initial;
     /* Only version 20 records own the event menus' word. */
     if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) {
         unsigned value=supported(r)?preference_value(r,field,index):p->initial;

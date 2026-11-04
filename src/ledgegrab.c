@@ -8,10 +8,9 @@
  * Change Stage and leaving the event both clear them. They stay in statics:
  * a savestate load rewinds the event's userdata. */
 
-// A result stays up this long before the restart.
-#define LINGER_FRAMES 60
+#define FRAMES_PER_SECOND 60
 // Still going after 30 seconds is a DNF. Also the most a run can count.
-#define DNF_FRAMES (30 * 60)
+#define DNF_FRAMES (30 * FRAMES_PER_SECOND)
 // At Ledge stands this far inland of the edge, so nobody starts out teetering.
 #define LEDGE_INSET 5
 
@@ -23,30 +22,40 @@
 // The menu choices survive Change Stage's restart; the results don't.
 #define LEDGEGRAB_CARRY_TAG 0x4C677253 /* "LgrS" */
 
-enum menu_options { OPT_GOAL, OPT_START, OPT_FACING };
+#define DPAD_BUTTONS (HSD_BUTTON_DPAD_LEFT | HSD_BUTTON_DPAD_RIGHT | HSD_BUTTON_DPAD_DOWN | HSD_BUTTON_DPAD_UP)
+
+enum menu_options { OPT_GOAL, OPT_START, OPT_FACING, OPT_CAMERA, OPT_RESET };
 enum start_position {
     START_LEDGE, START_FAR_LEDGE, START_UNDER_CLOSE, START_UNDER_FAR,
     START_CENTER, START_TOP, START_CLOSE, START_FAR, START_COUNT
 };
 enum facing { FACING_TOWARD, FACING_AWAY, FACING_COUNT };
+enum camera_mode { CAMERA_GOAL, CAMERA_BOTH, CAMERA_FIGHTER, CAMERA_COUNT };
 enum hud_row { ROW_COUNTER, ROW_BEST, ROW_PREVIOUS, ROW_COUNT };
 
-// Left and right share a record: they're the same run, mirrored.
+// 0 until there is one. A mirrored run keeps its own best, but Previous is shared.
 typedef struct LedgegrabRecord {
-    u16 best, previous; // 0 until there is one. Previous can be DNF_FRAMES.
+    u16 best[2];  // By goal ledge: left, then right.
+    u16 previous; // Can be DNF_FRAMES.
 } LedgegrabRecord;
 static LedgegrabRecord records[START_COUNT][FACING_COUNT];
 
 typedef struct LedgegrabCarry {
-    int goal, start, facing;
+    int goal, start, facing, camera;
 } LedgegrabCarry;
 
 static void ChangeRun(GOBJ *menu, int value);
 static void ChangeStart(GOBJ *menu, int value);
+static void ChangeCamera(GOBJ *menu, int value);
+static void ChangeResetSpeed(GOBJ *menu, int value);
 static void Exit(GOBJ *menu);
 
 static const char *goal_names[] = {"Left", "Right"};
 static const char *facing_names[FACING_COUNT] = {"Toward Ledge", "Away From Ledge"};
+static const char *camera_names[CAMERA_COUNT] = {"Goal Ledge", "Both Ledges", "Fighter Only"};
+static const char *reset_speed_names[TM_LEDGEGRAB_RESET_COUNT] = {"Instant", "Short", "Linger"};
+// How long a result stays up before the restart.
+static const u8 reset_speed_frames[TM_LEDGEGRAB_RESET_COUNT] = {0, 30, 60};
 static const char *start_names[START_COUNT] = {
     "At Ledge", "At Far Ledge", "Under Close Plat", "Under Far Plat",
     "Center Stage", "Top Plat", "Close Plat", "Far Plat"};
@@ -73,6 +82,18 @@ static EventOption options[] = {
      .OnChange = ChangeRun,
      .desc = {"Start facing toward or away from the goal ledge.",
               "D-Pad up also switches it and restarts."}},
+    {.kind = OPTKIND_STRING, .name = "Camera", .value_num = CAMERA_COUNT, .values = camera_names,
+     .OnChange = ChangeCamera,
+     .desc = {"Goal Ledge frames you with the goal ledge, as if",
+              "another player were standing on it. Both Ledges",
+              "keeps the whole stage in view. Fighter Only is",
+              "the normal camera, following just you."}},
+    {.kind = OPTKIND_STRING, .name = "Reset Speed", .value_num = TM_LEDGEGRAB_RESET_COUNT, .values = reset_speed_names,
+     .OnChange = ChangeResetSpeed,
+     .desc = {"How long a result stays up before the restart.",
+              "Instant restarts the moment you grab the ledge.",
+              "Short is half a second, and Linger a full second.",
+              "This setting is saved."}},
     {.kind = OPTKIND_MENU, .name = "Change Stage", .menu = &StageSwap_Menu,
      .desc = {"Restart on another tournament-legal stage.",
               "This clears every Session Best and Previous time."}},
@@ -149,15 +170,37 @@ static void SetRow(int row, const char *label, int frames) {
     if (frames == row_shown[row])
         return;
     row_shown[row] = frames;
+    int seconds = frames / FRAMES_PER_SECOND;
+    int hundredths = frames % FRAMES_PER_SECOND * 100 / FRAMES_PER_SECOND;
     for (int i = 0; i < ROW_SUBTEXTS; ++i) {
         int subtext = row * ROW_SUBTEXTS + i;
         if (frames == DNF_FRAMES)
             Text_SetText(hud_text, subtext, "%s: DNF", label);
-        else if (frames || row == ROW_COUNTER)
+        else if (row == ROW_COUNTER)
+            Text_SetText(hud_text, subtext, "%s: %d (%02d:%02d.%02d)", label, frames, seconds / 60, seconds % 60, hundredths);
+        else if (frames)
             Text_SetText(hud_text, subtext, "%s: %d", label, frames);
         else
-            Text_SetText(hud_text, subtext, "%s: -", label);
+            Text_SetText(hud_text, subtext, "%s: --", label);
     }
+}
+
+static const char *BestText(char *text, int frames) {
+    if (!frames)
+        return "--";
+    sprintf(text, "%d", frames);
+    return text;
+}
+
+static void SetBestRow(const u16 *best) {
+    int shown = best[0] << 16 | best[1];
+    if (shown == row_shown[ROW_BEST])
+        return;
+    row_shown[ROW_BEST] = shown;
+    char left[8], right[8];
+    const char *left_text = BestText(left, best[0]), *right_text = BestText(right, best[1]);
+    for (int i = 0; i < ROW_SUBTEXTS; ++i)
+        Text_SetText(hud_text, ROW_BEST * ROW_SUBTEXTS + i, "Session Best L: %s  R: %s", left_text, right_text);
 }
 
 static GXColor *ResultColor(int frames, int best) {
@@ -172,19 +215,19 @@ static GXColor *ResultColor(int frames, int best) {
 // Ledges ----------------------------------------------------------------
 
 // All in stage units. The black edge sits about this far outside each marker.
-#define MARKER_EDGE 1
+#define MARKER_EDGE .75f
 // The wrong ledge's X: center to the end of a stroke along each axis, and half
 // a stroke's thickness.
-#define X_ARM 10
-#define X_STROKE 2.5f
+#define X_ARM 7.5f
+#define X_STROKE 2
 // The goal ledge's !, raised to clear a fighter standing at the ledge. The dot
 // is square; the bar narrows toward it.
 #define BANG_RAISE 20
-#define BANG_DOT 3
-#define BANG_GAP 2
-#define BANG_LENGTH 17
-#define BANG_NARROW 1.75f
-#define BANG_WIDE 3.5f
+#define BANG_DOT 2.25f
+#define BANG_GAP 1.5f
+#define BANG_LENGTH 13
+#define BANG_NARROW 1.25f
+#define BANG_WIDE 2.75f
 #define BANG_TOP (BANG_RAISE + BANG_DOT * 2 + BANG_GAP + BANG_LENGTH)
 // Two strokes, or a dot and a bar, for each marker.
 #define MARKER_QUADS 4
@@ -192,11 +235,12 @@ static GXColor *ResultColor(int frames, int best) {
 #define LEDGE_CAMERA_MARGIN 15
 
 static Vec2 ledges[2]; // Left, then right.
+static CmSubject *ledge_cameras[2];
 static bool ledges_found = false;
 
-/* A lone fighter's camera zooms in, which would leave the markers off-screen
- * from across the stage, so each ledge gets a camera subject too. The match
- * frees them. */
+/* The camera frames a subject like a fighter that never moves, so one at a ledge
+ * is a fake player standing there. Each ledge gets one, and ApplyCamera picks
+ * which count. The match frees them. */
 static void FindLedges(void) {
     float edges[2];
     GroundEdges(&edges[0], &edges[1]);
@@ -206,8 +250,7 @@ static void FindLedges(void) {
         GroundPoint(edges[i], &point, &line);
         ledges[i] = (Vec2){point.X, point.Y};
 
-        CmSubject *cam = CameraSubject_Alloc();
-        cam->kind = 0;
+        CmSubject *cam = ledge_cameras[i] = CameraSubject_Alloc();
         cam->cam_pos = point;
         cam->boundleft_proj = cam->boundleft_curr = -LEDGE_CAMERA_MARGIN;
         cam->boundright_proj = cam->boundright_curr = LEDGE_CAMERA_MARGIN;
@@ -215,6 +258,16 @@ static void FindLedges(void) {
         cam->boundbottom_proj = cam->boundbottom_curr = -LEDGE_CAMERA_MARGIN;
     }
     ledges_found = true;
+}
+
+static void ApplyCamera(void) {
+    if (!ledges_found)
+        return;
+    int mode = options[OPT_CAMERA].val, goal = options[OPT_GOAL].val;
+    for (int i = 0; i < 2; ++i) {
+        bool framed = mode == CAMERA_BOTH || (mode == CAMERA_GOAL && i == goal);
+        ledge_cameras[i]->kind = framed ? 0 : 1; // 1 = not focused
+    }
 }
 
 // The diagonal through at: flip 1 rises to the right, -1 to the left.
@@ -326,6 +379,16 @@ static void UpdateCameraBox(GOBJ *fighter) {
 
 // Run -------------------------------------------------------------------
 
+/* The savestate rewinds the fighter's buttons to none held, so the D-pad press
+ * that caused a restart would look new on the fighter's next input frame: a
+ * taunt, on Up, which would start the count. That frame takes its previous
+ * buttons from held, or from x664 if the savestate predates its first one. */
+static void KeepDPadHeld(FighterData *ft) {
+    int dpad = PadGetEngine(ft->pad_index)->held & DPAD_BUTTONS;
+    ft->input.held |= dpad;
+    ft->input.x664 |= dpad;
+}
+
 static void Reset(void) {
     if (run.finished)
         run.finished->previous = run.frames;
@@ -356,18 +419,22 @@ static void Reset(void) {
         PlaceFighter(hmn_sub, ground, line, facing);
         SeedFollower(hmn_sub, hmn);
     }
+    ApplyCamera();
     UpdateCameraBox(hmn);
+    KeepDPadHeld(hmn_data);
 }
 
-// Ends the run: DNF_FRAMES for a DNF. The result lingers, then Reset follows.
+// Ends the run: DNF_FRAMES for a DNF. The result lingers, if Reset Speed says to, then Reset follows.
 static void Finish(int frames) {
     LedgegrabRecord *record = CurrentRecord();
-    SetCounterColor(ResultColor(frames, record->best));
-    if (frames < DNF_FRAMES && (!record->best || frames < record->best))
-        record->best = frames;
+    u16 *best = &record->best[options[OPT_GOAL].val];
+    SetCounterColor(ResultColor(frames, *best));
+    if (frames < DNF_FRAMES && (!*best || frames < *best))
+        *best = frames;
     run.frames = frames;
     run.finished = record;
-    run.linger = LINGER_FRAMES;
+    run.linger = reset_speed_frames[options[OPT_RESET].val];
+    restart_pending = !run.linger;
 }
 
 static bool OnGoalLedge(FighterData *ft) {
@@ -390,6 +457,16 @@ static void ChangeStart(GOBJ *menu, int value) {
     restart_pending = true;
 }
 
+// Framing doesn't change the run, so this one carries on.
+static void ChangeCamera(GOBJ *menu, int value) {
+    ApplyCamera();
+    Match_CorrectCamera();
+}
+
+static void ChangeResetSpeed(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_LEDGEGRAB_RESET, 0, value);
+}
+
 static void Exit(GOBJ *menu) {
     Memcard_SaveIfChanged();
     stc_match->state = 3;
@@ -403,6 +480,7 @@ static void StageSwap_BeforeRestart(void) {
     carry->goal = options[OPT_GOAL].val;
     carry->start = options[OPT_START].val;
     carry->facing = options[OPT_FACING].val;
+    carry->camera = options[OPT_CAMERA].val;
 }
 
 // D-pad -----------------------------------------------------------------
@@ -417,11 +495,10 @@ static void ToggleOption(int row) {
     restart_pending = true;
 }
 
+/* From the pad, not ft->input: a restart rewinds that, so a held button there is
+ * a new press on every frame and restarts again each time. */
 static void ReadDPad(FighterData *ft) {
-    int down = ft->input.down;
-    // Up is also the taunt. If the fighter reads this after the restart, a taunt
-    // out of the new Wait would start the count.
-    ft->input.down &= ~HSD_BUTTON_DPAD_UP;
+    int down = PadGetEngine(ft->pad_index)->down;
     if (down & HSD_BUTTON_DPAD_LEFT)
         CycleStart(-1);
     else if (down & HSD_BUTTON_DPAD_RIGHT)
@@ -440,7 +517,9 @@ void Event_Init(GOBJ *gobj) {
         options[OPT_GOAL].val = options[OPT_GOAL].val_prev = carry->goal;
         options[OPT_START].val = options[OPT_START].val_prev = carry->start;
         options[OPT_FACING].val = options[OPT_FACING].val_prev = carry->facing;
+        options[OPT_CAMERA].val = options[OPT_CAMERA].val_prev = carry->camera;
     }
+    options[OPT_RESET].val = options[OPT_RESET].val_prev = TM_GetSetting(TM_SETTING_LEDGEGRAB_RESET, 0);
     previous_start = options[OPT_START].val;
     for (int i = 0; i < START_COUNT; ++i)
         start_display[i] = start_names[i];
@@ -491,6 +570,8 @@ void Event_Think(GOBJ *gobj) {
         Finish(run.frames);
     else if (++run.frames >= DNF_FRAMES)
         Finish(DNF_FRAMES);
+    if (restart_pending) // Instant.
+        Reset();
 }
 
 void Event_Update(void) {
@@ -499,6 +580,6 @@ void Event_Update(void) {
     hud_text->hidden = ((MenuData *)event_vars->menu_gobj->userdata)->mode == MenuMode_Paused;
     LedgegrabRecord *record = CurrentRecord();
     SetRow(ROW_COUNTER, "Frames", run.frames);
-    SetRow(ROW_BEST, "Session Best", record->best);
+    SetBestRow(record->best);
     SetRow(ROW_PREVIOUS, "Previous", record->previous);
 }

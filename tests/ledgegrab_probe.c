@@ -23,11 +23,53 @@ static int shown_value[SUBTEXTS], shown_label[SUBTEXTS], row_y_shown[SUBTEXTS];
 static u32 subtext_colors[SUBTEXTS];
 static u32 carry_tag, carry_size;
 static u8 carry_data[32];
+/* 0x10 here means the fighter's previous buttons come from held. Without it they
+ * come from x664, once, as on the fighter's very first input frame. */
+#define INPUT_FLAGS 0x221D
+#define INPUT_STARTED 0x10
+static struct input saved_input;
+static u8 saved_input_flags;
+static int fighter_reads_first, camera_snaps;
+static u32 saved_reset_speed = TM_LEDGEGRAB_RESET_SHORT;
+static const char *counter_format;
+static int counter_time[3];
+static const char *best_format;
+static char best_text[2][8];
+static int shown_right[SUBTEXTS];
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
 void memcpy(void *dest, const void *src, int size) { u8 *d = dest; const u8 *s = src; while (size--) *d++ = *s++; }
-static int Save(void *state, int flags) { ++saves; return 1; }
-static int Load(void *state, int flags) { ++loads; return 1; }
+/* The real savestate keeps the fighter's input and flags, which is what made a
+ * held D-pad press look new again after every restart. */
+static int Save(void *state, int flags) {
+    saved_input = ft[0].input; saved_input_flags = ((u8 *)&ft[0])[INPUT_FLAGS];
+    ++saves;
+    return 1;
+}
+static int Load(void *state, int flags) {
+    ft[0].input = saved_input; ((u8 *)&ft[0])[INPUT_FLAGS] = saved_input_flags;
+    ++loads;
+    return 1;
+}
+/* PlayerThink_Interrupt (0x8006AD10): reads the engine pad, makes down an edge
+ * against the previous buttons, and takes a taunt from it straight away. */
+static void FighterInput(void) {
+    FighterData *f = &ft[0];
+    u8 *input_flags = (u8 *)f + INPUT_FLAGS;
+    f->input.held_prev = *input_flags & INPUT_STARTED ? f->input.held : f->input.x664;
+    *input_flags |= INPUT_STARTED;
+    f->input.held = PadGetEngine(0)->held;
+    f->input.down = f->input.held & ~f->input.held_prev;
+    if (f->state_id == ASID_WAIT && f->input.down & HSD_BUTTON_DPAD_UP)
+        f->state_id = ASID_APPEALR;
+}
 static void Restart(int stage) { restarted = stage; }
+static u32 SettingGet(unsigned field, unsigned index) {
+    return field == TM_SETTING_LEDGEGRAB_RESET && index == 0 ? saved_reset_speed : 0;
+}
+static void SettingSet(unsigned field, unsigned index, u32 value) {
+    if (field == TM_SETTING_LEDGEGRAB_RESET && index == 0) saved_reset_speed = value;
+}
+static const TMSettingsAPI settings_api = {SettingGet, SettingSet, 0};
 static void GFXStart(u16 count, GFX_Params params) {
     gfx_count = count; gfx_shape = params.shape; gfx_no_depth = params.no_depth;
 }
@@ -59,7 +101,7 @@ int GrColl_RaycastGround(Vec3 *pos, int *line, int *kind, Vec3 *normal,
     int a, int b, int c, void *cb, float x, float y, float x2, float y2, float e) {
     *pos = (Vec3){x, 0, 0}; *line = 1; return 1;
 }
-void Match_CorrectCamera(void) { }
+void Match_CorrectCamera(void) { ++camera_snaps; }
 int Pause_CheckStatus(int kind) { return paused; }
 void Memcard_SaveIfChanged(void) { }
 void Match_EndVS(void) { ended = 1; }
@@ -71,19 +113,54 @@ int Text_AddSubtext(Text *t, float x, float y, char *fmt, ...) {
 }
 void Text_SetColor(Text *t, int subtext, GXColor *color) { subtext_colors[subtext] = *(u32 *)color; }
 void Text_SetScale(Text *t, int subtext, float x, float y) { }
-/* The three row formats: "%s: %d", "%s: DNF" and "%s: -". */
+/* Only BestText's "%d". */
+int sprintf(char *out, const char *fmt, ...) {
+    va_list args; va_start(args, fmt);
+    int value = va_arg(args, int);
+    va_end(args);
+    char digits[12];
+    int count = 0;
+    do { digits[count++] = '0' + value % 10; value /= 10; } while (value);
+    while (count) *out++ = digits[--count];
+    *out = 0;
+    return 0;
+}
+static int ShownBest(int side, const char *text) {
+    int value = 0;
+    for (int i = 0; (best_text[side][i] = text[i]); ++i)
+        value = value * 10 + text[i] - '0';
+    return text[0] == '-' ? -1 : value;
+}
+/* The row formats: "%s: %d", "%s: DNF", "%s: --", and Session Best's two times. */
 void Text_SetText(Text *t, int subtext, const char *fmt, ...) {
     va_list args; va_start(args, fmt);
-    shown_label[subtext] = *va_arg(args, const char *);
-    shown_value[subtext] = fmt[4] == '%' ? va_arg(args, int) : fmt[4] == 'D' ? -2 : -1;
+    if (fmt[0] == 'S') {
+        best_format = fmt;
+        shown_label[subtext] = 'S';
+        shown_value[subtext] = ShownBest(0, va_arg(args, const char *));
+        shown_right[subtext] = ShownBest(1, va_arg(args, const char *));
+    } else {
+        shown_label[subtext] = *va_arg(args, const char *);
+        shown_value[subtext] = fmt[4] == '%' ? va_arg(args, int) : fmt[4] == 'D' ? -2 : -1;
+        if (fmt[4] == '%' && fmt[7]) { // The counter's time.
+            counter_format = fmt;
+            for (int i = 0; i < 3; ++i) counter_time[i] = va_arg(args, int);
+        }
+    }
     va_end(args);
     ++text_writes;
 }
+unsigned TestLedgeBestText(int which) {
+    return which == 2 ? (unsigned)best_format : (unsigned)best_text[which];
+}
+unsigned TestLedgeCounterFormat(void) { return (unsigned)counter_format; }
+void TestLedgeSavedResetSpeed(int value) { saved_reset_speed = value; }
 int TestLedgeInit(void) {
     *event_vars_ptr_loc = &vars;
     vars.event_gobj = &event; vars.menu_gobj = &menu_object;
     vars.Savestate_Save_v1 = (void *)Save; vars.Savestate_Load_v1 = (void *)Load;
     vars.GFX_Start = GFXStart;
+    vars.settings = &settings_api;
     vars.restart_on_stage = Restart; vars.carry_store = CarryStore; vars.carry_take = CarryTake;
     menu_object.userdata = &menu_data;
     for (int i = 0; i < 2; ++i) {
@@ -99,10 +176,25 @@ void TestLedgeReset(void) { text_rows = 0; vars.game_timer = 0; }
 unsigned TestLedgeObject(void) { return (unsigned)&event; }
 void TestLedgeTimer(void) { ++vars.game_timer; }
 void TestLedgeThink(int frames) {
-    while (frames--) { ++vars.game_timer; Event_Think(&event); Event_Update(); }
+    while (frames--) {
+        ++vars.game_timer;
+        HSD_Pad *pad = PadGetEngine(0);
+        pad->down = pad->held & ~pad->heldPrev;
+        pad->heldPrev = pad->held;
+        if (fighter_reads_first && !paused) FighterInput();
+        Event_Think(&event);
+        if (!fighter_reads_first && !paused) FighterInput();
+        Event_Update();
+    }
 }
+void TestLedgeFighterReadsFirst(int value) { fighter_reads_first = value; }
 void TestLedgeState(int state, int x) { ft[0].state_id = state; ft[0].phys.pos.X = x; }
-void TestLedgeDown(int buttons) { ft[0].input.down = buttons; }
+/* A release can land between frames, so two presses in a row stay two presses. */
+void TestLedgeHold(int buttons) {
+    HSD_Pad *pad = PadGetEngine(0);
+    pad->held = buttons;
+    pad->heldPrev &= buttons;
+}
 void TestLedgeDead(void) { ft[0].flags.dead = 1; }
 void TestLedgePause(int value) { paused = value ? 2 : 0; menu_data.mode = value ? MenuMode_Paused : 0; }
 void TestLedgeNana(int value) { has_nana = value; ft[0].flags.has_follower = value; }
@@ -113,8 +205,6 @@ void TestLedgeChoice(int row, int value) {
 void TestLedgeStageSwap(int row) { StageSwap_Options[row].OnSelect(0); }
 void TestLedgeExit(void) { Exit(0); }
 void TestLedgeDraw(int pass) { gx_callback(&marker_gobj, pass); }
-/* Runs on the next frame, so a run can stand in for the fighter reading input. */
-void TestLedgeNext(void) { ++vars.game_timer; Event_Think(&event); }
 unsigned TestLedgeDesc(int row, int line) { return (unsigned)options[row].desc[line]; }
 int TestLedgeOptionCount(void) { return countof(options); }
 int TestLedgeSubject(int ledge, int key) {
@@ -189,6 +279,14 @@ int TestLedgeInfo(int key) {
     case 35: return gx_link;
     case 36: return gx_priority;
     case 37: return ledge_subject_count;
+    case 38: return options[OPT_CAMERA].val;
+    case 39: return camera_snaps;
+    case 40: return shown_right[ROW_BEST * ROW_SUBTEXTS];
+    case 41: return options[OPT_RESET].val;
+    case 42: return saved_reset_speed;
+    case 43: return counter_time[0];
+    case 44: return counter_time[1];
+    case 45: return counter_time[2];
     }
     return -1;
 }

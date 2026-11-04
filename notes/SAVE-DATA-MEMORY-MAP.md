@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **18 loose bits** inside the record |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **16 loose bits** inside the record |
 | **Unallocated spare score slots** | `0x1B28..0x1B37` | **16 bytes** | nothing | **16 bytes (128 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -127,7 +127,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
 | 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish | word 20, fully used | — |
-| 24..34 | Global OSD colors | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender | byte 34 high nibble |
+| 24..34 | Global OSD colors, Ledgegrab Speedrun | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender. Byte 34 bits 4-5 are Ledgegrab Speedrun's Reset Speed (T9), stored as an offset from the default: 0 Short, 1 Linger, 2 Instant, and an invalid 3 reads as Short. No version bump: every migration to version 15 zeroed this nibble and the color code keeps it. Read only from version 15 on | byte 34 bits 6-7 |
 | 35 | Low Laser Puff Practice | bits 0-3 Puff position, bits 4-6 Puff height | bit 7 |
 | 36..49 | Fixed Grid OSD positions, Eggs-ercise | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell. Byte 49 bits 6-7 are Eggs Under Platforms and Eggs In The Air (T9), Off by default. No version bump: every migration to version 16 zeroed them and the grid cells keep them. Read only from version 17 on, like the Egg Counter Position | — |
 | 50 | Character select, 2v1 Grab Punish | bits 0-2 **Player costume** (0..5), bits 5-7 Teammate Percent (T9): 0% to 100% in steps of 20, default 0%. No version bump, for the same reason as the Egg Counter Position below. The costume is read and repaired through the low 5 bits | bits 3-4 |
@@ -136,7 +136,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 
-Free bits inside the record: 2 + 6 + 4 + 1 + 4 + 1 = **18 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 2 + 6 + 2 + 1 + 4 + 1 = **16 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 

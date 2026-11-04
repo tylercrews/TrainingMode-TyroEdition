@@ -21,6 +21,7 @@ HEADER = b'TYEX\x14\x40\xA5\x5A'
 # (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
 # CPU's default recovery toggles).
 EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
+LOW_LASER = 30  # TM_SETTING_LOW_LASER
 # Recovery masks: Fox, Falco, Sheik, Falcon, Marth, then (word 64, version 19)
 # Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus. Then Player
 # Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31,
@@ -80,6 +81,8 @@ GRID = 37  # TM_SETTING_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 EGGS_COUNTER = 44  # TM_SETTING_EGGS_COUNTER: byte 51's top three bits.
 EGGS_SPAWN = 45  # TM_SETTING_EGGS_SPAWN: byte 49's top two bits.
+LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET: byte 34 bits 4-5.
+RESET_INSTANT, RESET_SHORT, RESET_LINGER = 0, 1, 2
 SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
 SWEETSPOT = 41  # TM_SETTING_SWEETSPOT: Success Criteria word 20 bit 26, Knockback bits 27-29.
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
@@ -603,6 +606,52 @@ class ExtensionTests(unittest.TestCase):
                 old[4:6] = bytes((version, payload))
                 m.cpu.mem_write(EXT, bytes(old))
                 self.assertEqual((m.call('TMExtension_Read', EXT, EGGS_SPAWN, 0), m.call('TMExtension_Read', EXT, EGGS_SPAWN, 1)), (0, 0))
+
+    def test_ledgegrab_reset_speed_shares_byte_34_without_disturbing_its_neighbors(self):
+        m = self.m
+        core = m.record()
+        self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 0), RESET_SHORT)
+        m.call('Settings_Set', LOW_LASER, 2, 9)  # Creates the record, and byte 35's Puff position.
+        m.cpu.mem_write(EXT + 34, bytes((3,)))  # The last extra OSD color.
+        for speed, stored in ((RESET_LINGER, 1), (RESET_INSTANT, 2), (RESET_SHORT, 0)):
+            m.call('Settings_Set', LEDGEGRAB_RESET, 0, speed)
+            self.assertEqual(m.cpu.mem_read(EXT + 34, 1)[0], 3 | stored << 4)
+            self.assertEqual((m.call('Settings_Get', LEDGEGRAB_RESET, 0), m.call('Settings_Get', LOW_LASER, 2)), (speed, 9))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 4, 2)), bytes((CURRENT, PAYLOAD)))
+        self.assertEqual(m.record(), core)  # The core record has no room; it lives in TYEX.
+
+    def test_ledgegrab_reset_speed_rejects_bad_writes_and_reads_damage_as_short(self):
+        m = self.m
+        m.call('Settings_Set', LEDGEGRAB_RESET, 0, RESET_LINGER)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for index, value in ((0, 3), (0, 0xFFFFFFFF), (1, 1)):
+            m.call('Settings_Set', LEDGEGRAB_RESET, index, value)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 1), 0)
+        m.cpu.mem_write(EXT + 34, bytes((3 << 4,)))  # The one stored value with no speed.
+        self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 0), RESET_SHORT)
+
+    def test_records_that_own_byte_34_read_its_clear_bits_as_short(self):
+        for version, payload in ((15, 28), (16, 42), (17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+            with self.subTest(version=version):
+                m = fixtures.Machine(); m.init()
+                m.call('Settings_Set', COSTUME, 1, 4)  # Create the record.
+                old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+                old[4:6] = bytes((version, payload))
+                m.cpu.mem_write(EXT, bytes(old))
+                self.assertEqual(m.call('TMExtension_Read', EXT, LEDGEGRAB_RESET, 0), RESET_SHORT)
+                m.call('Settings_Set', LEDGEGRAB_RESET, 0, RESET_LINGER)
+                self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 0), RESET_LINGER)
+
+    def test_records_before_version_15_do_not_read_a_speed_from_bytes_they_never_owned(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((14, 16))
+        old[34] = 1 << 4  # Would read as Linger.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, LEDGEGRAB_RESET, 0), RESET_SHORT)
+        self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 0), RESET_SHORT)
 
     def test_egg_counter_position_shares_the_cpu_costume_byte_without_disturbing_it(self):
         m = self.m

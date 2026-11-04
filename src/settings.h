@@ -136,6 +136,7 @@ enum TMSettingsField {
     TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18. */
     TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
     TM_SETTING_EGGS_SPAWN, /* Free Practice's egg spots, TYEX byte 49 bits 6-7. */
+    TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -155,6 +156,10 @@ enum TMEggsCounterPosition {
 };
 /* Eggs Under Platforms and Eggs In The Air, both off by default. */
 enum TMEggsSpawnPreference { TM_EGGS_UNDER_PLATFORMS, TM_EGGS_IN_AIR, TM_EGGS_SPAWN_PREF_COUNT };
+/* How long Ledgegrab Speedrun shows a result before the restart. */
+enum TMLedgegrabResetSpeed {
+    TM_LEDGEGRAB_RESET_INSTANT, TM_LEDGEGRAB_RESET_SHORT, TM_LEDGEGRAB_RESET_LINGER, TM_LEDGEGRAB_RESET_COUNT,
+};
 enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUNT };
 enum TMTechchasePreference {
     TM_TECHCHASE_PRESET, TM_TECHCHASE_REACTION_OSD, TM_TECHCHASE_TIMING_OSD,
