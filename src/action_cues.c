@@ -98,7 +98,7 @@ unsigned TMCue_Update(TMCueState *cue, int state, float frame, unsigned instance
     return cue->red_source ? TM_CUE_RED : TM_CUE_NONE;
 }
 unsigned TMCue_RedAlpha(unsigned phase) {
-    static const uint8_t pulse[] = {180,140,100,60,20,60,100,140};
+    static const uint8_t pulse[] = TM_CUE_RED_PULSE;
     return pulse[phase % TM_CUE_PULSE_FRAMES];
 }
 uint32_t TMCue_CPUInvincibilityColor(unsigned choice) {

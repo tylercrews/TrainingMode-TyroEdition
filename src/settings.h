@@ -132,7 +132,7 @@ enum TMSettingsField {
     TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
     TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
     TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
-    TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu, TYEX word 68 bits 0-12. */
+    TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu, TYEX word 68 bits 0-13. */
     TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
@@ -204,10 +204,11 @@ enum TMEdgeguardPreference {
 enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_PREF_COUNT };
 #define TM_SWEETSPOT_SUCCESS_COUNT 2 /* Sweetspot / Sweetspot + Ledgedash. */
 #define TM_SWEETSPOT_KNOCKBACK_COUNT 8 /* Random, six presets, Random Preset. */
-/* 2v1 Grab Punish: Grab Location, Your Location, Enemy Percent, CPU Mashing
- * and Teammate Facing, in word 68 (version 20). */
+/* 2v1 Grab Punish: Grab Location, Your Location, Enemy Percent, CPU Mashing,
+ * Teammate Facing and Count Release Hits (default Off), in word 68 (version 20). */
 enum TMGrabPunishPreference {
-    TM_GP_GRAB_SPOT, TM_GP_YOUR_SPOT, TM_GP_PERCENT, TM_GP_MASH, TM_GP_FACING, TM_GP_PREF_COUNT
+    TM_GP_GRAB_SPOT, TM_GP_YOUR_SPOT, TM_GP_PERCENT, TM_GP_MASH, TM_GP_FACING,
+    TM_GP_RELEASE_HITS, TM_GP_PREF_COUNT
 };
 #define TM_GP_LOCATION_COUNT 8 /* Random, then seven spots. */
 #define TM_GP_PERCENT_COUNT 6 /* 0% to 100% in steps of 20. */

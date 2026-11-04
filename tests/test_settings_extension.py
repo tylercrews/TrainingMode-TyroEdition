@@ -42,7 +42,7 @@ EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # in bits 16-18.
 GRAB_PUNISH = 42  # TM_SETTING_GRAB_PUNISH
 UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
-GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 6, 4, 3), (0, 0, 3, 1, 0)
+GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 6, 4, 3, 2), (0, 0, 3, 1, 0, 0)
 UPB_COUNTS, UPB_DEFAULTS = (2, 2, 2), (1, 0, 0)
 EVENT_MENU_BYTES = bytes.fromhex('c0020100')
 # Bytes 24..71 appended by versions 15 to 20: one color nibble per OSD (all
@@ -371,7 +371,7 @@ class ExtensionTests(unittest.TestCase):
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         self.assertEqual((after[:68], after[72:]), (before[:68], before[72:]))  # Only word 68 changes.
         word = int.from_bytes(after[68:72], 'little')
-        self.assertEqual(word & ~0x71FFF, 0)  # Bits 13-15 and 19-31 stay spare.
+        self.assertEqual(word & ~0x73FFF, 0)  # Bits 14-15 and 19-31 stay spare.
         self.assertEqual(m.record(), core)
         self.assertEqual(m.call('Settings_Get', EDGEGUARD, 19), 9)
         fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, after)
@@ -379,7 +379,7 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (7) and Teammate Facing (3) repair to their
         # defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 3, 0), (1, 1, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 3, 0, 1), (1, 1, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'), word & ~(7 << 6 | 3 << 11) | 3 << 6)
 
     def test_recovery_menu_defaults_match_saved_initial_masks(self):

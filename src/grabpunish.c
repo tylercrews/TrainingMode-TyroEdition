@@ -31,19 +31,33 @@
  *                 direction, each every 4 frames (30 inputs a second):
  *                 4 a frame, a quarter
  *   Inhuman Mash  a new button and stick        6     9   11   14   16   19
- *                 direction every frame: 13 a frame, the fastest possible */
+ *                 direction every frame: 13 a frame, the fastest possible
+ *
+ * The grab ending isn't the end of the punish. The enemy lands in CaptureCut,
+ * the ground release: 30 frames (20 for Donkey Kong), which nothing can cut
+ * short, then Wait. Holding up as it ends, or pressing X or Y with under 16
+ * left on the timer, makes it CaptureJump, the jump release, instead. This
+ * event's mash does neither. */
 
 #define FD_EDGE 85.5656967f      // FD's main-stage edge; ground spots scale to each stage's.
 #define PLAYER_CLEARANCE 22.f    // Least room between you and the nearer of the pair.
 #define EDGE_MARGIN 6.f          // Keep fighters this far in from a surface's ends.
 #define CORNER_INSET 14.f        // A corner spot's distance in from the ledge.
 #define SETUP_FRAMES 40          // A grab that hasn't connected by then is tried again.
-#define GRACE_FRAMES 12          // After the grab ends, the same attack can still land.
+#define GRACE_FRAMES 12          // After your hit, the same attack can still land.
 #define FOLLOWUP_IDLE 45         // Reset once the enemy is out of hitstun this long,
 #define FOLLOWUP_MIN 60          // but never sooner than this after the result,
 #define FOLLOWUP_MAX (8 * 60)    // and never later than this.
 #define KO_WAIT 60
 #define GRAB_IMMUNE 0x1FF        // grab.vuln: no grab type can catch this fighter.
+// The big countdown's HUD rect, just under the match timer, with its text's
+// size and black border. Bigger text sits lower in the rect.
+#define BIG_X -5.f
+#define BIG_Y 15.9f
+#define BIG_WIDTH 10.f
+#define BIG_HEIGHT 2.5f
+#define BIG_SIZE 1.f
+#define BIG_BORDER 2.f
 
 // Teammate-to-enemy distance (center to center) each time the grab is tried.
 static const float Grab_Gaps[] = { 8, 5, 11, 14 };
@@ -59,6 +73,7 @@ enum menu_options {
     OPT_PERCENT,
     OPT_MASH,
     OPT_FACING,
+    OPT_RELEASE_HITS,
 };
 
 enum location {
@@ -89,9 +104,11 @@ static const char *Values_Percent[] = { "0%", "20%", "40%", "60%", "80%", "100%"
 // Each saved row's preference ID is its row number.
 typedef char grabpunish_saved_rows[((int)OPT_GRAB_SPOT == TM_GP_GRAB_SPOT && (int)OPT_YOUR_SPOT == TM_GP_YOUR_SPOT &&
     (int)OPT_PERCENT == TM_GP_PERCENT && (int)OPT_MASH == TM_GP_MASH && (int)OPT_FACING == TM_GP_FACING &&
+    (int)OPT_RELEASE_HITS == TM_GP_RELEASE_HITS &&
     countof(Values_Location) == TM_GP_LOCATION_COUNT && countof(Values_Percent) == TM_GP_PERCENT_COUNT &&
     countof(Values_Mash) == TM_GP_MASH_COUNT && countof(Values_Facing) == TM_GP_FACING_COUNT) ? 1 : -1];
 static void SaveSettings(GOBJ *menu, int value);
+static void ChangeReleaseHits(GOBJ *menu, int value);
 
 static EventOption Options_Main[] = {
     {
@@ -154,6 +171,15 @@ static EventOption Options_Main[] = {
                  "Random picks each reset."},
     },
     {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Count Release Hits",
+        .OnChange = ChangeReleaseHits,
+        .desc = {"The enemy can't act for 30 frames after the grab",
+                 "ends (20 for DK). On counts a hit in that window",
+                 "as an Enemy Hit. It always shows as a Release Hit.",
+                 "Changing this resets your totals."},
+    },
+    {
         .kind = OPTKIND_INFO,
         .name = "Mashing Info",
         .desc = {"A grab holds 75 + 1.6 x percent frames, minus 6",
@@ -165,9 +191,9 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_INFO,
         .name = "Help",
         .desc = {"Punish the grabbed enemy before they mash out.",
-                 "Success: hit them. Partial Success: hit them and",
-                 "your teammate. Failure: no hit. Mega Failure: only",
-                 "your teammate. D-Pad left/right resets, uncounted."},
+                 "Enemy Hits and Ally Hits count the attempts you",
+                 "hit each one. The enemy turns red once they can",
+                 "act. D-Pad left/right resets, uncounted."},
     },
     {
         .kind = OPTKIND_FUNC,
@@ -198,12 +224,10 @@ static void LoadSettings(void) {
 enum phase {
     PHASE_SETUP,    // Your teammate is grabbing the enemy.
     PHASE_GRAB,     // The enemy is held and mashing.
-    PHASE_RESOLVE,  // The grab ended; the same attack can still land.
+    PHASE_RELEASE,  // Let go without a hit, and can't act yet.
+    PHASE_RESOLVE,  // You hit them; the same attack can still land.
     PHASE_FOLLOWUP, // Counted; keep punishing until the enemy settles.
 };
-
-enum result { RESULT_NONE, RESULT_SUCCESS, RESULT_PARTIAL, RESULT_FAILURE, RESULT_MEGA };
-static const char *Result_Text[] = { "-", "Success", "Partial Success", "Failure", "Mega Failure" };
 
 // Ports of the three fighters; -1 when the CSS didn't give us one.
 static int hmn_ply = -1, mate_ply = -1, enemy_ply = -1;
@@ -223,22 +247,27 @@ static struct attempt {
     float mid, you_x;
     int dir;          // Your teammate faces this way, toward the enemy.
     int tries;        // Grabs tried this attempt; picks the gap.
-    bool hit_enemy, hit_mate;
-    int result;
-    int frames_left;  // Grab Time Left while the enemy is held.
+    bool hit_enemy;   // In the grab; hit_release is in the release after it.
+    bool hit_release, hit_mate;
+    bool free;        // Got away without a hit, and can act: shown red.
+    int frames_left;  // Grab Time Left while the enemy is held or in the release.
+    int let_go_left;  // The frames left when your hit on your teammate let go of the enemy.
     int time_left;    // Grab Time Left once it's over: frames at your hit, or a TIME_*.
     int idle, dead;   // Follow-up: frames the enemy has been settled, or KO'd.
-    bool ko;
     float enemy_pct, mate_pct;
 } attempt;
 enum { TIME_NONE = -1, TIME_ESCAPED = -2, TIME_BROKEN = -3 };
 
-// This session's totals and the last counted attempt.
+// This session's totals. An attack that hits both counts for both.
 static struct stats {
-    int total, counts[5];
-    int last;
-    bool last_ko;
+    int attempts, enemy_hits, ally_hits;
 } stats;
+
+// What counts as an Enemy Hit changed, so the totals start over.
+static void ChangeReleaseHits(GOBJ *menu, int value) {
+    SaveSettings(menu, value);
+    stats = (struct stats) { 0 };
+}
 
 /* Live collision geometry, as in Low Laser Puff Practice: current vertices
  * follow Fountain's moving platforms, and only enabled lines count. */
@@ -496,15 +525,16 @@ static void PlaceCPUs(void) {
     attempt.mate_pct = 0;
 }
 
-static void CountAttempt(int result) {
-    attempt.result = result;
-    stats.last = result;
-    stats.last_ko = false;
-    if (stats.total < 999999) {
-        stats.total++;
-        stats.counts[result]++;
+static void CountAttempt(void) {
+    bool hit_enemy = attempt.hit_enemy || (attempt.hit_release && Options_Main[OPT_RELEASE_HITS].val);
+    if (stats.attempts < 999999) {
+        stats.attempts++;
+        stats.enemy_hits += hit_enemy;
+        stats.ally_hits += attempt.hit_mate;
     }
-    SFX_Play(result == RESULT_SUCCESS ? 303 : result == RESULT_PARTIAL ? 0xAD : 0xAF);
+    SFX_Play(!hit_enemy ? 0xAF : attempt.hit_mate ? 0xAD : 303);
+    phase = PHASE_FOLLOWUP;
+    phase_timer = 0;
 }
 
 static bool IsCaptured(FighterData *ft) {
@@ -514,12 +544,21 @@ static bool IsGrabbing(FighterData *ft) {
     return ft->state_id >= ASID_CATCH && ft->state_id <= ASID_CATCHWAIT;
 }
 
+static int WholeFrames(float frames) {
+    int whole = (int)frames;
+    return whole < frames ? whole + 1 : whole;
+}
 static int FramesLeft(FighterData *enemy) {
     float timer = enemy->grab.grab_timer;
-    int rate = Mash_Rate[Options_Main[OPT_MASH].val];
     if (timer <= 0) return 0;
-    int frames = (int)(timer / rate);
-    return frames * rate < timer ? frames + 1 : frames;
+    return WholeFrames(timer / Mash_Rate[Options_Main[OPT_MASH].val]);
+}
+// Frames until the enemy can act after the grab, 0 once they can.
+static int ReleaseFrames(GOBJ *fighter) {
+    FighterData *ft = fighter->userdata;
+    if (ft->state_id != ASID_CAPTURECUT) return 0;
+    int frames = WholeFrames((Fighter_GetCurrentAnimLength(fighter) - ft->state.frame) / ft->state.rate);
+    return frames > 0 ? frames : 1;
 }
 
 /* Inputs a frame for each mash setting; frame counts from the grab. */
@@ -579,6 +618,21 @@ static bool TookHit(int ply, float *last) {
     return hit;
 }
 
+/* The timing overlay, so this red goes over every other overlay. */
+static void SetEnemyOverlay(const GXColor *color) {
+    for (int ms = 0; ms < 2; ms++) {
+        GOBJ *fighter = Body(enemy_ply, ms);
+        if (fighter) event_vars->set_timing_overlay(fighter, color);
+    }
+}
+// The pulse of the Missed L Cancel and Run Turnaround overlays.
+static void PulseEnemyRed(void) {
+    static const u8 pulse[TM_CUE_PULSE_FRAMES] = TM_CUE_RED_PULSE;
+    GXColor color = TM_CUE_RED_COLOR;
+    color.a = pulse[phase_timer % TM_CUE_PULSE_FRAMES];
+    SetEnemyOverlay(&color);
+}
+
 static void DrawHUD(GOBJ *gobj, int pass) {
     if (pass != 2 || !roles_found)
         return;
@@ -591,29 +645,37 @@ static void DrawHUD(GOBJ *gobj, int pass) {
         event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
         return;
     }
-    static char time_text[16], last_text[24], count_text[4][24];
+    static char time_text[32], hit_text[2][32], big_text[12];
     if (phase == PHASE_GRAB)
         sprintf(time_text, "%df", attempt.frames_left);
+    else if (phase == PHASE_RELEASE)
+        sprintf(time_text, "Release %df", attempt.frames_left);
     else if (attempt.time_left >= 0)
-        sprintf(time_text, "Hit, %df", attempt.time_left);
+        sprintf(time_text, "%s Hit, %df", attempt.hit_release ? "Release" : "Grab", attempt.time_left);
     else
         sprintf(time_text, "%s", attempt.time_left == TIME_ESCAPED ? "Escaped"
             : attempt.time_left == TIME_BROKEN ? "Let Go" : "-");
-    sprintf(last_text, "%s%s", Result_Text[stats.last], stats.last_ko ? " + KO" : "");
-    for (int i = 0; i < 4; i++) {
-        int count = stats.counts[RESULT_SUCCESS + i];
-        if (stats.total)
-            sprintf(count_text[i], "%d (%.0f%%)", count, 100.f * count / stats.total);
+    const int hits[] = { stats.enemy_hits, stats.ally_hits };
+    for (int i = 0; i < 2; i++) {
+        if (stats.attempts)
+            sprintf(hit_text[i], "%d/%d (%.1f%%)", hits[i], stats.attempts, 100.f * hits[i] / stats.attempts);
         else
-            sprintf(count_text[i], "0");
+            sprintf(hit_text[i], "-");
     }
-    static const char *labels[] = {
-        "Grab Time Left", "Last Attempt", "Success", "Partial Success", "Failure", "Mega Failure",
-    };
-    const char *info[] = {
-        time_text, last_text, count_text[0], count_text[1], count_text[2], count_text[3],
-    };
+    static const char *labels[] = { "Grab Time Left", "Enemy Hits", "Ally Hits" };
+    const char *info[] = { time_text, hit_text[0], hit_text[1] };
     event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
+
+    // The same frames, big, under the match timer. Yellow is the release.
+    int big = phase == PHASE_GRAB || phase == PHASE_RELEASE ? attempt.frames_left : attempt.time_left;
+    if (big >= 0) {
+        Rect rect = { BIG_X, BIG_Y, BIG_WIDTH, BIG_HEIGHT };
+        bool release = phase == PHASE_RELEASE || attempt.hit_release;
+        sprintf(big_text, "%d", big);
+        event_vars->HUD_DrawTextEx(big_text, &rect, BIG_SIZE,
+            release ? (GXColor) {255, 240, 0, 255} : (GXColor) {255, 255, 255, 255},
+            (GXColor) {0, 0, 0, 255}, BIG_BORDER, 1);
+    }
 }
 
 void Event_Init(GOBJ *gobj) {
@@ -629,6 +691,7 @@ void Event_Init(GOBJ *gobj) {
 static void Reset(int same_attempt) {
     if (!same_attempt) {
         event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
+        SetEnemyOverlay(0);
         attempt = (struct attempt) { .time_left = TIME_NONE };
         ChooseSpots();
         PlacePlayer(hmn_ply, &attempt.you, attempt.you_x, attempt.mid > attempt.you_x ? 1 : -1);
@@ -693,28 +756,42 @@ void Event_Think(GOBJ *gobj) {
                 Mash(enemy, phase_timer - 1);
                 break;
             }
-            if (!attempt.hit_enemy)
-                attempt.time_left = attempt.hit_mate ? TIME_BROKEN : TIME_ESCAPED;
-            phase = PHASE_RESOLVE;
+            if (attempt.hit_enemy) {
+                phase = PHASE_RESOLVE;
+            } else {
+                attempt.let_go_left = attempt.hit_mate ? attempt.frames_left : TIME_NONE;
+                attempt.frames_left = ReleaseFrames(Fighter_GetGObj(enemy_ply));
+                phase = PHASE_RELEASE;
+            }
             phase_timer = 0;
             break;
-        case PHASE_RESOLVE:
-            // The rest of the attack that hit can still land, but once the
-            // enemy mashes out, hitting them is too late.
+        case PHASE_RELEASE:
             attempt.hit_mate |= mate_hit;
-            if (enemy_hit && attempt.time_left == TIME_BROKEN && !attempt.hit_enemy)
-                attempt.hit_enemy = true;
-            if (phase_timer < GRACE_FRAMES)
+            if (enemy_hit) {
+                // Your hit on your teammate let go of the enemy, and the rest
+                // of that attack can still land: that hit is in the grab.
+                attempt.hit_enemy = attempt.let_go_left >= 0 && phase_timer <= GRACE_FRAMES;
+                attempt.hit_release = !attempt.hit_enemy;
+                attempt.time_left = attempt.hit_enemy ? attempt.let_go_left : attempt.frames_left;
+                phase = PHASE_RESOLVE;
+                phase_timer = 0;
                 break;
-            CountAttempt(attempt.hit_enemy ? (attempt.hit_mate ? RESULT_PARTIAL : RESULT_SUCCESS)
-                : (attempt.hit_mate ? RESULT_MEGA : RESULT_FAILURE));
-            phase = PHASE_FOLLOWUP;
-            phase_timer = 0;
+            }
+            attempt.frames_left = ReleaseFrames(Fighter_GetGObj(enemy_ply));
+            if (attempt.frames_left)
+                break;
+            attempt.free = true;
+            attempt.time_left = attempt.let_go_left >= 0 ? TIME_BROKEN : TIME_ESCAPED;
+            CountAttempt();
+            break;
+        case PHASE_RESOLVE:
+            // The rest of the attack that hit can still reach your teammate.
+            attempt.hit_mate |= mate_hit;
+            if (phase_timer >= GRACE_FRAMES)
+                CountAttempt();
             break;
         case PHASE_FOLLOWUP:
             if (enemy->flags.dead) {
-                if (!attempt.ko && (attempt.result == RESULT_SUCCESS || attempt.result == RESULT_PARTIAL))
-                    attempt.ko = stats.last_ko = true;
                 if (++attempt.dead >= KO_WAIT)
                     Reset(0);
                 break;
@@ -724,6 +801,8 @@ void Event_Think(GOBJ *gobj) {
                 Reset(0);
             break;
     }
+    if (attempt.free)
+        PulseEnemyRed();
 }
 
 void Exit(GOBJ *menu) {

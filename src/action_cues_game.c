@@ -355,7 +355,7 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
      * otherwise slot 1. Disabling slot 0's color flag does not select slot 1. */
     unsigned selected = data->color[0].colanim ? 0 : 1;
     for (unsigned i = 0; i < 3; ++i) data->color[i].color_enable = 0;
-    static const GXColor colors[] = {{0,0,0,0}, {255,240,0,220}, {80,255,90,220}, {255,40,40,180}};
+    static const GXColor colors[] = {{0,0,0,0}, {255,240,0,220}, {80,255,90,220}, TM_CUE_RED_COLOR};
     GXColor color = colors[cue];
     if (!cue && !protected && local) color = entry->local_color;
     if (cue == TM_CUE_RED) color.a = TMCue_RedAlpha(entry->cue.red);

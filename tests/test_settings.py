@@ -3287,7 +3287,7 @@ class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/grabpunish-test.dat'
     field = 42  # TM_SETTING_GRAB_PUNISH
     saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 6, 3),
-             ('CPU Mashing', 4, 1), ('Teammate Facing', 3, 0))
+             ('CPU Mashing', 4, 1), ('Teammate Facing', 3, 0), ('Count Release Hits', 2, 0))
 
 
 class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):

@@ -77,16 +77,17 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     /* word 68: Fox's and Falco's side-B rows after their first six */
     {19,5,32,0}, {24,5,32,0},
 };
-/* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..12 and Up-B
+/* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..13 and Up-B
  * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
- * so Edgeguard's spacie side-B masks took bits 19..28 with no version bump
- * (zero is every row off). Bits 13..15 and 29..31 are still spare. */
+ * so Edgeguard's spacie side-B masks took bits 19..28 and Grab Punish's Count
+ * Release Hits bit 13 with no version bump (zero is off). Bits 14..15 and
+ * 29..31 are still spare. */
 #define EVENT_MENUS_OFFSET 68
 #define EVENT_MENUS_SIZE 4
 static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
     {0,3,TM_GP_LOCATION_COUNT,0}, {3,3,TM_GP_LOCATION_COUNT,0},
     {6,3,TM_GP_PERCENT_COUNT,TM_GP_DEFAULT_PERCENT}, {9,2,TM_GP_MASH_COUNT,TM_GP_DEFAULT_MASH},
-    {11,2,TM_GP_FACING_COUNT,0},
+    {11,2,TM_GP_FACING_COUNT,0}, {13,1,2,0},
 };
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
     {16,1,2,1}, {17,1,2,0}, {18,1,2,0},
