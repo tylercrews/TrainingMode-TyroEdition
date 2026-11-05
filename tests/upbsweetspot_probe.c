@@ -6,8 +6,8 @@ static GOBJ event, fighters[PLAYERS];
 static FighterData ft[PLAYERS];
 static JOBJ joints[PLAYERS];
 static CmSubject subjects[PLAYERS];
-static unsigned preferences[TM_UPB_PREF_COUNT] = {1, MARTH_TIPPER, 0};
-static int swings, freezes, loads;
+static unsigned preferences[TM_UPB_PREF_COUNT] = {1, TM_UPB_MARTH_FSMASH, 0};
+static int swings, dtilts, freezes, loads;
 static float marth_rate = 1;
 
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
@@ -54,8 +54,16 @@ void FSmash_GetASForAnalogAngle(GOBJ *f) {
     data->state_id = ASID_ATTACKS4S;
     data->state.frame = 0;
 }
+void ActionStateChange(float frame, float speed, float blend, GOBJ *f, int state, int flags, GOBJ *source) {
+    FighterData *data = f->userdata;
+    ++dtilts;
+    data->state_id = state;
+    data->state.frame = frame;
+}
+void Fighter_AdvanceScript(GOBJ *f) { }
+/* Counts each time he stops, not each frame the event holds him there. */
 void FrameSpeedChange(GOBJ *f, float speed) {
-    if (speed == 0) ++freezes;
+    if (speed == 0 && marth_rate != 0) ++freezes;
     marth_rate = speed;
 }
 void Fighter_ZeroCPUInputs(FighterData *f) { }
@@ -67,30 +75,43 @@ float sqrtf(float value) {
 }
 float HSD_Randf(void) { return .5f; }
 void Fighter_SetHUDDamage(int player, u16 percent) { }
+float sin(float a) {
+    float a2 = a * a;
+    return a * (1.f - a2 / 6.f * (1.f - a2 / 20.f * (1.f - a2 / 42.f * (1.f - a2 / 72.f))));
+}
+float cos(float a) {
+    float a2 = a * a;
+    return 1.f - a2 / 2.f * (1.f - a2 / 12.f * (1.f - a2 / 30.f * (1.f - a2 / 56.f)));
+}
+int CObj_SetCurrent(COBJ *camera) { return 1; }
+COBJ *COBJ_GetCurrent(void) { return 0; }
+static void GFXStart(u16 count, GFX_Params params) { }
 
 /* What the engine does to Marth between the event's thinks. */
 static void Engine(void) {
     FighterData *marth = &ft[MARTH];
-    if (marth->state_id < ASID_ATTACKS4HI || marth->state_id > ASID_ATTACKS4LW) return;
+    bool dtilt = marth->state_id == ASID_ATTACKLW3;
+    if (!dtilt && (marth->state_id < ASID_ATTACKS4HI || marth->state_id > ASID_ATTACKS4LW)) return;
     marth->state.frame += marth_rate;
     ftHit *tipper = &marth->hitbox[MARTH_TIPPER_HITBOX];
-    tipper->active = marth->state.frame >= MARTH_TIPPER_FRAME;
-    tipper->pos.X = marth->phys.pos.X + marth->facing_direction * 30;
+    tipper->active = marth->state.frame >= (dtilt ? MARTH_DTILT_FRAME : MARTH_FSMASH_FRAME);
+    tipper->pos.X = marth->phys.pos.X + marth->facing_direction * (dtilt ? 18 : 30);
 }
 void TestUpBLoaded(void) { }
-int TestUpBInit(int marth_on) {
+int TestUpBInit(int attack) {
     *event_vars_ptr_loc = &vars;
     vars.event_gobj = &event;
     vars.settings = &api;
     vars.Savestate_Save_v1 = (void *)Save;
     vars.Savestate_Load_v1 = (void *)Load;
+    vars.GFX_Start = GFXStart;
     for (int i = 0; i < PLAYERS; ++i) {
         fighters[i].userdata = &ft[i];
         fighters[i].hsd_object = &joints[i];
         ft[i].ply = i;
         ft[i].camera_subject = &subjects[i];
     }
-    Options_Main[OPT_MARTH].val = marth_on ? MARTH_TIPPER : MARTH_OFF;
+    Options_Main[OPT_MARTH].val = attack;
     GetLedgePositions(ledge_positions);
     vars.game_timer = 1;
     return 0;
@@ -111,6 +132,20 @@ void TestUpBStart(int state) {
     ft[HMN].phys.air_state = 1;
 }
 void TestUpBDown(int buttons) { ft[HMN].input.down = buttons; }
+void TestUpBKind(int kind) { ft[HMN].kind = kind; ft[HMN].scale.Y = 1; }
+void TestUpBAttack(int attack) { Options_Main[OPT_MARTH].val = attack; }
+void TestUpBRate(int percent) { marth_rate = percent / 100.f; }
+/* Game & Watch's attributes, as the ISO has them. */
+void TestUpBGameAndWatch(void) {
+    static float attributes[64];
+    attributes[0x58 / 4] = .25f;
+    attributes[0x5C / 4] = .5235988f;
+    ft[HMN].special_attributes = attributes;
+    TestUpBKind(FTKIND_GAW);
+}
+void TestUpBState(int state) { ft[HMN].state_id = state; }
+void TestUpBMove(int x, int y) { ft[HMN].phys.pos.X = x; ft[HMN].phys.pos.Y = y; }
+void TestUpBDraw(void) { Draw_Guides(); }
 int TestUpBInfo(int key) {
     switch (key) {
     case 0: return swings;
@@ -121,6 +156,7 @@ int TestUpBInfo(int key) {
     case 5: return ft[MARTH].hitbox[MARTH_TIPPER_HITBOX].active;
     case 6: return ft[MARTH].hitbox[MARTH_TIPPER_HITBOX].pos.X * 10;
     case 7: return loads;
+    case 8: return dtilts;
     }
     return -1;
 }

@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **13 loose bits** inside the record |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b27) | `0x1AE0..0x1B27` | 72 bytes | 72 bytes | **12 loose bits** inside the record |
 | **Unallocated spare score slots** | `0x1B28..0x1B37` | **16 bytes** | nothing | **16 bytes (128 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -132,11 +132,11 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 36..49 | Fixed Grid OSD positions, Eggs-ercise | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell. Byte 49 bits 6-7 are Eggs Under Platforms and Eggs In The Air (T9), Off by default. No version bump: every migration to version 16 zeroed them and the grid cells keep them. Read only from version 17 on, like the Egg Counter Position | — |
 | 50 | Character select, 2v1 Grab Punish | bits 0-2 **Player costume** (0..5), bits 5-7 the low bits of Teammate Percent (T9): 0% to 200% in steps of 20, default 0%, with its top bit in byte 34 bit 7. No version bump, for the same reason as the Egg Counter Position below. The costume is read and repaired through the low 5 bits | bits 3-4 |
 | 51 | Character select, Eggs-ercise | bits 0-2 **CPU costume** (0..5), bits 5-7 Eggs-ercise Egg Counter Position (T9): 0 Top Left (default), 1 Top Right, 2 Bottom Left, 3 Bottom Right, 4 Under Timer. No version bump: a costume is at most 5 and a higher byte always repaired to 0, so these bits are clear in every record that owns the byte. Read only from records that do (version 17 on). The costume is read and repaired through the low 5 bits, so a damaged byte still repairs to Default and keeps the position | bits 3-4 |
-| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bit 31 of word 56 |
+| 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 
-Free bits inside the record: 2 + 6 + 4 + 1 = **13 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 2 + 6 + 4 = **12 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -233,7 +233,7 @@ Free bits inside the record: 2 + 6 + 4 + 1 = **13 bits**. The 6 "retired" bits i
 | 10-19 | CPU percent min (0..999, default 50) |
 | 20-29 | CPU percent max (0..999, default 80) |
 | 30 | Camera (T8): 0 Normal (default), 1 Zoomed Out. Every record that owned word 56 had this bit clear, so older saves read as Normal with no version bump. |
-| 31 | *free* |
+| 31 | Up-B Sweetspot: Marth's top bit (T9), see word 68. No version bump: nothing else ever wrote it, so it's clear in every record |
 
 **Word 60: Edgeguard Knockback Height, recovery options and Player Position** (fully used)
 
@@ -277,7 +277,7 @@ Migrating to version 20 zeroes this word and then writes the defaults, so the sp
 | 13 | Grab Punish: Release Hit = Success, stored inverted: 0 On (default), 1 Off, so a save that never touched it reads On |
 | 14-15 | Grab Punish: your team in your last match (T9): 0 Red (default), 1 Blue, 2 Green. These are this event's own, apart from the normal costumes in bytes 50-51 |
 | 16 | Up-B Sweetspot: Enable Line Guides (default On) |
-| 17 | Up-B Sweetspot: Marth (Tipper / Off, default Tipper) |
+| 17 | Up-B Sweetspot: Marth's low bit, with its top bit in word 56 bit 31. Stored 0 Forward Smash (default), 1 Off, 2 Down Tilt, so a save from when this row was Tipper / Off keeps its meaning. The menu order is Forward Smash, Down Tilt, Off |
 | 18 | Up-B Sweetspot: Camera (Normal / Zoomed Out, default Normal) |
 | 19-23 | Edgeguard: Fox's side-B rows 7-11 (Ledge Sweetspot, To Ledge, To Main Stage, To Side Plat, Shortest Shorten), default all off |
 | 24-28 | Edgeguard: Falco's side-B rows 7-11, the same way |

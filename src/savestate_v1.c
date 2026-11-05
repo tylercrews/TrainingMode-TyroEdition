@@ -207,6 +207,16 @@ int Savestate_Load_v1(Savestate_v1 *savestate, int flags)
         FighterData *fighter_data;
     } BackupQueue;
 
+    // Zelda and Sheik trade places in isTransformed when they transform, and
+    // Fighter_GetSubcharGObj reads through it. Put it back before anything
+    // looks a fighter up, or each form loads the other's saved data.
+    for (int i = 0; i < 6; i++)
+    {
+        if (Fighter_GetSubcharGObj(i, 0) != 0 && savestate->ft_state[i].data[0].is_exist == 1)
+            memcpy(Fighter_GetPlayerblock(i)->isTransformed, savestate->ft_state[i].player_block.isTransformed,
+                   sizeof(savestate->ft_state[i].player_block.isTransformed));
+    }
+
     // loop through all players
     int isLoaded = 0;
     for (int i = 0; i < 6; i++)

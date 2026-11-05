@@ -3,10 +3,10 @@
 #include "zoom_camera.h"
 
 /* Up-B Sweetspot: start on an angel platform off one ledge and grab the ledge
- * with your up-B. Marth swings his forward smash as each attempt starts and
- * freezes with the tipper out, so its hitboxes are simply there whenever you
- * arrive and overshooting onto the stage gets you hit. The guides and every
- * number behind them are in notes/UPB-SWEETSPOT-RESEARCH.md. */
+ * with your up-B. Marth swings his forward smash or down-tilt as each attempt
+ * starts and freezes with the tipper out, so its hitboxes are simply there
+ * whenever you arrive and overshooting onto the stage gets you hit. The guides
+ * and every number behind them are in notes/UPB-SWEETSPOT-RESEARCH.md. */
 
 // Where the angel platform sits, from the ledge: far enough out that you have
 // to recover, close enough that every character here can.
@@ -15,11 +15,13 @@
 // Nana's platform, beside Popo's on the stage side.
 #define NANA_PLATFORM_GAP 8
 
-// Marth's forward smash comes out on frame 10, the tipper as hitbox 3 (20%).
-// He freezes there with the whole swing out, like Side-B's down-tilt, and the
-// tipper centered this far inland of the ledge: 0 is right over it.
+// Marth's forward smash comes out on frame 10 and his down-tilt on frame 7,
+// each with the tipper as hitbox 3 (20% and 10%). He freezes there with the
+// whole attack out, as Side-B does, and the tipper centered this far inland of
+// the ledge: 0 is right over it.
 #define MARTH_TIPPER_HITBOX 3
-#define MARTH_TIPPER_FRAME 10
+#define MARTH_FSMASH_FRAME 10
+#define MARTH_DTILT_FRAME 7
 #define MARTH_TIPPER_INLAND 0
 
 #define RESET_SUCCESS 60
@@ -179,7 +181,7 @@ enum guide {
  * the end of the animation, a slower grab falling back to the ledge. Samus's
  * air Screw Attack is physics instead: 2.5 up against 0.066 gravity.
  * tilt_attr is the special attribute holding how many degrees holding toward
- * the stage turns the move before it locks. */
+ * the stage turns the move before it locks; FullTilt has Game & Watch's. */
 typedef struct UpBInfo {
     u16 first, last;
     u8 guide;
@@ -200,6 +202,7 @@ static const UpBInfo UpB_Info[FTKIND_ROY + 1] = {
     [FTKIND_PEACH]     = { 361, 364, GUIDE_PATH, 0, 0, 36.8f, 3.4f, 34.4f, 4.1f },
     [FTKIND_KIRBY]     = { 385, 392, GUIDE_PATH, 0, 0, 52.2f, 0, 0.3f, 0 },
     [FTKIND_SAMUS]     = { 353, 354, GUIDE_PATH, 0, 0, 47.3f, 0, 44.0f, 0 },
+    [FTKIND_GAW]       = { 373, 374, GUIDE_PATH, 0, 0, 75.6f, 9.1f, 65.8f, 11.9f },
     [FTKIND_FOX]       = { 353, 359, GUIDE_AIMED, 0, 354 },
     [FTKIND_FALCO]     = { 353, 359, GUIDE_AIMED, 0, 354 },
     [FTKIND_SHEIK]     = { 355, 360, GUIDE_AIMED, 0, 358 },
@@ -214,7 +217,6 @@ static const UpBInfo UpB_Info[FTKIND_ROY + 1] = {
     [FTKIND_NESS]      = { 358, 366, GUIDE_NONE },
     [FTKIND_POPO]      = { 347, 356, GUIDE_NONE },
     [FTKIND_NANA]      = { 347, 356, GUIDE_NONE },
-    [FTKIND_GAW]       = { 373, 374, GUIDE_NONE },
     // Yoshi and Jigglypuff have no recovery up-B and aren't on the CSS.
 };
 
@@ -230,6 +232,14 @@ static bool IsSpacie(FighterData *ft) {
 
 #define ATTR_F(ft, offset) (((float *)(ft)->special_attributes)[(offset) / 4])
 #define ATTR_I(ft, offset) (((int *)(ft)->special_attributes)[(offset) / 4])
+
+// Degrees a full stick toward the stage turns a path, or 0 if it can't. Game &
+// Watch's attribute is radians per unit of stick past 0x58, not a top angle.
+static float FullTilt(FighterData *ft, const UpBInfo *info) {
+    if (ft->kind == FTKIND_GAW)
+        return (1 - ATTR_F(ft, 0x58)) * ATTR_F(ft, 0x5C) / M_1DEGREE;
+    return info->tilt_attr ? ATTR_F(ft, info->tilt_attr) : 0;
+}
 
 /* The least stick the aimed up-Bs take before they go straight up. Fox and
  * Falco add the two axes (|x| + |y|); the rest use the stick's length. */
@@ -305,11 +315,7 @@ enum menu_options {
     OPT_CAMERA,
 };
 
-enum marth_option {
-    MARTH_TIPPER,
-    MARTH_OFF,
-};
-static const char *Values_Marth[] = {"Tipper", "Off"};
+static const char *Values_Marth[] = {"Forward Smash", "Down Tilt", "Off"};
 
 static EventOption Options_Main[] = {
     {
@@ -329,8 +335,8 @@ static EventOption Options_Main[] = {
         .values = Values_Marth,
         .value_num = countof(Values_Marth),
         .OnChange = ChangeMarth,
-        .desc = {"Tipper: Marth freezes his forward smash with",
-                 "the tipper right over the ledge, so",
+        .desc = {"Marth swings as each attempt starts and freezes",
+                 "with the tipper right over the ledge, so",
                  "overshooting onto the stage gets you hit.",
                  "Takes effect on the next reset."},
     },
@@ -400,6 +406,7 @@ static struct upb {
     bool used;
     int frames;              // Since it started.
     Vec2 start;
+    Vec2 top;                // The highest it has taken you so far.
     // GUIDE_AIMED: where the travel starts and where the stick sends it.
     bool aiming, locked;
     Vec2 launch, aim;
@@ -408,6 +415,7 @@ static struct upb {
 
 static struct marth {
     bool swinging, frozen, measured;
+    bool dtilt;              // This swing's attack; the menu waits for a reset.
 } marth = { 0 };
 // How far in front of Marth the tipper is on its first frame. A guess until
 // the first swing measures it; later resets place him with the measured value.
@@ -470,30 +478,38 @@ static void PlaceMarth(GOBJ *cpu) {
 // Swing as the attempt starts: nothing about hitting you depends on your timing.
 static void StartMarth(GOBJ *cpu) {
     FighterData *cpu_data = cpu->userdata;
-    if (Options_Main[OPT_MARTH].val != MARTH_TIPPER || marth.swinging
-        || cpu_data->state_id != ASID_WAIT)
+    int attack = Options_Main[OPT_MARTH].val;
+    if (attack == TM_UPB_MARTH_OFF || marth.swinging || cpu_data->state_id != ASID_WAIT)
         return;
-    FSmash_GetASForAnalogAngle(cpu);
+    marth.dtilt = attack == TM_UPB_MARTH_DTILT;
+    if (marth.dtilt) {
+        ActionStateChange(0, 1, 0, cpu, ASID_ATTACKLW3, 0, 0);
+        Fighter_AdvanceScript(cpu);
+    } else {
+        FSmash_GetASForAnalogAngle(cpu);
+    }
     marth.swinging = true;
 }
 
-/* Freeze on the first active frame so the whole forward smash lingers, as
- * Side-B does with the down-tilt. The first freeze measures how far in front
+static bool MarthIsAttacking(FighterData *cpu_data) {
+    int state = cpu_data->state_id;
+    return marth.dtilt ? state == ASID_ATTACKLW3 : state >= ASID_ATTACKS4HI && state <= ASID_ATTACKS4LW;
+}
+
+/* Hold the first active frame so the whole attack lingers, setting the freeze
+ * every frame the way Side-B does. The first freeze measures how far in front
  * of Marth the tipper is and moves him so it sits MARTH_TIPPER_INLAND in. */
 static void MarthThink(GOBJ *cpu) {
     FighterData *cpu_data = cpu->userdata;
-    int state = cpu_data->state_id;
-    if (!marth.swinging || marth.measured || state < ASID_ATTACKS4HI || state > ASID_ATTACKS4LW)
+    int freeze_frame = marth.dtilt ? MARTH_DTILT_FRAME : MARTH_FSMASH_FRAME;
+    // After the result, let the swing finish instead.
+    if (!marth.swinging || !MarthIsAttacking(cpu_data) || attempt.done
+        || cpu_data->state.frame < freeze_frame)
         return;
-    if (!marth.frozen) {
-        // After the result, let the swing finish instead.
-        if (attempt.done || cpu_data->state.frame < MARTH_TIPPER_FRAME)
-            return;
-        FrameSpeedChange(cpu, 0);
-        marth.frozen = true;
-    }
+    FrameSpeedChange(cpu, 0);
+    marth.frozen = true;
     ftHit *tipper = &cpu_data->hitbox[MARTH_TIPPER_HITBOX];
-    if (!tipper->active)
+    if (marth.measured || !tipper->active)
         return;
     marth.measured = true;
     float reach = (tipper->pos.X - cpu_data->phys.pos.X) * cpu_data->facing_direction;
@@ -584,6 +600,17 @@ static void TrackAim(FighterData *ft, const UpBInfo *info) {
     upb.distance = IsSpacie(ft) ? AimedDistance(ft, 1) : TravelFrames(ft) * speed;
 }
 
+/* From where the up-B started, its highest point is the angle it really went
+ * at. That covers a stick tilt, which locks early in lstick_angle, and drift,
+ * which is all that steers Falcon and Ganondorf, so theirs is only final at the
+ * top. It's measured because the air up-Bs don't follow UpB_Info's numbers
+ * exactly (see the notes), and Falcon's drift can't be known ahead of time. */
+static void TrackTop(FighterData *ft, const UpBInfo *info) {
+    int state = ft->state_id;
+    if (state >= info->first && state <= info->last && ft->phys.pos.Y > upb.top.Y)
+        upb.top = (Vec2) { ft->phys.pos.X, ft->phys.pos.Y };
+}
+
 // Degrees above level, toward the stage.
 static int Degrees(Vec2 v) {
     float degrees = atan2(v.Y, -v.X * Outward()) / M_1DEGREE;
@@ -672,12 +699,17 @@ static void DrawPathStart(const UpBInfo *info, Vec2 target, float scale, float t
 }
 
 static void DrawPathGuide(FighterData *ft, const UpBInfo *info, Vec2 target) {
-    float scale = ft->scale.Y;
-    if (info->tilt_attr)
-        DrawPathStart(info, target, scale, ATTR_F(ft, info->tilt_attr), DimBlue);
+    float scale = ft->scale.Y, tilt = FullTilt(ft, info);
+    if (tilt)
+        DrawPathStart(info, target, scale, tilt, DimBlue);
     DrawPathStart(info, target, scale, 0, Blue);
-    if (upb.used)
-        DrawCross(upb.start, 2.5f, Yellow);
+    if (!upb.used)
+        return;
+    if (upb.top.Y > upb.start.Y) {
+        DrawLine(upb.start, upb.top, Yellow, 12);
+        DrawDot(upb.top, Yellow);
+    }
+    DrawCross(upb.start, 2.5f, Yellow);
 }
 
 static void Draw_Guides(void) {
@@ -866,6 +898,7 @@ void Event_Think(GOBJ *menu) {
     if (info && !upb.used && state >= info->first && state <= info->last) {
         upb.used = true;
         upb.start = (Vec2) { hmn_data->phys.pos.X, hmn_data->phys.pos.Y };
+        upb.top = upb.start;
     }
     if (upb.used) {
         upb.frames++;
@@ -875,6 +908,8 @@ void Event_Think(GOBJ *menu) {
 
     if (attempt.done)
         return;
+    if (upb.used)
+        TrackTop(hmn_data, info);
     if (state == ASID_CLIFFCATCH) {
         Finish(cpu, upb.used ? RESULT_SWEETSPOT : RESULT_NO_UPB,
                upb.used ? RESET_SUCCESS : RESET_FAILURE);

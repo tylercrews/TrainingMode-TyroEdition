@@ -51,7 +51,8 @@ UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
 GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3), (0, 0, 3, 0, 1, 0, 1, 0, 0)
 GP_PERCENT, GP_MATE_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM, GP_ENEMY_TEAM = 2, 3, 4, 6, 7, 8
 LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET
-UPB_COUNTS, UPB_DEFAULTS = (2, 2, 2), (1, 0, 0)
+UPB_COUNTS, UPB_DEFAULTS = (2, 3, 2), (1, 0, 0)
+UPB_MARTH, MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 1, 0, 1, 2
 EVENT_MENU_BYTES = bytes.fromhex('c0020100')
 # Bytes 24..71 appended by versions 15 to 20: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
@@ -371,6 +372,31 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, 4), m.call('Settings_Get', UPB_SWEETSPOT, 2)), (2, 1))
         self.assertEqual(m.call('Settings_Get', EDGEGUARD, 8), 1)  # Fox's first mask is its own field.
 
+    def test_up_b_marth_keeps_a_saved_off_and_stores_down_tilt_in_its_top_bit(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        def stored():
+            record = m.cpu.mem_read(EXT, REGION_SIZE)
+            return (record[70] >> 1) & 1, record[59] >> 7  # Word 68 bit 17, byte 59 bit 7.
+        self.assertEqual(stored(), (0, 0))
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_MARTH, MARTH_OFF)
+        self.assertEqual(stored(), (1, 0))  # What Off was when this row was one bit.
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_MARTH), MARTH_OFF)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_MARTH, MARTH_DTILT)
+        self.assertEqual(stored(), (0, 1))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_MARTH), MARTH_DTILT)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_MARTH, MARTH_FSMASH)
+        self.assertEqual(stored(), (0, 0))
+
+    def test_up_b_marths_top_bit_leaves_the_edgeguard_camera_and_percents_alone(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_MARTH, MARTH_DTILT)
+        after = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        after[59] &= 0x7F
+        self.assertEqual(bytes(after), before)
+
     def test_event_menus_round_trip_in_word_68_reject_and_repair_invalid_values(self):
         m = self.m
         core = m.record()
@@ -411,7 +437,7 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (15, with its top bit), CPU Mashing (7, with
         # its) and Teammate Facing (3) repair to their defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 9 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2), (1, 1, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2), (1, 2, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'),
                          word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 1 << 9)
         self.assertEqual((m.cpu.mem_read(EXT + 34, 1)[0] >> 6, m.cpu.mem_read(EXT + 35, 1)[0] >> 7), (2, 0))

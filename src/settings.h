@@ -240,9 +240,11 @@ enum TMGrabPunishPreference {
 #define TM_GP_TEAM_COUNT 3 /* Red, Blue, Green. */
 #define TM_GP_DEFAULT_PERCENT 3 /* 60% */
 #define TM_GP_DEFAULT_MASH 1 /* Light Mash */
-/* Up-B Sweetspot: Enable Line Guides (default On), Marth (Tipper / Off) and
- * Camera (Normal / Zoomed Out), in word 68 (version 20). */
+/* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
+ * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
+ * word 68 (version 20). */
 enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
+enum TMUpBMarth { TM_UPB_MARTH_FSMASH, TM_UPB_MARTH_DTILT, TM_UPB_MARTH_OFF, TM_UPB_MARTH_COUNT };
 /* Edgeguard Side choices: which ledge each attempt uses. */
 enum { TM_EG_SIDE_RANDOM, TM_EG_SIDE_LEFT, TM_EG_SIDE_RIGHT, TM_EG_SIDE_COUNT };
 #define TM_EG_KB_HEIGHT_COUNT 7 /* Random, five heights, Custom. */

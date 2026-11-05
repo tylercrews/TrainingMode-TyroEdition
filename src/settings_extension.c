@@ -106,15 +106,24 @@ static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
  * bits next to them are taken, so each keeps its top bit in word 32's spare
  * bits: 22 and 23 (byte 34 bits 6-7) and 31 (byte 35 bit 7). Every record that
  * owns word 68 has those clear, so saved values keep their meaning with no
- * version bump. Zero means the row has no top bit. */
+ * version bump. Up-B Sweetspot's Marth did the same with word 56's spare bit 31
+ * (byte 59 bit 7). This returns the top bit's place in the record, byte * 8 +
+ * bit. Zero means the row has no top bit. */
 #define GP_TOP_BITS_OFFSET 32
+#define RECORD_BIT(offset,bit) ((offset)*8+(bit))
 typedef char TMExtension_GrabPunishTopBits[(TM_GP_PERCENT_COUNT<=16 && TM_GP_MASH_COUNT<=8) ? 1 : -1];
-static unsigned gp_top_bit(unsigned field,unsigned index) {
+typedef char TMExtension_UpBMarthTopBit[(TM_UPB_MARTH_COUNT<=4) ? 1 : -1];
+static unsigned top_bit(unsigned field,unsigned index) {
+    if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_MARTH?RECORD_BIT(56,31):0;
     if(field!=TM_SETTING_GRAB_PUNISH) return 0;
-    return index==TM_GP_PERCENT?22:index==TM_GP_MATE_PERCENT?23:index==TM_GP_MASH?31:0;
+    return index==TM_GP_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,22):index==TM_GP_MATE_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,23):
+        index==TM_GP_MASH?RECORD_BIT(GP_TOP_BITS_OFFSET,31):0;
 }
+/* Marth was Tipper / Off, one bit. The menu is now Forward Smash, Down Tilt,
+ * Off, so a saved Off keeps its 1 and Down Tilt takes the top bit. */
+#define UPB_MARTH_STORED(value) ((value)?3-(value):0)
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
-    {16,1,2,1}, {17,1,2,0}, {18,1,2,0},
+    {16,1,2,1}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
 };
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -281,8 +290,9 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_READ(value);
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_READ(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
-    unsigned top=gp_top_bit(field,index);
-    if(top) value|=((read_bits(r,GP_TOP_BITS_OFFSET)>>top)&1)<<p->width;
+    unsigned top=top_bit(field,index);
+    if(top) value|=((r[top/8]>>(top%8))&1)<<p->width;
+    if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
     return value;
 }
 static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned value) {
@@ -290,13 +300,14 @@ static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned val
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_STORED(value);
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_STORED(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
+    if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
     unsigned offset=preference_offset(field,index), mask=((1u<<p->width)-1)<<p->shift;
     unsigned bits=(read_bits(r,offset)&~mask)|((value<<p->shift)&mask);
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) bits=(bits&~(1u<<20))|((value>>4)<<20);
     for(unsigned byte=0;byte<4;++byte) r[offset+byte]=bits>>(byte*8);
-    unsigned top=gp_top_bit(field,index);
+    unsigned top=top_bit(field,index);
     if(top) {
-        uint8_t *byte=&r[GP_TOP_BITS_OFFSET+top/8], bit=1u<<top%8;
+        uint8_t *byte=&r[top/8], bit=1u<<top%8;
         *byte=value>>p->width?*byte|bit:*byte&~bit;
     }
 }

@@ -3320,7 +3320,7 @@ class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
 class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/upbsweetspot-test.dat'
     field = 43  # TM_SETTING_UPB_SWEETSPOT
-    saved = (('Enable Line Guides', 2, 1), ('Marth', 2, 0), ('Camera', 2, 0))
+    saved = (('Enable Line Guides', 2, 1), ('Marth', 3, 0), ('Camera', 2, 0))
 
 
 class SweetspotDoubleJumpDrawTests(unittest.TestCase):

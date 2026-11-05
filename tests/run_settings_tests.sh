@@ -57,6 +57,7 @@ python tests/test_eggs.py -v
 python tests/test_edgeguard.py -v
 python tests/test_grabpunish.py -v
 python tests/test_upbsweetspot.py -v
+python tests/test_savestate.py -v
 python tests/test_stage_swap.py -v
 python tests/test_lab_session.py -v
 python tests/test_powershield.py -v

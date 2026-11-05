@@ -73,9 +73,9 @@ From `mpcoll.c` (`mpColl_80044164` and the air collision that calls it) and `ftc
 | Luigi | Super Jump Punch | Rises 45.9 by frame 26, straight up | About 2° | Frame 9, falling |
 | Marth | Dolphin Slash | Rises 47.3 by frame 21, 10.2 forward | Before frame 6: \|x\| > 0.5 tilts it up to 20°; \|x\| > 0.25 turns around | Frame 6, falling, after skipping one frame |
 | Roy | Blazer | Rises 44.5 by frame 30, 12.3 forward | Same, up to 40° (attribute `0x38`), until frame 10 | Frame 10, falling |
-| Falcon | Falcon Dive | Rises 37.6 by frame 44, 11.9 forward | Drift during the dive | After the frame-13 flag |
-| Ganondorf | Dark Dive | Rises 41.9 by frame 44, 13.2 forward | Drift | Same as Falcon |
-| Peach | Parasol | Rises 36.8 by frame 33, 3.4 forward | Drift | Falling only |
+| Falcon | Falcon Dive | Rises 37.6 by frame 44, 11.9 forward | No stick angle. The frame-13 flag only turns him around; drift steers the whole rise, up to 0.95 a frame (about 42 over 44 frames) | After the frame-13 flag |
+| Ganondorf | Dark Dive | Rises 41.9 by frame 44, 13.2 forward | Same as Falcon, up to 0.66 a frame (about 29) | Same as Falcon |
+| Peach | Parasol | Rises 36.8 by frame 33, 3.4 forward | Before frame 6: \|x\| > 0.625 tilts it up to 18°, the same rule as Mario | Falling only |
 | Kirby | Final Cutter | 23-frame windup, then rises 50.6 by frame 17 of the rise and drops | Little | Several of its states |
 
 **Physics rise:** simulated from attributes.
@@ -86,7 +86,7 @@ From `mpcoll.c` (`mpColl_80044164` and the air collision that calls it) and `ftc
 | Donkey Kong | Spinning Kong | Barely rises in the air (0.675 up, gravity 0.07); 1.4 sideways | Grabs either direction |
 | Bowser | Whirling Fortress | Small rise, mostly sideways | |
 | Link, Young Link | Spin Attack | Small rise (`specialhi_grav_mul`) | Grabs either direction. Tether is a separate move. |
-| Game & Watch | Fire | A jump the stick can angle at the start: probably up to ±30° (`0x5C` = 0.52 rad) past a 0.25 stick (`0x58`). The decomp is unsure what both attributes do. | Grabs facing |
+| Game & Watch | Fire | Animated, not physics: rises 75.6 by frame 30, 9.1 forward. The motion is on joint 2, not TransN's usual joint 1, which is why `fighter_move_data.py` shows none. The first stick past 0.25 (`0x58`) before frame 8 locks the angle at (\|x\| - 0.25) × 0.52 rad (`0x5C`), up to 22.5°, and turns him that way. | Grabs facing, falling, after frame 4 |
 | Ice Climbers | Belay / Squall Hammer | Belay depends on where Nana is (60 range); Squall is mashed | A fixed guide only fits Squall. See the [Edgeguard notes](EDGEGUARD-NEW-CHARACTERS.md). |
 
 **No recovery up-B:** Yoshi (Egg Toss gives no lift in the air) and Jigglypuff (Sing). Leave them out of the event's CSS.
@@ -195,13 +195,37 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
     - That exit grants respawn invincibility (`ftColl_8007B7A4`). The event sets the remaining frames to 1 once you're off, so the game ends it itself, flashing included.
 - **Up-B detection:** each character's up-B action-state range, from the decompilation's motion-state enums (clones share their original's). Yoshi and Jigglypuff are left off the CSS.
 - **Guides:**
-    - Aimed up-Bs and fixed paths are drawn as described above. The physics group (DK, Bowser, Link, Young Link, Ness, Game & Watch, Ice Climbers) only gets the ledge target.
+    - Aimed up-Bs and fixed paths are drawn as described above. Game & Watch is a fixed path too. DK, Bowser, Link, Young Link, Ness and the Ice Climbers only get the ledge target.
     - The aimed lines lock to the travel's real velocity on its first frame, not to the stick.
-- **Marth:** forward smash starts as each attempt does and freezes on frame 10 with all four hitboxes out, while you're still on the platform, so a hit doesn't depend on when you up-B. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach.
+    - Fixed paths get a yellow line from where the up-B started to the highest point it has reached, following the fighter up and staying at the top. It's the [measured](#air-up-bs-and-the-animation-numbers) angle, not one worked out from `lstick_angle` and `UpB_Info`, which would be wrong for two reasons: the air rise isn't the animation's, and Falcon and Ganondorf have no angle to lock.
+- **Marth:** his attack starts as each attempt does and freezes with all four hitboxes out, on frame 10 for the forward smash and frame 7 for the down-tilt (`AttackLw3`, hitbox 3 is its 10% tipper), while you're still on the platform, so a hit doesn't depend on when you up-B. The freeze is set again every frame, as Side-B's is; nothing in the game is known to undo it, but that was the only difference left between the two. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach.
     - The first Dolphin test had only the tipper on, 12 inland. It was too far back, and the whole forward smash was wanted.
 - **The white X** uses the ECB side facing the ledge (`ecb.right` facing right, `-ecb.left` facing left), like `mpColl_800443C4` and its mirror. The first version used `ecb.right` on both ledges.
 - **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card. The success rate is session-only, carried through Change Stage with `carry_store`.
 - **Stages:** the first-frame guard from [Stages](#stages), option 1.
+
+## Air up-Bs and the animation numbers
+
+`UpB_Info`'s rise and forward are the animation's whole root motion, and the air versions don't all follow it. Mario, Dr. Mario, Luigi, Marth, Roy and Peach only apply root motion once `cmd_var0` sets. Before that they fall (Mario, Dr. Mario and Peach at 0.5 a frame) and the root motion is lost, and after it the speed is scaled (0.95, or 1.1 for Marth and Roy). Falcon, Ganondorf and Game & Watch apply it from frame 1, unscaled, so their numbers are right.
+
+Simulated from the ISO's attributes and root motion, with no Dolphin check yet:
+
+| Fighter | Table rise, forward | Simulated rise, forward |
+| --- | --- | --- |
+| Mario | 40.4, 17.6 | 30.3, 16.7 |
+| Dr. Mario | 40.4, 17.6 | 35.4, 16.7 |
+| Luigi | 45.9, 0 | 41.8, 0 |
+| Marth | 47.3, 10.2 | 50.7, 7.7 |
+| Roy | 44.5, 12.3 | 43.8, 10.2 |
+| Peach | 36.8, 3.4 | 29.0, 3.3 |
+
+If Dolphin agrees, those characters' blue dots, and their Gecko codes, sit up to 10 units from where the up-B really reaches the X. Mario's and Peach's would be too low to reach it. This hasn't been changed.
+
+## Zelda and Sheik
+
+`Fighter_GetGObj` and `Fighter_GetSubcharGObj` read through `isTransformed`, and `Fighter_Transform` swaps it. `Savestate_Load_v1` used to look its fighters up first and restore `isTransformed` afterward, so after a transform each form loaded the other's data, and the event then placed the wrong one. It now restores `isTransformed` for every player before anything looks a fighter up.
+
+A reset returns you to the form the savestate has, the one you started the event as. Holding A while a match loads starts you as the other form for real (`gmvs.c`, it changes `ckind`), so that's how to practice Sheik here. Staying in the form you changed to through a reset would mean calling `Fighter_Transform` after each load, which hasn't been tried.
 
 ## Slippi Gecko codes
 
@@ -235,4 +259,7 @@ Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge 
 7. Marth's tipper on frame 10, now right over the ledge with the whole forward smash out. If it's too high or low for a slight overshoot, change `MARTH_TIPPER_FRAME` (the hitboxes are active through frame 13) or `MARTH_TIPPER_INLAND`.
 8. The white X (`LedgeTarget`): an up-B ending there should grab the ledge right away.
 9. The Ice Climbers: Nana leaves her platform with Popo.
-10. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's.
+10. The [air rises](#air-up-bs-and-the-animation-numbers): up-B from Mario's blue dot and see if it reaches the X. The yellow line's dot shows where it really topped out.
+11. Marth's down-tilt: that it starts cleanly from Wait, freezes with its hitboxes out, and that the tipper reaches the ledge.
+12. Game & Watch's blue and dim dots.
+13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's.

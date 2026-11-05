@@ -1,14 +1,24 @@
-"""Execute the production Up-B Sweetspot event's Marth, frame by frame."""
+"""Execute the production Up-B Sweetspot event's Marth and up-B line, frame by frame."""
 from pathlib import Path
+import struct
 import subprocess
 import unittest
+from unicorn import UC_HOOK_MEM_WRITE
 import test_settings as fixtures
 from test_lowlaser import load_probe
 
 ROOT = Path(__file__).resolve().parents[1]
 DPAD_LEFT = 1
-TIPPER_FRAME = 10  # MARTH_TIPPER_FRAME
+FSMASH_FRAME, DTILT_FRAME = 10, 7  # MARTH_FSMASH_FRAME, MARTH_DTILT_FRAME
+FSMASH, DTILT, OFF = 0, 1, 2  # TMUpBMarth
 FOX_UP_B = 354
+FTKIND_FALCON = 2
+FALCON_UP_B = 354
+FALL_SPECIAL = 35
+GX_PIPE = 0xCC008000
+YELLOW = (0xff, 0xe0, 0x00, 0xff)
+BLUE = (0x30, 0xc8, 0xff, 0xff)
+DIM_BLUE = (0x1c, 0x6c, 0x94, 0xff)
 
 
 def build():
@@ -24,7 +34,7 @@ class MarthTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls): build()
 
-    def start(self, marth=1):
+    def start(self, marth=FSMASH):
         self.m = fixtures.Machine()
         load_probe(self.m, 'upbsweetspot-probe.elf', 'TestUpBLoaded')
         self.m.call('TestUpBInit', marth)
@@ -37,6 +47,7 @@ class MarthTests(unittest.TestCase):
     def freezes(self): return self.info(1)
     def swinging(self): return bool(self.info(2))
     def on_platform(self): return bool(self.info(4))
+    def dtilts(self): return self.info(8)
 
     def test_marth_swings_as_the_attempt_starts_with_you_still_on_the_platform(self):
         self.start()
@@ -47,52 +58,210 @@ class MarthTests(unittest.TestCase):
 
     def test_he_freezes_with_the_hitboxes_out_before_you_leave_the_platform(self):
         self.start()
-        self.step(TIPPER_FRAME + 2)
+        self.step(FSMASH_FRAME + 2)
         self.assertTrue(self.on_platform())
         self.assertEqual((self.freezes(), self.info(3)), (1, 0))
         self.assertEqual(self.info(5), 1)
 
     def test_the_tipper_is_moved_over_the_ledge_on_that_freeze(self):
         self.start()
-        self.step(TIPPER_FRAME + 2)
+        self.step(FSMASH_FRAME + 2)
         self.assertEqual(self.info(6), -850)  # Over the left ledge, at -85.
 
     def test_the_hitboxes_just_linger_while_you_wait(self):
         self.start()
-        self.step(TIPPER_FRAME + 2)
+        self.step(FSMASH_FRAME + 2)
         self.step(200)
         self.assertEqual((self.swings(), self.freezes(), self.info(3), self.info(5)), (1, 1, 0, 1))
 
     def test_your_up_b_doesnt_start_anything(self):
         self.start()
-        self.step(TIPPER_FRAME + 2)
+        self.step(FSMASH_FRAME + 2)
         self.m.call('TestUpBStart', FOX_UP_B)
         self.step(5)
         self.assertEqual((self.swings(), self.freezes()), (1, 1))
 
     def test_a_reset_swings_again(self):
         self.start()
-        self.step(TIPPER_FRAME + 2)
+        self.step(FSMASH_FRAME + 2)
         self.m.call('TestUpBDown', DPAD_LEFT)
         self.step()
         self.m.call('TestUpBDown', 0)
         self.assertEqual(self.swings(), 2)
         self.assertEqual(self.info(3), 100)  # The savestate let go of the freeze.
-        self.step(TIPPER_FRAME + 2)
+        self.step(FSMASH_FRAME + 2)
         self.assertEqual(self.freezes(), 2)
 
     def test_a_finished_attempt_lets_the_swing_end(self):
         self.start()
-        self.step(TIPPER_FRAME + 2)
+        self.step(FSMASH_FRAME + 2)
         self.m.call('TestUpBFakeGrab')
         self.step()
         self.assertEqual(self.info(3), 100)
 
     def test_marth_off_leaves_him_standing(self):
-        self.start(marth=0)
-        self.step(TIPPER_FRAME + 2)
-        self.assertEqual((self.swings(), self.freezes()), (0, 0))
+        self.start(marth=OFF)
+        self.step(FSMASH_FRAME + 2)
+        self.assertEqual((self.swings(), self.dtilts(), self.freezes()), (0, 0, 0))
         self.assertFalse(self.swinging())
+
+    def test_the_freeze_holds_if_anything_starts_him_moving_again(self):
+        self.start()
+        self.step(FSMASH_FRAME + 2)
+        self.m.call('TestUpBRate', 100)
+        self.step()
+        self.assertEqual(self.info(3), 0)
+
+    def test_down_tilt_swings_as_the_attempt_starts_instead_of_the_forward_smash(self):
+        self.start(marth=DTILT)
+        self.step()
+        self.assertEqual((self.dtilts(), self.swings()), (1, 0))
+
+    def test_down_tilt_freezes_on_its_first_active_frame(self):
+        self.start(marth=DTILT)
+        self.step(DTILT_FRAME - 1)
+        self.assertEqual(self.freezes(), 0)
+        self.step(3)
+        self.assertEqual((self.freezes(), self.info(3), self.info(5)), (1, 0, 1))
+
+    def test_its_tipper_is_moved_over_the_ledge_too(self):
+        self.start(marth=DTILT)
+        self.step(DTILT_FRAME + 2)
+        self.assertEqual(self.info(6), -850)
+
+    def test_down_tilt_stays_frozen_like_the_forward_smash(self):
+        self.start(marth=DTILT)
+        self.step(DTILT_FRAME + 2)
+        self.m.call('TestUpBRate', 100)
+        self.step(200)
+        self.assertEqual((self.freezes(), self.info(3), self.info(5)), (2, 0, 1))
+
+    def test_a_finished_attempt_lets_the_down_tilt_end(self):
+        self.start(marth=DTILT)
+        self.step(DTILT_FRAME + 2)
+        self.m.call('TestUpBFakeGrab')
+        self.step(3)
+        self.assertEqual(self.info(3), 100)
+
+    def test_changing_the_attack_waits_for_the_next_reset(self):
+        self.start()
+        self.step(2)
+        self.m.call('TestUpBAttack', DTILT)
+        self.step(FSMASH_FRAME)
+        self.assertEqual((self.dtilts(), self.freezes(), self.info(3)), (0, 1, 0))  # Still the forward smash.
+        self.m.call('TestUpBDown', DPAD_LEFT)
+        self.step()
+        self.m.call('TestUpBDown', 0)
+        self.assertEqual((self.swings(), self.dtilts()), (1, 1))
+
+
+class UpBLineTests(unittest.TestCase):
+    """The yellow line, read from the vertices the event sends to the GX pipe."""
+    START = (-120, -40)
+
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'upbsweetspot-probe.elf', 'TestUpBLoaded')
+        self.m.cpu.mem_map(GX_PIPE & ~0xFFF, 0x1000)
+        self.writes = []
+        self.m.cpu.hook_add(UC_HOOK_MEM_WRITE, self.pipe_write, begin=GX_PIPE, end=GX_PIPE + 3)
+        self.m.call('TestUpBInit', OFF)
+        self.step()
+        self.m.call('TestUpBStart', FALCON_UP_B)
+        self.m.call('TestUpBKind', FTKIND_FALCON)
+        self.move(*self.START)
+
+    def pipe_write(self, cpu, access, address, size, value, data):
+        self.writes.append((size, value & ((1 << size * 8) - 1)))
+
+    def step(self, frames=1): self.m.call('TestUpBThink', frames)
+
+    def move(self, x, y):
+        self.m.call('TestUpBMove', x, y)
+        self.step()
+
+    def drawn(self, wanted):
+        """Every vertex of one drawn frame in this color, in order, as (x, y)."""
+        self.writes.clear()
+        self.m.call('TestUpBDraw')
+        vertices = []
+        for i in range(0, len(self.writes), 7):
+            x, y, z, *color = self.writes[i:i + 7]
+            if tuple(part[1] for part in color) == wanted:
+                vertices.append(tuple(round(struct.unpack('>f', struct.pack('>I', v[1]))[0], 3)
+                                      for v in (x, y)))
+        return vertices
+
+    def yellow(self): return self.drawn(YELLOW)
+
+    def cross(self, at):
+        x, y, size = at[0], at[1], 2.5
+        return [(x - size, y - size), (x + size, y + size), (x - size, y + size), (x + size, y - size)]
+
+    def line(self, top):
+        return [self.START, top, top] + self.cross(self.START)
+
+    def test_only_the_start_shows_until_the_up_b_climbs_past_it(self):
+        self.assertEqual(self.yellow(), self.cross(self.START))
+        self.move(-121, -48)  # Mario and Peach drop before they rise.
+        self.assertEqual(self.yellow(), self.cross(self.START))
+
+    def test_the_line_follows_the_climb(self):
+        self.move(-112, -20)
+        self.assertEqual(self.yellow(), self.line((-112, -20)))
+        self.move(-100, -5)
+        self.assertEqual(self.yellow(), self.line((-100, -5)))
+
+    def test_it_stays_at_the_top_while_the_up_b_comes_back_down(self):
+        self.move(-100, -5)
+        self.move(-96, -9)
+        self.move(-92, -30)
+        self.assertEqual(self.yellow(), self.line((-100, -5)))
+
+    def test_drift_after_the_top_doesnt_change_the_angle(self):
+        self.move(-100, -5)
+        self.move(-70, -5)  # Level isn't higher, however far it drifts.
+        self.assertEqual(self.yellow(), self.line((-100, -5)))
+
+    def test_it_stops_when_the_up_b_ends(self):
+        self.move(-100, -5)
+        self.m.call('TestUpBState', FALL_SPECIAL)
+        self.move(-100, 30)
+        self.assertEqual(self.yellow(), self.line((-100, -5)))
+
+    def test_it_stays_up_after_the_ledge_grab_and_ignores_the_next_up_b(self):
+        self.move(-100, -5)
+        self.m.call('TestUpBFakeGrab')
+        self.step()
+        self.m.call('TestUpBState', FALCON_UP_B)
+        self.move(-100, 30)
+        self.assertEqual(self.yellow(), self.line((-100, -5)))
+
+    def test_a_reset_clears_it(self):
+        self.move(-100, -5)
+        self.m.call('TestUpBDown', DPAD_LEFT)
+        self.step()
+        self.m.call('TestUpBDown', 0)
+        self.assertEqual(self.yellow(), [])
+
+    def test_game_and_watch_gets_a_place_to_up_b_from(self):
+        self.m.call('TestUpBGameAndWatch')
+        # The X sits at (-85, 0) in this fixture: no ECB or ledge box.
+        fast, slow, dot = self.drawn(BLUE)[:3]
+        self.assertEqual(fast, dot)
+        self.assertEqual(fast, (-94.1, -75.6))
+        self.assertEqual(slow, (-96.9, -65.8))
+
+    def test_game_and_watch_shows_the_full_stick_angle_too(self):
+        self.m.call('TestUpBGameAndWatch')
+        fast, slow, dot = self.drawn(DIM_BLUE)[:3]
+        self.assertEqual(fast, dot)
+        # 22.5 degrees past the path: 0.75 of the 30 per unit of stick past 0.25.
+        self.assertAlmostEqual(fast[0], -85 - (9.1 * 0.92388 + 75.6 * 0.38268), 1)
+        self.assertAlmostEqual(fast[1], -(75.6 * 0.92388 - 9.1 * 0.38268), 1)
 
 
 if __name__ == '__main__':
