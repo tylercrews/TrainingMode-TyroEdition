@@ -56,6 +56,9 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T10
+- passing teams event, But you can build it INTO the 2v1 event!! Select between them in game, reuses memory. 
+Another 2v1 Doubles event where you pick a teammate and an opponent, and choose a percent and a move. The opponent will be at that percent, get hit by a cpu. If you hit it towards the cpu They will try to jump up and hit it back. There's a counter and you see how many hits you can get up to.
+Frozen % and rising percent. The rising % doesn't reset the menu so you can go in and click a to reset, or click down on the d pad to reset. left and right swap sides.
 - edge cancelling moves event, with overlays on platforms where you need to hit, different overlays for every character with gecko codes
 - expand up b sweetspot event to include differences for wallriding
 - sdi practice where you're trying to get out of like falcon nair
