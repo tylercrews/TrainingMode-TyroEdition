@@ -78,6 +78,9 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {24,2,TM_EG_SIDE_COUNT,TM_EG_SIDE_RANDOM},
     /* word 68: Fox's and Falco's side-B rows after their first six, Knockback Distance */
     {19,5,32,0}, {24,5,32,0}, {29,3,TM_EG_KB_DISTANCE_COUNT+1,0},
+    /* word 72: Firefox To Ledge, Firebird To Ledge, Luigi's Up B Sweetspot and
+     * Backflip Jump Sweetspot */
+    {10,1,2,0}, {11,1,2,0}, {12,2,4,0},
 };
 /* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..13 and Up-B
  * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
@@ -89,7 +92,8 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
 #define EVENT_MENUS_SIZE 4
 /* Version 21 appends word 72: P3's and P4's last characters on Grab Punish's
  * team select, in bits 0..9. Every migration to 21 zeroes it, so the spare bits
- * 10..31 are free for a setting whose default is 0, with no version bump. */
+ * 10..31 are free for a setting whose default is 0, with no version bump, which
+ * is how Edgeguard's newer recovery rows took bits 10..13. */
 #define TEAM_CHARACTERS_OFFSET 72
 #define TEAM_CHARACTERS_SIZE 4
 static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
@@ -277,7 +281,8 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
-        return index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
+        return index>=TM_EG_RECOVERY_FOX_UPB?TEAM_CHARACTERS_OFFSET:
+            index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
             index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
             index==TM_EG_CAMERA?EDGEGUARD_OFFSET+4:
             index==TM_EG_SIDE?20:
@@ -489,9 +494,9 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 the rest
-     * but word 68, which version 20 records own too. */
+     * but word 68, which version 20 records own too, and version 21 word 72. */
     if(field==TM_SETTING_EDGEGUARD) {
-        int owned=supported(r)||v20||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)));
+        int owned=supported(r)||(index<TM_EG_RECOVERY_FOX_UPB && (v20||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)))));
         unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }

@@ -1,9 +1,9 @@
-"""Execute the production Edgeguard knockback and To Main Stage logic."""
+"""Execute the production Edgeguard knockback and recovery logic."""
 import math
 from pathlib import Path
 import re
-import subprocess
 import unittest
+import recovery_sim as sim
 import test_settings as fixtures
 from test_lowlaser import load_probe
 
@@ -26,13 +26,7 @@ SPEED, RATE, DECAY = .03, .4, .051
 DASH = 3 * 78 / 4 * .96  # Fox's full side-B dash
 
 
-def build():
-    subprocess.run([
-        'C:/devkitPro/devkitPPC/bin/powerpc-eabi-gcc.exe', '-O2', '-w',
-        '-ffreestanding', '-fno-builtin', '-msdata=none', '-mcpu=750', '-nostdlib',
-        '-Wl,-Ttext=0x101000,-e,TestEdgeguardInit,--unresolved-symbols=ignore-all',
-        'tests/edgeguard_probe.c', '-o', 'build/edgeguard-probe.elf'
-    ], cwd=ROOT, check=True)
+build = sim.build
 
 
 def milli(value):
@@ -237,6 +231,239 @@ class ToMainStageTests(unittest.TestCase):
     def test_carry_counts_only_rising_knockback(self):
         self.assertEqual(self.m.call('TestCarryUp', 0, milli(-1)), 0)
         self.assertAlmostEqual(self.m.call('TestCarryUp', 0, milli(1)) / 1000, 1 / (2 * DECAY), delta=.05)
+
+
+# Row bits, as in recovery.c's enums.
+FF_LOW, FF_LEDGE, SIDEB_SWEETSPOT, SIDEB_TO_LEDGE = 1, 1 << 3, 1 << 7, 1 << 8
+LG_JUMP, LG_CYCLONE, LG_MISSILE, LG_SWEETSPOT, LG_BACKFLIP, LG_FAST = 1, 2, 4, 1 << 4, 1 << 5, 1 << 6
+LG_DEFAULTS = LG_JUMP | LG_CYCLONE | LG_MISSILE
+MISS, GRAB_STARTUP, GRAB_DASH, GRAB_ENDLAG = 0, 2, 3, 4
+SPOTS = [(height, distance) for height in sim.HEIGHTS for distance in sim.DISTANCES]
+
+
+class SideBRulesTests(unittest.TestCase):
+    """The side-B simulation against the rules in mpcoll.c, on real stage lines."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'edgeguard-probe.elf', 'TestEdgeguardInit')
+
+    def stage(self, name):
+        sim.Sim(self.m, 'Fox', name)
+
+    def side_b(self, out, h):
+        value = self.m.call('TestSideBResult', milli(out), milli(h), 0)
+        value = value if value < 0x80000000 else value - 0x100000000
+        return (value // 100, value % 100)
+
+    def inset(self, depth):
+        value = self.m.call('TestWallInset', milli(depth))
+        return (value if value < 0x80000000 else value - 0x100000000) / 1000
+
+    def test_the_stages_side_is_read_from_its_lines(self):
+        self.stage('Battlefield')
+        self.assertAlmostEqual(self.inset(-3), 1.71, delta=.01)
+        self.assertGreater(self.inset(-10), 13)  # Under the lip: only the underside, far inland.
+        self.stage('Final Destination')
+        self.assertAlmostEqual(self.inset(-8), 0, delta=.01)
+
+    def test_a_level_dash_never_grabs(self):
+        # Before: a dash reaching the box counted as a grab on that step, but a
+        # frame only looks for a ledge if it moved down.
+        self.stage('Final Destination')
+        for out in (20, 30, 45, 60, 75):
+            for h in (-8, -9, -10, -12):
+                self.assertNotEqual(self.side_b(out, h)[0], GRAB_DASH, (out, h))
+
+    def test_the_first_grab_out_of_a_dash_is_the_endlags_first_fall(self):
+        self.stage('Final Destination')
+        self.assertEqual(self.side_b(45, -9), (GRAB_ENDLAG, 6))
+
+    def test_a_dash_into_a_tall_wall_stops_and_grabs_from_low(self):
+        self.stage('Final Destination')
+        self.assertEqual(self.side_b(45, -15)[0], GRAB_ENDLAG)
+
+    def test_the_same_dash_goes_under_battlefields_lip(self):
+        # Two steps reach the ledge, and the third goes on with no wall to stop it.
+        # This is the suicide: the plan used to call step two a grab.
+        self.stage('Battlefield')
+        self.assertEqual(self.side_b(45, -15)[0], MISS)
+
+    def test_a_dash_at_the_top_of_battlefields_wall_stops_there(self):
+        self.stage('Battlefield')
+        self.assertEqual(self.side_b(45, -9)[0], GRAB_ENDLAG)
+
+    def test_low_on_battlefield_only_an_exact_dash_works(self):
+        self.stage('Battlefield')
+        self.assertEqual(self.side_b(sim.FIGHTERS['Fox']['step'] * 3 + 18, -13)[0], GRAB_ENDLAG)
+
+    def test_firefox_travel_is_the_moves_real_distance(self):
+        sim.Sim(self.m, 'Fox', 'Battlefield')
+        self.assertAlmostEqual(self.m.call('TestFirefoxTravel') / 1000, 81.5, delta=.01)
+        sim.Sim(self.m, 'Falco', 'Battlefield')
+        self.assertAlmostEqual(self.m.call('TestFirefoxTravel') / 1000, 60.1, delta=.2)
+
+
+class ClosedLoopTests(unittest.TestCase):
+    """Production Recovery_Think, frame by frame, against tests/recovery_sim.py.
+
+    Fewer attempts than the tables in the notes: `python tests/recovery_sim.py`."""
+    @classmethod
+    def setUpClass(cls):
+        build()
+        cls.m = sim.machine()
+
+    def attempts(self, name, stage, rows, samples=2, spots=SPOTS, side=1):
+        recovery = sim.Sim(self.m, name, stage, side)
+        for height, distance in spots:
+            for i in range(samples):
+                recovery.launch(height, distance, (i + .5) / samples)
+                self.m.call('TestSeed', 1 + i * 7919)
+                recovery.grab_state = None
+                result = recovery.run(rows)
+                yield (height, distance, i), result, recovery
+
+    def test_ledge_sweetspot_never_goes_under_the_stage(self):
+        for name in ('Fox', 'Falco'):
+            for stage in ('Battlefield', 'Pokemon Stadium', "Yoshi's Story"):
+                for spot, result, cpu in self.attempts(name, stage, SIDEB_SWEETSPOT):
+                    self.assertIn(result, ('ledge', 'stage'), (name, stage, spot))
+
+    def test_ledge_sweetspot_is_high_enough_for_the_wall_or_an_exact_dash(self):
+        dashes = 0
+        for spot, result, cpu in self.attempts('Fox', 'Battlefield', SIDEB_SWEETSPOT):
+            if cpu.dash_h is not None:
+                dashes += 1
+                self.assertGreaterEqual(cpu.dash_h, -13.6, spot)
+                self.assertEqual(result, 'ledge', spot)
+        self.assertGreater(dashes, 20)
+
+    def test_it_works_from_the_left_ledge_too(self):
+        for spot, result, cpu in self.attempts('Fox', 'Battlefield', SIDEB_SWEETSPOT, side=-1):
+            self.assertIn(result, ('ledge', 'stage'), spot)
+
+    def test_up_b_to_ledge_grabs_the_ledge(self):
+        for name in ('Fox', 'Falco'):
+            for stage in ('Battlefield', 'Final Destination'):
+                for spot, result, cpu in self.attempts(name, stage, FF_LEDGE):
+                    # From right over the stage, Very High can just land. Yoshi's
+                    # bottom blast zone is too close to wait for the whole distance,
+                    # so a shot from there can carry on over the ledge and land.
+                    landing = spot[0] == 'Very High' or stage == "Yoshi's Story"
+                    self.assertIn(result, ('ledge', 'stage') if landing else ('ledge',), (name, stage, spot))
+
+    def test_up_b_to_ledge_goes_early_over_a_high_blast_zone(self):
+        # Yoshi's Story's bottom is above the ring, so some of these come in
+        # higher and land. What matters is that the guard fires, not the blast zone.
+        for name in ('Fox', 'Falco'):
+            for spot, result, cpu in self.attempts(name, "Yoshi's Story", FF_LEDGE):
+                self.assertIn(result, ('ledge', 'stage'), (name, spot))
+
+    def test_up_b_to_ledge_waits_for_the_distance(self):
+        # Firefox Low up specials from anywhere in range. This one's fired from the ring.
+        cpu = sim.Sim(self.m, 'Fox', 'Final Destination')
+        cpu.launch('Low', 'Near')
+        self.m.call('TestSeed', 1)
+        self.assertEqual(cpu.run(FF_LEDGE), 'ledge')
+        self.assertLess(cpu.upb_h, -60)
+
+    def test_a_side_b_that_cant_make_it_goes_for_the_ledge_with_the_up_b(self):
+        # Before: a double jump and a side-B from under the ledge, which only SDs.
+        for spot, result, cpu in self.attempts('Fox', 'Battlefield', SIDEB_SWEETSPOT, spots=[('Very Low', 'Near')]):
+            self.assertEqual(result, 'ledge', spot)
+
+    def test_luigi_mashes_a_cyclone_before_the_up_b(self):
+        cyclones = 0
+        for spot, result, cpu in self.attempts('Luigi', 'Battlefield', LG_DEFAULTS, samples=3):
+            if cpu.cyclone_start is not None:
+                cyclones += 1
+                self.assertGreater(cpu.cyclone_top - cpu.cyclone_start, 20, spot)
+        self.assertGreater(cyclones, 30)  # Of 60. Before: about 1 in 10, and it gained about 1.
+
+    def test_fast_mashing_gains_more(self):
+        def mean_gain(rows):
+            gains = [cpu.cyclone_top - cpu.cyclone_start for _, _, cpu in self.attempts('Luigi', 'Battlefield', rows)
+                     if cpu.cyclone_start is not None]
+            return sum(gains) / len(gains)
+        self.assertGreater(mean_gain(LG_DEFAULTS | LG_FAST), mean_gain(LG_DEFAULTS) + 5)
+
+    def test_luigi_recovers_from_nearly_everywhere(self):
+        attempts = list(self.attempts('Luigi', 'Battlefield', LG_DEFAULTS, samples=3))
+        died = [spot for spot, result, _ in attempts if result not in ('ledge', 'stage')]
+        self.assertLessEqual(len(died), 3, died)  # Before: half of them.
+
+    def test_up_b_sweetspot_grabs_coming_down_from_its_top(self):
+        grabs = 0
+        for spot, result, cpu in self.attempts('Luigi', 'Battlefield', LG_DEFAULTS | LG_SWEETSPOT):
+            if cpu.grab_state == sim.LG_UPB:
+                grabs += 1
+                self.assertLessEqual(cpu.upb_h, -50, spot)  # So low only the top reaches.
+                self.assertLessEqual(cpu.grab_frame, 36, spot)
+        self.assertGreater(grabs, 20)
+
+    def test_the_plain_up_b_ends_around_the_ledge(self):
+        for spot, result, cpu in self.attempts('Luigi', 'Battlefield', LG_JUMP, spots=[('Low', 'Close'), ('Very Low', 'Close')]):
+            self.assertEqual(result, 'ledge', spot)
+            if cpu.upb_h is not None:  # A fall past the ledge grabs it too.
+                self.assertLessEqual(cpu.upb_h + 41.8, 8.1, spot)
+
+    def test_backflip_jump_sweetspot_is_a_backflip_with_no_up_b(self):
+        flips = 0
+        for spot, result, cpu in self.attempts('Luigi', 'Battlefield', LG_BACKFLIP | LG_DEFAULTS):
+            if cpu.backflipped and result == 'ledge' and cpu.upb_h is None:
+                flips += 1
+                self.assertIn(cpu.grab_state, (cpu.states[sim.JUMP_B], cpu.states[sim.FALL]), spot)
+        self.assertGreater(flips, 10)
+
+
+class LuigiCycloneFlagTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'edgeguard-probe.elf', 'TestEdgeguardInit')
+
+    def test_any_nonzero_flag_is_cleared_for_luigi(self):
+        self.m.call('TestSimConfigure', self.m.call('TestState', sim.KIND_LUIGI), 0)
+        self.m.call('TestRefreshCyclone')
+        self.assertEqual(self.m.call('TestCycloneFlag'), 0)
+
+    def test_every_attempt_starts_with_the_lift(self):
+        # The flag's only cleared by a Cyclone touching down. A CPU never does
+        # that, and a savestate brings back whatever the match started with.
+        self.m.call('TestSimConfigure', self.m.call('TestState', sim.KIND_LUIGI), 0)
+        self.assertEqual(self.m.call('TestResetCpuClears', 1), 0)
+
+    def test_another_fighters_var_is_left_alone(self):
+        self.m.call('TestSimConfigure', self.m.call('TestState', sim.KIND_FOX), 0)
+        self.assertEqual(self.m.call('TestResetCpuClears', 1), 1)
+
+
+class RecoveryRowSaveTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'edgeguard-probe.elf', 'TestEdgeguardInit')
+
+    def test_every_row_saves_and_loads(self):
+        for menu, count in ((0, 12), (1, 12), (2, 7)):
+            for row in range(count):
+                self.m.call('TestSaveRows', menu, 1 << row)
+                self.assertEqual(self.m.call('TestLoadRows', menu), 1 << row, (menu, row))
+            self.m.call('TestSaveRows', menu, (1 << count) - 1)
+            self.assertEqual(self.m.call('TestLoadRows', menu), (1 << count) - 1, menu)
+
+    def test_old_saves_keep_their_rows_where_they_were(self):
+        LUIGI, FOX = 15, 8  # TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_FOX
+        self.m.call('TestPreference', LUIGI, 0b10111)  # Double Jump to Green Missile, and Fast Mashing.
+        self.assertEqual(self.m.call('TestLoadRows', 2), 0b1000111)
+        self.m.call('TestPreference', FOX, 1 | 1 << 3 | 1 << 4 | 1 << 5)  # Low, Jump, Instant, Fast Fall.
+        self.assertEqual(self.m.call('TestLoadRows', 0), 1 | 1 << 4 | 1 << 5 | 1 << 6)
 
 
 if __name__ == '__main__':

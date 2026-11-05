@@ -43,14 +43,21 @@ static int RecoveryPref(EventMenu *menu) {
 
 /* Fox's and Falco's first mask keeps the six bits it had before the side-B
  * rows: bit N there is row SpacieSavedRows[N], so the old Illusion bit is now
- * Instant. Their other side-B rows are a second mask, in row order. */
+ * Instant. Their other side-B rows are a second mask, in row order, and Firefox
+ * To Ledge, a row added later, has a bit of its own. */
 static const u8 SpacieSavedRows[] = {
     OPT_SPACIES_FF_LOW, OPT_SPACIES_FF_MID, OPT_SPACIES_FF_HIGH, OPT_SPACIES_JUMP,
     OPT_SPACIES_SIDEB_INSTANT, OPT_SPACIES_FASTFALL,
 };
 #define SPACIE_SIDEB_FIRST OPT_SPACIES_SIDEB_SWEETSPOT
-typedef char edgeguard_spacie_masks[(countof(SpacieSavedRows) == SPACIE_SIDEB_FIRST &&
+typedef char edgeguard_spacie_masks[(countof(SpacieSavedRows) + 1 == SPACIE_SIDEB_FIRST &&
     OPT_SPACIES_COUNT - SPACIE_SIDEB_FIRST == 5) ? 1 : -1];
+
+/* Luigi's first mask keeps its five bits, Fast Mashing still bit 4. The rows
+ * added above that row are a second mask, in row order. */
+#define LUIGI_ROWS2_FIRST OPT_LUIGI_UPB_SWEETSPOT
+typedef char edgeguard_luigi_masks[(OPT_LUIGI_FAST_MASH == LUIGI_ROWS2_FIRST + 2 &&
+    OPT_LUIGI_COUNT == OPT_LUIGI_FAST_MASH + 1) ? 1 : -1];
 
 static int RecoveryPrefSideB(EventMenu *menu) {
     if (menu == &RecMenu_Fox) return TM_EG_RECOVERY_FOX_SIDEB;
@@ -58,13 +65,21 @@ static int RecoveryPrefSideB(EventMenu *menu) {
     return -1;
 }
 
+static int RecoveryPrefUpB(EventMenu *menu) {
+    return menu == &RecMenu_Fox ? TM_EG_RECOVERY_FOX_UPB : TM_EG_RECOVERY_FALCO_UPB;
+}
+
 /* The saved rows of a recovery menu: bit N is row N. */
 static u32 LoadRecoveryRows(EventMenu *menu, int pref) {
     u32 mask = TM_GetSetting(TM_SETTING_EDGEGUARD, pref);
+    if (menu == &RecMenu_Luigi)
+        return (mask & 0xF) | (((mask >> 4) & 1) << OPT_LUIGI_FAST_MASH)
+            | (TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_RECOVERY_LUIGI2) << LUIGI_ROWS2_FIRST);
     int sideb = RecoveryPrefSideB(menu);
     if (sideb < 0)
         return mask;
     u32 rows = TM_GetSetting(TM_SETTING_EDGEGUARD, sideb) << SPACIE_SIDEB_FIRST;
+    rows |= TM_GetSetting(TM_SETTING_EDGEGUARD, RecoveryPrefUpB(menu)) << OPT_SPACIES_FF_LEDGE;
     for (u32 bit = 0; bit < countof(SpacieSavedRows); ++bit)
         rows |= ((mask >> bit) & 1) << SpacieSavedRows[bit];
     return rows;
@@ -72,8 +87,12 @@ static u32 LoadRecoveryRows(EventMenu *menu, int pref) {
 
 static void SaveRecoveryRows(EventMenu *menu, int pref, u32 rows) {
     int sideb = RecoveryPrefSideB(menu);
-    if (sideb >= 0) {
+    if (menu == &RecMenu_Luigi) {
+        TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_RECOVERY_LUIGI2, (rows >> LUIGI_ROWS2_FIRST) & 3);
+        rows = (rows & 0xF) | (((rows >> OPT_LUIGI_FAST_MASH) & 1) << 4);
+    } else if (sideb >= 0) {
         TM_SetSetting(TM_SETTING_EDGEGUARD, sideb, rows >> SPACIE_SIDEB_FIRST);
+        TM_SetSetting(TM_SETTING_EDGEGUARD, RecoveryPrefUpB(menu), (rows >> OPT_SPACIES_FF_LEDGE) & 1);
         u32 mask = 0;
         for (u32 bit = 0; bit < countof(SpacieSavedRows); ++bit)
             mask |= ((rows >> SpacieSavedRows[bit]) & 1) << bit;
@@ -343,7 +362,10 @@ static void Reset_CPU(GOBJ *cpu, int side_idx, int dmg, float kb_mag, float kb_a
     cpu_data->dmg.hitlag_frames = 7;
     cpu_data->flags.hitlag = 1;
     cpu_data->flags.hitlag_unk = 1;
-    
+
+    // The savestate brings back whatever the flag was on the first frame.
+    Recovery_RefreshCyclone(cpu_data);
+
     // percent
     cpu_data->dmg.percent = dmg;
     Fighter_SetHUDDamage(cpu_data->ply, dmg);

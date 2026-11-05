@@ -28,9 +28,11 @@ LOW_LASER = 30  # TM_SETTING_LOW_LASER
 # Camera (Normal / Zoomed Out) in word 56's spare bit 30, Side (Random / Left /
 # Right) in word 20's spare bits 24-25, Fox's and Falco's side-B rows after
 # their first six in word 68's spare bits 19-23 and 24-28, and Knockback
-# Distance, stored plus 1 so 0 is a save from before it, in bits 29-31.
-EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 7, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32, 6)
-EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0, 0)
+# Distance, stored plus 1 so 0 is a save from before it, in bits 29-31. Then
+# word 72's spare bits: Firefox and Firebird To Ledge in 10 and 11, and Luigi's
+# Up B Sweetspot and Backflip Jump Sweetspot in 12-13.
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 7, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32, 6, 2, 2, 4)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0, 0, 0, 0, 0)
 EG_COUNT = len(EDGEGUARD_COUNTS)
 EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index added after version 18
 EG_POSITION = 20  # TM_EG_PLAYER_POSITION
@@ -38,6 +40,7 @@ EG_CAMERA = 21  # TM_EG_CAMERA
 EG_SIDE = 22  # TM_EG_SIDE
 EG_FOX_SIDEB, EG_FALCO_SIDEB = 23, 24  # TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB
 EG_KB_DISTANCE = 25  # TM_EG_KB_DISTANCE
+EG_FOX_UPB, EG_FALCO_UPB, EG_LUIGI2 = 26, 27, 28  # TM_EG_RECOVERY_FOX_UPB, _FALCO_UPB, _LUIGI2
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Light
@@ -503,10 +506,12 @@ class ExtensionTests(unittest.TestCase):
         source = (ROOT / 'src' / 'recovery.c').read_text()
         menus = ('Fox', 'Falco', 'Sheik', 'Falcon', 'Marth', 'Yoshi', 'Peach', 'Luigi', 'DrMario',
                  'IceClimbers', 'Puff', 'Samus')
-        # Fox's and Falco's first mask keeps its six pre-side-B bits: rows 0-3,
-        # then Instant (row 5, the old Illusion bit) and Fast Fall (row 4). Their
-        # other side-B rows are a second mask (SpacieSavedRows in edgeguard.c).
-        spacie_first, spacie_sideb = (0, 1, 2, 3, 5, 4), range(6, 11)
+        # Fox's and Falco's first mask keeps its six pre-side-B bits: rows 0-2,
+        # Double Jump (row 4), then Instant (row 6, the old Illusion bit) and Fast
+        # Fall (row 5). Their other side-B rows are a second mask, and To Ledge
+        # (row 3) a bit of its own (SpacieSavedRows in edgeguard.c). Luigi's first
+        # mask keeps Fast Mashing (now row 6) in bit 4, and rows 4-5 are a second.
+        spacie_first, spacie_sideb, spacie_upb = (0, 1, 2, 4, 6, 5), range(7, 12), (3,)
         for offset, menu in enumerate(menus):
             body = source.split('static EventOption RecOptions_%s[] = {' % menu, 1)[1].split('\n};', 1)[0]
             rows = body.split('.kind = OPTKIND_TOGGLE')[1:]
@@ -514,8 +519,12 @@ class ExtensionTests(unittest.TestCase):
             index = 8 + offset
             masks = [(range(len(rows)), index)]
             if menu in ('Fox', 'Falco'):
-                self.assertEqual(len(rows), len(spacie_first) + len(spacie_sideb), menu)
-                masks = [(spacie_first, index), (spacie_sideb, EG_FOX_SIDEB if menu == 'Fox' else EG_FALCO_SIDEB)]
+                self.assertEqual(len(rows), len(spacie_first) + len(spacie_sideb) + len(spacie_upb), menu)
+                masks = [(spacie_first, index), (spacie_sideb, EG_FOX_SIDEB if menu == 'Fox' else EG_FALCO_SIDEB),
+                         (spacie_upb, EG_FOX_UPB if menu == 'Fox' else EG_FALCO_UPB)]
+            elif menu == 'Luigi':
+                self.assertEqual(len(rows), 7, menu)
+                masks = [((0, 1, 2, 3, 6), index), ((4, 5), EG_LUIGI2)]
             for saved_rows, pref in masks:
                 mask = sum(1 << bit for bit, row in enumerate(saved_rows) if on[row])
                 self.assertEqual(mask, EDGEGUARD_DEFAULTS[pref], menu)

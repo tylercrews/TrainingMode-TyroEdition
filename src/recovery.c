@@ -161,12 +161,14 @@ void Recovery_Think(GOBJ *cpu, u32 opt_flags) {
     }
 }
 
-/* Edgeguard saves the first six rows in their pre-T9 bits (Instant has the
- * old Illusion row's bit 4, Fast Fall bit 5) and the rest in a second mask. */
+/* Edgeguard saves the Firefox, Double Jump, Fast Fall and Instant rows in their
+ * pre-T9 bits (Instant has the old Illusion row's bit 4, Fast Fall bit 5), the
+ * other side-B rows in a second mask, and Firefox To Ledge on its own. */
 enum options_spacies {
     OPT_SPACIES_FF_LOW,
     OPT_SPACIES_FF_MID,
     OPT_SPACIES_FF_HIGH,
+    OPT_SPACIES_FF_LEDGE,
     OPT_SPACIES_JUMP,
     OPT_SPACIES_FASTFALL,
     OPT_SPACIES_SIDEB_INSTANT,
@@ -236,6 +238,8 @@ enum options_luigi {
     OPT_LUIGI_CYCLONE,
     OPT_LUIGI_MISSILE,
     OPT_LUIGI_UPB_EARLY,
+    OPT_LUIGI_UPB_SWEETSPOT,
+    OPT_LUIGI_BACKFLIP,
     OPT_LUIGI_FAST_MASH,
 
     OPT_LUIGI_COUNT
@@ -284,7 +288,9 @@ static EventOption RecOptions_Fox[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Firefox Low",
-        .desc = {"Allow Fox to aim his up special to the ledge."},
+        .desc = {"Allow Fox to aim his up special at the ledge",
+                 "from anywhere in range. Up close, it flies",
+                 "past the ledge."},
         .val = 1,
     },
     {
@@ -296,6 +302,13 @@ static EventOption RecOptions_Fox[] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Firefox High",
         .desc = {"Allow Fox to aim his up special high."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Firefox To Ledge",
+        .desc = {"Allow Fox to wait for the distance where his",
+                 "up special ends right at the ledge, and grab",
+                 "it. He double jumps first if he needs to."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -318,7 +331,8 @@ static EventOption RecOptions_Fox[] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Illusion Ledge Sweetspot",
         .desc = {"Allow Fox to jump up and side special",
-                 "into the ledge, grabbing it mid-dash."},
+                 "right into the ledge, grabbing it the moment",
+                 "the dash ends."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -361,7 +375,9 @@ static EventOption RecOptions_Falco[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Firebird Low",
-        .desc = {"Allow Falco to aim his up special to the ledge."},
+        .desc = {"Allow Falco to aim his up special at the ledge",
+                 "from anywhere in range. Up close, it flies",
+                 "past the ledge."},
         .val = 1,
     },
     {
@@ -373,6 +389,13 @@ static EventOption RecOptions_Falco[] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Firebird High",
         .desc = {"Allow Falco to aim his up special high."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Firebird To Ledge",
+        .desc = {"Allow Falco to wait for the distance where his",
+                 "up special ends right at the ledge, and grab",
+                 "it. He double jumps first if he needs to."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -395,7 +418,8 @@ static EventOption RecOptions_Falco[] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Phantasm Ledge Sweetspot",
         .desc = {"Allow Falco to jump up and side special",
-                 "into the ledge, grabbing it mid-dash."},
+                 "right into the ledge, grabbing it the moment",
+                 "the dash ends."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -648,8 +672,8 @@ static EventOption RecOptions_Luigi[] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Cyclone",
         .desc = {"Allow Luigi to mash down special for",
-                 "height. It lifts only once, until a",
-                 "Cyclone touches the ground."},
+                 "height and distance before he up specials.",
+                 "It lifts once each attempt."},
         .val = 1,
     },
     {
@@ -668,10 +692,23 @@ static EventOption RecOptions_Luigi[] = {
     },
     {
         .kind = OPTKIND_TOGGLE,
+        .name = "Up B Sweetspot",
+        .desc = {"Allow Luigi to line up by the ledge and up",
+                 "special from so low that its top only just",
+                 "reaches the ledge."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Backflip Jump Sweetspot",
+        .desc = {"Allow Luigi to double jump backward, drift",
+                 "back in and grab the ledge on the way down,",
+                 "with no up special."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
         .name = "Fast Mashing",
-        .desc = {"Mash B about 15 times a second instead",
-                 "of about 10. Luigi's Cyclone needs it",
-                 "to gain much height."},
+        .desc = {"Mash B about 20 times a second instead",
+                 "of about 15, for more Cyclone height."},
     },
 };
 
@@ -1006,11 +1043,15 @@ static float ProjectedDistance(FighterData *a, FighterData *b, int future) {
 //   step (see sweetspot.c).
 // - Endlag: 2.0 (0x3C) forward, 0.07 (0x40) slower a frame. No fall for 5
 //   frames (0x44), then 0.08 (0x48) a frame. Then special fall.
-// - All three can grab the ledge. The grab box (mpcoll.c) spans cliffgrab_y_offset
-//   +/- half of cliffgrab_height above the feet (8.5 to 17.5) and reaches
-//   cliffgrab_width past the front of the ECB, whose bottom must still be
-//   outside the ledge and under it. Holding down refuses the grab
-//   (ftCliffCommon_80081298).
+// - The grab box (mpcoll.c) spans cliffgrab_y_offset +/- half of cliffgrab_height
+//   above the feet (8.5 to 17.5) and reaches cliffgrab_width past the front of
+//   the ECB, whose bottom must still be outside the ledge and under it. Holding
+//   down refuses the grab (ftCliffCommon_80081298).
+// - The game only looks for a ledge on a frame the fighter moved down (mpcoll.c).
+//   The dash and the endlag's first five frames are level, so the dash never
+//   grabs: the earliest grab out of one is the endlag's sixth frame. And all
+//   three steps always run: one that reaches the box keeps going, into the wall
+//   if the ECB's front point finds one, and under the stage if it doesn't.
 #define SP_FOX_STARTUP_FRAMES 19
 #define SP_FALCO_STARTUP_FRAMES 15
 #define SP_ENDLAG_FRAMES 40
@@ -1018,16 +1059,39 @@ static float ProjectedDistance(FighterData *a, FighterData *b, int future) {
 
 #define ASID_SPECIALAIRS 0x15F // the dash
 
-// To Ledge's endlag drifts into the ledge for 6 to 12 frames (where it aims),
-// and never grabs it in fewer than 5 (when it side-Bs).
-#define SP_LINGER_FEWEST 5
-#define SP_LINGER_AIM_MIN 6
-#define SP_LINGER_AIM_MAX 12
+// The ECB's front point in the dash, posed from the ISO's skeletons and
+// SpecialAirS: how high over the feet and how far ahead of them. It's what meets
+// the wall, and at that height Battlefield's wall is only 6 tall.
+#define SP_FOX_DASH_ECB_Y 5.5f
+#define SP_FOX_DASH_ECB_FRONT 3.f
+#define SP_FALCO_DASH_ECB_Y 6.05f
+#define SP_FALCO_DASH_ECB_FRONT 3.8f
+// The game wants the feet outside the ledge to grab it. A wall that stops them
+// closer than this doesn't count: it slopes inward, and the fall slides them
+// under. With no wall, a dash ending this close is under the ledge before it
+// can grab it.
+#define SP_WALL_MARGIN 0.5f
+#define SP_LIP_MARGIN 2.f
+
+// The endlag's first grab can come on frame 6. A sweetspot grabs right there or
+// a frame later. To Ledge's endlag drifts in for longer: 9 to 14 frames where it
+// aims, and never fewer than 8 when it side-Bs.
+#define SP_LINGER_FEWEST 8
+#define SP_LINGER_AIM_MIN 9
+#define SP_LINGER_AIM_MAX 14
+#define SP_ENDLAG_FIRST_GRAB 6
+
+// Ledge Sweetspot's dash height. High enough for the front point to find the
+// wall on every legal stage, or, from the band's low end, for the simulation to
+// see the dash stop short of a wall that isn't there.
+#define SP_SWEETSPOT_LO -13.5f
+#define SP_SWEETSPOT_HI -6.5f
 
 enum spacie_plan {
     SP_PLAN_NONE,        // not chosen yet this attempt
     SP_PLAN_UPB,         // the up special logic, also used with nothing checked
-    SP_PLAN_LAST_RESORT, // no side-B can make it and no up special is checked
+    SP_PLAN_FF_LEDGE,    // Firefox To Ledge, and the last resort: a side-B from
+                         // too low only goes under the stage
     // one per side-B row, in row order
     SP_PLAN_INSTANT,
     SP_PLAN_SWEETSPOT,
@@ -1078,6 +1142,7 @@ typedef struct SideBSim {
     const SpacieGeo *g;
     float out, h, kbx, kby;
     float box_lo, box_hi, bottom, decay;
+    float stop; // the wall: it can't get closer than this. -1: none, under the lip
 } SideBSim;
 
 static float SpacieRand(float lo, float hi) { return lo + (hi - lo) * HSD_Randf(); }
@@ -1208,22 +1273,58 @@ static SpacieGeo SpacieGetGeo(FighterData *ft) {
     return g;
 }
 
+// How far inland of the ledge the side of the stage is at height `depth` (under
+// the ledge, so negative). Walls and undersides both count: under Battlefield's
+// lip that's far inland, and a dash there goes under the stage.
+static float SpacieWallInset(const SpacieGeo *g, float depth) {
+    CollDataStage *stage = *stc_colldata;
+    CollLine *lines = *stc_collline;
+    CollVert *verts = *stc_collvert;
+    if (!stage || !lines || !verts)
+        return 0.f;
+    float inset = 1000.f;
+    for (int i = 0; i < stage->line_num; ++i) {
+        CollLineDesc *line = lines[i].desc;
+        // skip one-way platforms, as SpacieFindPlatform finds them
+        if (!line || line->is_floor || line->disabled || (((u8 *)line)[0xE] & 1)
+            || !GrColl_CheckIfLineEnabled(i)
+            || line->vert_prev < 0 || line->vert_next < 0
+            || line->vert_prev >= stage->vert_num || line->vert_next >= stage->vert_num)
+            continue;
+        Vec2 a = verts[line->vert_prev].pos_curr;
+        Vec2 b = verts[line->vert_next].pos_curr;
+        float ya = a.Y - g->ledge.Y, yb = b.Y - g->ledge.Y;
+        if (fmin(ya, yb) > depth || fmax(ya, yb) < depth)
+            continue;
+        float t = ya == yb ? 0.f : (depth - ya) / (yb - ya);
+        float in = (a.X + (b.X - a.X) * t - g->ledge.X) * g->dir;
+        if (in > -5.f && in < inset)
+            inset = in;
+    }
+    return inset;
+}
+
+static void SpacieKnockbackStep(float *kbx, float *kby, float decay) {
+    float kb = sqrtf(*kbx * *kbx + *kby * *kby);
+    if (kb <= decay) {
+        *kbx = *kby = 0.f;
+    } else {
+        *kbx -= decay * *kbx / kb;
+        *kby -= decay * *kby / kb;
+    }
+}
+
 // Move one frame by (vx, vy) plus the knockback left, which decays like the
 // game's, and say what the frame ended in.
 static int SideBStep(SideBSim *s, float vx, float vy) {
     float out0 = s->out, h0 = s->h;
-    float kb = sqrtf(s->kbx * s->kbx + s->kby * s->kby);
-    if (kb <= s->decay) {
-        s->kbx = s->kby = 0.f;
-    } else {
-        s->kbx -= s->decay * s->kbx / kb;
-        s->kby -= s->decay * s->kby / kb;
-    }
-    s->out -= vx + s->kbx;
+    SpacieKnockbackStep(&s->kbx, &s->kby, s->decay);
+    s->out = fmax(s->out - vx - s->kbx, s->stop);
     s->h += vy + s->kby;
 
-    // The box covers the frame's sweep, so a fast step can't skip the ledge.
-    if (s->out > 0.f && fmin(s->out, out0) <= s->g->reach
+    // Only a frame that moved down can grab. The box covers that frame's sweep,
+    // so a fast step can't skip the ledge.
+    if (s->h < h0 && s->out > 0.f && fmin(s->out, out0) <= s->g->reach
         && fmin(s->h, h0) + s->box_lo <= 0.f && 0.f <= fmax(s->h, h0) + s->box_hi
         && s->h + s->bottom < 0.f)
         return SIDEB_GRAB;
@@ -1236,6 +1337,9 @@ static int SideBStep(SideBSim *s, float vx, float vy) {
     // Inside the ledge and under it: onto the stage from above, or into the wall.
     if (s->out <= 0.f && s->h + s->bottom < 0.f)
         return h0 + s->bottom >= 0.f ? SIDEB_LAND_STAGE : SIDEB_MISS;
+    // No wall here, so nothing stops it going under the stage.
+    if (s->stop == -1.f && s->out < SP_LIP_MARGIN && s->h + s->bottom < 0.f)
+        return SIDEB_MISS;
     return SIDEB_NOTHING;
 }
 
@@ -1251,6 +1355,7 @@ static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int 
         .box_hi = coll->cliffgrab_y_offset + coll->cliffgrab_height * 0.5f,
         .bottom = coll->ecbCurr_bot.Y,
         .decay = (*stc_ftcommon)->kb_frameDecay,
+        .stop = -1000.f,
     };
     float terminal = ft->attr.terminal_velocity;
     int result;
@@ -1270,6 +1375,15 @@ static int SimulateSideB(FighterData *ft, const SpacieGeo *g, bool shorten, int 
     }
 
     *dash_h = s.h;
+
+    // The wall at the height of the ECB's front point. Over the ledge there's
+    // no wall to meet.
+    bool fox = ft->kind == FTKIND_FOX;
+    float tip = s.h + (fox ? SP_FOX_DASH_ECB_Y : SP_FALCO_DASH_ECB_Y);
+    if (tip < 0.f)
+        s.stop = (fox ? SP_FOX_DASH_ECB_FRONT : SP_FALCO_DASH_ECB_FRONT) - SpacieWallInset(g, tip);
+    if (tip < 0.f && s.stop < SP_WALL_MARGIN)
+        s.stop = -1.f;
 
     // A frame before the steps, or only that frame when shortened.
     float step = SpacieDashStep(ft);
@@ -1301,7 +1415,7 @@ static bool SpacieSideBWorks(FighterData *ft, const SpacieGeo *g, const SpaciePl
     float dash_h;
     int result = SimulateSideB(ft, g, p->shorten, &frame, &dash_h);
     switch (p->kind) {
-        case SP_PLAN_SWEETSPOT: return result == SIDEB_GRAB_DASH;
+        case SP_PLAN_SWEETSPOT: return result == SIDEB_GRAB_ENDLAG && frame < SP_LINGER_FEWEST;
         case SP_PLAN_TO_LEDGE: return result == SIDEB_GRAB_ENDLAG && frame >= SP_LINGER_FEWEST;
         case SP_PLAN_SHORTEN: return result == SIDEB_GRAB_ENDLAG;
         case SP_PLAN_TO_STAGE:
@@ -1395,10 +1509,12 @@ static SpaciePlan SpacieMakePlan(FighterData *ft, const SpacieGeo *g, int kind) 
     float rise = SpacieJumpRise(ft, &rise_frames);
     switch (kind) {
         case SP_PLAN_SWEETSPOT: {
-            // The ledge 3 or more inside the box after one, two or three steps.
-            p.lo = -16.f;
-            p.hi = -10.f;
-            float inside = SpacieRand(3.f, g->reach - 3.f);
+            // One, two or three steps from where the endlag's first grab has
+            // the ledge in the box. A wall stops the steps left over.
+            float first_grab = SpacieEndlagDrift(ft, SP_ENDLAG_FIRST_GRAB);
+            p.lo = SP_SWEETSPOT_LO;
+            p.hi = SP_SWEETSPOT_HI;
+            float inside = first_grab + SpacieRand(SP_LIP_MARGIN + 1.f, g->reach - 3.f);
             float aims[] = { step + inside, 2.f * step + inside, dash + inside };
             bool shortens[] = { false, false, false };
             SpaciePickAim(ft, g, &p, aims, shortens, countof(aims));
@@ -1409,7 +1525,7 @@ static SpaciePlan SpacieMakePlan(FighterData *ft, const SpacieGeo *g, int kind) 
             // the ledge, and the endlag drifts in for a few frames.
             int linger = SP_LINGER_AIM_MIN + HSD_Randi(SP_LINGER_AIM_MAX - SP_LINGER_AIM_MIN + 1);
             float endlag = g->reach + SpacieEndlagDrift(ft, linger);
-            p.lo = -14.5f;
+            p.lo = -13.5f;
             p.hi = -9.f;
             float aims[] = { dash + endlag, endlag };
             bool shortens[] = { false, true };
@@ -1463,7 +1579,7 @@ static bool SpacieUpBChecked(u32 opt_flags) {
 }
 
 // When the checked side-B rows can't make it and no Firefox row is checked:
-// the first side-B that still can, or a double jump and a side-B.
+// the first side-B that still can, or Firefox To Ledge.
 static SpaciePlan SpacieBestEffortPlan(FighterData *ft, const SpacieGeo *g) {
     static const u8 order[] = { SP_PLAN_SWEETSPOT, SP_PLAN_TO_STAGE, SP_PLAN_SHORTEN, SP_PLAN_TO_LEDGE };
     for (u32 i = 0; i < countof(order); ++i) {
@@ -1471,7 +1587,7 @@ static SpaciePlan SpacieBestEffortPlan(FighterData *ft, const SpacieGeo *g) {
         if (SpacieCanReach(ft, g, &p))
             return p;
     }
-    return (SpaciePlan) { .kind = SP_PLAN_LAST_RESORT };
+    return (SpaciePlan) { .kind = SP_PLAN_FF_LEDGE };
 }
 
 // Each attempt picks one checked side-B row the CPU can still reach, or the
@@ -1491,6 +1607,8 @@ static void SpacieChoosePlan(FighterData *ft, u32 opt_flags, const SpacieGeo *g)
         if (SpacieCanReach(ft, g, &plan))
             choices[n++] = plan;
     }
+    if (OptEnabled(OPT_SPACIES_FF_LEDGE))
+        choices[n++] = (SpaciePlan) { .kind = SP_PLAN_FF_LEDGE };
     if (SpacieUpBChecked(opt_flags) || (n == 0 && !any_sideb))
         choices[n++] = (SpaciePlan) { .kind = SP_PLAN_UPB };
     if (n == 0)
@@ -1499,7 +1617,8 @@ static void SpacieChoosePlan(FighterData *ft, u32 opt_flags, const SpacieGeo *g)
 }
 
 static void SpacieFallBack(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
-    sp_plan = SpacieUpBChecked(opt_flags) ? (SpaciePlan) { .kind = SP_PLAN_UPB }
+    sp_plan = OptEnabled(OPT_SPACIES_FF_LEDGE) ? (SpaciePlan) { .kind = SP_PLAN_FF_LEDGE }
+        : SpacieUpBChecked(opt_flags) ? (SpaciePlan) { .kind = SP_PLAN_UPB }
         : SpacieBestEffortPlan(ft, g);
 }
 
@@ -1563,6 +1682,112 @@ static bool SpacieSideBThink(FighterData *ft, u32 opt_flags, const SpacieGeo *g)
     return true;
 }
 
+// Firefox To Ledge: the travel goes a fixed distance, so it only ends at the
+// ledge from a ring around the spot. Attributes: no fall for 0x54 frames, then
+// 0x60 a frame, and X speed divided by 0x58 then 0x5C slower a frame, for the
+// charge (no drift). The travel is 0x68 frames at 0x74, slowing 0x78 a frame from
+// frame 0x70.
+#define SP_FF_CHARGE_FRAMES 42
+// The travel's end. The last of its speed carries it in and up a little more, so
+// it starts falling with the ledge in the box.
+#define SP_FF_END_OUT 9.f
+#define SP_FF_END_LO -15.5f
+#define SP_FF_END_HI -10.5f
+// Up special this far over the bottom blast zone whatever the distance.
+#define SP_FF_BLAST_MARGIN 20.f
+// The smallest stick X past the deadzone. A shot is straight up or at least this
+// far over, so a launch a little outside the end spot can't be aimed at it.
+#define SP_FF_TILT_MIN 0.29f
+
+static float SpacieFirefoxTravel(FighterData *ft) {
+    float speed = SP_ATTR(ft, 0x74), travel = 0.f;
+    int slow_from = SP_ATTR(ft, 0x70), frames = SP_ATTR(ft, 0x68);
+    for (int i = 1; i <= frames; ++i) {
+        if (i >= slow_from)
+            speed -= SP_ATTR(ft, 0x78);
+        travel += speed;
+    }
+    return travel;
+}
+
+// Where a Firefox pressed now launches from.
+static void SpacieChargeEnd(FighterData *ft, const SpacieGeo *g, float *out, float *h) {
+    float vx = g->vx / SP_ATTR(ft, 0x58), vy = 0.f, kbx = g->kbx, kby = g->kby;
+    int delay = SP_ATTR(ft, 0x54);
+    *out = g->out;
+    *h = g->h;
+    for (int i = SP_FF_CHARGE_FRAMES; i > 0; --i) {
+        if (delay > 0)
+            --delay;
+        else
+            vy = fmax(vy - SP_ATTR(ft, 0x60), -ft->attr.terminal_velocity);
+        vx = SpacieSlow(vx, SP_ATTR(ft, 0x5C));
+        SpacieKnockbackStep(&kbx, &kby, (*stc_ftcommon)->kb_frameDecay);
+        *out -= vx + kbx;
+        *h += vy + kby;
+    }
+}
+
+// How high the travel from (out, h) ends straight over the end spot, or far
+// under it when the end spot is out of range sideways.
+static float SpacieFirefoxEndHeight(FighterData *ft, float out, float h) {
+    float travel = SpacieFirefoxTravel(ft);
+    float dx = out - SP_FF_END_OUT;
+    float left = travel * travel - dx * dx;
+    return left > 0.f ? h + sqrtf(left) : -1000.f;
+}
+
+// Toward a launch point that can be aimed: right under the end spot, or far
+// enough out for the smallest tilt.
+static float SpacieFirefoxDrift(FighterData *ft, const SpacieGeo *g, float off) {
+    float tilt = SpacieFirefoxTravel(ft) * SP_FF_TILT_MIN + 1.f;
+    if (off >= tilt)
+        return off > tilt + 8.f ? g->dir : 0.f;
+    if (off > tilt * 0.5f)
+        return -g->dir;
+    return off > 2.f ? g->dir : off < -2.f ? -g->dir : 0.f;
+}
+
+// One actionable frame: up special from the ring, falling to it from inside and
+// double jumping back into it from outside.
+static void SpacieFirefoxThink(FighterData *ft, const SpacieGeo *g) {
+    float out, h;
+    SpacieChargeEnd(ft, g, &out, &h);
+    float end_h = SpacieFirefoxEndHeight(ft, out, h);
+    bool rising = g->vy + g->kby > 0.f;
+    bool can_jump = ft->jump.jumps_used < ft->attr.max_jumps;
+    bool low = ft->phys.pos.Y < Stage_GetBlastzoneBottom() + SP_FF_BLAST_MARGIN;
+    bool too_far = end_h < SP_FF_END_LO && h <= SP_FF_END_LO; // falling only makes it farther
+    bool ready = end_h >= SP_FF_END_LO && end_h <= SP_FF_END_HI;
+
+    if (!rising && too_far && can_jump) {
+        Press(ft, PAD_BUTTON_Y);
+        SetStick(ft, g->dir, 0.f);
+    } else if (!rising && (too_far || ready || low)) {
+        Press(ft, PAD_BUTTON_B);
+        SetStick(ft, 0.f, 1.f);
+    } else {
+        SetStick(ft, SpacieFirefoxDrift(ft, g, out - SP_FF_END_OUT), 0.f);
+    }
+}
+
+// The charge: hold the angle to the end spot, read on its last frame. Stick X
+// under the deadzone reads 0, so a shot close to straight up is straight up or
+// takes the deadzone's edge.
+static void SpacieFirefoxAim(FighterData *ft) {
+    SpacieGeo g = SpacieGetGeo(ft);
+    float end_h = fclamp(SpacieFirefoxEndHeight(ft, g.out, g.h), SP_FF_END_LO, SP_FF_END_HI);
+    Vec2 aim = { (g.out - SP_FF_END_OUT) * g.dir, end_h - g.h };
+    if (Vec2_Length(&aim) < 0.01f)
+        return;
+    Vec2_Normalize(&aim);
+    if (fabs(aim.X) < SP_FF_TILT_MIN * 0.5f)
+        aim.X = 0.f;
+    else if (fabs(aim.X) < SP_FF_TILT_MIN)
+        aim.X = aim.X < 0.f ? -SP_FF_TILT_MIN : SP_FF_TILT_MIN;
+    SetStick(ft, aim.X, aim.Y);
+}
+
 static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
     FighterData *cpu_data = cpu->userdata;
 
@@ -1623,16 +1848,9 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
         // SIDE-B PLANS
         if (sideb) {
 
-        // LAST RESORT: side-B at the top of the double jump
-        } else if (sp_plan.kind == SP_PLAN_LAST_RESORT) {
-            if (cpu_data->jump.jumps_used < cpu_data->attr.max_jumps) {
-                Press(cpu_data, PAD_BUTTON_Y);
-                SetStick(cpu_data, dir, 0.f);
-            } else if (vel.Y <= 0.f) {
-                SpacieSideB(cpu_data, &geo);
-            } else {
-                SetStick(cpu_data, dir, 0.f);
-            }
+        // FIREFOX TO LEDGE
+        } else if (sp_plan.kind == SP_PLAN_FF_LEDGE) {
+            SpacieFirefoxThink(cpu_data, &geo);
 
         // JUMP
         } else if (
@@ -1692,6 +1910,10 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
         if (sp_plan.kind >= SP_PLAN_INSTANT && sp_plan.shorten)
             Press(cpu_data, PAD_BUTTON_B);
 
+    // FIREFOX TO LEDGE STARTUP
+    } else if (0x161 <= state && state <= 0x162 && sp_plan.kind == SP_PLAN_FF_LEDGE) {
+        SpacieFirefoxAim(cpu_data);
+
     // FIREFOX STARTUP
     } else if (0x161 <= state && state <= 0x162) {
         // compute firefox angle
@@ -1744,8 +1966,10 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
         // or special fall
         || (ASID_FALLSPECIAL <= state && state <= ASID_FALLSPECIALB)
     ) {
-        // drift towards stage
-        cpu_data->cpu.lstickX = 127 * dir;
+        // drift towards stage, but not under it
+        SpacieGeo geo = SpacieGetGeo(cpu_data);
+        if (sp_plan.kind != SP_PLAN_FF_LEDGE || geo.h >= 0.f || geo.out > 6.f)
+            cpu_data->cpu.lstickX = 127 * dir;
     }
 }
 
@@ -2409,8 +2633,27 @@ typedef struct RecoveryInfo {
     bool tumble;    // knocked into tumble: no air dodge or float
 } RecoveryInfo;
 
+enum luigi_plan {
+    LG_PLAN_NONE,      // not chosen yet this attempt
+    LG_PLAN_UPB,       // up special to about the ledge, also what the others fall to
+    LG_PLAN_EARLY,     // up special from above the ledge
+    LG_PLAN_SWEETSPOT, // up special whose top only just reaches the ledge
+    LG_PLAN_BACKFLIP,  // double jump back, drift in, grab on the way down
+};
+
+typedef struct LuigiPlan {
+    int kind;
+    float lo, hi;         // up special (or backflip) with the feet this high
+    float out_lo, out_hi; // and this far outside the ledge
+    float last;           // up special from wherever at this height
+    float jump_at;        // a double jump that's needed waits for this height
+    bool cyclone;         // Cyclone on the way even with no need of one
+    bool missile;         // Green Missile when it's a long way
+} LuigiPlan;
+
 static int mash_timer = 0;
 static int lg_missile_charge = 0;
+static LuigiPlan lg_plan = { LG_PLAN_NONE };
 static bool pe_float_after_jump = false;
 static int pr_high = -1; // Jigglypuff's plan this attempt: 1 high, 0 low, -1 undecided
 
@@ -2426,6 +2669,7 @@ static bool RecoveryAssignsInputs(int kind) {
 static void ResetRecoveryPlans(void) {
     mash_timer = 0;
     lg_missile_charge = 0;
+    lg_plan.kind = LG_PLAN_NONE;
     pe_float_after_jump = false;
     pr_high = -1;
 }
@@ -2479,15 +2723,19 @@ static void DriftHome(FighterData *ft, RecoveryInfo *r, float lineup) {
     SetStick(ft, x, 0.f);
 }
 
-// One fresh B press every MASH_INTERVAL frames, give or take one, and never
-// on two frames in a row: a person mashing, not a turbo button.
-static bool MashB(bool fast) {
+// One fresh B press every `interval` frames, give or take one, and never on two
+// frames in a row: a person mashing, not a turbo button.
+static bool MashEvery(int interval) {
     if (mash_timer > 0) {
         --mash_timer;
         return false;
     }
-    mash_timer = (fast ? MASH_INTERVAL_FAST : MASH_INTERVAL) - 2 + HSD_Randi(3);
+    mash_timer = interval - 2 + HSD_Randi(3);
     return true;
+}
+
+static bool MashB(bool fast) {
+    return MashEvery(fast ? MASH_INTERVAL_FAST : MASH_INTERVAL);
 }
 
 // The player is close enough to hit with an aerial a few frames from now.
@@ -2692,30 +2940,245 @@ static void Think_Peach(GOBJ *cpu, u32 opt_flags) {
 
 // Luigi ----------------------------------------------------------------
 
-#define LG_GRAB_X 12.f
-#define LG_GRAB_Y 8.f
-// The up special rises 45.9 straight up by frame 26, so line up first.
-#define LG_UPB_REACH (45.9f + LEDGE_GRAB_REACH)
-#define LG_UPB_LINEUP 10.f
-// A Cyclone mashed 10 times a second can end 12 lower than it started.
-#define LG_CYCLONE_SAFE 15.f
-
-#define LG_JUMP_CHANCE 25
-#define LG_MISSILE_CHANCE 10
-#define LG_CYCLONE_CHANCE 10
-#define LG_UPB_CHANCE 6
-#define LG_UPB_EARLY_CHANCE 20
+// The up special's real rise: it falls for the 8 frames before the root motion
+// counts, then rises at 0.95 of it, straight up, 41.8 by frame 26. It comes
+// back down from there, and that's when it can grab (facing the ledge), so its
+// top should be right at the box or fall into it.
+#define LG_UPB_RISE 41.8f
+#define LG_UPB_TOP_MAX 8.f // the plain up special's highest top over the ledge
+// The stick past which the game reverses the up special, and short of where it
+// tilts it. Held after the press, so Luigi ends facing the ledge.
+#define LG_UPB_FACE_STICK 0.5f
+// The Cyclone starts falling (0.7 down), and B only counts on frames 6 to 44
+// (cmd var 2), at +0.8 up to 1.4 a press. Against 0.069 gravity that's a net
+// +8 height at 10 presses a second, +25 at 15 and +33 at 20. It's out of control
+// until frame 80. Starting one replaces his Y speed, so it's only for the way down.
+#define LG_MASH_INTERVAL 4      // about 15 presses a second
+#define LG_MASH_INTERVAL_FAST 3 // about 20
+// A double jump counts as a backflip when the stick is 0.125 away from where he
+// faces (ftCo_JumpAerial_Enter_Basic). Past that and the 0.28 deadzone, but no
+// more: this is also how fast he leaves the stage.
+#define LG_BACKFLIP_STICK 0.4f
+// The Green Missile hovers through its startup and flies flat for 40 frames,
+// then slows, about this far with no charge and this much farther a frame of
+// charge. It rises about 8 on the way and falls about 30 at its end, so it's for
+// high enough to up special after it, and not so low it goes under a lip.
+#define LG_MISSILE_BASE 65.f
+#define LG_MISSILE_PER_CHARGE 0.9f
+#define LG_MISSILE_MIN_OUT 25.f
+#define LG_MISSILE_MIN_H -12.f
+// How much farther out than the box an up special can start for each unit its
+// top is over the bottom of the box: it can't drift until it's falling.
+#define LG_UPB_DRIFT_PER_RISE 0.25f
 
 #define LG_STATE_MISSILE_START 349
 #define LG_STATE_MISSILE_HOLD 350
+#define LG_STATE_UPB_GROUND 355
+#define LG_STATE_UPB 356
 #define LG_STATE_CYCLONE 358
+
+// Only a Cyclone touching down refreshes its lift (ftLuigi_SpecialAirLw_AirToGround).
+// A real Luigi does that on the stage. A recovering CPU never does, and nothing
+// else clears the flag: not his load, not his death, and fighter data isn't
+// zeroed when it's allocated, so he can start the match with whatever the last
+// fighter left there, and a savestate only brings that back. Every attempt, and
+// every landing, is treated as having done it.
+static void Recovery_RefreshCyclone(FighterData *ft) {
+    if (ft->kind == FTKIND_LUIGI)
+        ft->fighter_var.ft_var1 = 0; // fp+222C, set when a Cyclone ends its lift
+}
+
+static void LuigiUpB(FighterData *ft) {
+    Press(ft, PAD_BUTTON_B);
+    SetStick(ft, 0.f, 1.f);
+}
+
+// Hold between two outs, going by where he'd stop: letting go of the stick
+// barely slows Luigi in the air.
+static void LuigiSteer(FighterData *ft, const SpacieGeo *g, float lo, float hi) {
+    float accel = ft->attr.aerial_drift_stick_mult + ft->attr.aerial_drift_base;
+    float out = g->out - g->vx * fabs(g->vx) / (2.f * accel);
+    SetStick(ft, out > hi ? g->dir : out < lo ? -g->dir : 0.f, 0.f);
+}
+
+// How far in a backflip from here gets by the time it's fallen back to the box:
+// the whole of the jump, not just its rise. Luigi floats, and that's most of it.
+static float LuigiBackflipReach(FighterData *ft, const SpacieGeo *g, float highest) {
+    CollData *coll = &ft->coll_data;
+    int rise_frames;
+    float peak = fmin(g->h, highest) + SpacieJumpRise(ft, &rise_frames);
+    float box_lo = coll->cliffgrab_y_offset - coll->cliffgrab_height * 0.5f;
+    int fall_frames = SpacieFallFrames(ft, peak, 0.f, -box_lo);
+    float back = -LG_BACKFLIP_STICK * ft->attr.air_jump_h_multiplier;
+    return SpacieDriftReach(ft, back, rise_frames + fall_frames);
+}
+
+// A fall through the box grabs the ledge, so a plan that finishes from under it
+// waits just outside the box until it's past, then lines up.
+static void LuigiWait(FighterData *ft, const SpacieGeo *g, const LuigiPlan *p, float box_hi) {
+    bool from_under = p->kind == LG_PLAN_SWEETSPOT || p->kind == LG_PLAN_BACKFLIP;
+    if (from_under && g->h > -box_hi - 2.f && g->out > p->out_lo)
+        LuigiSteer(ft, g, g->reach + 2.f, g->reach + 6.f);
+    else
+        LuigiSteer(ft, g, p->out_lo + 1.f, p->out_hi - 1.f);
+}
+
+static LuigiPlan LuigiMakePlan(FighterData *ft, const SpacieGeo *g, int kind) {
+    CollData *coll = &ft->coll_data;
+    float box_lo = coll->cliffgrab_y_offset - coll->cliffgrab_height * 0.5f;
+    float box_hi = coll->cliffgrab_y_offset + coll->cliffgrab_height * 0.5f;
+    LuigiPlan p = {
+        .kind = kind,
+        .out_lo = g->reach - coll->cliffgrab_width + 1.f,
+        .out_hi = g->reach - 1.f,
+        .last = 3.f - box_hi - LG_UPB_RISE,
+        .jump_at = SpacieRand(-15.f, 5.f),
+        .cyclone = HSD_Randi(3) != 0,
+        .missile = HSD_Randi(2) == 0,
+    };
+    switch (kind) {
+        case LG_PLAN_UPB:
+            p.lo = -box_lo - LG_UPB_RISE;
+            p.hi = SpacieRand(2.f - box_lo, LG_UPB_TOP_MAX) - LG_UPB_RISE;
+            break;
+        case LG_PLAN_EARLY:
+            p.lo = -8.f;
+            p.hi = 12.f;
+            p.out_hi = g->reach - 2.f;
+            break;
+        case LG_PLAN_SWEETSPOT:
+            p.lo = p.last;
+            p.hi = -box_lo - LG_UPB_RISE;
+            p.out_hi = g->reach - 2.f;
+            p.cyclone = false; // only if it's needed: this one wants to be low
+            break;
+        case LG_PLAN_BACKFLIP: {
+            // From low enough that the top of the jump is around the box.
+            int rise_frames;
+            float rise = SpacieJumpRise(ft, &rise_frames);
+            p.lo = 2.f - box_hi - rise;
+            p.hi = 6.f - rise;
+            p.cyclone = false;
+            break;
+        }
+    }
+    return p;
+}
+
+// Each attempt picks one checked way to finish, or the plain up special with
+// none checked. A backflip that won't reach the ledge falls to the up special.
+static void LuigiChoosePlan(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
+    int kinds[3], n = 0;
+    if (OptEnabled(OPT_LUIGI_UPB_EARLY))
+        kinds[n++] = LG_PLAN_EARLY;
+    if (OptEnabled(OPT_LUIGI_UPB_SWEETSPOT))
+        kinds[n++] = LG_PLAN_SWEETSPOT;
+    // Falls and jumps only grab the ledge they face, and a jump doesn't turn him.
+    if (OptEnabled(OPT_LUIGI_BACKFLIP) && ft->jump.jumps_used < ft->attr.max_jumps
+        && ft->facing_direction == g->dir)
+        kinds[n++] = LG_PLAN_BACKFLIP;
+    lg_plan = LuigiMakePlan(ft, g, n ? kinds[HSD_Randi(n)] : LG_PLAN_UPB);
+}
+
+// One actionable frame: get over the spot the plan finishes from, with the
+// moves it needs, and finish.
+static void LuigiThink(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
+    if (lg_plan.kind == LG_PLAN_NONE)
+        LuigiChoosePlan(ft, opt_flags, g);
+    LuigiPlan *p = &lg_plan;
+    CollData *coll = &ft->coll_data;
+    bool airjump = ft->jump.jumps_used < ft->attr.max_jumps;
+    bool backflip = p->kind == LG_PLAN_BACKFLIP;
+    bool rising = g->vy + g->kby > 0.f;
+    float box_hi = coll->cliffgrab_y_offset + coll->cliffgrab_height * 0.5f;
+    float h = g->h + SpacieCarryUp(g); // where the knockback left will take it
+    if (backflip && airjump)
+        p->out_hi = g->reach - 2.f + LuigiBackflipReach(ft, g, p->hi);
+
+    // The backflip's jump is spent: fall into the box, or up special if it's gone.
+    if (backflip && !airjump) {
+        if (g->h >= -box_hi - 2.f) {
+            LuigiSteer(ft, g, p->out_lo, g->reach - 3.f);
+            return;
+        }
+        *p = LuigiMakePlan(ft, g, LG_PLAN_UPB);
+        backflip = false;
+    }
+
+    // Stage in drift reach before it falls past the ledge: just land.
+    if (p->kind == LG_PLAN_UPB && h > 2.f
+        && SpacieDriftReach(ft, g->vx, SpacieFallFrames(ft, g->h, g->vy, 0.f)) >= g->out + 4.f) {
+        SetStick(ft, g->dir, 0.f);
+        return;
+    }
+
+    // Whether drifting alone gets over the spot by the time it's fallen to the
+    // lowest it can finish from. Higher up, the fall from the top adds some.
+    float box_lo = coll->cliffgrab_y_offset - coll->cliffgrab_height * 0.5f;
+    float out_hi = p->out_hi;
+    if (p->kind == LG_PLAN_UPB)
+        out_hi += fmax(h + LG_UPB_RISE + box_lo, 0.f) * LG_UPB_DRIFT_PER_RISE;
+    int frames = h > p->lo ? SpacieFallFrames(ft, g->h, g->vy, p->lo) : 0;
+    bool short_of_it = g->out - out_hi > SpacieDriftReach(ft, g->vx, frames);
+    bool too_low = h < p->lo;
+    // A backflip row that fell through can still use the jump it saved.
+    bool jump = (OptEnabled(OPT_LUIGI_JUMP) || OptEnabled(OPT_LUIGI_BACKFLIP)) && airjump && !backflip;
+    bool cyclone = OptEnabled(OPT_LUIGI_CYCLONE) && ft->fighter_var.ft_var1 == 0;
+
+    // GREEN MISSILE across a long gap, from high enough to up special after it:
+    // some attempts, and whenever it's all that's left
+    if (
+        OptEnabled(OPT_LUIGI_MISSILE) && (p->missile || (!jump && !cyclone)) && short_of_it && !rising
+        && g->out > LG_MISSILE_MIN_OUT && g->h > LG_MISSILE_MIN_H && g->h < 38.f
+    ) {
+        Press(ft, PAD_BUTTON_B);
+        SetStick(ft, g->dir, 0.f);
+        // longer gaps get a longer charge (a full charge is 90 frames)
+        lg_missile_charge = (int)fclamp((g->out - p->out_hi - LG_MISSILE_BASE) / LG_MISSILE_PER_CHARGE, 0.f, 70.f);
+
+    // CYCLONE on the way down, needed or not: it's what the row is for. Before
+    // the double jump, since its end has no drift: that's height better spent
+    // with the jump still to come.
+    } else if (
+        cyclone && !rising && g->h < 6.f
+        && (too_low || short_of_it || (p->cyclone && g->h < -6.f))
+    ) {
+        Press(ft, PAD_BUTTON_B);
+        SetStick(ft, 0.f, -1.f);
+        mash_timer = 0;
+
+    // JUMP when it's needed, toward the stage
+    } else if (jump && !rising && (too_low || (short_of_it && g->h < p->jump_at))) {
+        Press(ft, PAD_BUTTON_Y);
+        SetStick(ft, g->dir, 0.f);
+
+    // BACKFLIP: the stick behind him makes it one
+    } else if (backflip && !rising && g->h <= p->hi && g->out <= p->out_hi && g->out >= p->out_lo) {
+        Press(ft, PAD_BUTTON_Y);
+        SetStick(ft, -LG_BACKFLIP_STICK * ft->facing_direction, 0.f);
+
+    // A backflip that's out of reach
+    } else if (backflip && (too_low || short_of_it)) {
+        *p = LuigiMakePlan(ft, g, LG_PLAN_UPB);
+        LuigiSteer(ft, g, p->out_lo, p->out_hi);
+
+    // UP SPECIAL from the spot, or from wherever at the last moment
+    } else if (
+        !backflip && !rising && h <= p->hi
+        && ((g->out >= p->out_lo && g->out <= out_hi) || h < p->last)
+    ) {
+        LuigiUpB(ft);
+
+    // WAIT
+    } else {
+        LuigiWait(ft, g, p, box_hi);
+    }
+}
 
 static void Think_Luigi(GOBJ *cpu, u32 opt_flags) {
     FighterData *ft = cpu->userdata;
-    RecoveryInfo r = GetRecoveryInfo(ft, LG_GRAB_X, LG_GRAB_Y);
+    SpacieGeo g = SpacieGetGeo(ft);
     int state = ft->state_id;
-    bool cyclone_lifts = ft->fighter_var.ft_var1 == 0; // fp+222C, set when a Cyclone ends its lift
-    bool jump = OptEnabled(OPT_LUIGI_JUMP) && r.can_jump;
 
     if (ft->flags.hitlag) {
         ResetRecoveryPlans();
@@ -2728,76 +3191,30 @@ static void Think_Luigi(GOBJ *cpu, u32 opt_flags) {
                 --lg_missile_charge;
             ft->cpu.held |= PAD_BUTTON_B;
         }
-        SetStick(ft, r.dir, 0.f);
+        SetStick(ft, g.dir, 0.f);
 
-    // CYCLONE: mash for lift
+    // CYCLONE: mash in the window that counts, steering for the ledge or the stage
     } else if (state == LG_STATE_CYCLONE) {
-        if (MashB(OptEnabled(OPT_LUIGI_FAST_MASH)))
+        if (ft->ftcmd_var.flag2 && MashEvery(OptEnabled(OPT_LUIGI_FAST_MASH) ? LG_MASH_INTERVAL_FAST : LG_MASH_INTERVAL))
             Press(ft, PAD_BUTTON_B);
-        DriftHome(ft, &r, 0.f);
+        if (g.h > 0.f)
+            SetStick(ft, g.dir, 0.f);
+        else
+            LuigiSteer(ft, &g, g.reach - ft->coll_data.cliffgrab_width + 2.f, g.reach - 2.f);
+
+    // UP SPECIAL: end facing the ledge
+    } else if (state == LG_STATE_UPB || state == LG_STATE_UPB_GROUND) {
+        SetStick(ft, g.dir * LG_UPB_FACE_STICK, 0.f);
 
     } else if (IsAirActionable(cpu)) {
-        // JUMP
-        if (
-            jump && r.vel.Y < 0.5f
-            && (
-                r.to_grab.Y > LG_UPB_REACH - 8.f
-                || (r.to_grab.Y > 5.f && OneIn(LG_JUMP_CHANCE))
-                || (r.out > 70.f && r.to_grab.Y > -20.f && OneIn(LG_JUMP_CHANCE))
-            )
-        ) {
-            Press(ft, PAD_BUTTON_Y);
-            SetStick(ft, r.dir, 0.f);
+        LuigiThink(ft, opt_flags, &g);
 
-        // GREEN MISSILE across a long gap near ledge height
-        } else if (
-            OptEnabled(OPT_LUIGI_MISSILE) && r.out > 40.f
-            && r.to_grab.Y > -30.f && r.to_grab.Y < 25.f && r.vel.Y < 0.5f
-            && (OneIn(LG_MISSILE_CHANCE) || (r.out > 90.f && !jump))
-        ) {
-            Press(ft, PAD_BUTTON_B);
-            SetStick(ft, r.dir, 0.f);
-            // longer gaps get a longer charge (a full charge is 90 frames)
-            lg_missile_charge = (int)fclamp((r.out - 40.f) * 0.5f, 0.f, 50.f) + HSD_Randi(10);
-
-        // CYCLONE while it still lifts (once, until a Cyclone touches the ground)
-        } else if (
-            OptEnabled(OPT_LUIGI_CYCLONE) && cyclone_lifts && !jump && r.vel.Y < 0.f && r.out < 60.f
-            && (
-                (r.to_grab.Y > 12.f && r.to_grab.Y < LG_UPB_REACH - LG_CYCLONE_SAFE && OneIn(LG_CYCLONE_CHANCE))
-                || r.to_grab.Y > LG_UPB_REACH - 4.f // too low for the up special alone
-            )
-        ) {
-            Press(ft, PAD_BUTTON_B);
-            SetStick(ft, 0.f, -1.f);
-            mash_timer = 2;
-
-        // UP B to the ledge
-        } else if (
-            !jump && r.vel.Y < 0.f && r.to_grab.Y > 0.f
-            && (
-                (r.to_grab.Y < LG_UPB_REACH && fabs(r.out) < LG_UPB_LINEUP && OneIn(LG_UPB_CHANCE))
-                || r.to_grab.Y > LG_UPB_REACH - 10.f
-            )
-        ) {
-            Press(ft, PAD_BUTTON_B);
-            SetStick(ft, 0.f, 1.f);
-
-        // UP B EARLY onto the stage
-        } else if (
-            OptEnabled(OPT_LUIGI_UPB_EARLY) && r.to_grab.Y > -20.f && r.to_grab.Y <= 0.f
-            && r.out < 15.f && OneIn(LG_UPB_EARLY_CHANCE)
-        ) {
-            Press(ft, PAD_BUTTON_B);
-            SetStick(ft, 0.f, 1.f);
-
-        // WAIT
-        } else {
-            DriftHome(ft, &r, 0.f);
-        }
-
+    // Helpless, or the end of a Green Missile: over the stage if it's there,
+    // and otherwise into the box without going under it.
+    } else if (g.h > 0.f) {
+        SetStick(ft, g.dir, 0.f);
     } else {
-        DriftHome(ft, &r, 0.f);
+        LuigiSteer(ft, &g, g.reach - ft->coll_data.cliffgrab_width + 2.f, g.reach - 2.f);
     }
 }
 

@@ -10,7 +10,7 @@ Sources: the Melee decompilation (doldecomp/melee) for move logic and action sta
 | --- | --- | --- | --- |
 | Yoshi | Double jump high or low, then air dodge into the ledge or onto the stage; optional Egg Toss | High | Air dodge to ledge actually grabs (only the helpless fall after the dodge can) |
 | Peach | Double jump and float onto the stage, float low by the ledge, Parasol to the ledge, optional Bomber and float aerials | Medium | Float starts at the top of the jump and ends over the stage |
-| Luigi | Double jump, mash Cyclone, Green Missile across gaps (game's own 1 in 8 misfire), up B lined up under the ledge | Medium | Cyclone height at normal mashing; up B lining up |
+| Luigi | Rebuilt in T9, [see below](#luigi): a plan per attempt, Cyclone before the double jump, Green Missile across gaps (game's own 1 in 8 misfire), up B to around the ledge, Up B Sweetspot, Backflip Jump Sweetspot | Medium | The Cyclone lifting him from every attempt; up B lining up |
 | Dr. Mario | Double jump, mash Dr. Tornado, Cape stall, up B from about 15 out | Medium | Tornado then up B order; up B start distance |
 | Ice Climbers | Double jump, Belay when Nana is close, mash Squall Hammer otherwise | Medium-low | Nana keeps up (she runs the game's own follower AI) |
 | Jigglypuff | Holds a high or low height with her five jumps, Pound across gaps, back/forward/neutral air at the player | Medium | Jump spacing; aerials not sending her offstage |
@@ -38,8 +38,8 @@ Many recovery moves aren't driven by a velocity number at all. The game sets the
 | Yoshi double jump | rises 52.5 by frame 52, after an 8-frame dip | When to jump; no dodging while it rises |
 | Peach double jump | rises 33.2 by frame 50, after an 8-frame dip; float check from frame 30 | Holding jump to float at the top |
 | Peach Parasol | rises 36.8 by frame 33, 3.4 forward; ledge only on the way down | Parasol range |
-| Luigi up B | rises 45.9 by frame 26, straight up; ledge from frame 9 when falling | Line up first |
-| Luigi Cyclone | B counts frames 6 to 44; lift used up at 44 | Mash window |
+| Luigi up B | root motion rises 45.9 by frame 26, straight up, 41.8 once the air version's first 8 frames and 0.95 scale count; ledge from frame 9 when falling, which starts on frame 27 | Line up first |
+| Luigi Cyclone | B counts frames 6 to 44; lift used up at 44; no control to 80 | Mash window |
 | Dr. Mario up B | rises 40.4 by frame 24, 17.6 forward | Start about 15 outside the grab point |
 | Dr. Tornado | B counts frames 0 to 38; lift used up at 38 | Mash window |
 | Squall Hammer | B counts frames 0 to 54 (with Nana) or 57; then helpless | Mash window |
@@ -56,7 +56,11 @@ The tornado, Cyclone and Squall Hammer lift on each **fresh** B press during the
 - **Cyclone:** +0.8 per press, capped at 1.4, against gravity 0.069.
 - **Squall Hammer:** +0.67 per lift with Nana (+0.6 alone), at most one lift every 7 frames.
 
-The tornado and Cyclone each lift only once. Dr. Mario's lift (`tornadoCharge`) comes back on landing. Luigi's (`cycloneCharge`) only comes back when a Cyclone touches down, the known Melee quirk; Edgeguard's reset restores both every attempt. Simulated over 40 random mash patterns (worst / average height gained):
+The tornado and Cyclone each lift only once. Only a tornado or Cyclone touching down refreshes it (`ftLuigi_SpecialAirLw_AirToGround`), the known Melee quirk. Mario and Dr. Mario also clear theirs on load and death (`ftMr_Init_OnDeath`). **Luigi never does:** his flag at fp+222C isn't touched by `ftLg_Init_OnLoad` or `ftLg_Init_OnDeath`, and fighter data isn't zeroed when it's allocated (the decompilation's `fighter.c` names this exact field), so he can start a match with whatever the last fighter left in that memory. The game reads it with a whole-word `lwz` at entry and on each press, so anything but 0 means no lift, and the entry speed goes from -0.7 to +0.1.
+
+A real Luigi fixes that with a Cyclone on the stage. A recovering CPU never does one. Edgeguard's savestate is taken on the first frame, so its reset only restored that same value: with a stale flag, no attempt could lift, and `Think_Luigi`, which checks the flag before trying, never even tried. `Recovery_RefreshCyclone` now clears it in `Reset_CPU` every attempt, and in the Lab whenever the CPU is back on the stage. Dr. Mario's flag starts clear, so his savestate holds a good value.
+
+Simulated over 40 random mash patterns (worst / average height gained):
 
 | Presses a second | 7.5 | 8.6 | 10 (normal) | 12 | 15 (fast) |
 | --- | --- | --- | --- | --- | --- |
@@ -65,7 +69,9 @@ The tornado and Cyclone each lift only once. Dr. Mario's lift (`tornadoCharge`) 
 | Squall Hammer with Nana | 45 / 54 | 58 / 72 | 75 / 78 | 75 / 79 | 75 / 79 |
 | Squall Hammer alone | 10 / 13 | 14 / 18 | 21 / 21 | 21 / 21 | 21 / 21 |
 
-So Luigi only gets real height from fast mashing (true in Melee too), and Squall Hammer stops improving past one lift per 7 frames. By the end of the move a 10-a-second tornado or Cyclone can be up to 12 *lower* than it started, so the AIs only use them when an up B can still reach afterwards (`*_SAFE`), or as a last resort.
+So Luigi only gets real height from fast mashing (true in Melee too), and Squall Hammer stops improving past one lift per 7 frames. A Cyclone starts falling at 0.7, B only counts on frames 6 to 44, and the first few presses only cancel the fall. By the end of the move a 10-a-second tornado can be up to 12 *lower* than it started, so Dr. Mario's AI only uses it when an up B can still reach afterwards (`DR_TORNADO_SAFE`), or as a last resort.
+
+Luigi now mashes faster than the other two, because the Cyclone needs it. Height from its press to the end of the move (and at its peak), over 60 patterns: 10 a second +8 (23), 12 +18 (32), **15 +25 (39)**, **20 +33 (45)**, and a press every other frame, the most there can be, +37 (50). He mashes 15 a second, or 20 with Fast Mashing, only inside the window that counts.
 
 ## Per character
 
@@ -83,9 +89,18 @@ So Luigi only gets real height from fast mashing (true in Melee too), and Squall
 
 ### Luigi
 
-- **Game facts:** the up B is straight up, with nearly no stick angle (2°). Green Missile charges while B is held (from a 20-frame head start on a smash input, up to 90), misfires 1 in 8 (`HSD_Randi(8)` in `ftLg_SpecialS_SetVars`), and doesn't leave him helpless.
-- **AI:** double jump, Green Missile charged more for longer gaps, Cyclone when the up B can still reach afterwards, then up B lined up within 10 of the grab point. It forces the up B from about 46 under.
-- **Options:** Double Jump, Cyclone, Green Missile (on); Up B Early, Fast Mashing (off).
+- **Game facts:**
+    - **Up B:** straight up, with nearly no stick angle (2°) and no drift, 41.8 by frame 26. It comes back down from there, and can grab the ledge it faces from then on. A stick past 0.25 turns him around.
+    - **Green Missile:** charges while B is held (from a 20-frame head start on a smash input, up to 90), misfires 1 in 8 (`HSD_Randi(8)` in `ftLg_SpecialS_SetVars`), and doesn't leave him helpless. It hovers through its startup and charge, then flies flat for 40 frames at 1.4 + 0.017 a frame of charge, rising about 8, and slows and falls about 30 in its 30-frame end: 65 with no charge. A wall ends the flight.
+    - **Cyclone:** see [mashing](#mashing-within-human-limits). X speed up to 0.8 until frame 44, then none. He isn't helpless after it, and it can't grab a ledge.
+    - **Double jump:** rises 32.7 in 30 frames. It's a backflip (`JumpAerialB`, a separate animation with the same physics) when the stick is at least 0.125 away from where he faces. Jumps and falls only grab the ledge he faces, and a jump doesn't turn him.
+- **AI:** each attempt picks one checked way to finish, or the plain up B with none checked (`LuigiChoosePlan`), then uses what it needs to get there. Whether drifting alone gets there decides it: Green Missile on half the attempts or when it's all that's left, from 12 below the ledge or higher so it can't go under a lip; the Cyclone next, then the double jump, because the Cyclone's last 36 frames burn height with no drift and that's height better spent with the jump still to come. With the Cyclone row on, 2 attempts in 3 use it even with no need. Letting go of the stick barely slows Luigi in the air (0.01 a frame), so steering goes by where he'd stop.
+    - **Plain up B:** from close enough that its top is 10 under to 8 over the ledge, so it ends around the ledge. Higher tops can start farther out, since the fall from them has time to drift. If the stage is in drift reach before he falls past the ledge, he just lands.
+    - **Up B Sweetspot:** from so low its top only just has the ledge in the box, 52 to 59 under, and 3 to 12 out. A fall through the box grabs the ledge, so he waits just outside it until he's past, then drifts in.
+    - **Backflip Jump Sweetspot:** double jumps with the stick 0.4 behind him, 40 to 50 under the ledge or as high as 27 under, then drifts back in and grabs falling, with no up B. He has the whole of the jump to drift, 40 or more with his float. If the backflip won't reach, he plays the plain up B, and can still use the jump. It needs him facing the stage, which Edgeguard's launch always has.
+    - **Up B Early:** as before, from around ledge height onto the stage.
+- **Options:** Double Jump, Cyclone, Green Missile (on); Up B Early, Up B Sweetspot, Backflip Jump Sweetspot, Fast Mashing (off).
+- **Modeled** by [tests/recovery_sim.py](../tests/recovery_sim.py), the six legal stages and both ledges, 960 attempts: with the defaults he died 6 times and did a Cyclone in 734, gaining 32 at its peak on average and 22 at worst (40 and 33 with Fast Mashing). With Up B Sweetspot added he sweetspotted 648 and died 0; with Backflip Jump Sweetspot added he backflipped to the ledge 450 and died 12. The same physics on the old logic, Battlefield, 120 attempts: 63 deaths, 11 Cyclones gaining 1.4, and no Cyclones at all with a stale flag.
 
 ### Dr. Mario
 
@@ -142,7 +157,8 @@ For each character, run Edgeguard with the default options and **don't** hit the
 
 1. **Yoshi:** does the air dodge to ledge grab? Does it ever dodge mid-jump?
 2. **Peach:** does she float at the top of the double jump, and stop floating over the stage? Does Float Low drift into the ledge?
-3. **Luigi / Dr. Mario:** does the up B start in the right place (Luigi under the ledge, Doc about 15 out)? With Fast Mashing off, does the Cyclone or tornado leave them able to up B?
+3. **Luigi:** does every attempt's Cyclone lift him, including the first of a match and after another character was loaded? Does the plain up B end around the ledge? Up B Sweetspot: does he grab on the first frames down, and not fall into the ledge first? Backflip Jump Sweetspot: is it really the backflip animation, and does he make it back in? If he reaches the top of a backflip too far out, `LuigiBackflipReach` is optimistic.
+   **Dr. Mario:** does the up B start about 15 out? With Fast Mashing off, does the tornado leave him able to up B?
 4. **Ice Climbers:** does Nana follow Popo after a reset? Does Belay fire with her close and give full height?
 5. **Jigglypuff:** do the jumps space out, or does she burn them early? Do the aerials hit a player standing at the ledge?
 6. **Samus:** does the grapple connect, and does the reel end on the ledge? If it hits the wall but she hops up instead of grabbing, `SS_GRAPPLE_MAX_DEPTH` is too deep for that stage; if it flies over the stage, raise `SS_GRAPPLE_MIN_DEPTH` or `SS_GRAPPLE_HAND_Y`. If it never misses, `SS_GRAPPLE_MAX_X` can grow toward about 48.

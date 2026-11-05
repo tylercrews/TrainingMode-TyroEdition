@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **22 bits** in word 72 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **18 bits** in word 72 |
 | **Unallocated spare score slots** | `0x1B2C..0x1B37` | **12 bytes** | nothing | **12 bytes (96 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 22 bits in word 72 and scattered single bits. The core record is full.
+**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 18 bits in word 72 and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -136,7 +136,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
-| 72..75 | 2v1 Grab Punish's team select | word 72 (table below) | bits 10-31 |
+| 72..75 | 2v1 Grab Punish's team select, Edgeguard's newer recovery rows | word 72 (table below) | bits 14-31 |
 
 Free bits inside the record: 1 + 6 + 4 = **11 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
@@ -244,7 +244,7 @@ Each recovery mask has one bit per row of that CPU's Recovery Options menu, in r
 | Bits | Setting |
 | --- | --- |
 | 0-2 | Knockback Height (T9): 0 Random, 1 Very High, 2 High, 3 Level, 4 Low, 5 Very Low, 6 Custom. While word 68's Knockback Distance is still 0, this field is the Hit Strength it replaced (0 Weak, 1 Normal, 2 Hard, 3 Shallow, 4 Custom, default Normal), which `LoadKnockback` converts ([the knockback notes](EDGEGUARD-KNOCKBACK.md)) |
-| 3-8 | Fox recovery, first six bits (default Firefox Low). Since T9 these are rows 1-4, then Illusion Instant (row 6, the old Illusion bit), then Fast Fall (row 5); the other side-B rows are in word 68 |
+| 3-8 | Fox recovery, first six bits (default Firefox Low). Since T9 these are Firefox Low, Mid and High (rows 1-3), Double Jump (row 5), Illusion Instant (row 7, the old Illusion bit), then Fast Fall (row 6); the other side-B rows are in word 68, and Firefox To Ledge (row 4) in word 72 |
 | 9-14 | Falco recovery, first six bits (default Firebird Low), laid out like Fox's |
 | 15-20 | Sheik recovery (6 rows, default the three Vanish rows) |
 | 21-25 | Captain Falcon recovery (5 rows, default Falcon Dive + Drift Back) |
@@ -259,7 +259,7 @@ Same layout as word 60's masks. These CPUs' recoveries are described in [the Edg
 | --- | --- |
 | 0-4 | Yoshi (5 rows, default Jump High + Jump Low + Air Dodge to Ledge) |
 | 5-9 | Peach (5 rows, default Float to Stage + Float Low + Parasol) |
-| 10-14 | Luigi (5 rows, default Double Jump + Cyclone + Green Missile) |
+| 10-14 | Luigi's first five rows, Fast Mashing in bit 14 though it's now the last row (default Double Jump + Cyclone + Green Missile); Up B Sweetspot and Backflip Jump Sweetspot are in word 72 |
 | 15-19 | Dr. Mario (5 rows, default Double Jump + Dr. Tornado) |
 | 20-22 | Ice Climbers (3 rows, default Belay + Squall Hammer) |
 | 23-26 | Jigglypuff (4 rows, all on) |
@@ -281,11 +281,11 @@ Migrating to version 20 zeroes this word and then writes the defaults, so the sp
 | 16 | Up-B Sweetspot: Enable Line Guides (default On) |
 | 17 | Up-B Sweetspot: Marth's low bit, with its top bit in word 56 bit 31. Stored 0 Forward Smash (default), 1 Off, 2 Down Tilt, so a save from when this row was Tipper / Off keeps its meaning. The menu order is Forward Smash, Down Tilt, Off |
 | 18 | Up-B Sweetspot: Camera (Normal / Zoomed Out, default Normal) |
-| 19-23 | Edgeguard: Fox's side-B rows 7-11 (Ledge Sweetspot, To Ledge, To Main Stage, To Side Plat, Shortest Shorten), default all off |
-| 24-28 | Edgeguard: Falco's side-B rows 7-11, the same way |
+| 19-23 | Edgeguard: Fox's side-B rows 8-12 (Ledge Sweetspot, To Ledge, To Main Stage, To Side Plat, Shortest Shorten), default all off |
+| 24-28 | Edgeguard: Falco's side-B rows 8-12, the same way |
 | 29-31 | Edgeguard: Knockback Distance plus 1: 1 Random, 2 Close, 3 Near, 4 Medium, 5 Far. 0 means no choice saved yet, so word 60 bits 0-2 still hold Hit Strength |
 
-**Word 72: 2v1 Grab Punish's team select** (T9, version 21)
+**Word 72: 2v1 Grab Punish's team select and Edgeguard's newer recovery rows** (T9, version 21)
 
 Every migration to version 21 zeroes this word, so its spare bits are zero in every record that owns it, and any event can grow into them with no version bump if the new setting's default is 0. Version 20 and older records read no character saved.
 
@@ -293,6 +293,9 @@ Every migration to version 21 zeroes this word, so its spare bits are zero in ev
 | --- | --- |
 | 0-4 | P3's last character: 0 none yet (Fox), otherwise the external ID + 1, so Zelda and Sheik are told apart |
 | 5-9 | P4's, the same way |
+| 10 | Edgeguard: Firefox To Ledge, default off. No version bump |
+| 11 | Edgeguard: Firebird To Ledge, the same way |
+| 12-13 | Edgeguard: Luigi's Up B Sweetspot and Backflip Jump Sweetspot, default off, the same way |
 
 P1 and P2 use the normal saved characters (core bytes 6 and 37), which already tell Zelda and Sheik apart.
 
