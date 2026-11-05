@@ -244,7 +244,8 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
 }
 /* A team character select dresses everyone in their team's costume, so what
  * the native backup just copied from it is nobody's normal choice. Put the
- * saved choices back, for the next event's character select. */
+ * saved choices back, for the next event's character select. Settings_SaveTeamSelect
+ * has already saved the characters. */
 void Settings_RestoreCharacters(void) {
     u8 *backup = (u8 *)stc_memcard + 3344;
     for (unsigned player = 0; player < 2; ++player) {
@@ -255,4 +256,59 @@ void Settings_RestoreCharacters(void) {
         backup[offset] = kind;
         backup[costume] = color < character_costumes[kind] ? color : 0;
     }
+}
+
+/* The team select's memories go to its doors in this order: yours, the CPU's
+ * (where Restore Event CPU.asm puts them: your port, then the first other one),
+ * then P3's and P4's on the next two. With your controller in port 1 that's
+ * simply P1 to P4. */
+#define EVENT_CSS ((VSMinorData *)0x80497758) /* Restore Event CPU.asm's CSS Match Info. */
+#define TEAM_SELECT_SHARED 2 /* The memories every event shares: yours and the CPU's. */
+#define TEAM_SELECT_OPEN 3 /* You and two CPUs, all the event uses. */
+#define NO_NAMETAG 120
+static void team_select_doors(int doors[4]) {
+    int hmn = EVENT_CSS->snglply_port - 1, slot = 1;
+    doors[0] = hmn;
+    for (int i = 0; i < 4; ++i)
+        if (i != hmn) doors[slot++] = i;
+}
+/* The CSS has no Sheik, so a saved Sheik shows as Zelda, as a CPU's always has. */
+static int css_character(int kind) { return kind == CKIND_SHEIK ? CKIND_ZELDA : kind; }
+/* Runs between the native character restore and the CSS's load, which builds
+ * each door from its player, the same as coming back from a VS match. So the
+ * pucks, portraits and door animations are all the native ones. P4 stays closed
+ * but keeps their character, for grabpunish_css.c to open them with. */
+void Settings_OpenTeamSelect(void) {
+    PlayerData *players = EVENT_CSS->vs_data.match_init.playerData;
+    int doors[4];
+    team_select_doors(doors);
+    for (int slot = 0; slot < 4; ++slot) {
+        PlayerData *player = &players[doors[slot]];
+        if (slot >= TEAM_SELECT_SHARED) {
+            unsigned saved = Settings_Get(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED);
+            player->c_kind = saved ? saved - 1 : CKIND_FOX;
+        }
+        player->c_kind = css_character(player->c_kind);
+        if (slot) player->nametag = NO_NAMETAG; /* The native restore gives the CPU a stale one. */
+        if (slot < TEAM_SELECT_OPEN) player->p_kind = slot ? PKIND_CPU : PKIND_HMN;
+    }
+}
+/* Start on a team select. A closed door keeps its memory. Your character and the
+ * CPU's are the ones every event shares, but their costumes here are the teams',
+ * so the saved costume only changes with the character it belongs to. */
+void Settings_SaveTeamSelect(void) {
+    const PlayerData *players = EVENT_CSS->vs_data.match_init.playerData;
+    int doors[4];
+    team_select_doors(doors);
+    for (int slot = 0; slot < 4; ++slot) {
+        const PlayerData *player = &players[doors[slot]];
+        if (player->p_kind == PKIND_NONE || player->c_kind >= 26) continue;
+        if (slot >= TEAM_SELECT_SHARED) {
+            Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED, player->c_kind + 1);
+        } else if (css_character(Settings_Get(TM_SETTING_CHARACTER, slot)) != player->c_kind) {
+            Settings_Set(TM_SETTING_CHARACTER, slot, player->c_kind);
+            Settings_Set(TM_SETTING_COSTUME, slot, 0);
+        }
+    }
+    Settings_RestoreCharacters();
 }

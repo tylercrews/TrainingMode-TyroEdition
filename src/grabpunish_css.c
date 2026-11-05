@@ -2,8 +2,9 @@
 
 /* Character select for 2v1 Grab Punish Practice: the VS select, always in
  * Teams mode, with exactly one CPU on your team (your teammate) and every
- * other CPU (the enemy) on another team. The team buttons still pick the
- * colors:
+ * other CPU (the enemy) on another team. It opens with you and two CPUs in,
+ * on their last characters (Settings_OpenTeamSelect, before the CSS loads).
+ * The team buttons still pick the colors:
  * - Your color: your teammate comes along.
  * - Your teammate's color: you come along.
  * - Another CPU onto your color: it becomes your teammate, and the old
@@ -94,6 +95,10 @@ void OnCSSLoad(HSD_Archive *archive) {
     your_team = TM_GetSetting(TM_SETTING_GRAB_PUNISH, TM_GP_YOUR_TEAM);
     enemy_team = TM_GetSetting(TM_SETTING_GRAB_PUNISH, TM_GP_ENEMY_TEAM);
     team_loaded = false;
+    // Natively, opening a door that hasn't picked since the load rolls a random
+    // character (80261B34). Here every door starts on its remembered one.
+    for (int i = 0; i < 4; i++)
+        stc_css_data->doors[i].selected_since_load = 1;
     // Priority 2: after the CSS's own input handling, like Toggle CSS Icon.
     GOBJ *gobj = GObj_Create(4, 5, 0);
     GObj_AddProc(gobj, Teams_Think, 2);

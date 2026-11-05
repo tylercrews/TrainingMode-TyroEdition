@@ -87,6 +87,11 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
  * Distance). */
 #define EVENT_MENUS_OFFSET 68
 #define EVENT_MENUS_SIZE 4
+/* Version 21 appends word 72: P3's and P4's last characters on Grab Punish's
+ * team select, in bits 0..9. Every migration to 21 zeroes it, so the spare bits
+ * 10..31 are free for a setting whose default is 0, with no version bump. */
+#define TEAM_CHARACTERS_OFFSET 72
+#define TEAM_CHARACTERS_SIZE 4
 static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
     {0,3,TM_GP_LOCATION_COUNT,0}, {3,3,TM_GP_LOCATION_COUNT,0},
     {6,3,TM_GP_PERCENT_COUNT,TM_GP_DEFAULT_PERCENT},
@@ -103,6 +108,7 @@ static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
      * Word 20's padding is kept through migrations, as for Edgeguard's Side, so
      * only a match writes the enemy's team, and an invalid 3 reads as Red. */
     {14,2,TM_GP_TEAM_COUNT,0}, {30,2,TM_GP_TEAM_COUNT,0},
+    {0,5,TM_GP_CHARACTER_COUNT,0}, {5,5,TM_GP_CHARACTER_COUNT,0},
 };
 /* Enemy Percent, Teammate Percent and CPU Mashing outgrew their fields, and the
  * bits next to them are taken, so each keeps its top bit in word 32's spare
@@ -157,6 +163,7 @@ static int version16(const uint8_t *r) { return format(r,16,42); }
 static int version17(const uint8_t *r) { return format(r,17,44); }
 static int version18(const uint8_t *r) { return format(r,18,56); }
 static int version19(const uint8_t *r) { return format(r,19,60); }
+static int version20(const uint8_t *r) { return format(r,20,64); }
 /* Byte 8: A-Smash Release palette in bits 0..2, Randall Overlay in bit 3,
  * Act OoAttack palette in bits 4..6 (version 14). Don't Reset Timers takes bit
  * 7 without a version bump: every record zeroed byte 8 and no writer set it. */
@@ -208,7 +215,8 @@ static const ExtensionPreference ledgegrab_reset_preference = {20,2,TM_LEDGEGRAB
 typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIONS<32 &&
     GRID_END<=COSTUME_OFFSET && COSTUME_OFFSET+2<=EDGEGUARD_OFFSET &&
     EDGEGUARD_OFFSET+EDGEGUARD_SIZE<=EDGEGUARD2_OFFSET && EDGEGUARD2_OFFSET+EDGEGUARD2_SIZE<=EVENT_MENUS_OFFSET &&
-    EVENT_MENUS_OFFSET+EVENT_MENUS_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
+    EVENT_MENUS_OFFSET+EVENT_MENUS_SIZE<=TEAM_CHARACTERS_OFFSET &&
+    TEAM_CHARACTERS_OFFSET+TEAM_CHARACTERS_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
 static unsigned grid_cell(const uint8_t *r,unsigned slot) {
     unsigned bit=slot*GRID_BITS, at=GRID_OFFSET+bit/8;
     unsigned pair=r[at]|(at+1<GRID_END?(unsigned)r[at+1]<<8:0);
@@ -263,7 +271,8 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_GRAB_PUNISH)
-        return index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
+        return index>=TM_GP_P3_CHARACTER?TEAM_CHARACTERS_OFFSET:
+            index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
@@ -353,8 +362,8 @@ void TMExtension_Init(uint8_t *r) {
 }
 int TMExtension_Prepare(uint8_t *r) {
     if(!signature(r)) return TM_EXTENSION_ABSENT;
-    int v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r), migrated=legacy(r),
-        keep_shield=version11(r)||version12(r)||version13(r)||v14||v15||v16||v17||v18||v19, keep_randall=version13(r)||v14||v15||v16||v17||v18||v19;
+    int v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r), v20=version20(r), migrated=legacy(r),
+        keep_shield=version11(r)||version12(r)||version13(r)||v14||v15||v16||v17||v18||v19||v20, keep_randall=version13(r)||v14||v15||v16||v17||v18||v19||v20;
     if(migrated) {
         uint8_t old[TM_EXTENSION_LEGACY_SIZE]; memcpy(old,r,sizeof(old));
         TMExtension_Init(r);
@@ -373,7 +382,7 @@ int TMExtension_Prepare(uint8_t *r) {
         set_preference(r,TM_SETTING_REVERSAL,TM_REV_ATTACK,attack<14?attack:0);
         r[4]=TM_EXTENSION_VERSION;
         migrated=1;
-    } else if(version12(r) || version13(r) || v14 || v15 || v16 || v17 || v18 || v19) {
+    } else if(version12(r) || version13(r) || v14 || v15 || v16 || v17 || v18 || v19 || v20) {
         r[4]=TM_EXTENSION_VERSION; /* Only the byte-8 bits below and appended bytes are newly owned. */
         migrated=1;
     } else if(version10(r)) {
@@ -411,18 +420,20 @@ int TMExtension_Prepare(uint8_t *r) {
     if(migrated && !keep_shield) init_shield_preferences(r);
     /* Older records never owned these padding bits; they must not turn anything on. */
     if(migrated && !keep_randall) r[8]&=~RANDALL_BIT;
-    if(migrated && !v14 && !v15 && !v16 && !v17 && !v18 && !v19) r[8]&=~ACT_OO_ATTACK_BITS;
-    /* Version 19 ends at byte 67: claim only the event menus' word. Version 18
-     * ends at byte 63: claim the second Edgeguard word too. Version 17 ends at
+    if(migrated && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) r[8]&=~ACT_OO_ATTACK_BITS;
+    /* Version 20 ends at byte 71: claim only the team select's word, keeping
+     * the event menus. Version 19 ends at byte 67: claim the event menus' word
+     * too. Version 18 ends at byte 63: claim the second Edgeguard word too.
+     * Version 17 ends at
      * byte 51: claim all the Edgeguard words. Version 16 ends at byte 49: claim
      * the costumes too. Version 15 ends at byte 35: keep its colors and Low
      * Laser byte and claim the grid cells too. Every older record ends at byte
      * 23: claim the color bytes as all-legacy too. */
     if(migrated) {
-        unsigned from=v19?EVENT_MENUS_OFFSET:v18?EDGEGUARD2_OFFSET:v17?EDGEGUARD_OFFSET:v16?COSTUME_OFFSET:v15?GRID_OFFSET:COLOR_EXTRA_OFFSET;
+        unsigned from=v20?TEAM_CHARACTERS_OFFSET:v19?EVENT_MENUS_OFFSET:v18?EDGEGUARD2_OFFSET:v17?EDGEGUARD_OFFSET:v16?COSTUME_OFFSET:v15?GRID_OFFSET:COLOR_EXTRA_OFFSET;
         r[5]=TM_EXTENSION_SIZE-8; memset(r+from,0,TM_EXTENSION_SIZE-from);
-        if(!v19) init_edgeguard_preferences(r,v18?TM_EG_RECOVERY_YOSHI:0);
-        init_event_menu_preferences(r);
+        if(!v19 && !v20) init_edgeguard_preferences(r,v18?TM_EG_RECOVERY_YOSHI:0);
+        if(!v20) init_event_menu_preferences(r);
     }
     int changed=0;
     for(unsigned slot=0;slot<TM_OSD_CATEGORIES;++slot)
@@ -450,71 +461,73 @@ int TMExtension_Prepare(uint8_t *r) {
     return migrated?TM_EXTENSION_MIGRATED:changed?TM_EXTENSION_REPAIRED:TM_EXTENSION_READY;
 }
 uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
-    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r), v10=version10(r), v11=version11(r), v12=version12(r), v13=version13(r), v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r),
-        current=supported(r)||older||v4||v5||v6||v7||v8||v9||v10||v11||v12||v13||v14||v15||v16||v17||v18||v19, old=legacy(r);
+    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r), v10=version10(r), v11=version11(r), v12=version12(r), v13=version13(r), v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r), v20=version20(r),
+        current=supported(r)||older||v4||v5||v6||v7||v8||v9||v10||v11||v12||v13||v14||v15||v16||v17||v18||v19||v20, old=legacy(r);
     if(field==TM_SETTING_OSD_COLOR_EXTRA) {
-        unsigned value=(supported(r)||v15||v16||v17||v18||v19) && index<TM_OSD_CATEGORIES?color_extra(r,index):0;
+        unsigned value=(supported(r)||v15||v16||v17||v18||v19||v20) && index<TM_OSD_CATEGORIES?color_extra(r,index):0;
         return value<COLOR_EXTRA_COUNT?value:0;
     }
     if(field==TM_SETTING_OSD_GRID_CELL) {
-        unsigned value=(supported(r)||v16||v17||v18||v19) && index<TM_OSD_GRID_SLOTS?grid_cell(r,index):0;
+        unsigned value=(supported(r)||v16||v17||v18||v19||v20) && index<TM_OSD_GRID_SLOTS?grid_cell(r,index):0;
         return value<=TM_OSD_GRID_POSITIONS?value:0;
     }
     if(field==TM_SETTING_COSTUME) {
-        unsigned value=(supported(r)||v17||v18||v19) && index<2?r[COSTUME_OFFSET+index]&COSTUME_MASK:0;
+        unsigned value=(supported(r)||v17||v18||v19||v20) && index<2?r[COSTUME_OFFSET+index]&COSTUME_MASK:0;
         return value<TM_EXTENSION_COSTUMES?value:0;
     }
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)
         return current||old?r[8]&7:0;
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ACT_OO_ATTACK_ID)
-        return supported(r)||v14||v15||v16||v17||v18||v19?(r[8]&ACT_OO_ATTACK_BITS)>>ACT_OO_ATTACK_SHIFT:0;
+        return supported(r)||v14||v15||v16||v17||v18||v19||v20?(r[8]&ACT_OO_ATTACK_BITS)>>ACT_OO_ATTACK_SHIFT:0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)
-        return supported(r)||v13||v14||v15||v16||v17||v18||v19?!!(r[8]&RANDALL_BIT):0;
+        return supported(r)||v13||v14||v15||v16||v17||v18||v19||v20?!!(r[8]&RANDALL_BIT):0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS)
         return current||old?!!(r[8]&DONT_RESET_TIMERS_BIT):0;
     /* Records before version 11 end before word 20. */
     if(field==TM_SETTING_FLAG && index==TM_FLAG_BLAST_ZONES)
-        return supported(r)||v11||v12||v13||v14||v15||v16||v17||v18||v19?!!(r[BLAST_ZONES_BYTE]&BLAST_ZONES_BIT):0;
+        return supported(r)||v11||v12||v13||v14||v15||v16||v17||v18||v19||v20?!!(r[BLAST_ZONES_BYTE]&BLAST_ZONES_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 the rest
-     * but word 68, which only version 20 records own. */
+     * but word 68, which version 20 records own too. */
     if(field==TM_SETTING_EDGEGUARD) {
-        int owned=supported(r)||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)));
+        int owned=supported(r)||v20||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)));
         unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
     /* Version 17 is the first to own the costume bytes. */
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) {
-        unsigned value=supported(r)||v17||v18||v19?preference_value(r,field,index):p->initial;
+        unsigned value=supported(r)||v17||v18||v19||v20?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
     /* Version 15 is the first to own byte 34. */
     if(field==TM_SETTING_LEDGEGRAB_RESET)
-        return supported(r)||v15||v16||v17||v18||v19?preference_value(r,field,index):p->initial;
-    /* Only version 20 records own the event menus' word. */
+        return supported(r)||v15||v16||v17||v18||v19||v20?preference_value(r,field,index):p->initial;
+    /* Version 20 is the first to own the event menus' word, and version 21 the
+     * team select's. */
     if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) {
-        unsigned value=supported(r)?preference_value(r,field,index):p->initial;
+        int team_word=field==TM_SETTING_GRAB_PUNISH && index>=TM_GP_P3_CHARACTER;
+        unsigned value=supported(r)||(v20 && !team_word)?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
-    if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19) return p->initial;
+    if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
     /* Records before version 11 end before word 20. */
-    if(((field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY) || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19) return p->initial;
+    if(((field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY) || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_SHIELD_DI) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_ACTION) {
         unsigned action=(read_bits(r,20)>>9)&15;
         return action<10?action:0;
     }
     if(v11 && field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) return (r[20]&15)<14?r[20]&15:0;
-    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19) return p->initial;
+    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
     /* Older records end before byte 35. */
-    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION && !supported(r) && !v15 && !v16 && !v17 && !v18 && !v19) return p->initial;
-    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19) return p->initial;
-    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19) {
+    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION && !supported(r) && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
+    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
+    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) {
         if(index==TM_LEDGECHASE_ENTRY || index==TM_LEDGECHASE_HOP_HEIGHT) return p->initial;
         if(v9 && index==TM_LEDGECHASE_PRESET) return (r[19]&15)<14?r[19]&15:0;
     }
-    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v9) {
+    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v9) {
         if(index==TM_LEDGECHASE_AIR_ATTACK) return p->initial;
         if(index==TM_LEDGECHASE_PRESET) {
             unsigned preset=current?(read_bits(r,12)>>6)&7:0;
@@ -542,9 +555,9 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     const ExtensionPreference *p=preference(field,index);
     if(!color && !attack && !randall && !timers && !blast && !extra && !grid && !costume && !p) return 0;
     if(value >= (color||attack?8:randall||timers||blast?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
-    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r) && !version19(r)) return 0;
+    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r) && !version19(r) && !version20(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
-    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r) || version19(r)) TMExtension_Prepare(r);
+    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r) || version19(r) || version20(r)) TMExtension_Prepare(r);
     else if(!supported(r)) TMExtension_Init(r);
     if(color) r[8]=(r[8]&~7u)|value;
     else if(attack) r[8]=(r[8]&~ACT_OO_ATTACK_BITS)|(value<<ACT_OO_ATTACK_SHIFT);

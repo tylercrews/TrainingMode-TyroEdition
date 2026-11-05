@@ -3475,16 +3475,18 @@ AllowedCharacters *GetEventCharList(int eventID,int pageID) {
     return &desc->allowed_characters;
 }
 
-void Settings_EventCharacters(unsigned save) {
+void Settings_EventCharacters(unsigned step) {
     unsigned page = Settings_Get(TM_SETTING_EVENT_PAGE, 0);
     unsigned event = stc_memcard->EventBackup.event;
     if (page >= sizeof(EventPages) / sizeof(EventPages[0]) || event >= (unsigned)EventPages[page]->eventNum) return;
     EventDesc *desc = GetEventDesc(page, event);
-    // A team select's picks are that event's own: see Settings_RestoreCharacters.
-    if (save && desc->CSSType == SLCHRKIND_VS) {
-        Settings_RestoreCharacters();
-        return;
+    int team_select = desc->CSSType == SLCHRKIND_VS;
+    if (step == TM_CHARACTERS_OPEN) {
+        if (team_select) Settings_OpenTeamSelect();
+    } else if (step == TM_CHARACTERS_SAVE && team_select) {
+        Settings_SaveTeamSelect();
+    } else {
+        Settings_Characters(step, desc->allowed_characters.hmn, desc->allowed_characters.cpu,
+            desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1);
     }
-    Settings_Characters(save, desc->allowed_characters.hmn, desc->allowed_characters.cpu,
-        desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1);
 }
