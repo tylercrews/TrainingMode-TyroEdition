@@ -59,6 +59,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - passing teams event, But you can build it INTO the 2v1 event!! Select between them in game, reuses memory. 
 Another 2v1 Doubles event where you pick a teammate and an opponent, and choose a percent and a move. The opponent will be at that percent, get hit by a cpu. If you hit it towards the cpu They will try to jump up and hit it back. There's a counter and you see how many hits you can get up to.
 Frozen % and rising percent. The rising % doesn't reset the menu so you can go in and click a to reset, or click down on the d pad to reset. left and right swap sides.
+- MORE DOUBLES!! WHAT CAN I DO TO PRACTICE DOUBLES
 - edge cancelling moves event, with overlays on platforms where you need to hit, different overlays for every character with gecko codes
 - expand up b sweetspot event to include differences for wallriding
 - sdi practice where you're trying to get out of like falcon nair
