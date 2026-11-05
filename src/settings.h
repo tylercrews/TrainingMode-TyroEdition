@@ -178,6 +178,7 @@ enum TMUnderFirePreference {
     TM_UNDERFIRE_ATTACK_PARTICLES,
     TM_UNDERFIRE_COUNTER_SCORE, /* Record-format marker; old survival frames are not counts. */
     TM_UNDERFIRE_LAVA_OVERLAY, /* TYEX word 20 bit 21, still version 19. */
+    TM_UNDERFIRE_REMOVE_PILLARS, /* TYEX word 9 bit 23, no version bump. */
     TM_UNDERFIRE_PREF_COUNT
 };
 enum TMLowLaserPreference {

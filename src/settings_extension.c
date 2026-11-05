@@ -12,8 +12,10 @@ static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
     {19,2,4,0}, {21,2,4,0},
 };
 /* The Lava Overlay bit is word 20's former padding: every record that owns
- * word 20 (version 11 on) zeroed it, so no version bump is needed. */
-static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT] = {{18,1,2,0}, {19,1,2,0}, {21,1,2,0}};
+ * word 20 (version 11 on) zeroed it, so no version bump is needed. Remove
+ * Fleshy Pillars takes word 9's padding bit 23 the same way: every record
+ * started with it zero, and migrations only keep it. */
+static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT] = {{18,1,2,0}, {19,1,2,0}, {21,1,2,0}, {23,1,2,0}};
 /* Side-B Sweetspot's Double-Jump Height Indicator takes the next bit of that
  * zeroed padding, word 20 bit 22, also without a version bump. */
 static const ExtensionPreference sweetspot_dj_preference = {22,1,2,0};
@@ -276,6 +278,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
         field==TM_SETTING_SWEETSPOT || (field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY)) return 20;
     if(field==TM_SETTING_LEDGECHASE && (index==TM_LEDGECHASE_PRESET || index==TM_LEDGECHASE_AIR_ATTACK)) return 16;
     if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION) return 32;
+    if(field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_REMOVE_PILLARS) return 9;
     return field==TM_SETTING_TECHCHASE?9:field==TM_SETTING_POWERSHIELD?16:12;
 }
 static unsigned read_bits(const uint8_t *r,unsigned offset) {

@@ -59,7 +59,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - edge cancelling moves event, with overlays on platforms where you need to hit, different overlays for every character with gecko codes
 - expand up b sweetspot event to include differences for wallriding
 - sdi practice where you're trying to get out of like falcon nair
-- anti handoff event where it tells you what direction to DI
+- anti handoff event where it tells you what direction to DI, and where you try to mash out as fast as possible
 - double jump sweet spot event (really good for luigi where you have to do like a reverse double jump in a specific spot)
 - improve up-b overlay and sweetspot event with indicators on angled characters's arcs where the fixed angle spots are for boxx players
 - new objects in eggsercise. practice hitting in other spots other than on the floor
@@ -205,6 +205,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Marth now swings as each attempt starts, while you're still on the platform, then freezes with the whole forward smash out. Its hitboxes just linger until you arrive, instead of the swing being timed off your up-B, so a hit no longer depends on when you went. Marth: Off and turning him back on take effect on the next reset. This hasn't been tried in Dolphin yet.
     - **Powershield Training**
         - Rolling or spotdodging out of laser stun now fails: **Act out of Laser** shows **ROLL** or **DODGE** in the same color as Jump Out Of Shine's **FAIL**, instead of a frame count. The help no longer suggests dodging as a follow-up.
+    - **Under Fire - Ledgestall Training**
+        - New **Remove Fleshy Pillars** setting (Off by default, saved), under Lava Overlay. It makes the two fleshy pillars under the side platforms invisible and intangible, so your attacks and projectiles pass straight through them. They stand right next to both ledges, where moves off the ledge can hit them. The side platforms stay where they are.
 
 For T9 I was working with Claude Opus 5.5 Extra High
 

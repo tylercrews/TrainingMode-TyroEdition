@@ -1034,7 +1034,7 @@ static int under_fire_in_iasa;
 static int under_fire_inv_total, under_fire_inv_frame, under_fire_inv_tick, under_fire_inv_remaining;
 static CmSubject *under_fire_camera;
 static GOBJ *under_fire_lava_gobj;
-enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_LAVA_OVERLAY, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
+enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_LAVA_OVERLAY, UF_PILLARS, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
 static void UnderFire_ChangeSide(GOBJ *menu, int value) { under_fire_restart = 1; }
 static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
     Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES, value);
@@ -1043,6 +1043,7 @@ static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
 }
 static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value);
 static void UnderFire_SyncLava(GOBJ *gobj);
+static void UnderFire_ChangePillars(GOBJ *menu, int value);
 static void UnderFire_UpdateCounterText(void) {
     if (!under_fire_count_text) return;
     for (int row = 10; row < 15; ++row)
@@ -1095,6 +1096,10 @@ static EventOption under_fire_options[] = {
      .desc = {"Draw the lava as a see-through overlay on top,",
               "so ledge grabs stay visible once it rises.",
               "The lava still hurts at the same height.", "This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Remove Fleshy Pillars", .OnChange = UnderFire_ChangePillars,
+     .desc = {"Make the pillars under the side platforms",
+              "invisible and intangible. Attacks pass through.",
+              "The platforms stay where they are.", "This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Refresh OSTs",
      .desc = {"Show Ledge Drop and Invincibility together.",
               "Perfect stall: 29f protection / 29f lockout.",
@@ -1121,11 +1126,15 @@ static int under_fire_lava_hidden_num;
 static int UnderFire_LavaOn(void) {
     return under_fire_active && under_fire_options[UF_LAVA_OVERLAY].val;
 }
-static JOBJ *UnderFire_LavaRoot(void) {
+static GOBJ *UnderFire_MapGObj(int index) {
     if (Stage_ExternalToInternal(Stage_GetExternalID()) != GRKIND_ZEBES) return 0;
-    GOBJ *map = Stage_GetMapGObj(UF_LAVA_MAP_GOBJ);
+    GOBJ *map = Stage_GetMapGObj(index);
     MapData *data = map ? map->userdata : 0;
-    return data && data->index == UF_LAVA_MAP_GOBJ ? map->hsd_object : 0;
+    return data && data->index == index ? map : 0;
+}
+static JOBJ *UnderFire_LavaRoot(void) {
+    GOBJ *map = UnderFire_MapGObj(UF_LAVA_MAP_GOBJ);
+    return map ? map->hsd_object : 0;
 }
 // Remember only the joints this overlay hid, so Off restores the model exactly.
 static void UnderFire_HideLava(JOBJ *joint) {
@@ -1184,14 +1193,57 @@ static void UnderFire_LavaGX(GOBJ *gobj, int pass) {
     GFX_AddVtx(-UF_LAVA_HALF_WIDTH, top, 0, surface);
     GFX_AddVtx(UF_LAVA_HALF_WIDTH, top, 0, surface);
 }
+/* Remove Fleshy Pillars: each pillar is only a map item's hurtbox and a skinned
+ * model, with no collision lines. An intangible hurtbox ends every hit, and a
+ * pillar that can't be hit never breaks, so its side platform stays down. The
+ * hide runs every frame because the idle animation keeps showing the child
+ * mesh; link 5 follows the stage's animation (1) and think (4). Only per-match
+ * instances change, so Exit has nothing to restore. */
+typedef struct {
+    u8 state; // 0 idle, 1 breaking, 2 broken, 3 growing back.
+    u8 pad[27];
+    GOBJ *item; // Holds the hurtbox.
+} UnderFirePillar;
+#define UF_PILLARS_LINK 5
+// Left, then right: the map GObj, its pillar mesh, and its pillar's MapData offset.
+static const struct { u8 map_gobj, mesh_joint, offset; } under_fire_pillars[] = {
+    {6, 36, 200},
+    {7, 18, 196},
+};
+static void UnderFire_SetPillars(int removed) {
+    for (unsigned i = 0; i < countof(under_fire_pillars); ++i) {
+        GOBJ *map = UnderFire_MapGObj(under_fire_pillars[i].map_gobj);
+        JOBJ *mesh = map ? Stage_GetMapGObjJObj(map, under_fire_pillars[i].mesh_joint) : 0;
+        if (!mesh) continue;
+        UnderFirePillar *pillar = (void *)((char *)map->userdata + under_fire_pillars[i].offset);
+        Item_SetHurtboxTangibility(pillar->item, removed ? 2 : 0); // Spawn sets 0.
+        if (removed) {
+            JOBJ_SetFlags(mesh, JOBJ_HIDDEN);
+            JOBJ_SetFlags(mesh->child, JOBJ_HIDDEN);
+            continue;
+        }
+        JOBJ_ClearFlags(mesh, JOBJ_HIDDEN);
+        // Break and regrow animate this flag, and regrowing shows it again.
+        if (pillar->state == 0) JOBJ_ClearFlags(mesh->child, JOBJ_HIDDEN);
+    }
+}
+static void UnderFire_SyncPillars(GOBJ *gobj) {
+    if (under_fire_options[UF_PILLARS].val) UnderFire_SetPillars(1);
+}
+static void UnderFire_ChangePillars(GOBJ *menu, int value) {
+    Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_REMOVE_PILLARS, value);
+    UnderFire_SetPillars(value); // Apply now: a toggle while paused runs no procs.
+}
 static void UnderFire_InitLava(void) {
     under_fire_lava_hidden_num = 0;
     under_fire_lava_gobj = GObj_Create(0, 7, 0);
     if (!under_fire_lava_gobj) return;
     GObj_AddProc(under_fire_lava_gobj, UnderFire_SyncLava, 0);
+    GObj_AddProc(under_fire_lava_gobj, UnderFire_SyncPillars, UF_PILLARS_LINK);
     // The in-game effects link draws after the stage and fighters.
     GObj_AddGXLink(under_fire_lava_gobj, UnderFire_LavaGX, MATCHGX_EFFECT, 255);
     UnderFire_SyncLava(under_fire_lava_gobj);
+    UnderFire_SyncPillars(under_fire_lava_gobj);
 }
 static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value) {
     Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY, value);
@@ -1461,6 +1513,8 @@ void UnderFire_InitMenu(void) {
         Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES);
     under_fire_options[UF_LAVA_OVERLAY].val = under_fire_options[UF_LAVA_OVERLAY].val_prev =
         Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY);
+    under_fire_options[UF_PILLARS].val = under_fire_options[UF_PILLARS].val_prev =
+        Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_REMOVE_PILLARS);
     // The pre-counter format stores survival time, not a refresh count.
     under_fire_high_score = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE) ?
         Events_GetSavedScore(under_fire_event) : 0;

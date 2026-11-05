@@ -78,8 +78,9 @@ def upgraded(raw):
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
 REGION_SIZE, OWNED_SIZE = 88, 72
-# Under Fire's Lava Overlay (index 2) lives in word 20, outside FIELDS' pre-v11 words.
-PREF_COUNTS = {29: 3}
+# Under Fire's Lava Overlay (index 2) and Remove Fleshy Pillars (index 3) live outside
+# FIELDS' tables: word 20 and word 9.
+PREF_COUNTS = {29: 4}
 GRID = 37  # TM_SETTING_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 EGGS_COUNTER = 44  # TM_SETTING_EGGS_COUNTER: byte 51's top three bits.
@@ -1272,6 +1273,34 @@ class ExtensionTests(unittest.TestCase):
         old = bytearray(after); old[4:6] = bytes((18,56))
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual(m.call('TMExtension_Read',EXT,29,2), 1)
+
+    def test_under_fire_remove_pillars_lives_in_word_9_bit_23(self):
+        m = self.m
+        m.call('Settings_Set',29,0,0)  # Create the record.
+        self.assertEqual(m.call('Settings_Get',29,3), 0)
+        tech = [m.call('Settings_Get',27,i) for i in range(11)]
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',29,3,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[11] |= 0x80
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(m.call('Settings_Get',29,3), 1)
+        self.assertEqual([m.call('Settings_Get',27,i) for i in range(11)], tech)
+        m.call('Settings_Set',29,3,0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_older_records_read_the_pillars_bit_as_off_and_migrating_keeps_it_off(self):
+        for version, payload in ((19,60), (18,56), (11,16), (6,8)):
+            m = Machine(); m.init()
+            m.cpu.mem_write(EXT - 4, b'\xA5' * 100)
+            m.call('Settings_Set',29,0,1)
+            old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+            old[4:6] = bytes((version,payload))
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read',EXT,29,3), 0)
+            m.call('Settings_Set',29,0,0)  # Any edit migrates.
+            self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+            self.assertEqual(m.call('Settings_Get',29,3), 0)
 
     def test_records_before_version_11_never_read_the_lava_overlay_bit(self):
         for version, payload in ((10,12), (6,8)):
