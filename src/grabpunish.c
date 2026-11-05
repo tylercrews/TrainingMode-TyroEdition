@@ -23,16 +23,25 @@
  * This event holds every grab as if the match were tied with handicap off,
  * so the KOs you score don't shorten later grabs:
  *     hold = 75 + 1.6 x percent frames, without mashing.
+ * Melee caps neither the percent nor the hold.
  * CPU Mashing (frames until the enemy breaks free):
- *                                              0%   20%  40%  60%  80%  100%
- *   No Mash       1 a frame                    75   107  139  171  203  235
- *   Light Mash    a button every 6 frames      38    54   70   86  102  118
- *                 (10 a second): 2 a frame, half the hold
- *   Heavy Mash    a button and a new stick     19    27   35   43   51   59
- *                 direction, each every 4 frames (30 inputs a second):
- *                 4 a frame, a quarter
- *   Inhuman Mash  a new button and stick        6     9   11   14   16   19
- *                 direction every frame: 13 a frame, the fastest possible
+ *                 0%  20%  40%  60%  80% 100% 120% 140% 160% 180% 200%
+ *   No Mash       75  107  139  171  203  235  267  299  331  363  395
+ *   Light         38   54   70   86  102  118  134  150  166  182  198
+ *   Medium        25   36   47   57   68   79   89  100  111  121  132
+ *   Heavy         19   27   35   43   51   59   67   75   83   91   99
+ *   Very Heavy    11   16   20   25   29   34   39   43   48   52   57
+ *   Inhuman        6    9   11   14   16   19   21   23   26   28   31
+ * What each takes off the timer a frame:
+ *   No Mash        1  nothing but the frame
+ *   Light          2  a button every 6 frames (10 inputs a second)
+ *   Medium         3  a button every 3 frames (20 a second)
+ *   Heavy          4  a button and a new stick direction, each every 4
+ *                     frames (30 a second)
+ *   Very Heavy     7  a button and a new stick direction, each every 2
+ *                     frames (60 a second)
+ *   Inhuman       13  a new button and stick direction every frame, the
+ *                     fastest possible
  *
  * The grab ending isn't the end of the punish. The enemy lands in CaptureCut,
  * the ground release: 30 frames (20 for Donkey Kong), which nothing can cut
@@ -64,7 +73,7 @@
 // Teammate-to-enemy distance (center to center) each time the grab is tried.
 static const float Grab_Gaps[] = { 8, 5, 11, 14 };
 // Frames taken off the grab timer a frame by each mash setting, on average.
-static const int Mash_Rate[] = { 1, 2, 4, 13 };
+static const int Mash_Rate[] = { 1, 2, 3, 4, 7, 13 };
 
 void Exit(GOBJ *menu);
 static void Reset(int same_attempt);
@@ -95,14 +104,18 @@ static const char *Values_Location[] = {
     "Under Left Plat", "Under Right Plat", "Left Corner", "Right Corner",
 };
 
-enum mash { MASH_NONE, MASH_LIGHT, MASH_HEAVY, MASH_INHUMAN };
-static const char *Values_Mash[] = { "No Mash", "Light Mash", "Heavy Mash", "Inhuman Mash" };
+enum mash { MASH_NONE, MASH_LIGHT, MASH_MEDIUM, MASH_HEAVY, MASH_VERY_HEAVY, MASH_INHUMAN };
+static const char *Values_Mash[] = {
+    "No Mash", "Light Mash", "Medium Mash", "Heavy Mash", "Very Heavy Mash", "Inhuman Mash",
+};
 typedef char grabpunish_mash_rates[(countof(Mash_Rate) == countof(Values_Mash)) ? 1 : -1];
 
 enum facing { FACING_RANDOM, FACING_TOWARD, FACING_AWAY };
 static const char *Values_Facing[] = { "Random", "Toward You", "Away From You" };
 
-static const char *Values_Percent[] = { "0%", "20%", "40%", "60%", "80%", "100%" };
+static const char *Values_Percent[] = {
+    "0%", "20%", "40%", "60%", "80%", "100%", "120%", "140%", "160%", "180%", "200%",
+};
 
 // Each saved row's preference ID is its row number.
 typedef char grabpunish_saved_rows[((int)OPT_GRAB_SPOT == TM_GP_GRAB_SPOT && (int)OPT_YOUR_SPOT == TM_GP_YOUR_SPOT &&
@@ -147,7 +160,7 @@ static EventOption Options_Main[] = {
         .OnChange = SaveSettings,
         .desc = {"The enemy's percent when grabbed. Higher percents",
                  "are held longer: 75 + 1.6 frames per percent",
-                 "before mashing (0%: 75f, 60%: 171f, 100%: 235f).",
+                 "before mashing (0%: 75f, 60%: 171f, 200%: 395f).",
                  "Takes effect on the next reset."},
     },
     {
@@ -170,8 +183,8 @@ static EventOption Options_Main[] = {
         .OnChange = SaveSettings,
         .desc = {"How hard the enemy mashes. Each mash input takes",
                  "6 frames off the hold, on top of 1 a frame.",
-                 "Light holds 1/2 as long, Heavy 1/4, Inhuman 1/13.",
-                 "See Mashing Info for the frames."},
+                 "Light holds 1/2 as long, Medium 1/3, Heavy 1/4,",
+                 "Very Heavy 1/7, Inhuman 1/13. See Mashing Info."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -186,7 +199,9 @@ static EventOption Options_Main[] = {
     },
     {
         .kind = OPTKIND_TOGGLE,
-        .name = "Count Release Hits",
+        .name = "Release Hit = Success",
+        .val = 1,
+        .val_prev = 1,
         .OnChange = ChangeReleaseHits,
         .desc = {"The enemy can't act for 30 frames after the grab",
                  "ends (20 for DK). On counts a hit in that window",
@@ -196,18 +211,18 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_INFO,
         .name = "Mashing Info",
-        .desc = {"A grab holds 75 + 1.6 x percent frames, minus 6",
-                 "for each new A/B/X/Y press or stick direction.",
-                 "60%: none 171f, light 86f, heavy 43f, inhuman 14f.",
-                 "100%: none 235f, light 118f, heavy 59f, inhuman 19f."},
+        .desc = {"Holds 75 + 1.6 x percent frames, minus 6 for each",
+                 "new A/B/X/Y press or stick direction. At 60%, 200%:",
+                 "No Mash 171, 395. Light 86, 198. Medium 57, 132.",
+                 "Heavy 43, 99. Very Heavy 25, 57. Inhuman 14, 31."},
     },
     {
         .kind = OPTKIND_INFO,
         .name = "Help",
         .desc = {"Punish the grabbed enemy before they mash out.",
-                 "Enemy Hits and Ally Hits count the attempts you",
-                 "hit each one. The enemy turns red once they can",
-                 "act. D-Pad left/right resets, uncounted."},
+                 "Enemy Hits and Ally Hits count the attempts you hit",
+                 "each one. Too late, they turn red and frames count",
+                 "up in red. D-Pad left/right resets, uncounted."},
     },
     {
         .kind = OPTKIND_FUNC,
@@ -267,6 +282,8 @@ static struct attempt {
     int frames_left;  // Grab Time Left while the enemy is held or in the release.
     int let_go_left;  // The frames left when your hit on your teammate let go of the enemy.
     int time_left;    // Grab Time Left once it's over: frames at your hit, or a TIME_*.
+    int late;         // Once they got away: frames since they could act, or until your hit.
+    bool late_hit;    // That count has stopped at your hit.
     int idle, dead;   // Follow-up: frames the enemy has been settled, or KO'd.
     float enemy_pct, mate_pct;
 } attempt;
@@ -582,9 +599,16 @@ static void Mash(FighterData *cpu, int frame) {
         case MASH_LIGHT:
             if (frame % 6 < 3) cpu->cpu.held = PAD_BUTTON_A;
             break;
+        case MASH_MEDIUM:
+            if (frame % 3 == 0) cpu->cpu.held = PAD_BUTTON_A;
+            break;
         case MASH_HEAVY:
             if (frame % 4 < 2) cpu->cpu.held = frame / 4 % 2 ? PAD_BUTTON_B : PAD_BUTTON_A;
             cpu->cpu.lstickX = (frame + 2) / 4 % 2 ? 127 : -127;
+            break;
+        case MASH_VERY_HEAVY:
+            if (frame % 2 == 0) cpu->cpu.held = PAD_BUTTON_A;
+            cpu->cpu.lstickX = (frame + 1) / 2 % 2 ? 127 : -127;
             break;
         case MASH_INHUMAN:
             // Alternating buttons, so each frame is a fresh press.
@@ -666,10 +690,12 @@ static void DrawHUD(GOBJ *gobj, int pass) {
     else if (phase == PHASE_RELEASE)
         sprintf(time_text, "Release %df", attempt.frames_left);
     else if (attempt.time_left >= 0)
-        sprintf(time_text, "%s Hit, %df", attempt.hit_release ? "Release" : "Grab", attempt.time_left);
+        sprintf(time_text, "%s Hit %df", attempt.hit_release ? "Release" : "Grab", attempt.time_left);
+    else if (attempt.free)
+        sprintf(time_text, "%s %df", attempt.late_hit ? "Late Hit"
+            : attempt.time_left == TIME_ESCAPED ? "Escaped" : "Let Go", attempt.late);
     else
-        sprintf(time_text, "%s", attempt.time_left == TIME_ESCAPED ? "Escaped"
-            : attempt.time_left == TIME_BROKEN ? "Let Go" : "-");
+        sprintf(time_text, "-");
     const int hits[] = { stats.enemy_hits, stats.ally_hits };
     for (int i = 0; i < 2; i++) {
         if (stats.attempts)
@@ -681,15 +707,18 @@ static void DrawHUD(GOBJ *gobj, int pass) {
     const char *info[] = { time_text, hit_text[0], hit_text[1] };
     event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
 
-    // The same frames, big, under the match timer. Yellow is the release.
-    int big = phase == PHASE_GRAB || phase == PHASE_RELEASE ? attempt.frames_left : attempt.time_left;
+    // The same frames, big, under the match timer. Yellow is the release, and
+    // red is how late you are once it's over.
+    int big = phase == PHASE_GRAB || phase == PHASE_RELEASE ? attempt.frames_left
+        : attempt.free ? attempt.late : attempt.time_left;
     if (big >= 0) {
         Rect rect = { BIG_X, BIG_Y, BIG_WIDTH, BIG_HEIGHT };
         bool release = phase == PHASE_RELEASE || attempt.hit_release;
+        GXColor color = attempt.free ? (GXColor) TM_CUE_RED_COLOR
+            : release ? (GXColor) {255, 240, 0, 255} : (GXColor) {255, 255, 255, 255};
+        color.a = 255;
         sprintf(big_text, "%d", big);
-        event_vars->HUD_DrawTextEx(big_text, &rect, BIG_SIZE,
-            release ? (GXColor) {255, 240, 0, 255} : (GXColor) {255, 255, 255, 255},
-            (GXColor) {0, 0, 0, 255}, BIG_BORDER, 1);
+        event_vars->HUD_DrawTextEx(big_text, &rect, BIG_SIZE, color, (GXColor) {0, 0, 0, 255}, BIG_BORDER, 1);
     }
 }
 
@@ -797,6 +826,7 @@ void Event_Think(GOBJ *gobj) {
                 break;
             attempt.free = true;
             attempt.time_left = attempt.let_go_left >= 0 ? TIME_BROKEN : TIME_ESCAPED;
+            attempt.late = 1;
             CountAttempt();
             break;
         case PHASE_RESOLVE:
@@ -806,6 +836,11 @@ void Event_Think(GOBJ *gobj) {
                 CountAttempt();
             break;
         case PHASE_FOLLOWUP:
+            // A hit stops the count on last frame's, as with the time left.
+            if (attempt.free && !attempt.late_hit) {
+                if (enemy_hit) attempt.late_hit = true;
+                else attempt.late++;
+            }
             if (enemy->flags.dead) {
                 if (++attempt.dead >= KO_WAIT)
                     Reset(0);

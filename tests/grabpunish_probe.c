@@ -12,7 +12,7 @@ static CollLine test_line;
 static CollLineDesc test_descriptor;
 static CollVert test_vertices[2];
 static ftCommonData common;
-static unsigned preferences[TM_GP_PREF_COUNT] = {0, 0, TM_GP_DEFAULT_PERCENT, 0, TM_GP_DEFAULT_MASH, 0, 0, 2, 1};
+static unsigned preferences[TM_GP_PREF_COUNT] = {0, 0, TM_GP_DEFAULT_PERCENT, 0, TM_GP_DEFAULT_MASH, 0, 1, 2, 1};
 static int loads, saves, sfx, hud_percent[PLAYERS], panel_rows, grab_misses, release_length = 30;
 static float big_size, big_y;
 static char panel_label[3][24], panel_info[3][24], big_text_shown[8];
@@ -218,6 +218,8 @@ int TestGPInfo(int key) {
     case 23: return preferences[TM_GP_MATE_PERCENT];
     case 24: return preferences[TM_GP_YOUR_TEAM] * 10 + preferences[TM_GP_ENEMY_TEAM];
     case 25: return big_y * 10;
+    case 26: return ft[ENEMY].cpu.held;
+    case 27: return ft[ENEMY].cpu.lstickX;
     }
     return -1;
 }

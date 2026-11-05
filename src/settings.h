@@ -222,19 +222,20 @@ enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SW
 #define TM_SWEETSPOT_SUCCESS_COUNT 2 /* Sweetspot / Sweetspot + Ledgedash. */
 #define TM_SWEETSPOT_KNOCKBACK_COUNT 8 /* Random, six presets, Random Preset. */
 /* 2v1 Grab Punish: its menu rows in row order (Grab Location, Your Location,
- * Enemy Percent, Teammate Percent, CPU Mashing, Teammate Facing and Count
- * Release Hits), then the teams its character select last started a match with.
+ * Enemy Percent, Teammate Percent, CPU Mashing, Teammate Facing and Release
+ * Hit = Success), then the teams its character select last started a match with.
  * Those are this event's own, so the normal saved costume stays out of it. The
  * rows are in word 68 (version 20) but for Teammate Percent, in byte 50's spare
- * top bits; the teams take word 68's bits 14-15 and word 20's bits 30-31. */
+ * top bits; the teams take word 68's bits 14-15 and word 20's bits 30-31. Both
+ * percents and CPU Mashing keep their top bit apart from the rest, in word 32. */
 enum TMGrabPunishPreference {
     TM_GP_GRAB_SPOT, TM_GP_YOUR_SPOT, TM_GP_PERCENT, TM_GP_MATE_PERCENT, TM_GP_MASH, TM_GP_FACING,
     TM_GP_RELEASE_HITS, TM_GP_ROW_COUNT,
     TM_GP_YOUR_TEAM = TM_GP_ROW_COUNT, TM_GP_ENEMY_TEAM, TM_GP_PREF_COUNT
 };
 #define TM_GP_LOCATION_COUNT 8 /* Random, then seven spots. */
-#define TM_GP_PERCENT_COUNT 6 /* 0% to 100% in steps of 20. */
-#define TM_GP_MASH_COUNT 4
+#define TM_GP_PERCENT_COUNT 11 /* 0% to 200% in steps of 20. */
+#define TM_GP_MASH_COUNT 6 /* No Mash, Light, Medium, Heavy, Very Heavy, Inhuman. */
 #define TM_GP_FACING_COUNT 3
 #define TM_GP_TEAM_COUNT 3 /* Red, Blue, Green. */
 #define TM_GP_DEFAULT_PERCENT 3 /* 60% */

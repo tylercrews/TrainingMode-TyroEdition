@@ -41,14 +41,16 @@ EG_KB_DISTANCE = 25  # TM_EG_KB_DISTANCE
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Light
-# Mash, Random) in bits 0-12 and Up-B Sweetspot (Line Guides On, Tipper, Normal)
-# in bits 16-18.
+# Mash, Random, Release Hit = Success stored inverted so clear is On) in bits
+# 0-13 and Up-B Sweetspot (Line Guides On, Tipper, Normal) in bits 16-18.
 GRAB_PUNISH = 42  # TM_SETTING_GRAB_PUNISH
 UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
 # Its menu rows, with Teammate Percent in byte 50's top bits, then your team in
-# word 68's bits 14-15 and the enemy's in word 20's bits 30-31.
-GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 6, 6, 4, 3, 2, 3, 3), (0, 0, 3, 0, 1, 0, 0, 0, 0)
-GP_MATE_PERCENT, GP_YOUR_TEAM, GP_ENEMY_TEAM = 3, 7, 8
+# word 68's bits 14-15 and the enemy's in word 20's bits 30-31. Enemy Percent,
+# Teammate Percent and CPU Mashing keep their top bits in bytes 34 and 35.
+GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3), (0, 0, 3, 0, 1, 0, 1, 0, 0)
+GP_PERCENT, GP_MATE_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM, GP_ENEMY_TEAM = 2, 3, 4, 6, 7, 8
+LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET
 UPB_COUNTS, UPB_DEFAULTS = (2, 2, 2), (1, 0, 0)
 EVENT_MENU_BYTES = bytes.fromhex('c0020100')
 # Bytes 24..71 appended by versions 15 to 20: one color nibble per OSD (all
@@ -393,24 +395,26 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set', field, len(counts), 0)  # and so is another index.
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        # Only word 68 changes, but for Teammate Percent and the enemy's team.
+        # Only word 68 changes, but for Teammate Percent, the enemy's team and the top bits.
         def others(record):
             record = bytearray(record)
-            record[23] &= 0x3F; record[50] &= 0x1F
+            record[23] &= 0x3F; record[34] &= 0x3F; record[35] &= 0x7F; record[50] &= 0x1F
             return bytes(record[:68] + record[72:])
         self.assertEqual(others(after), others(before))
-        self.assertEqual((after[23] >> 6, after[50] >> 5), (2, 5))
+        self.assertEqual((after[23] >> 6, after[34] >> 6, after[35] >> 7, after[50] >> 5), (2, 3, 1, 2))
         word = int.from_bytes(after[68:72], 'little')
         self.assertEqual(word & ~0x7FFFF, 0)  # Bits 19-31 stay spare.
         self.assertEqual(m.record(), core)
         self.assertEqual(m.call('Settings_Get', EDGEGUARD, 19), 9)
         fresh = Machine(); fresh.put(m.record()); fresh.cpu.mem_write(EXT, after)
         self.assertEqual(saved(fresh), tuple(map(tuple, values)))
-        # A damaged Enemy Percent (7) and Teammate Facing (3) repair to their
-        # defaults and leave their neighbors.
-        m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 5, 3, 0, 1, 2, 2), (1, 1, 1)))
-        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'), word & ~(7 << 6 | 3 << 11) | 3 << 6)
+        # A damaged Enemy Percent (15, with its top bit), CPU Mashing (7, with
+        # its) and Teammate Facing (3) repair to their defaults and leave their neighbors.
+        m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 9 | 3 << 11).to_bytes(4, 'little'))
+        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2), (1, 1, 1)))
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'),
+                         word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 1 << 9)
+        self.assertEqual((m.cpu.mem_read(EXT + 34, 1)[0] >> 6, m.cpu.mem_read(EXT + 35, 1)[0] >> 7), (2, 0))
 
     def test_recovery_menu_defaults_match_saved_initial_masks(self):
         # settings_extension.c and recovery.c build into different DATs; keep
@@ -548,17 +552,57 @@ class ExtensionTests(unittest.TestCase):
         m = self.m
         core = m.record()
         m.call('Settings_Set', COSTUME, 0, 5)
-        for percent in range(6):
+        for percent in range(11):
             m.call('Settings_Set', GRAB_PUNISH, GP_MATE_PERCENT, percent)
-            self.assertEqual(m.cpu.mem_read(EXT + 50, 1)[0], 5 | percent << 5)
+            self.assertEqual(m.cpu.mem_read(EXT + 50, 1)[0], 5 | (percent & 7) << 5)
             self.assertEqual(m.call('Settings_Get', COSTUME, 0), 5)
         m.call('Settings_Set', COSTUME, 0, 2)  # And a costume change keeps the percent.
-        self.assertEqual(m.call('Settings_Get', GRAB_PUNISH, GP_MATE_PERCENT), 5)
+        self.assertEqual(m.call('Settings_Get', GRAB_PUNISH, GP_MATE_PERCENT), 10)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + 4, 2)), bytes((CURRENT, PAYLOAD)))
         self.assertEqual(m.record(), core)
-        m.cpu.mem_write(EXT + 50, bytes((2 | 6 << 5,)))  # A damaged percent keeps the costume.
+        m.cpu.mem_write(EXT + 50, bytes((2 | 7 << 5,)))  # A damaged percent keeps the costume.
         self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_MATE_PERCENT), m.call('Settings_Get', COSTUME, 0)), (0, 2))
-        self.assertEqual(m.cpu.mem_read(EXT + 50, 1)[0], 2)
+        self.assertEqual((m.cpu.mem_read(EXT + 50, 1)[0], m.cpu.mem_read(EXT + 34, 1)[0] >> 7), (2, 0))
+
+    def test_grab_punish_top_bits_leave_their_neighbors_in_word_32_alone(self):
+        m = self.m
+        rows = (GP_PERCENT, GP_MATE_PERCENT, GP_MASH)
+        position, height = 2, 3  # TM_LOW_LASER_POSITION, TM_LOW_LASER_HEIGHT
+        def top():
+            return tuple(m.call('Settings_Get', GRAB_PUNISH, row) for row in rows)
+        def neighbors():
+            return (m.call('Settings_Get', LEDGEGRAB_RESET, 0), m.call('Settings_Get', LOW_LASER, position),
+                    m.call('Settings_Get', LOW_LASER, height), m.cpu.mem_read(EXT + 34, 1)[0] & 15)
+        m.call('Settings_Set', LEDGEGRAB_RESET, 0, 2)
+        m.call('Settings_Set', LOW_LASER, position, 9)
+        m.call('Settings_Set', LOW_LASER, height, 4)
+        m.cpu.mem_write(EXT + 34, bytes((m.cpu.mem_read(EXT + 34, 1)[0] | 7,)))  # The last OSD's color nibble.
+        for values in ((10, 10, 5), (0, 0, 0), (6, 9, 4)):  # High, low, then mixed.
+            for row, value in zip(rows, values):
+                m.call('Settings_Set', GRAB_PUNISH, row, value)
+            self.assertEqual(top(), values)
+            self.assertEqual(neighbors(), (2, 9, 4, 7))
+        m.call('Settings_Set', LEDGEGRAB_RESET, 0, 0)  # And they leave the top bits alone.
+        m.call('Settings_Set', LOW_LASER, height, 1)
+        self.assertEqual(top(), (6, 9, 4))
+
+    def test_the_old_percents_need_no_top_bit_so_earlier_saves_read_the_same(self):
+        m = self.m
+        for percent in range(6):
+            m.call('Settings_Set', GRAB_PUNISH, GP_PERCENT, percent)
+            m.call('Settings_Set', GRAB_PUNISH, GP_MATE_PERCENT, percent)
+            self.assertEqual(m.cpu.mem_read(EXT + 34, 1)[0] & 0xC0, 0)
+            self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little') >> 6 & 7, percent)
+
+    def test_release_hit_success_is_on_when_its_bit_is_clear(self):
+        m = self.m
+        self.assertEqual(m.call('Settings_Get', GRAB_PUNISH, GP_RELEASE_HITS), 1)  # Without a record.
+        def bit():
+            return int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little') >> 13 & 1
+        m.call('Settings_Set', GRAB_PUNISH, GP_RELEASE_HITS, 0)
+        self.assertEqual((bit(), m.call('Settings_Get', GRAB_PUNISH, GP_RELEASE_HITS)), (1, 0))
+        m.call('Settings_Set', GRAB_PUNISH, GP_RELEASE_HITS, 1)
+        self.assertEqual((bit(), m.call('Settings_Get', GRAB_PUNISH, GP_RELEASE_HITS)), (0, 1))
 
     def test_team_colors_are_saved_apart_from_the_costumes(self):
         m = self.m

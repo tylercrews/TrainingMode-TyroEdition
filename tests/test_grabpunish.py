@@ -11,12 +11,15 @@ HMN, MATE, ENEMY = 0, 1, 2
 WAIT, CATCH = 14, 0xD4
 DPAD_LEFT = 1
 PERCENT_ROW, MATE_PERCENT_ROW, MASH_ROW, RELEASE_ROW = 2, 3, 4, 6
-NO_MASH = 0
+NO_MASH, MEDIUM, VERY_HEAVY = 0, 2, 4
+MASH_RATES = (1, 2, 3, 4, 7, 13)  # Timer taken a frame by each setting, in menu order.
 RED, WHITE, YELLOW = 0xFF2828, 0xFFFFFF, 0xFFF000
 RED_PULSE = (180, 140, 100, 60, 20, 60, 100, 140)
 SETUP, GRAB, RELEASE, RESOLVE, FOLLOWUP = range(5)
 GRACE, FOLLOWUP_MIN = 12, 60
 SUCCESS_SFX, PARTIAL_SFX, FAILURE_SFX = 303, 0xAD, 0xAF
+MASH_BUTTONS = 0xF00  # A, B, X and Y.
+MASH_INPUT = 6        # Timer taken by a fresh button, and by a new stick direction.
 
 
 def build():
@@ -178,7 +181,8 @@ class GrabPunishTests(unittest.TestCase):
         self.assertEqual((self.time(), self.big()), ('Release 1f', '1'))
         self.assertFalse(self.red())
         self.step(1)
-        self.assertEqual((self.phase(), self.time(), self.big()), (FOLLOWUP, 'Escaped', ''))
+        self.assertEqual((self.phase(), self.time(), self.big()), (FOLLOWUP, 'Escaped 1f', '1'))
+        self.assertEqual(self.info(14), RED)
         self.assertGreater(self.info(15), 50)  # Bigger than the panel's 0.5.
 
     def test_donkey_kongs_shorter_release_comes_from_the_animation(self):
@@ -188,7 +192,7 @@ class GrabPunishTests(unittest.TestCase):
         self.step(19)
         self.assertEqual(self.time(), 'Release 1f')
         self.step()
-        self.assertEqual(self.time(), 'Escaped')
+        self.assertEqual(self.time(), 'Escaped 1f')
 
     def test_an_escape_is_counted_when_they_can_act(self):
         self.grab()
@@ -241,7 +245,7 @@ class GrabPunishTests(unittest.TestCase):
         self.m.call('TestGPHit', ENEMY, 10)
         self.m.call('TestGPState', ENEMY, WAIT)
         self.step()
-        self.assertEqual((self.phase(), self.time(), self.big()), (RESOLVE, 'Grab Hit, 12f', '12'))
+        self.assertEqual((self.phase(), self.time(), self.big()), (RESOLVE, 'Grab Hit 12f', '12'))
         self.assertEqual(self.info(14), WHITE)
         self.finish()
         self.assertEqual(self.shown()[1:], ['1/1 (100.0%)', '0/1 (0.0%)'])
@@ -255,10 +259,10 @@ class GrabPunishTests(unittest.TestCase):
             self.let_go()
             self.step(9)
             self.hit(ENEMY)
-            self.assertEqual((self.phase(), self.time(), self.big()), (RESOLVE, 'Release Hit, 21f', '21'))
+            self.assertEqual((self.phase(), self.time(), self.big()), (RESOLVE, 'Release Hit 21f', '21'))
             self.assertEqual(self.info(14), YELLOW)
             self.finish()
-            self.assertEqual(self.time(), 'Release Hit, 21f')
+            self.assertEqual(self.time(), 'Release Hit 21f')
             self.assertEqual(self.shown()[1], shown)
             self.assertEqual(self.info(16), sound)
             self.assertFalse(self.red())
@@ -269,7 +273,56 @@ class GrabPunishTests(unittest.TestCase):
         self.let_go()
         self.step(30)
         self.hit(ENEMY)
-        self.assertEqual((self.time(), self.shown()[1]), ('Escaped', '0/1 (0.0%)'))
+        self.assertEqual((self.time(), self.shown()[1]), ('Late Hit 1f', '0/1 (0.0%)'))
+
+    # The late count.
+    def test_red_frames_count_up_once_they_can_act_and_your_hit_stops_them(self):
+        self.grab()
+        self.let_go()
+        self.step(30)
+        self.assertEqual((self.big(), self.info(14)), ('1', RED))  # Right after the release's 1.
+        self.step(4)
+        self.assertEqual((self.time(), self.big()), ('Escaped 5f', '5'))
+        self.hit(ENEMY)  # Like the time left, the frame before the hit showed.
+        self.assertEqual((self.time(), self.big(), self.info(14)), ('Late Hit 5f', '5', RED))
+        self.step(3)
+        self.hit(ENEMY)  # Only the first hit was late.
+        self.assertEqual((self.time(), self.big()), ('Late Hit 5f', '5'))
+        self.assertEqual(self.shown()[1], '0/1 (0.0%)')  # It's still a missed punish.
+        self.assertEqual(self.info(16), FAILURE_SFX)
+
+    def test_red_frames_keep_counting_until_the_reset_and_start_over_after_it(self):
+        self.grab()
+        self.let_go()
+        self.step(30 + FOLLOWUP_MIN - 1)
+        self.assertEqual(self.big(), str(FOLLOWUP_MIN))
+        self.step()
+        self.assertEqual((self.phase(), self.time(), self.big()), (SETUP, '-', ''))
+
+    def test_your_hit_on_your_teammate_doesnt_stop_the_count(self):
+        self.grab()
+        self.let_go()
+        self.step(30)
+        self.hit(MATE)
+        self.assertEqual((self.time(), self.big()), ('Escaped 2f', '2'))
+
+    def test_letting_go_counts_up_too(self):
+        self.grab()
+        self.hit(MATE)
+        self.let_go()
+        self.step(31)
+        self.assertEqual((self.time(), self.big(), self.info(14)), ('Let Go 2f', '2', RED))
+        self.hit(ENEMY)
+        self.assertEqual((self.time(), self.big()), ('Late Hit 2f', '2'))
+
+    def test_a_hit_in_time_has_no_late_count(self):
+        self.grab()
+        self.let_go()
+        self.step(9)
+        self.hit(ENEMY)
+        self.finish()
+        self.step()
+        self.assertEqual((self.time(), self.big(), self.info(14)), ('Release Hit 21f', '21', YELLOW))
 
     def test_hitting_only_your_teammate_lets_go(self):
         self.grab()
@@ -277,7 +330,7 @@ class GrabPunishTests(unittest.TestCase):
         self.let_go()
         self.assertEqual(self.time(), 'Release 30f')
         self.step(30)
-        self.assertEqual((self.time(), self.shown()[1:]), ('Let Go', ['0/1 (0.0%)', '1/1 (100.0%)']))
+        self.assertEqual((self.time(), self.shown()[1:]), ('Let Go 1f', ['0/1 (0.0%)', '1/1 (100.0%)']))
         self.assertTrue(self.red())
 
     def test_the_attack_that_hit_your_teammate_can_still_land_as_a_grab_hit(self):
@@ -288,7 +341,7 @@ class GrabPunishTests(unittest.TestCase):
         self.let_go()
         self.step(GRACE - 2)
         self.hit(ENEMY)
-        self.assertEqual(self.time(), 'Grab Hit, 15f')
+        self.assertEqual(self.time(), 'Grab Hit 15f')
         self.finish()
         self.assertEqual(self.shown()[1:], ['1/1 (100.0%)', '1/1 (100.0%)'])
         self.assertEqual(self.info(16), PARTIAL_SFX)
@@ -301,7 +354,7 @@ class GrabPunishTests(unittest.TestCase):
         self.hit(ENEMY)
         self.assertTrue(self.time().startswith('Release Hit'))
         self.finish()
-        self.assertEqual(self.shown()[1:], ['0/1 (0.0%)', '1/1 (100.0%)'])
+        self.assertEqual(self.shown()[1:], ['1/1 (100.0%)', '1/1 (100.0%)'])
 
     def test_hitting_your_teammate_after_they_mash_out_isnt_a_let_go(self):
         self.grab()
@@ -309,7 +362,7 @@ class GrabPunishTests(unittest.TestCase):
         self.step(5)
         self.hit(MATE)
         self.step(30)
-        self.assertEqual((self.time(), self.shown()[2]), ('Escaped', '1/1 (100.0%)'))
+        self.assertEqual((self.time(), self.shown()[2]), ('Escaped 7f', '1/1 (100.0%)'))
 
     def test_a_weak_hit_keeps_the_attempt_until_they_are_let_go(self):
         self.grab()
@@ -327,13 +380,60 @@ class GrabPunishTests(unittest.TestCase):
                 self.assertRegex(table, rf'\.{name} = ', f'{source.name} calls an unbound {name}')
 
     # The setting.
-    def test_changing_count_release_hits_saves_and_restarts_the_totals(self):
+    def test_changing_release_hit_success_saves_and_restarts_the_totals(self):
         self.attempt(True, False)
         self.assertEqual(self.shown()[1], '1/1 (100.0%)')
-        self.m.call('TestGPChoose', RELEASE_ROW, 1)
+        self.m.call('TestGPChoose', RELEASE_ROW, 0)
         self.step()
-        self.assertEqual(self.info(17), 1)
+        self.assertEqual(self.info(17), 0)
         self.assertEqual(self.shown()[1:], ['-', '-'])
+
+    def test_a_release_hit_is_a_success_by_default(self):
+        self.grab()
+        self.let_go()
+        self.step(9)
+        self.hit(ENEMY)
+        self.finish()
+        self.assertEqual((self.shown()[1], self.info(16)), ('1/1 (100.0%)', SUCCESS_SFX))
+
+    def reset(self):
+        self.m.call('TestGPDown', DPAD_LEFT)
+        self.step()
+        self.m.call('TestGPDown', 0)
+        self.step()
+
+    def test_both_percents_go_up_to_200(self):
+        for row, value, enemy, mate in ((PERCENT_ROW, 10, 200, 0), (MATE_PERCENT_ROW, 10, 200, 200),
+                                        (PERCENT_ROW, 6, 120, 200), (MATE_PERCENT_ROW, 7, 120, 140)):
+            self.m.call('TestGPChoose', row, value)
+            self.reset()
+            self.assertEqual((self.info(3), self.info(4), self.info(5)), (enemy, 0, enemy))
+            self.assertEqual((self.info(20), self.info(21), self.info(22)), (mate, 0, mate))
+
+    # What Fighter_CheckGrabBreakout (8007DC08) takes from the timer: 1 a frame,
+    # then 6 for any fresh button and 6 if the stick crossed into a new direction.
+    def test_each_mash_setting_takes_what_it_says_off_the_timer(self):
+        self.grab(100000)
+        for row, rate in enumerate(MASH_RATES):
+            self.m.call('TestGPChoose', MASH_ROW, row)
+            self.step(12)  # In step with its pattern, whatever it was on before.
+            held, direction, taken = self.info(26), self.info(27), 0
+            for _ in range(48):  # A whole number of every setting's patterns.
+                self.step()
+                now_held, now_direction = self.info(26), self.info(27)
+                taken += 1 + MASH_INPUT * bool(now_held & ~held & MASH_BUTTONS)
+                if now_direction and now_direction != direction:
+                    taken += MASH_INPUT
+                    direction = now_direction
+                held = now_held
+            self.assertEqual(taken, 48 * rate, row)
+
+    def test_the_countdown_uses_the_new_rates(self):
+        for row, frames in ((MEDIUM, 132), (VERY_HEAVY, 57)):
+            self.setUp()
+            self.m.call('TestGPChoose', MASH_ROW, row)
+            self.grab(395)  # 200%.
+            self.assertEqual(self.big(), str(frames))
 
 
 if __name__ == '__main__':

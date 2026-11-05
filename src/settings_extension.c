@@ -80,8 +80,9 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
 /* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..13 and Up-B
  * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
  * so Edgeguard's spacie side-B masks took bits 19..28, its Knockback Distance
- * bits 29..31, and Grab Punish's Count Release Hits bit 13 and your team bits
- * 14..15, with no version bump (zero is off, Red, or a save from before Distance). */
+ * bits 29..31, and Grab Punish's Release Hit = Success bit 13 and your team bits
+ * 14..15, with no version bump (zero is the default, Red, or a save from before
+ * Distance). */
 #define EVENT_MENUS_OFFSET 68
 #define EVENT_MENUS_SIZE 4
 static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
@@ -92,13 +93,26 @@ static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
      * 0%, the teammate's old fixed percent. */
     {21,3,TM_GP_PERCENT_COUNT,0},
     {9,2,TM_GP_MASH_COUNT,TM_GP_DEFAULT_MASH},
-    {11,2,TM_GP_FACING_COUNT,0}, {13,1,2,0},
+    /* Release Hit = Success is stored inverted: it used to default to Off, so a
+     * clear bit reads as its default, On, in saves that never touched it. */
+    {11,2,TM_GP_FACING_COUNT,0}, {13,1,2,1},
     /* The teams take word 68's last spare bits and word 20's. Zero is Red, and
      * the event never puts the enemy on your team, so a fresh save is Red vs Blue.
      * Word 20's padding is kept through migrations, as for Edgeguard's Side, so
      * only a match writes the enemy's team, and an invalid 3 reads as Red. */
     {14,2,TM_GP_TEAM_COUNT,0}, {30,2,TM_GP_TEAM_COUNT,0},
 };
+/* Enemy Percent, Teammate Percent and CPU Mashing outgrew their fields, and the
+ * bits next to them are taken, so each keeps its top bit in word 32's spare
+ * bits: 22 and 23 (byte 34 bits 6-7) and 31 (byte 35 bit 7). Every record that
+ * owns word 68 has those clear, so saved values keep their meaning with no
+ * version bump. Zero means the row has no top bit. */
+#define GP_TOP_BITS_OFFSET 32
+typedef char TMExtension_GrabPunishTopBits[(TM_GP_PERCENT_COUNT<=16 && TM_GP_MASH_COUNT<=8) ? 1 : -1];
+static unsigned gp_top_bit(unsigned field,unsigned index) {
+    if(field!=TM_SETTING_GRAB_PUNISH) return 0;
+    return index==TM_GP_PERCENT?22:index==TM_GP_MATE_PERCENT?23:index==TM_GP_MASH?31:0;
+}
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
     {16,1,2,1}, {17,1,2,0}, {18,1,2,0},
 };
@@ -266,16 +280,25 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) value|=((bits>>20)&1)<<4;
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_READ(value);
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_READ(value);
+    if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
+    unsigned top=gp_top_bit(field,index);
+    if(top) value|=((read_bits(r,GP_TOP_BITS_OFFSET)>>top)&1)<<p->width;
     return value;
 }
 static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned value) {
     const ExtensionPreference *p=preference(field,index);
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_STORED(value);
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_STORED(value);
+    if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
     unsigned offset=preference_offset(field,index), mask=((1u<<p->width)-1)<<p->shift;
     unsigned bits=(read_bits(r,offset)&~mask)|((value<<p->shift)&mask);
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) bits=(bits&~(1u<<20))|((value>>4)<<20);
     for(unsigned byte=0;byte<4;++byte) r[offset+byte]=bits>>(byte*8);
+    unsigned top=gp_top_bit(field,index);
+    if(top) {
+        uint8_t *byte=&r[GP_TOP_BITS_OFFSET+top/8], bit=1u<<top%8;
+        *byte=value>>p->width?*byte|bit:*byte&~bit;
+    }
 }
 static void init_shield_preferences(uint8_t *r) {
     memset(r+20,0,4);
