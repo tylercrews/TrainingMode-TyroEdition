@@ -24,7 +24,7 @@
 
 #define DPAD_BUTTONS (HSD_BUTTON_DPAD_LEFT | HSD_BUTTON_DPAD_RIGHT | HSD_BUTTON_DPAD_DOWN | HSD_BUTTON_DPAD_UP)
 
-enum menu_options { OPT_GOAL, OPT_START, OPT_FACING, OPT_CAMERA, OPT_RESET };
+enum menu_options { OPT_GOAL, OPT_START, OPT_FACING, OPT_CAMERA, OPT_MARKERS, OPT_RESET };
 enum start_position {
     START_LEDGE, START_FAR_LEDGE, START_UNDER_CLOSE, START_UNDER_FAR,
     START_CENTER, START_TOP, START_CLOSE, START_FAR, START_COUNT
@@ -41,7 +41,7 @@ typedef struct LedgegrabRecord {
 static LedgegrabRecord records[START_COUNT][FACING_COUNT];
 
 typedef struct LedgegrabCarry {
-    int goal, start, facing, camera;
+    int goal, start, facing, camera, markers;
 } LedgegrabCarry;
 
 static void ChangeRun(GOBJ *menu, int value);
@@ -88,6 +88,9 @@ static EventOption options[] = {
               "another player were standing on it. Both Ledges",
               "keeps the whole stage in view. Fighter Only is",
               "the normal camera, following just you."}},
+    {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Goal Markers",
+     .desc = {"Show the gold ! over the goal ledge and the red X",
+              "over the other one."}},
     {.kind = OPTKIND_STRING, .name = "Reset Speed", .value_num = TM_LEDGEGRAB_RESET_COUNT, .values = reset_speed_names,
      .OnChange = ChangeResetSpeed,
      .desc = {"How long a result stays up before the restart.",
@@ -311,7 +314,7 @@ static void AddMarkers(float edge, GXColor x_color, GXColor bang_color) {
 /* With no depth test the stage can't hide them, and they stack in draw order:
  * the black edges first, the colors on top. */
 static void DrawMarkers(GOBJ *gobj, int pass) {
-    if (pass != 2 || !ledges_found)
+    if (pass != 2 || !ledges_found || !options[OPT_MARKERS].val)
         return;
     event_vars->GFX_Start(MARKER_QUADS * 2 * 4, (GFX_Params) { .shape = GX_QUADS, .no_depth = true });
     AddMarkers(MARKER_EDGE, Outline, Outline);
@@ -493,6 +496,7 @@ static void StageSwap_BeforeRestart(void) {
     carry->start = options[OPT_START].val;
     carry->facing = options[OPT_FACING].val;
     carry->camera = options[OPT_CAMERA].val;
+    carry->markers = options[OPT_MARKERS].val;
 }
 
 // D-pad -----------------------------------------------------------------
@@ -530,6 +534,7 @@ void Event_Init(GOBJ *gobj) {
         options[OPT_START].val = options[OPT_START].val_prev = carry->start;
         options[OPT_FACING].val = options[OPT_FACING].val_prev = carry->facing;
         options[OPT_CAMERA].val = options[OPT_CAMERA].val_prev = carry->camera;
+        options[OPT_MARKERS].val = options[OPT_MARKERS].val_prev = carry->markers;
     }
     options[OPT_RESET].val = options[OPT_RESET].val_prev = TM_GetSetting(TM_SETTING_LEDGEGRAB_RESET, 0);
     previous_start = options[OPT_START].val;

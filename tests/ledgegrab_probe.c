@@ -297,6 +297,7 @@ int TestLedgeInfo(int key) {
     case 42: return saved_reset_speed;
     case 43: return counter_time[0];
     case 44: return counter_time[1];
+    case 45: return options[OPT_MARKERS].val;
     }
     return -1;
 }

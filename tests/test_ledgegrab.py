@@ -13,7 +13,7 @@ WHITE, CYAN, GREEN, YELLOW, RED = 0xFFFFFFFF, 0x00FFFFFF, 0x00FF00FF, 0xFFE000FF
 DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP = 1, 2, 4, 8
 BUTTON_A = 0x100
 FIFO = 0xCC008000
-GOAL, START, FACING, CAMERA, RESET = 0, 1, 2, 3, 4
+GOAL, START, FACING, CAMERA, MARKERS, RESET = 0, 1, 2, 3, 4, 5
 AT_LEDGE, AT_FAR, UNDER_CLOSE, UNDER_FAR, CENTER, TOP, CLOSE, FAR = range(8)
 LEFT, RIGHT = 0, 1
 TOWARD, AWAY = 0, 1
@@ -477,7 +477,7 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
         def desc(row, line):
             pointer = self.m.call('TestLedgeDesc', row, line)
             return bytes(self.m.cpu.mem_read(pointer, 80)).split(b'\0', 1)[0].decode() if pointer else ''
-        help_text = ' '.join(desc(6, line) for line in range(4))
+        help_text = ' '.join(desc(7, line) for line in range(4))
         for controls in ('D-Pad left/right: previous or next start position', 'D-Pad down: switch ledge',
                          'D-Pad up: switch facing'):
             self.assertIn(controls, help_text)
@@ -533,16 +533,17 @@ class LedgegrabRunTests(Harness, unittest.TestCase):
 
     def test_change_stage_carries_the_menu_and_restarts(self):
         self.choose(GOAL, RIGHT); self.choose(START, TOP); self.choose(FACING, AWAY)
-        self.choose(CAMERA, CAMERA_FIGHTER)
+        self.choose(CAMERA, CAMERA_FIGHTER); self.choose(MARKERS, 0)
         self.m.call('TestLedgeStageSwap', 4)
         self.assertEqual(self.info(11), FOUNTAIN)
         self.m.call('TestLedgeChoice', GOAL, LEFT)
         self.m.call('TestLedgeChoice', FACING, TOWARD)
         self.m.call('TestLedgeChoice', START, AT_LEDGE)
         self.m.call('TestLedgeChoice', CAMERA, CAMERA_GOAL)
+        self.m.call('TestLedgeChoice', MARKERS, 1)
         self.m.call('TestLedgeInit')
-        self.assertEqual((self.info(13), self.info(14), self.info(15), self.info(38)),
-                         (RIGHT, TOP, AWAY, CAMERA_FIGHTER))
+        self.assertEqual((self.info(13), self.info(14), self.info(15), self.info(38), self.info(45)),
+                         (RIGHT, TOP, AWAY, CAMERA_FIGHTER, 0))
 
     def test_a_non_legal_stage_restarts_on_battlefield(self):
         self.start()
@@ -565,6 +566,33 @@ class LedgegrabMarkerTests(Harness, unittest.TestCase):
         self.assertEqual(self.quads(), [])
         self.step()
         self.assertEqual(len(self.quads()), 8)
+
+    def test_goal_markers_start_on(self):
+        self.step()
+        self.assertEqual(self.info(45), 1)
+        self.assertEqual(len(self.quads()), 8)
+
+    def test_turning_goal_markers_off_hides_both_until_they_are_turned_back_on(self):
+        self.step()
+        self.choose(MARKERS, 0)
+        self.assertEqual(self.quads(), [])
+        self.choose(MARKERS, 1)
+        self.assertEqual(len(self.quads()), 8)
+
+    def test_goal_markers_stay_off_through_restarts_and_a_new_goal(self):
+        self.step()
+        self.choose(MARKERS, 0)
+        self.press(DPAD_DOWN)
+        self.assertEqual(self.quads(), [])
+
+    def test_goal_markers_do_not_touch_the_run_or_the_camera(self):
+        self.step()
+        self.move(10)
+        loads = self.info(9)
+        framed = tuple(self.m.call('TestLedgeSubject', ledge, 2) for ledge in (0, 1))
+        self.choose(MARKERS, 0)
+        self.assertEqual((self.info(9), self.rows()[0]), (loads, 11))
+        self.assertEqual(tuple(self.m.call('TestLedgeSubject', ledge, 2) for ledge in (0, 1)), framed)
 
     def test_markers_draw_once_a_frame_over_the_stage_and_fighters(self):
         self.step()
