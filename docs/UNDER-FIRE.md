@@ -108,7 +108,7 @@ hitlag, and enough damage breaks it, which lifts its platform until it regrows.
 | --- | --- | --- |
 | Map GObj | 6 | 7 |
 | Pillar record in `MapData` | 200 | 196 |
-| Mesh joint (`Stage_GetMapGObjJObj`) | 36, and its child | 18, and its child |
+| Mesh joint (`Stage_GetMapGObjJObj`, which counts from the root's child) | 36, and its child | 18, and its child |
 
 In each record, byte 0 is the state (0 idle, 1 breaking, 2 broken, 3 growing
 back) and the word at 28 is the item.
@@ -119,12 +119,14 @@ back) and the word at 28 is the item.
   stage's own hurtbox switch (`ItemData.xd0c`), which breaking and regrowing flip.
 - **Platforms:** an intangible pillar takes no damage, so it never breaks and its
   platform stays down. Nothing has to pin the platform.
-- **Invisible:** `JOBJ_HIDDEN` on both meshes. The child mesh has a native
-  visibility track (`HSD_A_J_BRANCH`) in every pillar animation, and the idle loop
-  keeps showing it, so hiding it once doesn't last. The hide runs every frame, in
-  a proc on link 5: after the stage's animation (link 1) and think (link 4), and
-  before drawing. Lava Overlay's link 0 would be too early.
-- **Off:** restores status 0, the spawn value, and shows both meshes. If a pillar
+- **Invisible:** `DOBJ_HIDDEN` on every mesh of both joints. The display checks it
+  for each DObj (`HSD_JObjDispSub`, 80374418), and no joint animation touches it.
+  `JOBJ_HIDDEN` alone left the column on screen in Dolphin: the child mesh has a
+  native visibility track (`HSD_A_J_BRANCH`) in every pillar animation, and that
+  mesh is the column you see. The joint flags are still set every frame, in a proc
+  on link 5: after the stage's animation (link 1) and think (link 4), and before
+  drawing.
+- **Off:** restores status 0, the spawn value, and clears both flags. If a pillar
   is broken at that moment, the child mesh stays hidden: its animation owns that
   flag and shows it again as the pillar regrows.
 

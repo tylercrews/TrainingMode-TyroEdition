@@ -200,9 +200,14 @@ enum savestate_flags {
     
     // load: mirror savestate
     Savestate_Mirror = 1 << 2,
+
+    // load: come back as the Zelda or Sheik that was saved, not the one in play
+    Savestate_ExactForm = 1 << 3,
 };
 
 int Savestate_Save_v1(Savestate_v1 *savestate, int flags);
 int Savestate_Load_v1(Savestate_v1 *savestate, int flags);
+void Savestate_NoteForms(void);
+void Savestate_KeepForms(void);
 
 #endif

@@ -199,6 +199,68 @@ int Savestate_Save_v1(Savestate_v1 *savestate, int flags)
     return isSaved;
 }
 // use enum savestate_flags for flags
+/* An event's reset keeps you in the form you're in. A load puts back the form
+ * that was saved, so Savestate_KeepForms changes to the other one right after,
+ * before the event places anyone: Fighter_GetGObj then returns the same fighter
+ * it did before the load, and pointers an event looked up earlier stay good. The
+ * native transform copies position and percent, and its callback takes over the
+ * state. The old ASM SaveState_Load calls these two around itself. */
+#define FIRST_SPECIAL_STATE 341
+static GOBJ *forms_before[6];
+static struct {
+    int state;
+    float frame;
+    u8 vars[sizeof(((FighterData *)0)->state_var)];
+} take_over;
+
+void Savestate_NoteForms(void)
+{
+    for (int i = 0; i < 6; i++)
+        forms_before[i] = Fighter_GetGObj(i);
+}
+
+// Called as the other form wakes up, with the old one already asleep.
+static void TakeOverState(GOBJ *fighter)
+{
+    FighterData *ft = fighter->userdata;
+    if (take_over.state >= FIRST_SPECIAL_STATE) { // Only common states mean the same to both.
+        if (ft->phys.air_state)
+            Fighter_EnterFall(fighter);
+        else
+            Fighter_EnterWait(fighter);
+        return;
+    }
+    ActionStateChange(take_over.frame, 1, 0, fighter, take_over.state, 0, 0);
+    memcpy(&ft->state_var, take_over.vars, sizeof(take_over.vars));
+}
+
+void Savestate_KeepForms(void)
+{
+    int changed = 0;
+    for (int i = 0; i < 6; i++)
+    {
+        GOBJ *active = Fighter_GetGObj(i), *other = Fighter_GetSubcharGObj(i, 1);
+        if (!active || !other)
+            continue;
+        FighterData *ft = active->userdata;
+        if (ft->kind != FTKIND_ZELDA && ft->kind != FTKIND_SHEIK)
+            continue;
+        if (forms_before[i] == other)
+        {
+            take_over.state = ft->state_id;
+            take_over.frame = ft->state.frame;
+            memcpy(take_over.vars, &ft->state_var, sizeof(take_over.vars));
+            Fighter_Transform(active, TakeOverState);
+            changed = 1;
+        }
+        // A state saved before Go has both forms' inputs off, and events only
+        // turn the awake one's back on. The other would wake up unable to move.
+        ((FighterData *)Fighter_GetSubcharGObj(i, 1)->userdata)->flags.x221d_5 = 0;
+    }
+    if (changed)
+        Match_CorrectCamera();
+}
+
 int Savestate_Load_v1(Savestate_v1 *savestate, int flags)
 {
     typedef struct BackupQueue
@@ -206,6 +268,8 @@ int Savestate_Load_v1(Savestate_v1 *savestate, int flags)
         GOBJ *fighter;
         FighterData *fighter_data;
     } BackupQueue;
+
+    Savestate_NoteForms();
 
     // Zelda and Sheik trade places in isTransformed when they transform, and
     // Fighter_GetSubcharGObj reads through it. Put it back before anything
@@ -672,10 +736,18 @@ int Savestate_Load_v1(Savestate_v1 *savestate, int flags)
                 GObj_Destroy(gobj);
             }
 
+            if (gobj->entity_class == 3)
+            {
+                GObj_Destroy(gobj);
+            }
+
             gobj = gobj_next;
         }
+
+        if ((flags & Savestate_ExactForm) == 0)
+            Savestate_KeepForms();
     }
-    
+
     // sfx
     if ((flags & Savestate_Silent) == 0) {
         if (isLoaded == 0) {

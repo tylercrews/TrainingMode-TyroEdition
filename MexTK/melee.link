@@ -113,6 +113,7 @@
 8016795C:CSS_InitPlayerData
 8025F0E0:CSS_MenuModelThink
 80168C5C:CSS_PlayFighterName
+80160980:CSS_GetFighterName
 80262648:CSS_PuckThink
 801A55C4:CSS_ResetKOStars
 8025FDEC:CSS_ReturnPuck

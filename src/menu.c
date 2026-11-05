@@ -1,8 +1,10 @@
 #include "events.h"
 #include "menu_controller_ui.h"
 
-// Frames A waits on a function row, in case it's the start of the exit combo.
+// Frames A waits on a row it would change, in case it's the start of the exit combo.
 #define MENU_SELECT_WAIT 6
+// A trigger past this is on its way to a press, well short of the combo's threshold.
+#define MENU_SHOULDER_MOVING 16
 
 GOBJ *EventMenu_Init(EventMenu *start_menu)
 {
@@ -197,10 +199,20 @@ int Event_CheckExitInput(void)
     return 0;
 }
 
+static void EventMenu_RunOption(GOBJ *gobj, EventOption *option)
+{
+    if (option->kind == OPTKIND_TOGGLE) {
+        EventMenu_ChangeOptionVal(gobj, option, !option->val);
+        SFX_PlayCommon(2);
+    } else {
+        EventMenu_RunFuncOption(gobj, option);
+    }
+}
+
 /* The exit combo beats the open menu. All four buttons rarely land together,
- * and a function row on its own can restart or end the match, so A there waits
- * briefly: another button of the combo joining in cancels it. Returns nonzero
- * when the menu gets no input this frame. */
+ * and A on its own can restart the match or change a setting, so A on those rows
+ * waits briefly: another button of the combo joining in cancels it. Returns
+ * nonzero when the menu gets no input this frame. */
 static int EventMenu_ExitComboFirst(GOBJ *gobj, HSD_Pad *pad)
 {
     MenuData *menu_data = gobj->userdata;
@@ -213,7 +225,7 @@ static int EventMenu_ExitComboFirst(GOBJ *gobj, HSD_Pad *pad)
         } else if (--menu_data->select_timer == 0) {
             EventOption *option = menu_data->select_option;
             menu_data->select_option = 0;
-            EventMenu_RunFuncOption(gobj, option);
+            EventMenu_RunOption(gobj, option);
         }
         return 1;
     }
@@ -221,16 +233,27 @@ static int EventMenu_ExitComboFirst(GOBJ *gobj, HSD_Pad *pad)
         || (buttons & (HSD_TRIGGER_L | HSD_TRIGGER_R)) == (HSD_TRIGGER_L | HSD_TRIGGER_R);
 }
 
-void EventMenu_SelectFuncOption(GOBJ *gobj, EventOption *func_option)
+int EventMenu_ShoulderMoving(HSD_Pad *pad)
+{
+    return (pad->held & (HSD_TRIGGER_L | HSD_TRIGGER_R))
+        || pad->triggerLeft >= MENU_SHOULDER_MOVING || pad->triggerRight >= MENU_SHOULDER_MOVING;
+}
+
+void EventMenu_SelectOption(GOBJ *gobj, EventOption *option)
 {
     MenuData *menu_data = gobj->userdata;
     if (!menu_data->root_menu->on_exit) {
-        EventMenu_RunFuncOption(gobj, func_option);
+        EventMenu_RunOption(gobj, option);
         return;
     }
-    menu_data->select_option = func_option;
+    HSD_Pad *pad = PadGetMaster(menu_data->controller_index);
+    /* A shoulder held to scroll fast still runs a function row, but nothing needs
+     * one to flip a setting, and that's how the exit combo starts. */
+    if (option->kind == OPTKIND_TOGGLE && EventMenu_ShoulderMoving(pad))
+        return;
+    menu_data->select_option = option;
     menu_data->select_timer = MENU_SELECT_WAIT;
-    menu_data->select_buttons = EventMenu_ExitButtons(PadGetMaster(menu_data->controller_index));
+    menu_data->select_buttons = EventMenu_ExitButtons(pad);
 }
 
 void EventMenu_Update(GOBJ *gobj)
@@ -470,10 +493,13 @@ void EventMenu_MenuThink(GOBJ *gobj, EventMenu *curr_menu) {
     }
     else if (curr_option->kind == OPTKIND_TOGGLE &&
             inputs & (HSD_BUTTON_LEFT | HSD_BUTTON_DPAD_LEFT
-                | HSD_BUTTON_RIGHT | HSD_BUTTON_DPAD_RIGHT
-                | HSD_BUTTON_A)) {
+                | HSD_BUTTON_RIGHT | HSD_BUTTON_DPAD_RIGHT)) {
         EventMenu_ChangeOptionVal(gobj, curr_option, !curr_option->val);
         SFX_PlayCommon(2);
+    }
+    else if (curr_option->kind == OPTKIND_TOGGLE && inputs & HSD_BUTTON_A)
+    {
+        EventMenu_SelectOption(gobj, curr_option);
     }
     else if (inputs & (HSD_BUTTON_LEFT | HSD_BUTTON_DPAD_LEFT))
     {
@@ -502,7 +528,7 @@ void EventMenu_MenuThink(GOBJ *gobj, EventMenu *curr_menu) {
         }
         else if (curr_option->kind == OPTKIND_FUNC)
         {
-            EventMenu_SelectFuncOption(gobj, curr_option);
+            EventMenu_SelectOption(gobj, curr_option);
         }
     }
 }

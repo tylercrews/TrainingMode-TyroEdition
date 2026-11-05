@@ -85,7 +85,9 @@ static void extension_set(unsigned field,unsigned index,u32 value) {
     u8 *view=extension_view();
     if(TMExtension_Write(view,field,index,value) && view!=extension_fallback) mark_changed();
 }
+static u8 door_zelda[4]; /* See TM_SETTING_DOOR_ZELDA, and Settings_DoorCharacter. */
 uint32_t Settings_Get(unsigned field, unsigned index) {
+    if (field == TM_SETTING_DOOR_ZELDA) return index < 4 ? door_zelda[index] : 0;
     if (field == TM_SETTING_OSD_PAGE) return osd_page;
     if (field == TM_SETTING_EDITOR_PAGE) return editor_page;
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
@@ -112,6 +114,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
 }
 
 void Settings_Set(unsigned field, unsigned index, uint32_t value) {
+    if (field == TM_SETTING_DOOR_ZELDA) { if (index < 4) door_zelda[index] = !!value; return; }
     if (field == TM_SETTING_OSD_PAGE) { if (value < 19) osd_page = value; return; }
     if (field == TM_SETTING_EDITOR_PAGE) { if (value < TM_EDITOR_PAGES) editor_page = value; return; }
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
@@ -242,6 +245,32 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
         backup[offset] = kind;
     }
 }
+/* The CSS has one icon for Zelda and Sheik and its own code only knows Zelda, so
+ * she stays Zelda in everything it sees. Each door keeps which of them the icon
+ * means there, Sheik unless Z chose Zelda, and the choice joins the character at
+ * these edges: from the save into the door before the CSS loads, and from the
+ * door to what's saved and what the match starts as when it's done. */
+int Settings_DoorCharacter(int door, int kind) {
+    return kind == CKIND_ZELDA && !door_zelda[door] ? CKIND_SHEIK : kind;
+}
+void Settings_LoadDoorForms(void) {
+    u8 *backup = (u8 *)stc_memcard + 3344;
+    for (unsigned door = 0; door < 4; ++door) door_zelda[door] = 0;
+    for (unsigned door = 0; door < 2; ++door) {
+        u8 *kind = &backup[door ? 140 : 104];
+        door_zelda[door] = *kind == CKIND_ZELDA;
+        if (*kind == CKIND_SHEIK) *kind = CKIND_ZELDA;
+    }
+}
+void Settings_ApplyDoorForms(void) {
+    u8 *backup = (u8 *)stc_memcard + 3344;
+    for (unsigned door = 0; door < 2; ++door) {
+        u8 *kind = &backup[door ? 140 : 104];
+        *kind = Settings_DoorCharacter(door, *kind);
+    }
+    /* Legacy events start you from here, and it was copied before this ran. */
+    stc_memcard->EventBackup.c_kind = Settings_DoorCharacter(0, stc_memcard->EventBackup.c_kind);
+}
 /* A team character select dresses everyone in their team's costume, so what
  * the native backup just copied from it is nobody's normal choice. Put the
  * saved choices back, for the next event's character select. Settings_SaveTeamSelect
@@ -272,8 +301,6 @@ static void team_select_doors(int doors[4]) {
     for (int i = 0; i < 4; ++i)
         if (i != hmn) doors[slot++] = i;
 }
-/* The CSS has no Sheik, so a saved Sheik shows as Zelda, as a CPU's always has. */
-static int css_character(int kind) { return kind == CKIND_SHEIK ? CKIND_ZELDA : kind; }
 /* Runs between the native character restore and the CSS's load, which builds
  * each door from its player, the same as coming back from a VS match. So the
  * pucks, portraits and door animations are all the native ones. P4 stays closed
@@ -284,11 +311,16 @@ void Settings_OpenTeamSelect(void) {
     team_select_doors(doors);
     for (int slot = 0; slot < 4; ++slot) {
         PlayerData *player = &players[doors[slot]];
+        unsigned saved;
         if (slot >= TEAM_SELECT_SHARED) {
-            unsigned saved = Settings_Get(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED);
-            player->c_kind = saved ? saved - 1 : CKIND_FOX;
+            saved = Settings_Get(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED);
+            saved = saved ? saved - 1 : CKIND_FOX;
+            player->c_kind = saved;
+        } else {
+            saved = Settings_Get(TM_SETTING_CHARACTER, slot);
         }
-        player->c_kind = css_character(player->c_kind);
+        door_zelda[doors[slot]] = saved == CKIND_ZELDA;
+        if (player->c_kind == CKIND_SHEIK) player->c_kind = CKIND_ZELDA;
         if (slot) player->nametag = NO_NAMETAG; /* The native restore gives the CPU a stale one. */
         if (slot < TEAM_SELECT_OPEN) player->p_kind = slot ? PKIND_CPU : PKIND_HMN;
     }
@@ -303,10 +335,11 @@ void Settings_SaveTeamSelect(void) {
     for (int slot = 0; slot < 4; ++slot) {
         const PlayerData *player = &players[doors[slot]];
         if (player->p_kind == PKIND_NONE || player->c_kind >= 26) continue;
+        int kind = Settings_DoorCharacter(doors[slot], player->c_kind);
         if (slot >= TEAM_SELECT_SHARED) {
-            Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED, player->c_kind + 1);
-        } else if (css_character(Settings_Get(TM_SETTING_CHARACTER, slot)) != player->c_kind) {
-            Settings_Set(TM_SETTING_CHARACTER, slot, player->c_kind);
+            Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED, kind + 1);
+        } else if (Settings_Get(TM_SETTING_CHARACTER, slot) != (unsigned)kind) {
+            Settings_Set(TM_SETTING_CHARACTER, slot, kind);
             Settings_Set(TM_SETTING_COSTUME, slot, 0);
         }
     }

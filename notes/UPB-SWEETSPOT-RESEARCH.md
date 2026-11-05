@@ -15,7 +15,7 @@ Sources: the Melee decompilation (doldecomp/melee, `src/melee/ft/kinds/*/ft*spec
     - **No recovery up-B** (Yoshi, Jigglypuff): leave them out of the CSS, or give them a different guide later.
 - **The held angle can be shown exactly.** Each aimed up-B reads `input.lstick` on one known frame with a simple formula ([below](#showing-the-angle-youre-holding)). Re-running that formula every frame of the charge gives the exact direction and distance you'd get if the up-B locked in now.
 - **Camera:** reuse Edgeguard's setup unchanged: [`zoom_camera.h`](../src/zoom_camera.h) with the bottom blast zone in view (`ZoomCamera_Init(value, 1)` plus `ZoomCamera_Follow` every frame).
-- **Marth:** freeze his forward smash on its first active frame (frame 10), the way Side-B freezes the down-tilt, with only the tipper hitbox on, and place him from where that hitbox actually is at runtime.
+- **Marth:** freeze his forward smash on its last active frame (frame 13), with the sword all the way down, the way Side-B freezes the down-tilt, and place him from where the tipper hitbox actually is at runtime.
 - **Stages:** limiting to the six legal stages is cheap: keep the stage select and restart on Battlefield if the stage isn't legal ([below](#stages)). There's no need to cut it down to Battlefield and Final Destination.
 
 ## How the game decides a ledge grab
@@ -162,7 +162,7 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 
 - **Shared values:** all four are active frames 10 to 13 (cleared on 14), with angle 361 (45° on an airborne target). The tipper has base knockback 80 and growth 70; the others 60 and 70.
 - **Scale:** sizes and offsets are multiplied by Marth's 1.15 scale. The tipper's radius is about 4.5.
-- **Freezing.** Side-B already freezes Marth's down-tilt on its first active frame with `FrameSpeedChange(cpu, 0)` (its tipper is also hitbox 3). Do the same with forward smash on frame 10, and turn hitboxes 0 to 2 off so any hit is the tipper.
+- **Freezing.** Side-B already freezes Marth's down-tilt on its first active frame with `FrameSpeedChange(cpu, 0)` (its tipper is also hitbox 3). Do the same with forward smash, on the last frame before its script clears the hitboxes.
 - **Placement at runtime.** The blade's angle comes from the animation, so read where hitbox 3 actually is once Marth is frozen. Then move him so the tipper sits where a slight overshoot comes down: a little inland of the ledge and low.
     - Where that is depends on the character. Take it from the same path data: run the path from a launch point just inside the sweetspot and see where it lands.
     - Make it a setting (Off / On, maybe a spacing) so the overlay can be practiced alone.
@@ -197,8 +197,8 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 - **Guides:**
     - Aimed up-Bs and fixed paths are drawn as described above. Game & Watch is a fixed path too. DK, Bowser, Link, Young Link, Ness and the Ice Climbers only get the ledge target.
     - The aimed lines lock to the travel's real velocity on its first frame, not to the stick.
-    - Fixed paths get a yellow line from where the up-B started to the highest point it has reached, following the fighter up and staying at the top. It's the [measured](#air-up-bs-and-the-animation-numbers) angle, not one worked out from `lstick_angle` and `UpB_Info`, which would be wrong for two reasons: the air rise isn't the animation's, and Falcon and Ganondorf have no angle to lock.
-- **Marth:** his attack starts as each attempt does and freezes with all four hitboxes out, on frame 10 for the forward smash and frame 7 for the down-tilt (`AttackLw3`, hitbox 3 is its 10% tipper), while you're still on the platform, so a hit doesn't depend on when you up-B. The freeze is set again every frame, as Side-B's is; nothing in the game is known to undo it, but that was the only difference left between the two. Placement isn't computed ahead of time: the first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach.
+    - Fixed paths get a yellow line at the angle the up-B set out at: taken once, when it has risen `PATH_ANGLE_RISE` (6), from where it started to where it is, and drawn the length of `UpB_Info`'s path. It never moves after that, since following the fighter to the top wiggled with Falcon's drift. Only rising counts, because Mario and Peach drop first. It's the [measured](#air-up-bs-and-the-animation-numbers) angle, not one worked out from `lstick_angle` and `UpB_Info`, which would be wrong for two reasons: the air rise isn't the animation's, and Falcon and Ganondorf have no angle to lock.
+- **Marth:** his attack starts as each attempt does and freezes with all four hitboxes out, on frame 13 for the forward smash and frame 7 for the down-tilt (`AttackLw3`, hitbox 3 is its 10% tipper), while you're still on the platform, so a hit doesn't depend on when you up-B. `AttackS4`'s script creates its hitboxes at 10 and clears them at 14, and `Fighter_IncrementStateFrameInfo` leaves `state.frame` on the next animation frame before the script runs (80073240), so a command at time t runs when `state.frame` reaches t and 13 is the last frame with them out. The freeze is set again every frame, as Side-B's is; nothing in the game is known to undo it, but that was the only difference left between the two. The forward smash's placement isn't computed ahead of time: its first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach. The down-tilt stands 15 in from the ledge, Side-B's spot, so its tip reaches past the ledge the same way.
     - The first Dolphin test had only the tipper on, 12 inland. It was too far back, and the whole forward smash was wanted.
 - **The white X** uses the ECB side facing the ledge (`ecb.right` facing right, `-ecb.left` facing left), like `mpColl_800443C4` and its mirror. The first version used `ecb.right` on both ledges.
 - **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card. The success rate is session-only, carried through Change Stage with `carry_store`.
@@ -225,7 +225,7 @@ If Dolphin agrees, those characters' blue dots, and their Gecko codes, sit up to
 
 `Fighter_GetGObj` and `Fighter_GetSubcharGObj` read through `isTransformed`, and `Fighter_Transform` swaps it. `Savestate_Load_v1` used to look its fighters up first and restore `isTransformed` afterward, so after a transform each form loaded the other's data, and the event then placed the wrong one. It now restores `isTransformed` for every player before anything looks a fighter up.
 
-A reset returns you to the form the savestate has, the one you started the event as. Holding A while a match loads starts you as the other form for real (`gmvs.c`, it changes `ckind`), so that's how to practice Sheik here. Staying in the form you changed to through a reset would mean calling `Fighter_Transform` after each load, which hasn't been tried.
+An event's reset keeps you in the form you're in: `Savestate_KeepForms` calls `Fighter_Transform` right after the load, before the event places anyone (see [DEVELOPMENT.md](../DEVELOPMENT.md#zelda-and-sheik-t9)). The form is picked on the character select with Z, and holding A through a match load (`Playerblock_Initialize`, 8016D97C) no longer swaps it in events.
 
 ## Slippi Gecko codes
 
@@ -256,10 +256,10 @@ Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge 
 4. Roy's 40° angle range against Marth's 20°.
 5. Pikachu's 5-frame first zip (the earlier Edgeguard note estimated about 50 at full tilt, which agrees).
 6. The event's angel platform: every character can leave it in every way, the platform shows, and Marth's tipper hits right after you leave.
-7. Marth's tipper on frame 10, now right over the ledge with the whole forward smash out. If it's too high or low for a slight overshoot, change `MARTH_TIPPER_FRAME` (the hitboxes are active through frame 13) or `MARTH_TIPPER_INLAND`.
+7. Marth's tipper on frame 13, now right over the ledge with the sword all the way down. If it's too far for a slight overshoot, change `MARTH_FSMASH_FRAME` (the hitboxes are active from frame 10) or `MARTH_TIPPER_INLAND`.
 8. The white X (`LedgeTarget`): an up-B ending there should grab the ledge right away.
 9. The Ice Climbers: Nana leaves her platform with Popo.
-10. The [air rises](#air-up-bs-and-the-animation-numbers): up-B from Mario's blue dot and see if it reaches the X. The yellow line's dot shows where it really topped out.
+10. The [air rises](#air-up-bs-and-the-animation-numbers): up-B from Mario's blue dot and see if it reaches the X. The yellow line shows the angle you set out at.
 11. Marth's down-tilt: that it starts cleanly from Wait, freezes with its hitboxes out, and that the tipper reaches the ledge.
 12. Game & Watch's blue and dim dots.
 13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's.

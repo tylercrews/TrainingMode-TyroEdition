@@ -225,7 +225,7 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],33,0,16)  # Split-bit Reversal action is a live preference.
         machine.call(functions[28],34,0,14)
         machine.call(functions[28],34,4,1)
-        machine.cpu.mem_write(BASE + SPARE_START + 72,bytes((index*13+3)&255 for index in range(SPARE_SIZE-72)))  # After the 72-byte TYEX record.
+        machine.cpu.mem_write(BASE + SPARE_START + 76,bytes((index*13+3)&255 for index in range(SPARE_SIZE-76)))  # After the 76-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
         # Scored events per page and their slots. 2v1 Grab Punish (page 1, 17),
         # Up-B Sweetspot (page 2, 3) and Low Laser (page 2, 8) are unscored, and

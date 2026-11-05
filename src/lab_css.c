@@ -1086,6 +1086,9 @@ void Menu_Confirm_Think(GOBJ *menu_gobj)
             css_minorscene->vs_data.match_init.playerData[1].costume = cpu_costume;
             preload->queued.fighters[1].kind = cpu_kind;
             preload->queued.fighters[1].costume = cpu_costume;
+            // A recording's fighters are exact, not the character select's Sheik default.
+            TM_SetSetting(TM_SETTING_DOOR_ZELDA, 0, hmn_kind == CKIND_ZELDA);
+            TM_SetSetting(TM_SETTING_DOOR_ZELDA, 1, cpu_kind == CKIND_ZELDA);
 
             // set stage
             css_minorscene->vs_data.match_init.stage = stage_kind;

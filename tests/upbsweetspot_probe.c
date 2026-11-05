@@ -94,7 +94,8 @@ static void Engine(void) {
     if (!dtilt && (marth->state_id < ASID_ATTACKS4HI || marth->state_id > ASID_ATTACKS4LW)) return;
     marth->state.frame += marth_rate;
     ftHit *tipper = &marth->hitbox[MARTH_TIPPER_HITBOX];
-    tipper->active = marth->state.frame >= (dtilt ? MARTH_DTILT_FRAME : MARTH_FSMASH_FRAME);
+    // Their scripts: down-tilt's hitboxes at 7 until 10, forward smash's at 10 until 14.
+    tipper->active = marth->state.frame >= (dtilt ? 7 : 10) && marth->state.frame < (dtilt ? 10 : 14);
     tipper->pos.X = marth->phys.pos.X + marth->facing_direction * (dtilt ? 18 : 30);
 }
 void TestUpBLoaded(void) { }
@@ -157,6 +158,7 @@ int TestUpBInfo(int key) {
     case 6: return ft[MARTH].hitbox[MARTH_TIPPER_HITBOX].pos.X * 10;
     case 7: return loads;
     case 8: return dtilts;
+    case 9: return ft[MARTH].state.frame;
     }
     return -1;
 }

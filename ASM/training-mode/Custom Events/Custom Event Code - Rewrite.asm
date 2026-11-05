@@ -8586,6 +8586,10 @@ SaveState_Load:
 
     mr REG_SaveStruct, r3
 
+    # Note each Zelda or Sheik's form, to come back in it
+    li r3, 3
+    rtocbl r12, TM_SettingsEventCharacters
+
     # Count Players in Match
     branchl r3, 0x8016b558
 
@@ -8840,6 +8844,9 @@ SaveState_Load_RemoveAllGFXEnd:
     */
 
 SaveState_LoadExit:
+    # Change back to the noted forms, before the event places anyone
+    li r3, 4
+    rtocbl r12, TM_SettingsEventCharacters
     restore
     blr
 
@@ -11429,8 +11436,12 @@ InitializeMatch_StoreCSSCPU:
     load r3, 0x8043207c                                 # get preload table
     lwz r4, 0x18(r3)                                    # get p2 character ID
     cmpwi r4, 0x12                                      # check if zelda
-    bne 0x8
-    li r4, 0x13                                         # make zelda sheik
+    bne InitializeMatch_StoreCPUChar
+    li r3, 5                                            # the form the CSS left zelda's icon on
+    rtocbl r12, TM_SettingsEventCharacters
+    mr r4, r3
+    load r3, 0x8043207c
+InitializeMatch_StoreCPUChar:
     stb r4, 0x0(REG_PlayerStruct)                       # store chosen char
     lbz r6, 0x1C(r3)                                    # get p2 costume ID
     stb r6, 0x3(REG_PlayerStruct)                       # store p2 costume ID

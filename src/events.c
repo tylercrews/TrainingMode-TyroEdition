@@ -1196,9 +1196,12 @@ static void UnderFire_LavaGX(GOBJ *gobj, int pass) {
 /* Remove Fleshy Pillars: each pillar is only a map item's hurtbox and a skinned
  * model, with no collision lines. An intangible hurtbox ends every hit, and a
  * pillar that can't be hit never breaks, so its side platform stays down. The
- * hide runs every frame because the idle animation keeps showing the child
- * mesh; link 5 follows the stage's animation (1) and think (4). Only per-match
- * instances change, so Exit has nothing to restore. */
+ * pillar's visibility track only ever touches its joint, so the meshes hide with
+ * their own flag, which the display checks for each DObj (80374418). The joint
+ * flags are kept for a pillar that's breaking or regrowing. The hide runs every
+ * frame because the idle animation keeps showing the child mesh; link 5 follows
+ * the stage's animation (1) and think (4). Only per-match instances change, so
+ * Exit has nothing to restore. */
 typedef struct {
     u8 state; // 0 idle, 1 breaking, 2 broken, 3 growing back.
     u8 pad[27];
@@ -1210,6 +1213,10 @@ static const struct { u8 map_gobj, mesh_joint, offset; } under_fire_pillars[] = 
     {6, 36, 200},
     {7, 18, 196},
 };
+static void UnderFire_HideMeshes(JOBJ *joint, int hidden) {
+    for (DOBJ *mesh = joint ? joint->dobj : 0; mesh; mesh = mesh->next)
+        mesh->flags = hidden ? mesh->flags | DOBJ_HIDDEN : mesh->flags & ~DOBJ_HIDDEN;
+}
 static void UnderFire_SetPillars(int removed) {
     for (unsigned i = 0; i < countof(under_fire_pillars); ++i) {
         GOBJ *map = UnderFire_MapGObj(under_fire_pillars[i].map_gobj);
@@ -1217,6 +1224,8 @@ static void UnderFire_SetPillars(int removed) {
         if (!mesh) continue;
         UnderFirePillar *pillar = (void *)((char *)map->userdata + under_fire_pillars[i].offset);
         Item_SetHurtboxTangibility(pillar->item, removed ? 2 : 0); // Spawn sets 0.
+        UnderFire_HideMeshes(mesh, removed);
+        UnderFire_HideMeshes(mesh->child, removed);
         if (removed) {
             JOBJ_SetFlags(mesh, JOBJ_HIDDEN);
             JOBJ_SetFlags(mesh->child, JOBJ_HIDDEN);
@@ -1998,6 +2007,12 @@ void HUD_DrawActionLogKey(char **action_names, GXColor *action_colors, int actio
 /// Event Functions ///
 ///////////////////////
 
+/* Whether an event's CPU can be either form: yours to pick from the whole cast.
+ * Edgeguard's list stands for Sheik: only she has a recovery there. */
+static int Events_CpuFormFree(EventDesc *event) {
+    return event->CSSType == SLCHRKIND_TRAINING && event->cpuKind == -1 && event->allowed_characters.cpu == -1;
+}
+
 static int TeamCostume(int c_kind, int team) {
     if (team == TEAMKIND_BLUE) return CSS_GetCostumeBlue(c_kind);
     if (team == TEAMKIND_GREEN) return CSS_GetCostumeGreen(c_kind);
@@ -2011,6 +2026,8 @@ static int TeamCostume(int c_kind, int team) {
 static void GrabPunish_PrepareMatch(MatchInit *match) {
     PlayerData *players = match->playerData;
     int hmn = -1, mate = -1, enemy = -1;
+    for (int i = 0; i < 4; i++)
+        players[i].c_kind = Settings_DoorCharacter(i, players[i].c_kind);
     for (int i = 0; i < 6 && hmn < 0; i++)
         if (players[i].p_kind == PKIND_HMN) hmn = i;
     if (hmn < 0) return;
@@ -2120,6 +2137,7 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             preload->queued.fighters[i].kind = restart_fighters[i].kind;
             preload->queued.fighters[i].costume = restart_fighters[i].costume;
             if (i == 1) restart_exact_cpu = 1;
+            else Settings_Set(TM_SETTING_DOOR_ZELDA, 0, restart_fighters[i].kind == CKIND_ZELDA);
         }
         if (new_stage) preload->queued.stage = restart_stage;
         Preload_Update();
@@ -2151,11 +2169,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             cpu_costume = preload->queued.fighters[1].costume;
         }
 
-        /* Ledgechase's native controller supports either selected form. Other
-         * events retain their existing Sheik CPU convention, unless Zelda was
-         * picked in-event. */
-        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase && !restart_exact_cpu)
-            cpu_kind = CKIND_SHEIK;
+        // Picked in-event, the CPU stays as chosen.
+        if (cpu_kind == CKIND_ZELDA && !restart_exact_cpu)
+            cpu_kind = Events_CpuFormFree(event) ? Settings_DoorCharacter(1, cpu_kind) : CKIND_SHEIK;
 
         if (cpu_kind != -1) {
             matchData->playerData[1].costume = cpu_costume;
@@ -2164,7 +2180,7 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             matchData->playerData[1].portNumberOverride = cpu_port;
         }
         
-        matchData->playerData[0].c_kind = preload->queued.fighters[0].kind;
+        matchData->playerData[0].c_kind = Settings_DoorCharacter(0, preload->queued.fighters[0].kind);
         matchData->playerData[0].costume = preload->queued.fighters[0].costume;
         matchData->playerData[0].p_kind = PKIND_HMN;
         matchData->playerData[0].portNumberOverride = hmn_port;
@@ -3475,18 +3491,86 @@ AllowedCharacters *GetEventCharList(int eventID,int pageID) {
     return &desc->allowed_characters;
 }
 
-void Settings_EventCharacters(unsigned step) {
+/* Z on the character select: the Zelda icon is Sheik until you choose Zelda.
+ * Melee has no Sheik portrait, so the door's name is what changes. A held puck
+ * picks the door, and otherwise your own, then any other door on the icon. */
+#define CSS_ICON_COUNT 25
+static int form_doors, form_cpu_locked, form_icon;
+
+static int FormDoorOpen(int door) {
+    MnSlChrDoor *css_door = &stc_css_data->doors[door];
+    return css_door->sel_icon == form_icon && css_door->p_kind != PKIND_NONE;
+}
+static int FormDoorLocked(int door) { return door == 1 && form_cpu_locked; }
+static int FormTarget(int own_door, CSSCursor *cursor) {
+    int held = cursor->state == SLCHRCUR_HOLD && cursor->puck < form_doors ? cursor->puck : -1;
+    if (held >= 0)
+        return FormDoorOpen(held) && !FormDoorLocked(held) ? held : -1;
+    if (FormDoorOpen(own_door) && !FormDoorLocked(own_door))
+        return own_door;
+    for (int door = 0; door < form_doors; door++)
+        if (FormDoorOpen(door) && !FormDoorLocked(door))
+            return door;
+    return -1;
+}
+static void FormToggle_Think(GOBJ *gobj) {
+    int solo = *stc_css_maxply == 1;
+    for (int port = 0; port < 4; port++) {
+        if ((solo && port != *stc_css_hmnport) || !(stc_css_pad[port].down & HSD_TRIGGER_Z))
+            continue;
+        int door = FormTarget(solo ? 0 : port, stc_css_cursors[solo ? 0 : port]);
+        if (door < 0)
+            continue;
+        int zelda = !Settings_Get(TM_SETTING_DOOR_ZELDA, door);
+        Settings_Set(TM_SETTING_DOOR_ZELDA, door, zelda);
+        CSS_UpdateCSP(door); // Puts the native name back; Sheik's goes over it below.
+        CSS_PlayFighterName(zelda ? CKIND_ZELDA : CKIND_SHEIK);
+    }
+    for (int door = 0; door < form_doors; door++) {
+        MnSlChrTagData *tag = stc_css_data->tags[door].tag_data;
+        if (FormDoorOpen(door) && !tag->use_tag
+            && (FormDoorLocked(door) || !Settings_Get(TM_SETTING_DOOR_ZELDA, door)))
+            Text_SetText(tag->name, 0, CSS_GetFighterName(CKIND_SHEIK));
+    }
+}
+static void FormToggle_Start(EventDesc *desc) {
+    int solo = *stc_css_maxply == 1;
+    form_doors = !solo ? 4 : desc->CSSType == SLCHRKIND_TRAINING ? 2 : 1;
+    form_cpu_locked = solo && !Events_CpuFormFree(desc);
+    for (form_icon = 0; form_icon < CSS_ICON_COUNT; form_icon++)
+        if (stc_css_data->icons[form_icon].c_kind == CKIND_ZELDA)
+            break;
+    GObj_AddProc(GObj_Create(4, 5, 0), FormToggle_Think, 2); // After the CSS's own input.
+}
+
+int Settings_EventCharacters(unsigned step) {
+    if (step == TM_CHARACTERS_NOTE_FORMS) { Savestate_NoteForms(); return 0; }
+    if (step == TM_CHARACTERS_KEEP_FORMS) { Savestate_KeepForms(); return 0; }
     unsigned page = Settings_Get(TM_SETTING_EVENT_PAGE, 0);
     unsigned event = stc_memcard->EventBackup.event;
-    if (page >= sizeof(EventPages) / sizeof(EventPages[0]) || event >= (unsigned)EventPages[page]->eventNum) return;
+    if (page >= sizeof(EventPages) / sizeof(EventPages[0]) || event >= (unsigned)EventPages[page]->eventNum) return 0;
     EventDesc *desc = GetEventDesc(page, event);
     int team_select = desc->CSSType == SLCHRKIND_VS;
-    if (step == TM_CHARACTERS_OPEN) {
+    switch (step) {
+    case TM_CHARACTERS_OPEN:
         if (team_select) Settings_OpenTeamSelect();
-    } else if (step == TM_CHARACTERS_SAVE && team_select) {
-        Settings_SaveTeamSelect();
-    } else {
+        break;
+    case TM_CHARACTERS_CSS_LOADED:
+        FormToggle_Start(desc);
+        break;
+    case TM_CHARACTERS_CPU: // Legacy events, which come here only for Zelda's icon.
+        return Events_CpuFormFree(desc) ? Settings_DoorCharacter(1, CKIND_ZELDA) : CKIND_SHEIK;
+    case TM_CHARACTERS_SAVE:
+        Settings_ApplyDoorForms();
+        if (team_select) {
+            Settings_SaveTeamSelect();
+            break;
+        }
+        // Fall through.
+    default:
         Settings_Characters(step, desc->allowed_characters.hmn, desc->allowed_characters.cpu,
             desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1);
+        if (step == TM_CHARACTERS_RESTORE) Settings_LoadDoorForms();
     }
+    return 0;
 }

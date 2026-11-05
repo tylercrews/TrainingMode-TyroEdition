@@ -1065,6 +1065,172 @@ class CharacterPreferenceTests(unittest.TestCase):
         self.assertEqual(m.record(),record)
         self.assertEqual(bytes(m.cpu.mem_read(backup+107,1)),b'\0')
 
+    # The event CSS's data and each player's bytes, from the native code that
+    # builds a door from them: c_kind, p_kind, costume and nametag.
+    CSS=0x80497758;PLAYERS=CSS+0x70;P3,P4=9,10  # TM_GP_P3_CHARACTER, TM_GP_P4_CHARACTER
+    NONE,GP,COSTUME=33,42,38  # No character, TM_SETTING_GRAB_PUNISH, TM_SETTING_COSTUME
+    def native_css(self,m,hmn,cpu,hmn_kind=2,cpu_kind=2):
+        # What ScenePrep_EventMode_CSS leaves: every player wiped, every door
+        # closed, then the human and CPU restored with a stale CPU name tag.
+        m.cpu.mem_write(self.CSS,struct.pack('>H',hmn+1))
+        for i in range(6):
+            m.cpu.mem_write(self.PLAYERS+i*36,bytes((self.NONE,3,0,0)))
+            m.cpu.mem_write(self.PLAYERS+i*36+10,b'\x78')
+        m.cpu.mem_write(self.PLAYERS+hmn*36,bytes((hmn_kind,)))
+        m.cpu.mem_write(self.PLAYERS+cpu*36,bytes((cpu_kind,)))
+        m.cpu.mem_write(self.PLAYERS+cpu*36+10,b'\0')
+    def door(self,m,i):
+        return tuple(bytes(m.cpu.mem_read(self.PLAYERS+i*36,2)))
+    def set_doors(self,m,*doors):
+        for i,(kind,player) in enumerate(doors):
+            m.cpu.mem_write(self.PLAYERS+i*36,bytes((kind,player)))
+
+    def test_a_team_select_opens_with_you_and_two_cpus_and_p4_closed_on_its_memory(self):
+        m=self.m
+        m.call('Settings_Set',self.GP,self.P3,16+1);m.call('Settings_Set',self.GP,self.P4,15+1)  # Samus and Puff.
+        self.native_css(m,0,1,20,9)  # Falco and Marth, from the shared memory.
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(m,i) for i in range(4)],[(20,0),(9,1),(16,1),(15,3)])
+        self.assertEqual(bytes(m.cpu.mem_read(self.PLAYERS+46,1)),b'\x78')  # No stale tag on the CPU.
+        self.assertEqual(self.door(m,4),(self.NONE,3))  # The sixth-player slots stay out of it.
+
+    def test_a_team_select_on_a_fresh_save_starts_everyone_as_fox(self):
+        m=self.m
+        self.native_css(m,0,1)
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(m,i) for i in range(4)],[(2,0),(2,1),(2,1),(2,3)])
+
+    def test_a_team_select_keeps_you_on_your_own_port(self):
+        m=self.m
+        m.call('Settings_Set',self.GP,self.P3,16+1);m.call('Settings_Set',self.GP,self.P4,15+1)
+        for hmn,doors in ((1,[(9,1),(20,0),(16,1),(15,3)]),(2,[(9,1),(16,1),(20,0),(15,3)]),(3,[(9,1),(16,1),(15,3),(20,0)])):
+            with self.subTest(port=hmn+1):
+                self.native_css(m,hmn,0,20,9)
+                m.call('Settings_OpenTeamSelect')
+                self.assertEqual([self.door(m,i) for i in range(4)],doors)
+
+    def test_a_team_select_shows_a_saved_sheik_as_zelda(self):
+        m=self.m
+        self.native_css(m,0,1,19)
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual(self.door(m,0),(18,0))
+
+    def test_starting_a_team_select_remembers_all_four_doors_across_a_reload(self):
+        m=self.m;backup=0x8045A6C0+3344
+        self.native_css(m,0,1)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        self.set_doors(m,(20,0),(9,1),(16,1),(15,1))
+        m.call('Settings_SaveTeamSelect')
+        fresh=Machine();fresh.put(m.record());fresh.cpu.mem_write(0x8045A6C0+0x1AE0,bytes(m.cpu.mem_read(0x8045A6C0+0x1AE0,88)))
+        fresh.call('TMSettings_Prepare',RECORD,1)
+        fresh.call('Settings_Characters',0,-1,-1,0)
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1))+bytes(fresh.cpu.mem_read(backup+140,1)),bytes((20,9)))
+        self.native_css(fresh,0,1,20,9)
+        fresh.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(fresh,i) for i in range(4)],[(20,0),(9,1),(16,1),(15,3)])
+
+    def test_a_closed_or_empty_door_keeps_its_memory(self):
+        m=self.m
+        m.call('Settings_Set',self.GP,self.P3,16+1);m.call('Settings_Set',self.GP,self.P4,15+1);m.write(24,1,9)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        for p3,p4 in (((12,3),(26,1)),((33,3),(26,0))):
+            self.set_doors(m,(20,0),(26,1),p3,p4)  # 26 is the CSS's no character.
+            m.call('Settings_SaveTeamSelect')
+            self.assertEqual((m.call('Settings_Get',self.GP,self.P3),m.call('Settings_Get',self.GP,self.P4),m.read(24,1)),(16+1,15+1,9))
+
+    def test_a_team_select_only_touches_the_saved_costume_with_its_character(self):
+        m=self.m;backup=0x8045A6C0+3344
+        m.write(24,0,2);m.call('Settings_Set',self.COSTUME,0,3);m.write(24,1,9);m.call('Settings_Set',self.COSTUME,1,4)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        # The same characters, wearing team costumes: the case that was reported.
+        for i,kind in enumerate((2,9)):
+            m.cpu.mem_write(self.PLAYERS+i*36,bytes((kind,i,0,1)))
+        m.cpu.mem_write(backup+107,b'\x01');m.cpu.mem_write(backup+143,b'\x01')  # The native backup.
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.call('Settings_Get',self.COSTUME,0),m.call('Settings_Get',self.COSTUME,1)),(3,4))
+        self.assertEqual(bytes(m.cpu.mem_read(backup+107,1))+bytes(m.cpu.mem_read(backup+143,1)),b'\x03\x04')
+        # A new character can't keep the old one's costume.
+        m.cpu.mem_write(self.PLAYERS,b'\x14')
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.read(24,0),m.call('Settings_Get',self.COSTUME,0),m.read(24,1),m.call('Settings_Get',self.COSTUME,1)),(20,0,9,4))
+        self.assertEqual(bytes(m.cpu.mem_read(backup+104,1))+bytes(m.cpu.mem_read(backup+107,1)),b'\x14\0')
+
+    def test_a_saved_sheik_shown_as_zelda_stays_sheik_with_its_costume(self):
+        m=self.m
+        m.write(24,0,19);m.call('Settings_Set',self.COSTUME,0,3)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        self.set_doors(m,(18,0),(26,3),(26,3),(26,3))
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.read(24,0),m.call('Settings_Get',self.COSTUME,0)),(19,3))
+
+    DOOR_ZELDA,ZELDA,SHEIK=47,18,19  # TM_SETTING_DOOR_ZELDA and the external IDs.
+    EVENT_BACKUP=0x8045A6C0+1330  # Where legacy events take your character from.
+    def backup_kinds(self,m):
+        backup=0x8045A6C0+3344
+        return tuple(m.cpu.mem_read(backup+at,1)[0] for at in (104,140))
+    def set_backup(self,m,hmn,cpu):
+        backup=0x8045A6C0+3344
+        m.cpu.mem_write(backup+104,bytes((hmn,)));m.cpu.mem_write(backup+140,bytes((cpu,)))
+    def door_zelda(self,m,door):
+        return m.call('Settings_Get',self.DOOR_ZELDA,door)
+
+    def test_the_zelda_icon_means_sheik_unless_a_door_chose_zelda(self):
+        m=self.m
+        self.assertEqual(m.call('Settings_DoorCharacter',0,self.ZELDA),self.SHEIK)
+        m.call('Settings_Set',self.DOOR_ZELDA,0,1)
+        self.assertEqual(m.call('Settings_DoorCharacter',0,self.ZELDA),self.ZELDA)
+        self.assertEqual(m.call('Settings_DoorCharacter',1,self.ZELDA),self.SHEIK)  # Each door its own.
+        self.assertEqual(m.call('Settings_DoorCharacter',0,2),2)
+        m.call('Settings_Set',self.DOOR_ZELDA,9,1)  # Not a door.
+        self.assertEqual(self.door_zelda(m,9),0)
+
+    def test_the_css_gets_the_icon_it_knows_and_the_door_remembers_the_form(self):
+        m=self.m
+        self.set_backup(m,self.SHEIK,self.ZELDA)
+        m.call('Settings_LoadDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.ZELDA,self.ZELDA))
+        self.assertEqual((self.door_zelda(m,0),self.door_zelda(m,1)),(0,1))
+        self.set_backup(m,self.ZELDA,2)
+        m.call('Settings_LoadDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.ZELDA,2))
+        self.assertEqual((self.door_zelda(m,0),self.door_zelda(m,1)),(1,0))
+
+    def test_a_pick_of_the_icon_comes_out_of_the_css_as_the_doors_form(self):
+        m=self.m
+        m.call('Settings_Set',self.DOOR_ZELDA,1,1)
+        self.set_backup(m,self.ZELDA,self.ZELDA)
+        m.cpu.mem_write(self.EVENT_BACKUP,bytes((self.ZELDA,)))
+        m.call('Settings_ApplyDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.SHEIK,self.ZELDA))
+        self.assertEqual(m.cpu.mem_read(self.EVENT_BACKUP,1)[0],self.SHEIK)  # Legacy events start from this.
+        m.call('Settings_Characters',1,-1,-1,1)
+        self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.ZELDA))
+
+    def test_a_saved_form_survives_a_trip_through_the_css(self):
+        m=self.m
+        m.write(24,0,self.SHEIK);m.write(24,1,self.ZELDA)
+        self.set_backup(m,2,2)
+        m.call('Settings_Characters',0,-1,-1,1)
+        m.call('Settings_LoadDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.ZELDA,self.ZELDA))
+        m.call('Settings_ApplyDoorForms')
+        m.call('Settings_Characters',1,-1,-1,1)
+        self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.ZELDA))
+
+    def test_a_team_select_remembers_each_doors_form(self):
+        m=self.m
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        m.call('Settings_Set',self.DOOR_ZELDA,2,1)
+        self.set_doors(m,(self.ZELDA,0),(self.ZELDA,1),(self.ZELDA,1),(self.ZELDA,1))
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.SHEIK))
+        self.assertEqual((m.call('Settings_Get',self.GP,self.P3),m.call('Settings_Get',self.GP,self.P4)),
+                         (self.ZELDA+1,self.SHEIK+1))
+        self.native_css(m,0,1,self.ZELDA,self.ZELDA)
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(m,i)[0] for i in range(4)],[self.ZELDA]*4)  # All the icon the CSS has.
+        self.assertEqual([self.door_zelda(m,i) for i in range(4)],[0,0,1,0])
+
     def test_assembled_css_hooks_restore_and_commit_native_selected_characters(self):
         m=self.m;dol=(ROOT/'build/Start.dol').read_bytes()
         for section in range(18):
@@ -1089,10 +1255,14 @@ class CharacterPreferenceTests(unittest.TestCase):
         m.cpu.emu_start(start,0x801BAA9C,count=100000)
         self.assertEqual(bytes(m.cpu.mem_read(0x80497758+0x70,1)),b'\x14')
         self.assertEqual(bytes(m.cpu.mem_read(0x80497758+0x94,1)),b'\x09')
+        # Restoring, then the team select's step once the characters are in.
+        steps=m.symbols['test_character_steps']
+        self.assertEqual(struct.unpack('>I',m.cpu.mem_read(steps,4))[0],0x13)
         m.cpu.mem_write(0x80497758+0x70,b'\x02');m.cpu.mem_write(0x80497758+0x94,b'\x0C')
         start=m.install_hook(0x801BAB18,0x80481000)
         m.cpu.emu_start(start,0x801BAB1C,count=100000)
         self.assertEqual((m.call('Settings_Get',24,0),m.call('Settings_Get',24,1)),(2,12))
+        self.assertEqual(struct.unpack('>I',m.cpu.mem_read(steps,4))[0],0x132)
 
 
 class EventPreferenceTests(unittest.TestCase):
@@ -3303,7 +3473,7 @@ class EventMenuSaveTests:
                 chosen[index] = value
                 self.assertEqual(self.saved_values(), chosen, name)
         self.assertEqual(m.record(), core)  # Both events live in TYEX,
-        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x14\x40')  # on the card itself.
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x15\x44')  # on the card itself.
         for row, (_, _, default) in zip(self.rows, self.saved):
             m.cpu.mem_write(row+6, struct.pack('>2h', default, default))
         m.call('DAT_EventInit', 0)

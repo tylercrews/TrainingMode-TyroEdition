@@ -141,6 +141,56 @@ class MenuExitTests(unittest.TestCase):
                 self.update()
                 self.assertEqual(self.menu_thinks, 1)
 
+    def toggled(self): return self.m.call('TestMenuExitResult', 10)
+
+    def press_a_on_toggle(self, held=A, left=0, right=0):
+        self.state(paused=1)
+        self.pad(held=held, down=0, left=left, right=right)
+        self.m.call('TestMenuExitToggle')
+
+    def test_a_toggle_changes_after_the_same_short_wait(self):
+        self.press_a_on_toggle()
+        for frame in range(SELECT_WAIT - 1):
+            self.update()
+            self.assertEqual(self.toggled(), 0)
+        self.update()
+        self.assertEqual(self.toggled(), 1)
+
+    def test_the_rest_of_the_combo_landing_after_a_leaves_a_toggle_alone(self):
+        for joined in ([L, R, START], [R, L, START], [L | R, START]):
+            with self.subTest(joined=joined):
+                self.setUp()
+                self.press_a_on_toggle()
+                self.update()
+                held = A
+                for button in joined:
+                    held |= button
+                    self.pad(held=held, down=0)
+                    result = self.update()
+                self.assertEqual(result[:2], [1, 1])
+                self.assertEqual(self.toggled(), 0)
+
+    def test_a_held_or_moving_shoulder_keeps_a_off_a_toggle(self):
+        for held, left, right in ((A | L, 0, 0), (A | R, 0, 0), (A, 16, 0), (A, 0, 16)):
+            with self.subTest(held=held, left=left, right=right):
+                self.setUp()
+                self.press_a_on_toggle(held, left, right)
+                self.pad(held=held, down=0, left=left, right=right)
+                for frame in range(SELECT_WAIT + 2):
+                    self.update()
+                self.assertEqual(self.toggled(), 0)
+
+    def test_a_trigger_at_rest_doesnt_stop_a_toggle(self):
+        self.press_a_on_toggle(A, 15, 15)
+        for frame in range(SELECT_WAIT):
+            self.update()
+        self.assertEqual(self.toggled(), 1)
+
+    def test_a_menu_without_the_exit_combo_toggles_at_once(self):
+        self.m.call('TestMenuExitNoExitOption')
+        self.press_a_on_toggle()
+        self.assertEqual(self.toggled(), 1)
+
     def test_unpausing_drops_a_waiting_function_row(self):
         self.press_a_on_function_row()
         self.pad(held=START, down=START)

@@ -137,6 +137,7 @@ enum TMSettingsField {
     TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
     TM_SETTING_EGGS_SPAWN, /* Free Practice's egg spots, TYEX byte 49 bits 6-7. */
     TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
+    TM_SETTING_DOOR_ZELDA, /* Index: CSS door. 1 if its Zelda icon means Zelda, not Sheik. Runtime-only. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -307,9 +308,16 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
 void Settings_RestoreCharacters(void);
 void Settings_OpenTeamSelect(void);
 void Settings_SaveTeamSelect(void);
-/* The steps of an event's character select. The ASM hooks pass these numbers. */
-enum TMCharacterStep { TM_CHARACTERS_RESTORE, TM_CHARACTERS_SAVE, TM_CHARACTERS_OPEN };
-void Settings_EventCharacters(unsigned step);
+void Settings_LoadDoorForms(void);
+void Settings_ApplyDoorForms(void);
+int Settings_DoorCharacter(int door, int kind);
+/* What an event's character select and legacy events ask for. The ASM hooks pass
+ * these numbers, and all of them share one rtoc slot. */
+enum TMCharacterStep {
+    TM_CHARACTERS_RESTORE, TM_CHARACTERS_SAVE, TM_CHARACTERS_OPEN,
+    TM_CHARACTERS_NOTE_FORMS, TM_CHARACTERS_KEEP_FORMS, TM_CHARACTERS_CPU, TM_CHARACTERS_CSS_LOADED,
+};
+int Settings_EventCharacters(unsigned step);
 void Settings_ResetEventRecords(void *card);
 void *Settings_EventScoreSlot(unsigned event);
 unsigned Events_ScoreIndex(unsigned page, unsigned event);

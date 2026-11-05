@@ -4795,7 +4795,7 @@ void Record_Restart(Savestate_v1 *savestate, int flags) {
     stc_playback_cancelled_cpu = false;
     
     if (mirror) flags |= Savestate_Mirror;
-    event_vars->Savestate_Load_v1(savestate, flags);
+    event_vars->Savestate_Load_v1(savestate, flags | Savestate_ExactForm);
 }
 
 void Record_LoadSavestate(Savestate_v1 *savestate) {

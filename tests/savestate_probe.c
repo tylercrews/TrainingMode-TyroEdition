@@ -27,6 +27,26 @@ void ActionStateChange(float frame, float speed, float blend, GOBJ *f, int state
     ((FighterData *)f->userdata)->state_id = state_id;
 }
 void Fighter_EnterSleep(GOBJ *f, int ms) { }
+void Fighter_EnterWait(GOBJ *f) { ((FighterData *)f->userdata)->state_id = ASID_WAIT; }
+void Fighter_EnterFall(GOBJ *f) { ((FighterData *)f->userdata)->state_id = ASID_FALL; }
+/* The native transform: the pair trade places, the old form's spot carries over,
+ * and it's asleep by the time the callback gets the new one. */
+static int transforms;
+void Fighter_Transform(GOBJ *f, void *enter_state) {
+    FighterData *old = f->userdata, *next = Fighter_GetSubcharGObj(0, 1)->userdata;
+    u8 first = block.isTransformed[FIRST];
+    block.isTransformed[FIRST] = block.isTransformed[SECOND];
+    block.isTransformed[SECOND] = first;
+    u8 ms = old->flags.ms;
+    old->flags.ms = next->flags.ms;
+    next->flags.ms = ms;
+    next->phys.pos = old->phys.pos;
+    next->flags.sleep = 0;
+    old->flags.sleep = 1;
+    old->state_id = ASID_SLEEP;
+    ++transforms;
+    ((void (*)(GOBJ *))enter_state)(next->fighter);
+}
 void Fighter_ColAnim_Remove(FighterData *f, int id) { }
 void Fighter_ProcDynamics(GOBJ *f) { }
 void Fighter_SetAllHurtboxesNotUpdated(GOBJ *f) { }
@@ -80,6 +100,7 @@ int TestStateInit(void) {
         ft[i].camera_subject = &subjects[i];
         block.gobj[i] = &gobjs[i];
         ft[i].flags.ms = i;
+        ft[i].kind = i ? FTKIND_SHEIK : FTKIND_ZELDA;
     }
     block.isTransformed[FIRST] = 0;
     block.isTransformed[SECOND] = 1;
@@ -92,6 +113,16 @@ int TestStateInit(void) {
 }
 int TestStateSave(void) { return Savestate_Save_v1(state, Savestate_Silent); }
 int TestStateLoad(void) { return Savestate_Load_v1(state, Savestate_Silent); }
+int TestStateLoadExact(void) { return Savestate_Load_v1(state, Savestate_Silent | Savestate_ExactForm); }
+/* What the old ASM events do: its own load between these two. */
+void TestStateNoteForms(void) { Savestate_NoteForms(); }
+void TestStateKeepForms(void) { Savestate_KeepForms(); }
+void TestStateSet(int id, int var) {
+    FighterData *data = Fighter_GetGObj(0)->userdata;
+    data->state_id = id;
+    data->state_var.state_var1 = var;
+}
+void TestStateLock(int form, int locked) { ft[form].flags.x221d_5 = locked; }
 
 /* What Fighter_Transform leaves behind: the pair and their ms bits traded. */
 void TestStateTransform(void) {
@@ -123,6 +154,12 @@ int TestStateInfo(int key) {
     case 9: return ASID_WAIT;
     case 10: return ASID_SLEEP;
     case 11: return sizeof(Savestate_v1);
+    case 12: return transforms;
+    case 13: return ((FighterData *)active->userdata)->state_var.state_var1;
+    case 14: return ft[FIRST].flags.x221d_5;
+    case 15: return ft[SECOND].flags.x221d_5;
+    case 16: return ASID_CLIFFWAIT;
+    case 17: return ASID_FALL;
     }
     return -1;
 }

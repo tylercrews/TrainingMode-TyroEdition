@@ -15,14 +15,22 @@
 // Nana's platform, beside Popo's on the stage side.
 #define NANA_PLATFORM_GAP 8
 
-// Marth's forward smash comes out on frame 10 and his down-tilt on frame 7,
-// each with the tipper as hitbox 3 (20% and 10%). He freezes there with the
-// whole attack out, as Side-B does, and the tipper centered this far inland of
-// the ledge: 0 is right over it.
+// Marth's forward smash is out on frames 10 to 13 and his down-tilt from frame
+// 7, each with the tipper as hitbox 3 (20% and 10%). He freezes with the whole
+// attack out: the forward smash on its last frame, the sword all the way down
+// (its script clears the hitboxes at 14), and the down-tilt on its first, as
+// Side-B does. The forward smash's tipper is centered this far inland of the
+// ledge, 0 being right over it. The down-tilt stands where Side-B's does, so its
+// tip reaches past the ledge the same way.
 #define MARTH_TIPPER_HITBOX 3
-#define MARTH_FSMASH_FRAME 10
+#define MARTH_FSMASH_FRAME 13
 #define MARTH_DTILT_FRAME 7
 #define MARTH_TIPPER_INLAND 0
+#define MARTH_DTILT_INLAND 15
+
+// How far an animated up-B has to rise before its angle is taken. Any closer and
+// a frame of drift swings it a long way.
+#define PATH_ANGLE_RISE 6
 
 #define RESET_SUCCESS 60
 #define RESET_FAILURE 30
@@ -406,7 +414,9 @@ static struct upb {
     bool used;
     int frames;              // Since it started.
     Vec2 start;
-    Vec2 top;                // The highest it has taken you so far.
+    // GUIDE_PATH: where the angle it set out at leads, at the path's full length.
+    bool path_set;
+    Vec2 path_end;
     // GUIDE_AIMED: where the travel starts and where the stick sends it.
     bool aiming, locked;
     Vec2 launch, aim;
@@ -467,7 +477,8 @@ static void PlaceMarth(GOBJ *cpu) {
     float outward = Outward();
     cpu_data->facing_direction = outward;
     ClearVelocity(cpu_data);
-    cpu_data->phys.pos.X = ledge.X - outward * (MARTH_TIPPER_INLAND + tipper_reach);
+    int dtilt = Options_Main[OPT_MARTH].val == TM_UPB_MARTH_DTILT;
+    cpu_data->phys.pos.X = ledge.X - outward * (dtilt ? MARTH_DTILT_INLAND : MARTH_TIPPER_INLAND + tipper_reach);
     cpu_data->phys.pos.Y = ledge.Y;
     UpdatePosition(cpu);
     PlacePlayerOnGround(cpu);
@@ -496,9 +507,9 @@ static bool MarthIsAttacking(FighterData *cpu_data) {
     return marth.dtilt ? state == ASID_ATTACKLW3 : state >= ASID_ATTACKS4HI && state <= ASID_ATTACKS4LW;
 }
 
-/* Hold the first active frame so the whole attack lingers, setting the freeze
- * every frame the way Side-B does. The first freeze measures how far in front
- * of Marth the tipper is and moves him so it sits MARTH_TIPPER_INLAND in. */
+/* Hold the attack so its hitboxes linger, setting the freeze every frame the way
+ * Side-B does. The forward smash's first freeze measures how far in front of
+ * Marth the tipper is and moves him so it sits MARTH_TIPPER_INLAND in. */
 static void MarthThink(GOBJ *cpu) {
     FighterData *cpu_data = cpu->userdata;
     int freeze_frame = marth.dtilt ? MARTH_DTILT_FRAME : MARTH_FSMASH_FRAME;
@@ -509,7 +520,7 @@ static void MarthThink(GOBJ *cpu) {
     FrameSpeedChange(cpu, 0);
     marth.frozen = true;
     ftHit *tipper = &cpu_data->hitbox[MARTH_TIPPER_HITBOX];
-    if (marth.measured || !tipper->active)
+    if (marth.dtilt || marth.measured || !tipper->active)
         return;
     marth.measured = true;
     float reach = (tipper->pos.X - cpu_data->phys.pos.X) * cpu_data->facing_direction;
@@ -600,15 +611,23 @@ static void TrackAim(FighterData *ft, const UpBInfo *info) {
     upb.distance = IsSpacie(ft) ? AimedDistance(ft, 1) : TravelFrames(ft) * speed;
 }
 
-/* From where the up-B started, its highest point is the angle it really went
- * at. That covers a stick tilt, which locks early in lstick_angle, and drift,
- * which is all that steers Falcon and Ganondorf, so theirs is only final at the
- * top. It's measured because the air up-Bs don't follow UpB_Info's numbers
- * exactly (see the notes), and Falcon's drift can't be known ahead of time. */
-static void TrackTop(FighterData *ft, const UpBInfo *info) {
+/* The angle the up-B set out at, taken once from where it started, and then left
+ * alone however the rest of the path curves or drifts. It's measured because a
+ * stick tilt locks early in lstick_angle, the air up-Bs don't follow UpB_Info's
+ * numbers exactly (see the notes), and drift, all that steers Falcon and
+ * Ganondorf, can't be known ahead of time. Mario and Peach drop before they rise,
+ * so only rising counts. */
+static void TrackPathAngle(FighterData *ft, const UpBInfo *info) {
     int state = ft->state_id;
-    if (state >= info->first && state <= info->last && ft->phys.pos.Y > upb.top.Y)
-        upb.top = (Vec2) { ft->phys.pos.X, ft->phys.pos.Y };
+    if (!info || info->guide != GUIDE_PATH || upb.path_set || state < info->first || state > info->last)
+        return;
+    float x = ft->phys.pos.X - upb.start.X, y = ft->phys.pos.Y - upb.start.Y;
+    if (y < PATH_ANGLE_RISE)
+        return;
+    float travelled = sqrtf(x * x + y * y);
+    float length = sqrtf(info->rise * info->rise + info->forward * info->forward) * ft->scale.Y;
+    upb.path_set = true;
+    upb.path_end = (Vec2) { upb.start.X + x / travelled * length, upb.start.Y + y / travelled * length };
 }
 
 // Degrees above level, toward the stage.
@@ -705,9 +724,9 @@ static void DrawPathGuide(FighterData *ft, const UpBInfo *info, Vec2 target) {
     DrawPathStart(info, target, scale, 0, Blue);
     if (!upb.used)
         return;
-    if (upb.top.Y > upb.start.Y) {
-        DrawLine(upb.start, upb.top, Yellow, 12);
-        DrawDot(upb.top, Yellow);
+    if (upb.path_set) {
+        DrawLine(upb.start, upb.path_end, Yellow, 12);
+        DrawDot(upb.path_end, Yellow);
     }
     DrawCross(upb.start, 2.5f, Yellow);
 }
@@ -898,7 +917,6 @@ void Event_Think(GOBJ *menu) {
     if (info && !upb.used && state >= info->first && state <= info->last) {
         upb.used = true;
         upb.start = (Vec2) { hmn_data->phys.pos.X, hmn_data->phys.pos.Y };
-        upb.top = upb.start;
     }
     if (upb.used) {
         upb.frames++;
@@ -909,7 +927,7 @@ void Event_Think(GOBJ *menu) {
     if (attempt.done)
         return;
     if (upb.used)
-        TrackTop(hmn_data, info);
+        TrackPathAngle(hmn_data, info);
     if (state == ASID_CLIFFCATCH) {
         Finish(cpu, upb.used ? RESULT_SWEETSPOT : RESULT_NO_UPB,
                upb.used ? RESET_SUCCESS : RESET_FAILURE);

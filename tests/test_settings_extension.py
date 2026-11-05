@@ -15,8 +15,8 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 20, 64  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x14\x40\xA5\x5A'
+CURRENT, PAYLOAD = 21, 68  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x15\x44\xA5\x5A'
 # Bytes 52..63 appended by version 18: Edgeguard's three words at their defaults
 # (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
 # CPU's default recovery toggles).
@@ -48,16 +48,19 @@ UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
 # Its menu rows, with Teammate Percent in byte 50's top bits, then your team in
 # word 68's bits 14-15 and the enemy's in word 20's bits 30-31. Enemy Percent,
 # Teammate Percent and CPU Mashing keep their top bits in bytes 34 and 35.
-GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3), (0, 0, 3, 0, 1, 0, 1, 0, 0)
+# P3's and P4's last characters follow, in word 72: 0 none yet, else ID + 1.
+GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3, 27, 27), (0, 0, 3, 0, 1, 0, 1, 0, 0, 0, 0)
 GP_PERCENT, GP_MATE_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM, GP_ENEMY_TEAM = 2, 3, 4, 6, 7, 8
+GP_P3_CHARACTER, GP_P4_CHARACTER = 9, 10
 LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET
 UPB_COUNTS, UPB_DEFAULTS = (2, 3, 2), (1, 0, 0)
 UPB_MARTH, MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 1, 0, 1, 2
 EVENT_MENU_BYTES = bytes.fromhex('c0020100')
-# Bytes 24..71 appended by versions 15 to 20: one color nibble per OSD (all
+# Bytes 24..75 appended by versions 15 to 21: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
-# human/CPU costumes (Default), the Edgeguard defaults and the event menus.
-COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES
+# human/CPU costumes (Default), the Edgeguard defaults, the event menus and the
+# team select's characters (none yet).
+COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES + bytes(4)
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -68,7 +71,7 @@ def upgraded(raw):
     value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
-    value[24:72] = COLOR_BYTES
+    value[24:76] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
@@ -77,7 +80,7 @@ def upgraded(raw):
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 72
+REGION_SIZE, OWNED_SIZE = 88, 76
 # Under Fire's Lava Overlay (index 2) and Remove Fleshy Pillars (index 3) live outside
 # FIELDS' tables: word 20 and word 9.
 PREF_COUNTS = {29: 4}
@@ -124,7 +127,7 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 11, 10, 1)
         self.assertEqual(m.call('Settings_Get', 11, 10), 1)
         self.assertEqual(m.cpu.mem_read(EXT + 8, 1)[0], TIMERS | (6 << 4) | RANDALL | 5)
-        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)  # Still version 20.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, 8)), HEADER)  # Still the current version.
         self.assertEqual(m.record(), core)
         m.call('Settings_Set', 11, 10, 2)  # Out of range is ignored.
         self.assertEqual(m.call('Settings_Get', 11, 10), 1)
@@ -342,6 +345,57 @@ class ExtensionTests(unittest.TestCase):
                              (0, 0, 0))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
+    def version_20_record(self):
+        # What a save from before the team select's word holds: real choices in
+        # the event menus and everything around them.
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_PERCENT, 7); m.call('Settings_Set', GRAB_PUNISH, GP_MASH, 5)
+        m.call('Settings_Set', GRAB_PUNISH, GP_RELEASE_HITS, 0); m.call('Settings_Set', GRAB_PUNISH, GP_YOUR_TEAM, 2)
+        m.call('Settings_Set', UPB_SWEETSPOT, 2, 1); m.call('Settings_Set', EDGEGUARD, EG_FOX_SIDEB, 5)
+        m.call('Settings_Set', COSTUME, 1, 2)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((20, 64))
+        return old
+
+    def test_version_20_migration_keeps_every_byte_and_claims_only_word_72(self):
+        m = self.m
+        old = self.version_20_record()
+        old[72:76] = b'\xFF' * 4  # Version 20 never owned word 72.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_P3_CHARACTER, GP_P4_CHARACTER)), (0, 0))
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[72:76] = bytes(4)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM)),
+                         (7, 5, 0, 2))
+        self.assertEqual((m.call('Settings_Get', UPB_SWEETSPOT, 2), m.call('Settings_Get', EDGEGUARD, EG_FOX_SIDEB),
+                          m.call('Settings_Get', COSTUME, 1)), (1, 5, 2))
+
+    def test_version_20_records_read_their_settings_and_no_team_characters_without_writing(self):
+        m = self.m
+        old = self.version_20_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Spare score bytes are not characters.
+            old[72:76] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual((read(GRAB_PUNISH, GP_P3_CHARACTER), read(GRAB_PUNISH, GP_P4_CHARACTER)), (0, 0))
+            self.assertEqual((read(GRAB_PUNISH, GP_PERCENT), read(GRAB_PUNISH, GP_MASH), read(GRAB_PUNISH, GP_RELEASE_HITS),
+                              read(GRAB_PUNISH, GP_YOUR_TEAM), read(UPB_SWEETSPOT, 2), read(EDGEGUARD, EG_FOX_SIDEB),
+                              read(COSTUME, 1)), (7, 5, 0, 2, 1, 5, 2))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_team_characters_use_only_word_72_bits_0_to_9_and_repair_alone(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)
+        m.call('Settings_Set', GRAB_PUNISH, GP_P4_CHARACTER, 21)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(int.from_bytes(after[72:76], 'little'), 26 | 21 << 5)  # Bits 10-31 stay spare.
+        self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
+        m.cpu.mem_write(EXT + 72, (31 | 21 << 5).to_bytes(4, 'little'))  # A damaged P3 is none yet.
+        self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_P3_CHARACTER, GP_P4_CHARACTER)), (0, 21))
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little'), 21 << 5)
+
     def test_knockback_distance_uses_only_word_68_bits_29_to_31(self):
         m = self.m
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
@@ -426,7 +480,7 @@ class ExtensionTests(unittest.TestCase):
         def others(record):
             record = bytearray(record)
             record[23] &= 0x3F; record[34] &= 0x3F; record[35] &= 0x7F; record[50] &= 0x1F
-            return bytes(record[:68] + record[72:])
+            return bytes(record[:68] + record[76:])
         self.assertEqual(others(after), others(before))
         self.assertEqual((after[23] >> 6, after[34] >> 6, after[35] >> 7, after[50] >> 5), (2, 3, 1, 2))
         word = int.from_bytes(after[68:72], 'little')
@@ -438,7 +492,7 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (15, with its top bit), CPU Mashing (7, with
         # its) and Teammate Facing (3) repair to their defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 9 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2), (1, 2, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2, 26, 26), (1, 2, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'),
                          word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 1 << 9)
         self.assertEqual((m.cpu.mem_read(EXT + 34, 1)[0] >> 6, m.cpu.mem_read(EXT + 35, 1)[0] >> 7), (2, 0))
@@ -1363,7 +1417,7 @@ class ExtensionTests(unittest.TestCase):
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         expected = bytearray(before); expected[23] |= 0x04 | 7 << 3
         self.assertEqual(after, bytes(expected))
-        self.assertEqual(after[:8], HEADER)  # Still version 20.
+        self.assertEqual(after[:8], HEADER)  # Still the current version.
         self.assertEqual(m.record(), core)
         self.assertEqual([m.call('Settings_Get',SWEETSPOT,i) for i in range(2)], [1, 7])
         self.assertEqual((m.call('Settings_Get',SWEETSPOT_DJ,0), m.call('Settings_Get',EDGEGUARD,EG_SIDE)), (1, 2))
@@ -1405,7 +1459,7 @@ class ExtensionTests(unittest.TestCase):
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         expected = bytearray(before); expected[22] |= 0x80
         self.assertEqual(after, bytes(expected))
-        self.assertEqual(after[:8], HEADER)  # Still version 20.
+        self.assertEqual(after[:8], HEADER)  # Still the current version.
         self.assertEqual(m.record(), core)
         self.assertEqual([m.call('Settings_Get',*key) for key in ((11,BLAST_ZONES), (29,2), (SWEETSPOT_DJ,0), (11,10), (11,9))], [1,1,1,1,0])
         m.call('Settings_Set',11,BLAST_ZONES,2)  # Out of range is ignored.

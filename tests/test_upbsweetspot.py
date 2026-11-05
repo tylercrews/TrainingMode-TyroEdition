@@ -1,4 +1,5 @@
 """Execute the production Up-B Sweetspot event's Marth and up-B line, frame by frame."""
+import math
 from pathlib import Path
 import struct
 import subprocess
@@ -9,11 +10,12 @@ from test_lowlaser import load_probe
 
 ROOT = Path(__file__).resolve().parents[1]
 DPAD_LEFT = 1
-FSMASH_FRAME, DTILT_FRAME = 10, 7  # MARTH_FSMASH_FRAME, MARTH_DTILT_FRAME
+FSMASH_FRAME, DTILT_FRAME = 13, 7  # MARTH_FSMASH_FRAME, MARTH_DTILT_FRAME
 FSMASH, DTILT, OFF = 0, 1, 2  # TMUpBMarth
 FOX_UP_B = 354
 FTKIND_FALCON = 2
 FALCON_UP_B = 354
+FALCON_PATH = 37.6, 11.9  # UpB_Info's rise and forward.
 FALL_SPECIAL = 35
 GX_PIPE = 0xCC008000
 YELLOW = (0xff, 0xe0, 0x00, 0xff)
@@ -62,6 +64,11 @@ class MarthTests(unittest.TestCase):
         self.assertTrue(self.on_platform())
         self.assertEqual((self.freezes(), self.info(3)), (1, 0))
         self.assertEqual(self.info(5), 1)
+
+    def test_he_freezes_on_the_last_frame_before_the_hitboxes_clear(self):
+        self.start()
+        self.step(FSMASH_FRAME + 2)
+        self.assertEqual((self.info(9), self.info(5)), (FSMASH_FRAME, 1))
 
     def test_the_tipper_is_moved_over_the_ledge_on_that_freeze(self):
         self.start()
@@ -124,10 +131,10 @@ class MarthTests(unittest.TestCase):
         self.step(3)
         self.assertEqual((self.freezes(), self.info(3), self.info(5)), (1, 0, 1))
 
-    def test_its_tipper_is_moved_over_the_ledge_too(self):
+    def test_it_stands_where_side_b_has_it_so_the_tip_reaches_past_the_ledge(self):
         self.start(marth=DTILT)
         self.step(DTILT_FRAME + 2)
-        self.assertEqual(self.info(6), -850)
+        self.assertEqual(self.info(6), -880)  # 15 in from the ledge at -85, and 18 of reach.
 
     def test_down_tilt_stays_frozen_like_the_forward_smash(self):
         self.start(marth=DTILT)
@@ -201,44 +208,42 @@ class UpBLineTests(unittest.TestCase):
         x, y, size = at[0], at[1], 2.5
         return [(x - size, y - size), (x + size, y + size), (x - size, y + size), (x + size, y - size)]
 
-    def line(self, top):
-        return [self.START, top, top] + self.cross(self.START)
+    def assert_line(self, x, y):
+        """The line from the start through (x, y), as long as the whole path."""
+        vertices = self.yellow()
+        self.assertEqual(len(vertices), 7)
+        start, end, dot = vertices[:3]
+        self.assertEqual((start, dot), (self.START, end))
+        out_x, out_y = x - self.START[0], y - self.START[1]
+        scale = math.hypot(*FALCON_PATH) / math.hypot(out_x, out_y)
+        self.assertAlmostEqual(end[0], self.START[0] + out_x * scale, places=2)
+        self.assertAlmostEqual(end[1], self.START[1] + out_y * scale, places=2)
+        self.assertEqual(vertices[3:], self.cross(self.START))
 
-    def test_only_the_start_shows_until_the_up_b_climbs_past_it(self):
+    def test_only_the_start_shows_until_the_up_b_has_risen(self):
         self.assertEqual(self.yellow(), self.cross(self.START))
         self.move(-121, -48)  # Mario and Peach drop before they rise.
         self.assertEqual(self.yellow(), self.cross(self.START))
+        self.move(-110, -35)  # Not far enough yet for a frame of drift not to matter.
+        self.assertEqual(self.yellow(), self.cross(self.START))
 
-    def test_the_line_follows_the_climb(self):
+    def test_the_line_shows_the_angle_it_set_out_at(self):
         self.move(-112, -20)
-        self.assertEqual(self.yellow(), self.line((-112, -20)))
-        self.move(-100, -5)
-        self.assertEqual(self.yellow(), self.line((-100, -5)))
+        self.assert_line(-112, -20)
 
-    def test_it_stays_at_the_top_while_the_up_b_comes_back_down(self):
-        self.move(-100, -5)
-        self.move(-96, -9)
-        self.move(-92, -30)
-        self.assertEqual(self.yellow(), self.line((-100, -5)))
+    def test_the_angle_doesnt_move_for_the_rest_of_the_up_b(self):
+        self.move(-112, -20)
+        for x, y in ((-100, -5), (-130, 0), (-90, 10), (-125, -30)):
+            self.move(x, y)
+            self.assert_line(-112, -20)
 
-    def test_drift_after_the_top_doesnt_change_the_angle(self):
-        self.move(-100, -5)
-        self.move(-70, -5)  # Level isn't higher, however far it drifts.
-        self.assertEqual(self.yellow(), self.line((-100, -5)))
-
-    def test_it_stops_when_the_up_b_ends(self):
-        self.move(-100, -5)
-        self.m.call('TestUpBState', FALL_SPECIAL)
-        self.move(-100, 30)
-        self.assertEqual(self.yellow(), self.line((-100, -5)))
-
-    def test_it_stays_up_after_the_ledge_grab_and_ignores_the_next_up_b(self):
-        self.move(-100, -5)
+    def test_a_later_up_b_in_the_same_attempt_ignored_after_the_ledge_grab(self):
+        self.move(-112, -20)
         self.m.call('TestUpBFakeGrab')
         self.step()
         self.m.call('TestUpBState', FALCON_UP_B)
         self.move(-100, 30)
-        self.assertEqual(self.yellow(), self.line((-100, -5)))
+        self.assert_line(-112, -20)
 
     def test_a_reset_clears_it(self):
         self.move(-100, -5)

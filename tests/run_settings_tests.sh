@@ -59,6 +59,7 @@ python tests/test_grabpunish.py -v
 python tests/test_upbsweetspot.py -v
 python tests/test_savestate.py -v
 python tests/test_stage_swap.py -v
+python tests/test_form_toggle.py -v
 python tests/test_lab_session.py -v
 python tests/test_powershield.py -v
 

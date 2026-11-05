@@ -35,6 +35,19 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         self.assertEqual(self.m.call(self.functions[11], 1, 17), 1)  # stage select
         self.assertEqual(self.text(self.m.call(self.functions[15], 1, 17)), 'TM/grabpunishCSS.dat')
 
+    def test_only_the_team_select_opens_its_doors(self):
+        machine, functions = self.m, self.functions
+        css, memcard = 0x80497758, self.word(machine.cpu.reg_read(gpr(13)) - 30656)
+        machine.call(functions[28], 2, 0, 1)  # TM_SETTING_EVENT_PAGE, General Tech.
+        for event, kinds in ((17, (0, 1, 1, 3)), (16, (3, 3, 3, 3))):  # Grab Punish, Ledgechase.
+            with self.subTest(event=event):
+                machine.cpu.mem_write(memcard + 0x535, bytes((event,)))
+                machine.cpu.mem_write(css, struct.pack('>H', 1))
+                for door in range(4):
+                    machine.cpu.mem_write(css + 0x70 + door * 36, bytes((2, 3)))
+                machine.call(functions[39], 2)  # TM_CHARACTERS_OPEN
+                self.assertEqual(tuple(machine.cpu.mem_read(css + 0x71 + door * 36, 1)[0] for door in range(4)), kinds)
+
     def test_upb_sweetspot_sits_under_side_b_sweetspot_with_a_stage_select(self):
         character = self.word(self.word(self.functions[0] + 8) + 8)
         names = [self.text(self.word(self.word(character + index * 4))).strip() for index in (2, 3)]

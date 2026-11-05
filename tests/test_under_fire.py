@@ -426,6 +426,9 @@ class UnderFireTests(unittest.TestCase):
             m.cpu.mem_write(data + 0x14, struct.pack('>i', index))
             m.cpu.mem_write(data + offset + 0x1C, struct.pack('>I', item))
             m.cpu.mem_write(mesh + 0x10, struct.pack('>I', child))
+            for model in (mesh, child):  # Each joint holds a chain of meshes.
+                m.cpu.mem_write(model + 0x18, struct.pack('>I', model + 0x100))
+                m.cpu.mem_write(model + 0x104, struct.pack('>I', model + 0x120))
             self.stage_maps[index], self.mesh_joints[map_gobj, joint] = map_gobj, mesh
             self.pillar.append((data + offset, mesh, child, item))
         self.overlay_gobj = 0x80428000
@@ -450,6 +453,24 @@ class UnderFireTests(unittest.TestCase):
         m.call('DAT_UnderFire')
         self.assertEqual(bytes(m.cpu.mem_read(self.option(5)+6,4)),bytes(4))
         self.assertEqual(m.record(),core)
+
+    def meshes_hidden(self):
+        return [self.word(model + mesh + 0x14) & 1 for pillar in self.pillar for model in pillar[1:3]
+                for mesh in (0x100, 0x120)]
+
+    def test_the_meshes_hide_themselves_so_a_visibility_track_cant_show_them(self):
+        m = self.m; self.pillars()
+        self.assertEqual(self.meshes_hidden(), [0] * 8)
+        self.toggle_pillars(1)
+        self.assertEqual(self.meshes_hidden(), [1] * 8)
+        for _, mesh, child, _ in self.pillar:
+            m.cpu.mem_write(mesh + 0x14, bytes(4)); m.cpu.mem_write(child + 0x14, bytes(4))
+        self.assertEqual(self.meshes_hidden(), [1] * 8)
+
+    def test_turning_it_off_shows_the_meshes_again(self):
+        self.pillars(); self.toggle_pillars(1)
+        self.toggle_pillars(0)
+        self.assertEqual(self.meshes_hidden(), [0] * 8)
 
     def test_removed_pillars_are_hidden_and_intangible_on_both_sides_the_same_frame(self):
         self.pillars()

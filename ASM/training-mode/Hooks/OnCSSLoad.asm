@@ -21,7 +21,7 @@
     lbz r4, 0x0535(r4)
     rtocbl r12, TM_GetCSSFile
     cmpwi r3, 0
-    beq Exit
+    beq CharacterForms
 
     # Load this file
     addi r4, sp, 0x80
@@ -32,10 +32,14 @@
     # Execute the function
     lwz r12, 0x80(sp)
     cmpwi r12, 0
-    beq Exit
+    beq CharacterForms
     mtctr r12
     bctrl
 
+CharacterForms:
+    # Last, so it can write over what the event's own proc shows
+    li r3, 6
+    rtocbl r12, TM_SettingsEventCharacters
     b Exit
 
 SymbolName:
