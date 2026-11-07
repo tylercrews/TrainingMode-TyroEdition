@@ -1196,22 +1196,24 @@ static void UnderFire_LavaGX(GOBJ *gobj, int pass) {
 /* Remove Fleshy Pillars: each pillar is only a map item's hurtbox and a skinned
  * model, with no collision lines. An intangible hurtbox ends every hit, and a
  * pillar that can't be hit never breaks, so its side platform stays down. The
- * pillar's visibility track only ever touches its joint, so the meshes hide with
- * their own flag, which the display checks for each DObj (80374418). The joint
- * flags are kept for a pillar that's breaking or regrowing. The hide runs every
- * frame because the idle animation keeps showing the child mesh; link 5 follows
- * the stage's animation (1) and think (4). Only per-match instances change, so
- * Exit has nothing to restore. */
+ * meshes hide with their own flag, which the display checks for each DObj
+ * (80374418) and no joint animation touches. The joint flags are kept for a
+ * pillar that's breaking or regrowing, and set every frame on link 5, after the
+ * stage's animation (1) and think (4). Only per-match instances change, so Exit
+ * has nothing to restore. */
 typedef struct {
     u8 state; // 0 idle, 1 breaking, 2 broken, 3 growing back.
     u8 pad[27];
     GOBJ *item; // Holds the hurtbox.
 } UnderFirePillar;
 #define UF_PILLARS_LINK 5
-// Left, then right: the map GObj, its pillar mesh, and its pillar's MapData offset.
+/* Left, then right: the map GObj, its pillar mesh, and its pillar's MapData
+ * offset. The mesh's child is the rest of the column. Stage_GetMapGObjJObj counts
+ * from the file's root as 0: the game puts a scale joint above it (801C1768), and
+ * the joints before these are the skeleton's bones, which hold no meshes. */
 static const struct { u8 map_gobj, mesh_joint, offset; } under_fire_pillars[] = {
-    {6, 36, 200},
-    {7, 18, 196},
+    {6, 37, 200},
+    {7, 19, 196},
 };
 static void UnderFire_HideMeshes(JOBJ *joint, int hidden) {
     for (DOBJ *mesh = joint ? joint->dobj : 0; mesh; mesh = mesh->next)

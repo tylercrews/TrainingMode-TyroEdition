@@ -346,28 +346,43 @@ class ClosedLoopTests(unittest.TestCase):
 
     def test_up_b_to_ledge_grabs_the_ledge(self):
         for name in ('Fox', 'Falco'):
-            for stage in ('Battlefield', 'Final Destination'):
+            for stage in ('Battlefield', 'Final Destination', "Yoshi's Story"):
                 for spot, result, cpu in self.attempts(name, stage, FF_LEDGE):
-                    # From right over the stage, Very High can just land. Yoshi's
-                    # bottom blast zone is too close to wait for the whole distance,
-                    # so a shot from there can carry on over the ledge and land.
-                    landing = spot[0] == 'Very High' or stage == "Yoshi's Story"
-                    self.assertIn(result, ('ledge', 'stage') if landing else ('ledge',), (name, stage, spot))
+                    self.assertEqual(result, 'ledge', (name, stage, spot))
 
-    def test_up_b_to_ledge_goes_early_over_a_high_blast_zone(self):
-        # Yoshi's Story's bottom is above the ring, so some of these come in
-        # higher and land. What matters is that the guard fires, not the blast zone.
-        for name in ('Fox', 'Falco'):
-            for spot, result, cpu in self.attempts(name, "Yoshi's Story", FF_LEDGE):
-                self.assertIn(result, ('ledge', 'stage'), (name, spot))
+    def launch_spots(self, rows):
+        return [(cpu.log[0][2], cpu.log[0][3]) for _, _, cpu in self.attempts('Fox', 'Battlefield', rows) if cpu.log]
 
-    def test_up_b_to_ledge_waits_for_the_distance(self):
-        # Firefox Low up specials from anywhere in range. This one's fired from the ring.
+    def test_up_b_to_ledge_starts_as_soon_as_it_can(self):
+        # Before: it fell to the one distance where the travel ends at the ledge.
         cpu = sim.Sim(self.m, 'Fox', 'Final Destination')
         cpu.launch('Low', 'Near')
         self.m.call('TestSeed', 1)
-        self.assertEqual(cpu.run(FF_LEDGE), 'ledge')
-        self.assertLess(cpu.upb_h, -60)
+        hitstun = cpu.hitstun
+        for _ in range(hitstun + 9):  # Hitlag, hitstun, and a frame or two.
+            cpu.step(FF_LEDGE)
+        self.assertTrue(cpu.log, 'no up-B yet')
+        self.assertGreater(cpu.log[0][3], -40)
+
+    def test_up_b_to_ledge_comes_from_all_over(self):
+        spots = self.launch_spots(FF_LEDGE)
+        self.assertGreater(max(x for x, _ in spots) - min(x for x, _ in spots), 50)
+        self.assertGreater(max(y for _, y in spots) - min(y for _, y in spots), 70)
+
+    def test_up_b_to_ledge_from_over_the_ledge_grabs_in_flight(self):
+        grabs = sum(cpu.grab_state == sim.FOX_FF_TRAVEL for _, _, cpu in
+                    self.attempts('Fox', 'Final Destination', FF_LEDGE, spots=[('High', 'Near'), ('High', 'Medium'), ('Very High', 'Medium')]))
+        self.assertGreater(grabs, 3)
+
+    def test_up_b_to_ledge_double_jumps_on_some_attempts_with_the_row_on(self):
+        cpu = sim.Sim(self.m, 'Fox', 'Battlefield')
+        jumped = 0
+        for seed in range(1, 25):
+            cpu.launch('Low', 'Near', seed / 25)
+            self.m.call('TestSeed', seed)
+            self.assertEqual(cpu.run(FF_LEDGE | 1 << 4), 'ledge', seed)
+            jumped += cpu.jump_h is not None
+        self.assertTrue(4 < jumped < 20, jumped)
 
     def test_a_side_b_that_cant_make_it_goes_for_the_ledge_with_the_up_b(self):
         # Before: a double jump and a side-B from under the ledge, which only SDs.

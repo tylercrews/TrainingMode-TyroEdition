@@ -108,7 +108,7 @@ hitlag, and enough damage breaks it, which lifts its platform until it regrows.
 | --- | --- | --- |
 | Map GObj | 6 | 7 |
 | Pillar record in `MapData` | 200 | 196 |
-| Mesh joint (`Stage_GetMapGObjJObj`, which counts from the root's child) | 36, and its child | 18, and its child |
+| Mesh joint (`Stage_GetMapGObjJObj`) | 37, and its child | 19, and its child |
 
 In each record, byte 0 is the state (0 idle, 1 breaking, 2 broken, 3 growing
 back) and the word at 28 is the item.
@@ -119,13 +119,19 @@ back) and the word at 28 is the item.
   stage's own hurtbox switch (`ItemData.xd0c`), which breaking and regrowing flip.
 - **Platforms:** an intangible pillar takes no damage, so it never breaks and its
   platform stays down. Nothing has to pin the platform.
+- **Joint numbers:** `Stage_GetMapGObjJObj` starts at the live root's child, and
+  that child is the file's root, because the game loads a scale joint and puts it
+  above the file's tree (`Ground_GetStageGObj`, 801C1768; `HSD_JObjAddNext` makes
+  its second argument the first's parent, despite the name). So an index is a
+  depth-first count through `GrZe.dat` with the file's root as 0. 36 and 18 are
+  bones with no mesh and no child. Hiding them did nothing, while the hurtbox half
+  worked because it comes from the `MapData` record. `test_under_fire.py` walks the
+  real file to check these numbers. Under Fire's assembly also makes the left
+  pillar intangible on its own, so intangibility doesn't prove this code ran.
 - **Invisible:** `DOBJ_HIDDEN` on every mesh of both joints. The display checks it
   for each DObj (`HSD_JObjDispSub`, 80374418), and no joint animation touches it.
-  `JOBJ_HIDDEN` alone left the column on screen in Dolphin: the child mesh has a
-  native visibility track (`HSD_A_J_BRANCH`) in every pillar animation, and that
-  mesh is the column you see. The joint flags are still set every frame, in a proc
-  on link 5: after the stage's animation (link 1) and think (link 4), and before
-  drawing.
+  The joint flags are also set every frame, in a proc on link 5: after the stage's
+  animation (link 1) and think (link 4), and before drawing.
 - **Off:** restores status 0, the spawn value, and clears both flags. If a pillar
   is broken at that moment, the child mesh stays hidden: its animation owns that
   flag and shows it again as the pillar regrows.

@@ -1,6 +1,6 @@
 # Fox and Falco side-B recoveries in Edgeguard Training
 
-**Status (November 5, 2026, T9):** implemented in [src/recovery.c](../src/recovery.c) (`Think_Spacies` and the `Spacie*` functions above it). The rows have been tried in Dolphin, but **the To Main Stage rework, the Knockback settings, the ledge rules below and Firefox To Ledge came after and haven't been**. [tests/recovery_sim.py](../tests/recovery_sim.py) runs the production AI frame by frame against physics written from the decompilation, on the ISO's stage lines, and [tests/test_edgeguard.py](../tests/test_edgeguard.py) runs a small sample of it. The success rates below come from that, not from the game.
+**Status (November 6, 2026, T9):** implemented in [src/recovery.c](../src/recovery.c) (`Think_Spacies` and the `Spacie*` functions above it). The rows have been tried in Dolphin, but **the To Main Stage rework, the Knockback settings, the ledge rules below and Firefox To Ledge came after and haven't been**. [tests/recovery_sim.py](../tests/recovery_sim.py) runs the production AI frame by frame against physics written from the decompilation, on the ISO's stage lines, and [tests/test_edgeguard.py](../tests/test_edgeguard.py) runs a small sample of it. The success rates below come from that, not from the game.
 
 ## The options
 
@@ -14,9 +14,9 @@ Fox's and Falco's Recovery Options replace the old Illusion / Phantasm row with 
 | To Main Stage | Side-B right above the ledge onto the main stage, through you if you're standing near the ledge | 1 to 5 above, the dash's own height | lands on the stage |
 | To Side Plat | Jump high and side-B onto the side platform | 3 to 9 above the platform | lands on the platform, aimed at its middle |
 | Shortest Shorten | Jump up close to the ledge, side-B, B again at once | 6 to 15 below | grabs in the endlag |
-| Firefox To Ledge | Wait for the distance where the up-B ends right at the ledge | none | grabs as it comes down |
+| Firefox To Ledge | Up-B at the ledge as soon as it can, from wherever it is | none | grabs in flight, or falling in from over the ledge |
 
-- The side-B rows and Firefox To Ledge double jump on their own; the Double Jump row is only for the older up-B logic. With Fast Fall checked the side-B rows also fast fall when they're more than 15 above their height.
+- The side-B rows double jump on their own. Firefox To Ledge does too when the ledge is out of range, and with the Double Jump row on, on half its attempts anyway. Otherwise that row is for the older up-B logic. With Fast Fall checked the side-B rows also fast fall when they're more than 15 above their height.
 - Ledge Sweetspot aims 1, 2 or 3 dash steps from the ledge, and To Ledge a whole or an at-once-shortened dash, at random among the ones the CPU can still drift to.
 - To Main Stage aims near where the CPU already is, up to 6 past a full dash, since the endlag carries it the rest of the way. If you're standing between the ledge and about 46 inland (Fox) it aims through you, but only when it can get there: slashing you never costs it the main stage.
 - To Side Plat uses the one-way platform nearest the ledge on that half of the stage, read live (Fountain's move). Without one (Final Destination) it's To Main Stage.
@@ -71,16 +71,20 @@ The earliest shorten presses B on the first frame the CPU is seen in the dash. E
 
 ## Firefox To Ledge
 
-The travel goes a fixed distance: 81.5 for Fox (30 frames at 3.8, slowing 0.1 a frame from frame 6), 60.1 for Falco (22 at 4.2, 0.17 from frame 4). So a Firefox only ends at the ledge from a ring around it. Firefox Low aims at the ledge from anywhere in range, and from closer than the ring flies past it.
+The CPU up-Bs as soon as a shot can reach the ledge, from wherever it is, so it comes in from a different place and angle every attempt. (The first version waited to be exactly a full travel from the ledge, so it fell to the same spot every time.)
 
-- **End spot:** 9 outside the ledge and 10.5 to 15.5 under it. The last of the speed carries the CPU a little in and up, and then it's falling with the ledge in the box. The fall after the travel (`SpecialHiFall`) grabs in either direction, and can drift.
-- **Timing:** each frame it simulates the charge (42 frames, no drift, 6 of fall) to find the launch point, and up-Bs once the ring through it passes the end spot's height. From inside the ring that means falling to it, and from outside, double jumping back into it.
-- **Aim:** stick X inside the 0.28 deadzone reads 0, so a shot is straight up or at least 17° off it. A launch 4 to 23 outside the end spot (Fox) can't be aimed at it, so the CPU drifts either right under the spot or out past that.
-- **Blast zone:** it up-Bs anyway 20 over the bottom blast zone. On Yoshi's Story, whose blast zone is closest, that can be inside the ring from directly under, and the shot then carries on over the ledge and lands.
+The travel goes a fixed distance: 81.5 for Fox (30 frames at 3.8, slowing 0.1 a frame from frame 6), 60.1 for Falco (22 at 4.2, 0.17 from frame 4). Nothing ends it early but a grab or a landing: walls don't bounce it, and only the ground can (`ftFx_SpecialAirHi_Coll`). And only a frame that moved down can grab. So there are two shots, both for a spot 9 outside the ledge and 13 under it, the middle of the box:
+
+- **From over the spot:** straight at it. It's angled down, so it grabs on the way, in either direction, however much travel it had left. This is most attempts.
+- **From under it:** a rise can't grab, and a shot at the ledge itself would carry on over it onto the stage, which is Firefox Low. So it aims straight over the ledge, as high as the travel goes, and falls in. The fall after the travel (`SpecialHiFall`) grabs in either direction and can drift, and the CPU steers by where it'd stop, since a flat shot ends fast. From exactly a full travel away, this is a shot that ends right at the ledge.
+
+- **Timing:** each frame it simulates the charge (42 frames, no drift, 6 of fall) to find the launch point, and up-Bs if the spot's in range. Out of range and over the spot, it drifts in, since falling brings it closer. Out of range under the spot, it double jumps, or up-Bs anyway with no jump left.
+- **Double Jump row:** half the attempts jump first, from under 30 over the ledge. Any jump then gets a random 1/3 to all of its rise before the up-B, which is most of the variety: it's what gets a CPU that starts under the ledge up over it, for a shot down.
+- **Aim:** stick values inside the 0.28 deadzone read 0, on either axis, so a shot is dead on an axis or about 16° off it. A shot down that's too flat takes the 16° if that still reaches the box, and otherwise it's a shot up. A shot up that's close to vertical tilts only if it still ends off the stage. A shot down that has to be dead straight waits to be in reach of the ledge first.
 
 ## Modeled success rates
 
-Battlefield, 12 attempts per cell, launched as [the knockback notes](EDGEGUARD-KNOCKBACK.md) describe, each row alone: how often the CPU did what the row says and it ended that way. `python tests/recovery_sim.py` prints these. The rest are nearly always another plan that recovers: over the six legal stages and both ledges, Ledge Sweetspot died 0 of 960 times for each of them, To Ledge 0 for Fox and 6 for Falco, and Firefox To Ledge 0 for each. Fox / Falco, in percent.
+Battlefield, 12 attempts per cell, launched as [the knockback notes](EDGEGUARD-KNOCKBACK.md) describe, each row alone: how often the CPU did what the row says and it ended that way. `python tests/recovery_sim.py` prints these. The rest are nearly always another plan that recovers: over the six legal stages and both ledges, Ledge Sweetspot died 0 of 960 times for each of them, To Ledge 0 for Fox and 6 for Falco, and Firefox To Ledge 0 for each, and with Double Jump on too. Fox / Falco, in percent.
 
 **Ledge Sweetspot**
 
@@ -148,7 +152,7 @@ The low cells at Close are launches that have to start just off the ledge (`LAUN
 
 - [ ] Ledge Sweetspot on **Battlefield and Pokémon Stadium**, the two stages it suicided on: the CPU stops at the wall and grabs. It should never fly under the stage. The heights to watch are in `SP_SWEETSPOT_LO` and `SP_SWEETSPOT_HI`.
 - [ ] The ECB numbers: if a dash at the top of Battlefield's wall passes under the lip, `SP_FOX_DASH_ECB_Y` / `FRONT` or `SP_WALL_MARGIN` are off.
-- [ ] Firefox To Ledge from each Height at Near and Medium: the up-B ends right at the ledge and grabs on the way down. If it stops short or flies past, change `SP_FF_END_OUT` / `LO` / `HI`. Try a launch that ends up a little outside the ledge, where the shot has to be straight up or tilted.
+- [ ] Firefox To Ledge from each Height and Distance: it up-Bs right after hitstun, from a different place each time. From over the ledge it grabs in flight. From under it, it flies up over the ledge and falls in, which leaves it high and helpless for a moment. If shots down land on the stage or hit the wall, change `SP_FF_OUT` / `SP_FF_H`. With Double Jump on, about half the attempts should jump first.
 - [ ] Each other row alone on Battlefield at a few Height and Distance spots: does the CPU do what the tables say?
 - [ ] To Ledge: the CPU floats into the ledge slowly for a few frames.
 - [ ] Shortest Shorten: the dash really shortens (no step). If it takes a step, the B press is a frame late.

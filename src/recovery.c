@@ -306,9 +306,9 @@ static EventOption RecOptions_Fox[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Firefox To Ledge",
-        .desc = {"Allow Fox to wait for the distance where his",
-                 "up special ends right at the ledge, and grab",
-                 "it. He double jumps first if he needs to."},
+        .desc = {"Allow Fox to up special at the ledge as soon",
+                 "as he can, from wherever he is. With Double",
+                 "Jump on, he sometimes jumps first."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -393,9 +393,9 @@ static EventOption RecOptions_Falco[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Firebird To Ledge",
-        .desc = {"Allow Falco to wait for the distance where his",
-                 "up special ends right at the ledge, and grab",
-                 "it. He double jumps first if he needs to."},
+        .desc = {"Allow Falco to up special at the ledge as soon",
+                 "as he can, from wherever he is. With Double",
+                 "Jump on, he sometimes jumps first."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -1108,6 +1108,8 @@ typedef struct SpaciePlan {
     float aim;       // and this far outside it when the dash starts
     float jump_at;   // double jump on the way down past this height
     bool shorten;    // B again on the dash's first frame
+    bool jump_first; // Firefox To Ledge: double jump before the up special,
+    int jump_wait;   // and let it rise this many frames
 } SpaciePlan;
 
 static SpaciePlan sp_plan = { SP_PLAN_NONE };
@@ -1578,16 +1580,28 @@ static bool SpacieUpBChecked(u32 opt_flags) {
         || OptEnabled(OPT_SPACIES_FF_HIGH);
 }
 
+// With Double Jump on, half the attempts jump first, and however they get a jump,
+// they up special at a random point in its rise. It's what varies the angle.
+static SpaciePlan SpacieFirefoxPlan(FighterData *ft, u32 opt_flags) {
+    int rise_frames;
+    SpacieJumpRise(ft, &rise_frames);
+    return (SpaciePlan) {
+        .kind = SP_PLAN_FF_LEDGE,
+        .jump_first = OptEnabled(OPT_SPACIES_JUMP) && HSD_Randi(2) == 0,
+        .jump_wait = rise_frames / 3 + HSD_Randi(rise_frames - rise_frames / 3),
+    };
+}
+
 // When the checked side-B rows can't make it and no Firefox row is checked:
 // the first side-B that still can, or Firefox To Ledge.
-static SpaciePlan SpacieBestEffortPlan(FighterData *ft, const SpacieGeo *g) {
+static SpaciePlan SpacieBestEffortPlan(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
     static const u8 order[] = { SP_PLAN_SWEETSPOT, SP_PLAN_TO_STAGE, SP_PLAN_SHORTEN, SP_PLAN_TO_LEDGE };
     for (u32 i = 0; i < countof(order); ++i) {
         SpaciePlan p = SpacieMakePlan(ft, g, order[i]);
         if (SpacieCanReach(ft, g, &p))
             return p;
     }
-    return (SpaciePlan) { .kind = SP_PLAN_FF_LEDGE };
+    return SpacieFirefoxPlan(ft, opt_flags);
 }
 
 // Each attempt picks one checked side-B row the CPU can still reach, or the
@@ -1608,18 +1622,18 @@ static void SpacieChoosePlan(FighterData *ft, u32 opt_flags, const SpacieGeo *g)
             choices[n++] = plan;
     }
     if (OptEnabled(OPT_SPACIES_FF_LEDGE))
-        choices[n++] = (SpaciePlan) { .kind = SP_PLAN_FF_LEDGE };
+        choices[n++] = SpacieFirefoxPlan(ft, opt_flags);
     if (SpacieUpBChecked(opt_flags) || (n == 0 && !any_sideb))
         choices[n++] = (SpaciePlan) { .kind = SP_PLAN_UPB };
     if (n == 0)
-        choices[n++] = SpacieBestEffortPlan(ft, g);
+        choices[n++] = SpacieBestEffortPlan(ft, opt_flags, g);
     sp_plan = choices[HSD_Randi(n)];
 }
 
 static void SpacieFallBack(FighterData *ft, u32 opt_flags, const SpacieGeo *g) {
-    sp_plan = OptEnabled(OPT_SPACIES_FF_LEDGE) ? (SpaciePlan) { .kind = SP_PLAN_FF_LEDGE }
+    sp_plan = OptEnabled(OPT_SPACIES_FF_LEDGE) ? SpacieFirefoxPlan(ft, opt_flags)
         : SpacieUpBChecked(opt_flags) ? (SpaciePlan) { .kind = SP_PLAN_UPB }
-        : SpacieBestEffortPlan(ft, g);
+        : SpacieBestEffortPlan(ft, opt_flags, g);
 }
 
 static void SpacieSideB(FighterData *ft, const SpacieGeo *g) {
@@ -1682,22 +1696,27 @@ static bool SpacieSideBThink(FighterData *ft, u32 opt_flags, const SpacieGeo *g)
     return true;
 }
 
-// Firefox To Ledge: the travel goes a fixed distance, so it only ends at the
-// ledge from a ring around the spot. Attributes: no fall for 0x54 frames, then
-// 0x60 a frame, and X speed divided by 0x58 then 0x5C slower a frame, for the
-// charge (no drift). The travel is 0x68 frames at 0x74, slowing 0x78 a frame from
-// frame 0x70.
+// Firefox To Ledge: up special as soon as a shot can get there, from wherever
+// the CPU is, so it comes in from a different angle every attempt. The travel is
+// a fixed distance (0x68 frames at 0x74, slowing 0x78 a frame from frame 0x70),
+// and only a frame that moved down can grab, so there are two shots:
+// - From over the grab spot, straight at it. It's angled down, so it grabs on
+//   the way, in either direction, however far it had left to go.
+// - From under it, a rise can't grab, and at the ledge it'd carry on over it. So
+//   it aims straight over the ledge, as far as the travel goes, and falls in. The
+//   fall (SpecialHiFall) grabs in either direction, and can drift.
+// The charge first: no fall for 0x54 frames, then 0x60 a frame, and X speed
+// divided by 0x58 then 0x5C slower a frame, with no drift.
 #define SP_FF_CHARGE_FRAMES 42
-// The travel's end. The last of its speed carries it in and up a little more, so
-// it starts falling with the ledge in the box.
-#define SP_FF_END_OUT 9.f
-#define SP_FF_END_LO -15.5f
-#define SP_FF_END_HI -10.5f
-// Up special this far over the bottom blast zone whatever the distance.
-#define SP_FF_BLAST_MARGIN 20.f
-// The smallest stick X past the deadzone. A shot is straight up or at least this
-// far over, so a launch a little outside the end spot can't be aimed at it.
+// Where a shot goes for: the middle of the box, and out from the wall.
+#define SP_FF_OUT 9.f
+#define SP_FF_H -13.f
+// The smallest stick past the deadzone, on either axis. A shot is dead on an axis
+// or about 16 degrees off it, and nothing in between.
 #define SP_FF_TILT_MIN 0.29f
+#define SP_FF_SLOPE_MIN 0.3f // the same limit, as drop over run
+// Jumping first from higher than this would only make it wait longer.
+#define SP_FF_JUMP_MAX_H 30.f
 
 static float SpacieFirefoxTravel(FighterData *ft) {
     float speed = SP_ATTR(ft, 0x74), travel = 0.f;
@@ -1728,63 +1747,77 @@ static void SpacieChargeEnd(FighterData *ft, const SpacieGeo *g, float *out, flo
     }
 }
 
-// How high the travel from (out, h) ends straight over the end spot, or far
-// under it when the end spot is out of range sideways.
-static float SpacieFirefoxEndHeight(FighterData *ft, float out, float h) {
-    float travel = SpacieFirefoxTravel(ft);
-    float dx = out - SP_FF_END_OUT;
-    float left = travel * travel - dx * dx;
-    return left > 0.f ? h + sqrtf(left) : -1000.f;
+// Whether a shot from here can come down into the box. The shallowest one it can
+// aim still has to reach the box before it reaches the wall.
+static bool SpacieFirefoxGoesDown(FighterData *ft, const SpacieGeo *g) {
+    float run = g->out - SP_FF_OUT, drop = g->h - SP_FF_H;
+    if (run <= 0.f || drop < 2.f)
+        return false;
+    CollData *coll = &ft->coll_data;
+    float box_hi = coll->cliffgrab_y_offset + coll->cliffgrab_height * 0.5f;
+    return drop >= run * SP_FF_SLOPE_MIN
+        || g->h - (g->out - g->reach) * SP_FF_SLOPE_MIN >= 1.f - box_hi;
 }
 
-// Toward a launch point that can be aimed: right under the end spot, or far
-// enough out for the smallest tilt.
-static float SpacieFirefoxDrift(FighterData *ft, const SpacieGeo *g, float off) {
-    float tilt = SpacieFirefoxTravel(ft) * SP_FF_TILT_MIN + 1.f;
-    if (off >= tilt)
-        return off > tilt + 8.f ? g->dir : 0.f;
-    if (off > tilt * 0.5f)
-        return -g->dir;
-    return off > 2.f ? g->dir : off < -2.f ? -g->dir : 0.f;
-}
-
-// One actionable frame: up special from the ring, falling to it from inside and
-// double jumping back into it from outside.
+// One actionable frame: up special if the grab spot's in range, double jumping
+// first on the attempts that do, or when it's out of range and falling only makes
+// it farther.
 static void SpacieFirefoxThink(FighterData *ft, const SpacieGeo *g) {
     float out, h;
     SpacieChargeEnd(ft, g, &out, &h);
-    float end_h = SpacieFirefoxEndHeight(ft, out, h);
+    float dx = out - SP_FF_OUT, dy = SP_FF_H - h, travel = SpacieFirefoxTravel(ft);
+    bool in_range = dx * dx + dy * dy <= travel * travel;
     bool rising = g->vy + g->kby > 0.f;
     bool can_jump = ft->jump.jumps_used < ft->attr.max_jumps;
-    bool low = ft->phys.pos.Y < Stage_GetBlastzoneBottom() + SP_FF_BLAST_MARGIN;
-    bool too_far = end_h < SP_FF_END_LO && h <= SP_FF_END_LO; // falling only makes it farther
-    bool ready = end_h >= SP_FF_END_LO && end_h <= SP_FF_END_HI;
+    bool jumping = (ft->state_id == ASID_JUMPAERIALF || ft->state_id == ASID_JUMPAERIALB)
+        && ft->TM.state_frame < sp_plan.jump_wait;
+    bool over_stage = g->out < 0.f && g->h > 0.f;
+    // Nearly over the spot, a shot down is dead straight, so it has to be in reach.
+    bool passes_box = dy < 0.f && out > g->reach - 1.f
+        && fabs(dx) < sqrtf(dx * dx + dy * dy) * SP_FF_TILT_MIN * 0.5f;
 
-    if (!rising && too_far && can_jump) {
+    if (sp_plan.jump_first && can_jump && g->h < SP_FF_JUMP_MAX_H) {
         Press(ft, PAD_BUTTON_Y);
         SetStick(ft, g->dir, 0.f);
-    } else if (!rising && (too_far || ready || low)) {
+    } else if (jumping || over_stage || passes_box) {
+        SetStick(ft, g->dir, 0.f);
+    } else if (in_range) {
         Press(ft, PAD_BUTTON_B);
         SetStick(ft, 0.f, 1.f);
+    } else if (rising || h > SP_FF_H) {
+        SetStick(ft, g->dir, 0.f);
+    } else if (can_jump) {
+        Press(ft, PAD_BUTTON_Y);
+        SetStick(ft, g->dir, 0.f);
     } else {
-        SetStick(ft, SpacieFirefoxDrift(ft, g, out - SP_FF_END_OUT), 0.f);
+        Press(ft, PAD_BUTTON_B);
+        SetStick(ft, 0.f, 1.f);
     }
 }
 
-// The charge: hold the angle to the end spot, read on its last frame. Stick X
-// under the deadzone reads 0, so a shot close to straight up is straight up or
-// takes the deadzone's edge.
+// The charge: hold the angle, read on its last frame.
 static void SpacieFirefoxAim(FighterData *ft) {
     SpacieGeo g = SpacieGetGeo(ft);
-    float end_h = fclamp(SpacieFirefoxEndHeight(ft, g.out, g.h), SP_FF_END_LO, SP_FF_END_HI);
-    Vec2 aim = { (g.out - SP_FF_END_OUT) * g.dir, end_h - g.h };
+    float run = g.out - SP_FF_OUT, travel = SpacieFirefoxTravel(ft);
+    bool down = SpacieFirefoxGoesDown(ft, &g);
+    float to_h = SP_FF_H;
+    // Straight over the ledge, as high as the travel goes.
+    if (!down && fabs(run) < travel)
+        to_h = fmax(g.h + sqrtf(travel * travel - run * run), SP_FF_H);
+    Vec2 aim = { run * g.dir, to_h - g.h };
     if (Vec2_Length(&aim) < 0.01f)
         return;
     Vec2_Normalize(&aim);
-    if (fabs(aim.X) < SP_FF_TILT_MIN * 0.5f)
-        aim.X = 0.f;
-    else if (fabs(aim.X) < SP_FF_TILT_MIN)
-        aim.X = aim.X < 0.f ? -SP_FF_TILT_MIN : SP_FF_TILT_MIN;
+
+    // Close to straight, a tilt carries it a long way sideways. Going down that's
+    // fine, and going up only if it still ends off the stage.
+    if (fabs(aim.X) < SP_FF_TILT_MIN) {
+        bool tilt = down ? fabs(aim.X) >= SP_FF_TILT_MIN * 0.5f
+            : g.out - travel * SP_FF_TILT_MIN >= SP_LIP_MARGIN;
+        aim.X = !tilt ? 0.f : aim.X < 0.f ? -SP_FF_TILT_MIN : SP_FF_TILT_MIN;
+    }
+    if (fabs(aim.Y) < SP_FF_TILT_MIN)
+        aim.Y = down ? -SP_FF_TILT_MIN : SP_FF_TILT_MIN;
     SetStick(ft, aim.X, aim.Y);
 }
 
@@ -1966,10 +1999,15 @@ static void Think_Spacies(GOBJ *cpu, u32 opt_flags) {
         // or special fall
         || (ASID_FALLSPECIAL <= state && state <= ASID_FALLSPECIALB)
     ) {
-        // drift towards stage, but not under it
+        // drift towards stage, but after a Firefox To Ledge stay over the box to
+        // fall through it, going by where it'd stop: a flat shot ends fast
         SpacieGeo geo = SpacieGetGeo(cpu_data);
-        if (sp_plan.kind != SP_PLAN_FF_LEDGE || geo.h >= 0.f || geo.out > 6.f)
+        float accel = cpu_data->attr.aerial_drift_stick_mult + cpu_data->attr.aerial_drift_base;
+        float stops = geo.out - geo.vx * fabs(geo.vx) / (2.f * accel);
+        if (sp_plan.kind != SP_PLAN_FF_LEDGE || stops > SP_FF_OUT + 2.f)
             cpu_data->cpu.lstickX = 127 * dir;
+        else if (geo.out > 0.f && stops < SP_FF_OUT - 4.f)
+            cpu_data->cpu.lstickX = -127 * dir;
     }
 }
 

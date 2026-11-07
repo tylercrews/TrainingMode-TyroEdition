@@ -1,4 +1,6 @@
 """Execute Under Fire's relocated shared DAT, regrab hook and native reset."""
+import importlib.util
+import re
 import struct
 import unittest
 from unicorn import UC_HOOK_CODE
@@ -420,7 +422,7 @@ class UnderFireTests(unittest.TestCase):
         """A stage holding both native pillar records, then the event entered on it."""
         m = self.m; base = 0x80420000
         self.pillar = []
-        for side, (index, joint, offset) in enumerate(((6, 36, 200), (7, 18, 196))):
+        for side, (index, joint, offset) in enumerate(((6, 37, 200), (7, 19, 196))):
             map_gobj, data, mesh, child, item = (base + side*0x1000 + n*0x200 for n in range(5))
             m.cpu.mem_write(map_gobj + 0x2C, struct.pack('>I', data))
             m.cpu.mem_write(data + 0x14, struct.pack('>i', index))
@@ -453,6 +455,44 @@ class UnderFireTests(unittest.TestCase):
         m.call('DAT_UnderFire')
         self.assertEqual(bytes(m.cpu.mem_read(self.option(5)+6,4)),bytes(4))
         self.assertEqual(m.record(),core)
+
+    def test_the_pillar_joints_are_the_pillars_in_the_real_stage_file(self):
+        """Walks GrZe.dat the way Stage_GetMapGObjJObj walks the live tree. The
+        fixture above can't catch a wrong number: it just returns what's asked for."""
+        iso_path = ROOT / 'melee.iso'
+        if not iso_path.exists():
+            self.skipTest('needs melee.iso')
+        spec = importlib.util.spec_from_file_location('move_data', ROOT / 'scripts/fighter_move_data.py')
+        move_data = importlib.util.module_from_spec(spec); spec.loader.exec_module(move_data)
+        with iso_path.open('rb') as iso:
+            body, roots = move_data.archive(move_data.read_file(iso, 'GrZe.dat'))
+        word = lambda at: move_data.u32(body, at)
+        source = (ROOT / 'src/events.c').read_text(encoding='utf-8')
+        rows = re.search(r'under_fire_pillars\[\] = \{(.*?)\n\};', source, re.S).group(1)
+        pillars = [tuple(map(int, row)) for row in re.findall(r'\{(\d+), (\d+), \d+\}', rows)]
+        self.assertEqual(len(pillars), 2)
+        textures = {offset: name for name, offset in roots.items()}
+        def mesh_textures(joint):
+            names, dobj = set(), word(joint + 0x10)
+            while dobj:
+                tobj = word(word(dobj + 8) + 8)
+                while tobj:
+                    names.add(textures[word(word(tobj + 0x4C))].split('Samus1')[1].split('_')[0])
+                    tobj = word(tobj + 4)
+                dobj = word(dobj + 4)
+            return names
+        table = word(roots['map_head'] + 8)
+        for map_gobj, index in pillars:
+            joints = []
+            def walk(joint):
+                while joint:
+                    joints.append(joint)
+                    walk(word(joint + 8))
+                    joint = word(joint + 0xC)
+            walk(word(table + map_gobj * 0x34))  # The file's root is the live root's child.
+            mesh = joints[index]
+            self.assertEqual(mesh_textures(mesh), {'Bio5', 'Bio8'})
+            self.assertEqual(mesh_textures(word(mesh + 8)), {'Bio9'})
 
     def meshes_hidden(self):
         return [self.word(model + mesh + 0x14) & 1 for pillar in self.pillar for model in pillar[1:3]
