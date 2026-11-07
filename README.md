@@ -56,6 +56,7 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T10
+- keep improving the fox up b overlay. put a little white horizontal line to show where you can sweet spot by holding directly to the left/right, and get rid of the top left/right 90 degrees so it's 3/4 of a circle instead of a full circle so it doesn't draw on top of the stage on slippi
 - there should be text that says you can press z to switch from sheik to zelda
 - notch marks boxx marks in settings for up b sweetspot
 - add the full ring to the rest of the up-b overlay gecko codes. Only Fox's has it so far. Falco's event ring is already full so his code should match, and Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `FULL_RING` in scripts/upb_overlay_numbers.py
