@@ -56,6 +56,9 @@ So hopefully that gives you a better idea of how I practice!
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T10
+- there should be text that says you can press z to switch from sheik to zelda
+- notch marks boxx marks in settings for up b sweetspot
+- add the full ring to the rest of the up-b overlay gecko codes. Only Fox's has it so far. Falco's event ring is already full so his code should match, and Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `FULL_RING` in scripts/upb_overlay_numbers.py
 - add a timer to jigglypuff low laser event in the bottom left corner
 - add rolling as an option in the techchase event
 - punish roll event?
@@ -157,6 +160,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
             - **Held / Need**, for Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu and Pichu: the angle you're holding and the angle to the ledge, in degrees above level toward the stage.
         - **Enable Line Guides** (on by default) draws a line out from each ledge and a white X where your position grabs the ledge: the middle of your own ledge-grab box. Then, per character:
             - **Aimed up-Bs** (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a blue ring around the X at the up-B's travel distance. Up-B on it and aim at the X.
+                - Fox's and Falco's ring goes all the way around instead of only the offstage half, because they can recover from under the stage. The ring and their angle lines draw over the stage so you can see them from under it. This hasn't been tried in Dolphin yet.
                 - The teleports and Quick Attack go farther the more you tilt the stick, so their dim inner ring is the least tilt.
                 - While the up-B charges, a white line runs from where the travel will start to the X. A second line shows where the angle you're holding would send you: green if it reaches the ledge, yellow if close, red if not. Both freeze when the up-B locks in.
             - **Fixed paths** (Mario, Dr. Mario, Luigi, Marth, Roy, Captain Falcon, Ganondorf, Peach, Kirby, Samus, Game & Watch): a blue dot where to up-B from for the fastest grab, at the top of the up-B, and a line up from it to where it still grabs, more slowly. Game & Watch's hasn't been tried in Dolphin yet.
@@ -164,7 +168,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
                 - A yellow X marks where your up-B started. Once it has risen 6 units, a yellow line and dot show the angle it set out at, drawn the length of the whole path, and stay put for the rest of the move. It used to chase you up to the top, which wiggled with drift on Captain Falcon and Ganondorf. It's measured from where you actually went, because Mario, Dr. Mario, Luigi, Marth, Roy, Peach and Game & Watch lock a stick angle early in the move, and drift is all that steers Captain Falcon and Ganondorf. This hasn't been tried in Dolphin yet.
             - Donkey Kong, Bowser, Link, Young Link, Ness and the Ice Climbers only get the ledge X for now.
             - **Fixed:** on the right ledge, the X measured your ledge-grab box from the back of your ECB instead of the front. It now uses the side facing the ledge, as the game does. That only moves the X a little, and only for the widest characters, like Ganondorf and Bowser.
-            - New [Slippi Gecko codes](slippi-gecko-codes/up-b-overlay/README.md), one for each of 17 of these characters (not Game & Watch, whose guide came later), that draw the same blue guides and white X at both ledges on the six legal stages in any match, while that character is in the match. All 17 can be on at once. They leave out the live parts: the angle lines, the Held / Need row and the yellow X and line. They pass emulator tests but haven't been tested in Dolphin yet.
+            - New [Slippi Gecko codes](slippi-gecko-codes/up-b-overlay/README.md), one for each of 17 of these characters (not Game & Watch, whose guide came later), that draw the same blue guides and white X at both ledges on the six legal stages in any match, while that character is in the match. All 17 can be on at once. They leave out the live parts: the angle lines, the Held / Need row and the yellow X and line. Fox's code has the same full ring as the event; the others still draw the offstage half for now. They pass emulator tests but haven't been tested in Dolphin yet.
         - **Camera:** Normal or Zoomed Out, like Edgeguard's; Zoomed Out keeps the bottom blast zone in view. **Change Stage** restarts on another legal stage.
         - Enable Line Guides, Marth and Camera are saved to the memory card as you change them. The success rate lasts for the session and carries over through Change Stage.
         - The event is unscored, so the Character-specific Tech events after it keep their score slots.

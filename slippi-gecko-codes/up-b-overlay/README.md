@@ -8,7 +8,7 @@ They only draw: they read the stage's ledges and which characters are playing, a
 
 All of them are measured from the **white X**: where you are when the ledge sits in the middle of your ledge-grab box. Get there at the end of your up-B and you grab the ledge.
 
-- **Aimed up-Bs** (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a **blue ring** around the X at the up-B's travel distance. Up-B from on the ring and aim at the X. The ring is the offstage half, from straight above the X to straight below it.
+- **Aimed up-Bs** (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a **blue ring** around the X at the up-B's travel distance. Up-B from on the ring and aim at the X. The ring is the offstage half, from straight above the X to straight below it, except for Fox's, which goes all the way round because Fox can also recover from under the stage. It draws over the stage, like everything here.
   - The teleports and Quick Attack go farther the more you tilt the stick, so they also get a **dim ring** at the least tilt that still aims. Up-B from between the two rings and tilt the stick less the closer you are.
   - Fox and Falco go the same distance at any tilt, so they only get the one ring.
 - **Fixed paths** (Mario, Dr. Mario, Luigi, Marth, Roy, Captain Falcon, Ganondorf, Peach, Kirby, Samus): a **blue dot** where to up-B from for the fastest grab, at the top of the up-B, and a line up from it to where it still grabs, more slowly, on the way back down.
@@ -22,7 +22,7 @@ Every point is relative to the ledge, so the marks are the same on all six stage
 
 | Character | Code | Hook | White X | Guide |
 | --- | --- | --- | --- | --- |
-| Fox | [fox-up-b-overlay.txt](fox-up-b-overlay.txt) | `8016E898` | 6.50 out, 13 down | ring 81.5 |
+| Fox | [fox-up-b-overlay.txt](fox-up-b-overlay.txt) | `8016E898` | 6.50 out, 13 down | whole ring 81.5 |
 | Falco | [falco-up-b-overlay.txt](falco-up-b-overlay.txt) | `8016E89C` | 6.65 out, 13 down | ring 60.1 |
 | Marth | [marth-up-b-overlay.txt](marth-up-b-overlay.txt) | `8016E8A0` | 7.00 out, 17 down | dot 17.2 out, 64.3 down; dim (20°) 32.8 out, 58.0 down |
 | Sheik | [sheik-up-b-overlay.txt](sheik-up-b-overlay.txt) | `8016E8A4` | 7.04 out, 15 down | rings 40.0 and 30.0 |
@@ -58,7 +58,7 @@ On other stages they do nothing. Every code has its own hook, so they run alongs
 - **Drawing:** each code holds its shapes as a list of points for the right ledge, (out, up), and mirrors them for the left one. Depth testing is off through `HSD_StateSetZMode` (the same way as the Randall Overlay), so nothing hides them. Line widths, dot size and colors are the event's.
 - **Numbers:** [scripts/upb_overlay_numbers.py](../../scripts/upb_overlay_numbers.py) reads them from a vanilla ISO, the same way the event reads the live character data:
   - **White X:** out by half of (the ECB's front + the ledge-grab box's reach), down by the box's height above the feet. The event reads the ECB live while you stand on the platform. The codes use a fixed value, from posing each character's skeleton in its standing animation the way the game sizes the ECB. For most characters that's the game's 2-unit minimum, so the X lands within about a unit of the event's.
-  - **Rings:** the up-B's travel distance from its special attributes.
+  - **Rings:** the up-B's travel distance from its special attributes. `FULL_RING` in the script lists who gets the whole ring; so far that's only Fox, though the event gives it to Falco too.
   - **Dots:** the up-B's root motion, the same table as the event's.
 
 The sources are one `.asm` per character, which the script writes, and the shared drawing code in [up-b-overlay.inc](up-b-overlay.inc). This folder sits outside `ASM/`, so the Tyro ISO build doesn't include it.
@@ -79,7 +79,7 @@ The first rewrites the `.asm` files from the ISO. The second assembles them with
 [tests/test_upb_overlay_gecko.py](../../tests/test_upb_overlay_gecko.py) runs all 17 text codes in a PowerPC emulator, installed together the way the Gecko handler installs them. It checks that:
 
 - Every hook creates its own GObj and then leaves every register as the instruction it replaced would have, compares included.
-- Each legal stage draws the code's shapes at both ledges, mirrored for the left, with Fox and Mario also worked out by hand.
+- Each legal stage draws the code's shapes at both ledges, mirrored for the left, with Fox's whole ring and Mario also worked out by hand.
 - A code draws nothing until its character is in the match, and nothing on other stages or render passes.
 - When `melee.iso` is at the repo root, each hook replaces exactly the instruction the vanilla DOL has there, and the `.asm` files match what the ISO gives.
 

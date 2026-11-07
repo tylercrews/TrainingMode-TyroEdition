@@ -323,13 +323,16 @@ class DrawTests(unittest.TestCase):
         m.draw('fox')
         batches = m.drawn()
         self.assertEqual([batch[:3] for batch in batches],
-                         [(0xB0, 10, 41), (0xA8, 12, 4), (0xB0, 10, 41), (0xA8, 12, 4)])
+                         [(0xB0, 10, 81), (0xA8, 12, 4), (0xB0, 10, 81), (0xA8, 12, 4)])
         left_ring, left_x, right_ring, right_x = (batch[3] for batch in batches)
         rounded = lambda v: (round(v[0], 2), round(v[1], 2), v[3])
+        # All the way round: above, out, below, in under the stage, above again.
         self.assertEqual([rounded(v) for v in right_ring[::20]],
-                         [(92.07, 68.5, 0x30C8FFFF), (173.57, -13.0, 0x30C8FFFF), (92.07, -94.5, 0x30C8FFFF)])
+                         [(92.07, 68.5, 0x30C8FFFF), (173.57, -13.0, 0x30C8FFFF), (92.07, -94.5, 0x30C8FFFF),
+                          (10.57, -13.0, 0x30C8FFFF), (92.07, 68.5, 0x30C8FFFF)])
         self.assertEqual([rounded(v) for v in left_ring[::20]],
-                         [(-92.07, 68.5, 0x30C8FFFF), (-173.57, -13.0, 0x30C8FFFF), (-92.07, -94.5, 0x30C8FFFF)])
+                         [(-92.07, 68.5, 0x30C8FFFF), (-173.57, -13.0, 0x30C8FFFF), (-92.07, -94.5, 0x30C8FFFF),
+                          (-10.57, -13.0, 0x30C8FFFF), (-92.07, 68.5, 0x30C8FFFF)])
         self.assertEqual([rounded(v) for v in right_x],
                          [(89.57, -15.5, 0xFFFFFFFF), (94.57, -10.5, 0xFFFFFFFF),
                           (89.57, -10.5, 0xFFFFFFFF), (94.57, -15.5, 0xFFFFFFFF)])

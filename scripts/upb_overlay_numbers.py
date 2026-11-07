@@ -8,9 +8,10 @@ Each code draws the targets the Up-B Sweetspot event's line guides draw
   ledge-grab box. Out from the ledge by half of (ECB front + ledge snap x),
   down by ledge snap y (FtCollDesc 0x10 and 0x14). The event reads the ECB
   live on the angel platform; here it is ECB_FRONT. A white X.
-- Aimed up-Bs (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): the
-  offstage half of a ring around the target at the travel distance, from the
-  special attributes the event's AimedDistance reads. The teleports and Quick
+- Aimed up-Bs (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a ring around
+  the target at the travel distance, from the special attributes the event's
+  AimedDistance reads. It's the offstage half, except for the FULL_RING
+  characters, who can up-B from under the stage. The teleports and Quick
   Attack go farther the more you tilt the stick, so they also get a dim ring
   at the least tilt that still aims.
 - Path up-Bs (Mario, Dr. Mario, Luigi, Marth, Roy, Falcon, Ganondorf, Peach,
@@ -80,6 +81,9 @@ CHARACTERS = [
 # 0x78 a frame from frame 0x70. The rest: (frames, speed per tilt, base
 # speed, least tilt), from TravelFrames, TravelSpeed and AimedThreshold.
 SPACIES = ('fox', 'falco')
+# The whole ring instead of the offstage half. The event gives Fox and Falco
+# one; the README's to-do list tracks bringing the other codes up to it.
+FULL_RING = ('fox',)
 TRAVEL = {
     'sheik': (0x38, 0x44, 0x48, 0x40),
     'zelda': (0x48, 0x54, 0x58, 0x50),
@@ -149,7 +153,7 @@ def shapes(slug, n):
     drawn = []
     for i, radius in enumerate(n.get('rings', ())):
         points = []
-        for step in range(ARC_STEPS + 1):
+        for step in range((2 if slug in FULL_RING else 1) * ARC_STEPS + 1):
             angle = math.radians(90 - 180 * step / ARC_STEPS)
             points.append((tx + math.cos(angle) * radius, ty + math.sin(angle) * radius))
         what = 'ring at the full travel' if i == 0 else 'dim ring at the least tilt'

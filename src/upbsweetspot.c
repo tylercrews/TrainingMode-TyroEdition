@@ -39,7 +39,7 @@
 // is read as it ends.
 #define SPACIES_CHARGE_FRAMES 43
 
-#define ARC_STEPS 40
+#define ARC_STEPS 40 // In half a circle.
 
 // The side and the totals survive Change Stage's restart; the menu is saved.
 #define UPB_CARRY_TAG 0x55704273 /* "UpBs" */
@@ -645,14 +645,16 @@ static const GXColor Green = { 0x00, 0xff, 0x00, 0xff };
 static const GXColor Yellow = { 0xff, 0xe0, 0x00, 0xff };
 static const GXColor Red = { 0xff, 0x00, 0x00, 0xff };
 
-static void DrawLine(Vec2 a, Vec2 b, GXColor color, int width) {
-    event_vars->GFX_Start(2, (GFX_Params) { .shape = GX_LINES, .size = width });
+/* on_top draws over the stage, which is what Fox's and Falco's marks need to be
+ * seen coming up from under it. */
+static void DrawLine(Vec2 a, Vec2 b, GXColor color, int width, bool on_top) {
+    event_vars->GFX_Start(2, (GFX_Params) { .shape = GX_LINES, .size = width, .no_depth = on_top });
     GFX_AddVtx(a.X, a.Y, 0, color);
     GFX_AddVtx(b.X, b.Y, 0, color);
 }
 
-static void DrawDot(Vec2 at, GXColor color) {
-    event_vars->GFX_Start(1, (GFX_Params) { .shape = GX_POINTS, .size = 42 });
+static void DrawDot(Vec2 at, GXColor color, bool on_top) {
+    event_vars->GFX_Start(1, (GFX_Params) { .shape = GX_POINTS, .size = 42, .no_depth = on_top });
     GFX_AddVtx(at.X, at.Y, 0, color);
 }
 
@@ -664,12 +666,14 @@ static void DrawCross(Vec2 at, float size, GXColor color) {
     GFX_AddVtx(at.X + size, at.Y - size, 0, color);
 }
 
-// The offstage half of a circle around center: from straight above, out
-// past the ledge, to straight below.
-static void DrawOffstageArc(Vec2 center, float radius, GXColor color) {
-    event_vars->GFX_Start(ARC_STEPS + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10 });
+// The offstage half of a circle around center, from straight above, out past
+// the ledge, to straight below: ARC_STEPS steps. Twice that carries on under
+// the stage and back up to the start, drawn over the stage.
+static void DrawArc(Vec2 center, float radius, GXColor color, int steps) {
+    event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10,
+                                                    .no_depth = steps > ARC_STEPS });
     float outward = Outward();
-    for (int i = 0; i <= ARC_STEPS; i++) {
+    for (int i = 0; i <= steps; i++) {
         float angle = (90 - 180.f * i / ARC_STEPS) * M_1DEGREE;
         GFX_AddVtx(center.X + outward * cos(angle) * radius, center.Y + sin(angle) * radius, 0, color);
     }
@@ -694,16 +698,18 @@ static GXColor AimColor(FighterData *ft, Vec2 target) {
 }
 
 static void DrawAimedGuide(FighterData *ft, Vec2 target) {
-    DrawOffstageArc(target, AimedDistance(ft, 1), Blue);
-    if (!IsSpacie(ft)) // Their distance grows with tilt: the inner ring is the least.
-        DrawOffstageArc(target, AimedDistance(ft, AimedThreshold(ft)), DimBlue);
+    // Fox and Falco can recover from under the stage, so theirs is the whole ring.
+    bool spacie = IsSpacie(ft);
+    DrawArc(target, AimedDistance(ft, 1), Blue, spacie ? ARC_STEPS * 2 : ARC_STEPS);
+    if (!spacie) // Their distance grows with tilt: the inner ring is the least.
+        DrawArc(target, AimedDistance(ft, AimedThreshold(ft)), DimBlue, ARC_STEPS);
     if (!upb.aiming)
         return;
-    DrawLine(upb.launch, target, White, 8);
+    DrawLine(upb.launch, target, White, 8, spacie);
     Vec2 end = { upb.launch.X + upb.aim.X * upb.distance, upb.launch.Y + upb.aim.Y * upb.distance };
     GXColor color = AimColor(ft, target);
-    DrawLine(upb.launch, end, color, 12);
-    DrawDot(end, color);
+    DrawLine(upb.launch, end, color, 12, spacie);
+    DrawDot(end, color, spacie);
 }
 
 // Where to start, with the path turned `tilt` degrees toward the stage.
@@ -713,8 +719,8 @@ static void DrawPathStart(const UpBInfo *info, Vec2 target, float scale, float t
                   target.Y - scale * (info->rise * c - info->forward * s) };
     Vec2 slow = { target.X + out * (info->end_forward * c + info->end_rise * s),
                   target.Y - scale * (info->end_rise * c - info->end_forward * s) };
-    DrawLine(fast, slow, color, 12);
-    DrawDot(fast, color);
+    DrawLine(fast, slow, color, 12, false);
+    DrawDot(fast, color, false);
 }
 
 static void DrawPathGuide(FighterData *ft, const UpBInfo *info, Vec2 target) {
@@ -725,8 +731,8 @@ static void DrawPathGuide(FighterData *ft, const UpBInfo *info, Vec2 target) {
     if (!upb.used)
         return;
     if (upb.path_set) {
-        DrawLine(upb.start, upb.path_end, Yellow, 12);
-        DrawDot(upb.path_end, Yellow);
+        DrawLine(upb.start, upb.path_end, Yellow, 12, false);
+        DrawDot(upb.path_end, Yellow, false);
     }
     DrawCross(upb.start, 2.5f, Yellow);
 }
@@ -858,7 +864,8 @@ void Event_Init(GOBJ *gobj) {
     GObj_AddGXLink(gobj, DrawHUD, GXLINK_HUD, 80);
     GOBJ *draw_gobj = GObj_Create(0, 0, 0);
     GObj_AddUserData(draw_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
-    GObj_AddGXLink(draw_gobj, Draw_Guides, 3, 0);
+    // After the stage and fighters, or they'd paint over what's drawn on top.
+    GObj_AddGXLink(draw_gobj, Draw_Guides, MATCHGX_EFFECT, 255);
 }
 
 void Event_Think(GOBJ *menu) {

@@ -75,17 +75,23 @@ float sqrtf(float value) {
 }
 float HSD_Randf(void) { return .5f; }
 void Fighter_SetHUDDamage(int player, u16 percent) { }
+/* Folded to within a quarter turn, where the series holds: a whole ring reaches -270 degrees. */
+#define PROBE_PI 3.14159265f
 float sin(float a) {
+    while (a > PROBE_PI) a -= 2 * PROBE_PI;
+    while (a < -PROBE_PI) a += 2 * PROBE_PI;
+    if (a > PROBE_PI / 2) a = PROBE_PI - a;
+    if (a < -PROBE_PI / 2) a = -PROBE_PI - a;
     float a2 = a * a;
     return a * (1.f - a2 / 6.f * (1.f - a2 / 20.f * (1.f - a2 / 42.f * (1.f - a2 / 72.f))));
 }
-float cos(float a) {
-    float a2 = a * a;
-    return 1.f - a2 / 2.f * (1.f - a2 / 12.f * (1.f - a2 / 30.f * (1.f - a2 / 56.f)));
-}
+float cos(float a) { return sin(a + PROBE_PI / 2); }
 int CObj_SetCurrent(COBJ *camera) { return 1; }
 COBJ *COBJ_GetCurrent(void) { return 0; }
-static void GFXStart(u16 count, GFX_Params params) { }
+static int on_top_vertices;
+static void GFXStart(u16 count, GFX_Params params) {
+    if (params.no_depth) on_top_vertices += count;
+}
 
 /* What the engine does to Marth between the event's thinks. */
 static void Engine(void) {
@@ -146,7 +152,22 @@ void TestUpBGameAndWatch(void) {
 }
 void TestUpBState(int state) { ft[HMN].state_id = state; }
 void TestUpBMove(int x, int y) { ft[HMN].phys.pos.X = x; ft[HMN].phys.pos.Y = y; }
-void TestUpBDraw(void) { Draw_Guides(); }
+/* Enough travel attributes for AimedDistance: Firefox's constant speed, and Sheik's
+ * 20 frames at 1 per unit of tilt plus 1, with 0.5 the least tilt. */
+void TestUpBAimed(int kind) {
+    static float attributes[64];
+    attributes[0x68 / 4] = 30;
+    attributes[0x70 / 4] = 31;
+    attributes[0x74 / 4] = 2.72f;
+    ((int *)attributes)[0x38 / 4] = 20;
+    attributes[0x40 / 4] = .5f;
+    attributes[0x44 / 4] = 1;
+    attributes[0x48 / 4] = 1;
+    ft[HMN].special_attributes = attributes;
+    TestUpBKind(kind);
+}
+void TestUpBDraw(void) { on_top_vertices = 0; Draw_Guides(); }
+int TestUpBOnTopVertices(void) { return on_top_vertices; }
 int TestUpBInfo(int key) {
     switch (key) {
     case 0: return swings;

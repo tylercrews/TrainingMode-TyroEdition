@@ -13,7 +13,7 @@ DPAD_LEFT = 1
 FSMASH_FRAME, DTILT_FRAME = 13, 7  # MARTH_FSMASH_FRAME, MARTH_DTILT_FRAME
 FSMASH, DTILT, OFF = 0, 1, 2  # TMUpBMarth
 FOX_UP_B = 354
-FTKIND_FALCON = 2
+FTKIND_FOX, FTKIND_FALCON, FTKIND_SHEIK, FTKIND_FALCO = 1, 2, 7, 22
 FALCON_UP_B = 354
 FALCON_PATH = 37.6, 11.9  # UpB_Info's rise and forward.
 FALL_SPECIAL = 35
@@ -267,6 +267,44 @@ class UpBLineTests(unittest.TestCase):
         # 22.5 degrees past the path: 0.75 of the 30 per unit of stick past 0.25.
         self.assertAlmostEqual(fast[0], -85 - (9.1 * 0.92388 + 75.6 * 0.38268), 1)
         self.assertAlmostEqual(fast[1], -(75.6 * 0.92388 - 9.1 * 0.38268), 1)
+
+    def assert_at(self, vertices, points):
+        self.assertEqual(len(vertices), len(points))
+        for vertex, point in zip(vertices, points):
+            self.assertAlmostEqual(vertex[0], point[0], 1)
+            self.assertAlmostEqual(vertex[1], point[1], 1)
+
+    def on_top(self): return self.m.call('TestUpBOnTopVertices')
+
+    def test_fox_and_falco_get_the_whole_ring_over_the_stage(self):
+        for kind in FTKIND_FOX, FTKIND_FALCO:
+            with self.subTest(kind=kind):
+                self.m.call('TestUpBAimed', kind)
+                ring = self.drawn(BLUE)
+                # 81.6 around the X at (-85, 0): above, out, below, in under the stage, above.
+                self.assertEqual(len(ring), 81)
+                self.assert_at(ring[::20], [(-85, 81.6), (-166.6, 0), (-85, -81.6), (-3.4, 0), (-85, 81.6)])
+                self.assertEqual(self.on_top(), 81)
+                self.assertEqual(self.drawn(DIM_BLUE), [])
+
+    def test_fox_aim_lines_also_draw_over_the_stage(self):
+        self.m.call('TestUpBAimed', FTKIND_FOX)
+        self.step()  # Up-B state 354 is his charge.
+        self.drawn(BLUE)
+        self.assertEqual(self.on_top(), 81 + 2 + 2 + 1)  # The ring, both lines and the dot.
+
+    def test_sheik_keeps_the_offstage_half_behind_the_stage(self):
+        self.m.call('TestUpBAimed', FTKIND_SHEIK)
+        full, least = self.drawn(BLUE), self.drawn(DIM_BLUE)
+        self.assertEqual((len(full), len(least)), (41, 41))
+        self.assert_at(full[::20], [(-85, 40), (-125, 0), (-85, -40)])
+        self.assert_at(least[::20], [(-85, 30), (-115, 0), (-85, -30)])
+        self.assertEqual(self.on_top(), 0)
+
+    def test_paths_still_draw_behind_the_stage(self):
+        self.move(-100, -5)
+        self.drawn(YELLOW)
+        self.assertEqual(self.on_top(), 0)
 
 
 if __name__ == '__main__':
