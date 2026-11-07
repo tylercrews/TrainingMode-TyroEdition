@@ -12,7 +12,7 @@
     .macro character_data
     # Target: the ledge mid-grab-box, 6.50 out (ECB front 2.00 + snap
     # 11, halved) and 13 down.
-    shape GX_LINESTRIP, 10, 81, 0x30C8FFFF    # ring at the full travel, 81.50
+    shape GX_LINESTRIP, 10, 61, 0x30C8FFFF    # ring at the full travel, 81.50
     point 6.5000, 68.5000
     point 12.8944, 68.2488
     point 19.2494, 67.4966
@@ -74,26 +74,9 @@
     point -73.9966, -25.7494
     point -74.7488, -19.3944
     point -75.0000, -13.0000
-    point -74.7488, -6.6056
-    point -73.9966, -0.2506
-    point -72.7482, 6.0258
-    point -71.0111, 12.1849
-    point -68.7962, 18.1887
-    point -66.1171, 24.0002
-    point -62.9902, 29.5836
-    point -59.4349, 34.9045
-    point -55.4731, 39.9300
-    point -51.1292, 44.6292
-    point -46.4300, 48.9731
-    point -41.4045, 52.9349
-    point -36.0836, 56.4902
-    point -30.5002, 59.6171
-    point -24.6887, 62.2962
-    point -18.6849, 64.5111
-    point -12.5258, 66.2482
-    point -6.2494, 67.4966
-    point 0.1056, 68.2488
-    point 6.5000, 68.5000
+    shape GX_LINES, 12, 2, 0xFFFFFFFF    # tick: hold straight toward the stage from here
+    point 82.0000, -13.0000
+    point 94.0000, -13.0000
     shape GX_LINES, 12, 4, 0xFFFFFFFF    # the target X
     point 4.0000, -15.5000
     point 9.0000, -10.5000

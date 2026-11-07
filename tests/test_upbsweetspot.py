@@ -21,6 +21,7 @@ GX_PIPE = 0xCC008000
 YELLOW = (0xff, 0xe0, 0x00, 0xff)
 BLUE = (0x30, 0xc8, 0xff, 0xff)
 DIM_BLUE = (0x1c, 0x6c, 0x94, 0xff)
+WHITE = (0xff, 0xff, 0xff, 0xff)
 
 
 def build():
@@ -276,22 +277,24 @@ class UpBLineTests(unittest.TestCase):
 
     def on_top(self): return self.m.call('TestUpBOnTopVertices')
 
-    def test_fox_and_falco_get_the_whole_ring_over_the_stage(self):
+    def test_fox_and_falco_get_3_4_of_a_ring_and_a_level_tick_over_the_stage(self):
         for kind in FTKIND_FOX, FTKIND_FALCO:
             with self.subTest(kind=kind):
                 self.m.call('TestUpBAimed', kind)
                 ring = self.drawn(BLUE)
-                # 81.6 around the X at (-85, 0): above, out, below, in under the stage, above.
-                self.assertEqual(len(ring), 81)
-                self.assert_at(ring[::20], [(-85, 81.6), (-166.6, 0), (-85, -81.6), (-3.4, 0), (-85, 81.6)])
-                self.assertEqual(self.on_top(), 81)
+                # 81.6 around the X at (-85, 0): above, out, below, and in under the stage.
+                self.assertEqual(len(ring), 61)
+                self.assert_at(ring[::20], [(-85, 81.6), (-166.6, 0), (-85, -81.6), (-3.4, 0)])
+                self.assertEqual(self.on_top(), 61 + 2)
+                # After the ledge lines: the tick, 6 each side of the ring's outermost point, level with the X.
+                self.assert_at(self.drawn(WHITE)[4:6], [(-172.6, 0), (-160.6, 0)])
                 self.assertEqual(self.drawn(DIM_BLUE), [])
 
     def test_fox_aim_lines_also_draw_over_the_stage(self):
         self.m.call('TestUpBAimed', FTKIND_FOX)
         self.step()  # Up-B state 354 is his charge.
         self.drawn(BLUE)
-        self.assertEqual(self.on_top(), 81 + 2 + 2 + 1)  # The ring, both lines and the dot.
+        self.assertEqual(self.on_top(), 61 + 2 + 2 + 2 + 1)  # The ring, tick, both lines and the dot.
 
     def test_sheik_keeps_the_offstage_half_behind_the_stage(self):
         self.m.call('TestUpBAimed', FTKIND_SHEIK)

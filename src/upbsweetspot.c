@@ -40,6 +40,9 @@
 #define SPACIES_CHARGE_FRAMES 43
 
 #define ARC_STEPS 40 // In half a circle.
+// Half the length of Fox's and Falco's tick where holding straight toward the
+// stage sweetspots.
+#define LEVEL_TICK 6
 
 // The side and the totals survive Change Stage's restart; the menu is saved.
 #define UPB_CARRY_TAG 0x55704273 /* "UpBs" */
@@ -646,7 +649,7 @@ static const GXColor Yellow = { 0xff, 0xe0, 0x00, 0xff };
 static const GXColor Red = { 0xff, 0x00, 0x00, 0xff };
 
 /* on_top draws over the stage, which is what Fox's and Falco's marks need to be
- * seen coming up from under it. */
+ * seen from under it. */
 static void DrawLine(Vec2 a, Vec2 b, GXColor color, int width, bool on_top) {
     event_vars->GFX_Start(2, (GFX_Params) { .shape = GX_LINES, .size = width, .no_depth = on_top });
     GFX_AddVtx(a.X, a.Y, 0, color);
@@ -667,8 +670,9 @@ static void DrawCross(Vec2 at, float size, GXColor color) {
 }
 
 // The offstage half of a circle around center, from straight above, out past
-// the ledge, to straight below: ARC_STEPS steps. Twice that carries on under
-// the stage and back up to the start, drawn over the stage.
+// the ledge, to straight below: ARC_STEPS steps. Going on to 3/4 of a circle
+// carries it under the stage, level with center, drawn over the stage. The
+// last quarter, above the stage, is left out.
 static void DrawArc(Vec2 center, float radius, GXColor color, int steps) {
     event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10,
                                                     .no_depth = steps > ARC_STEPS });
@@ -698,9 +702,16 @@ static GXColor AimColor(FighterData *ft, Vec2 target) {
 }
 
 static void DrawAimedGuide(FighterData *ft, Vec2 target) {
-    // Fox and Falco can recover from under the stage, so theirs is the whole ring.
+    // Fox and Falco can recover from under the stage, so their ring carries on
+    // under it, and a white tick on the ring, level with the X, is where holding
+    // straight toward the stage sweetspots.
     bool spacie = IsSpacie(ft);
-    DrawArc(target, AimedDistance(ft, 1), Blue, spacie ? ARC_STEPS * 2 : ARC_STEPS);
+    float distance = AimedDistance(ft, 1);
+    DrawArc(target, distance, Blue, spacie ? ARC_STEPS * 3 / 2 : ARC_STEPS);
+    if (spacie) {
+        float x = target.X + Outward() * distance;
+        DrawLine((Vec2) { x - LEVEL_TICK, target.Y }, (Vec2) { x + LEVEL_TICK, target.Y }, White, 12, true);
+    }
     if (!spacie) // Their distance grows with tilt: the inner ring is the least.
         DrawArc(target, AimedDistance(ft, AimedThreshold(ft)), DimBlue, ARC_STEPS);
     if (!upb.aiming)

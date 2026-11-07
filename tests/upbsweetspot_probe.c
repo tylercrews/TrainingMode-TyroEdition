@@ -75,7 +75,7 @@ float sqrtf(float value) {
 }
 float HSD_Randf(void) { return .5f; }
 void Fighter_SetHUDDamage(int player, u16 percent) { }
-/* Folded to within a quarter turn, where the series holds: a whole ring reaches -270 degrees. */
+/* Folded to within a quarter turn, where the series holds: Fox's ring reaches -180 degrees. */
 #define PROBE_PI 3.14159265f
 float sin(float a) {
     while (a > PROBE_PI) a -= 2 * PROBE_PI;

@@ -10,8 +10,10 @@ Each code draws the targets the Up-B Sweetspot event's line guides draw
   live on the angel platform; here it is ECB_FRONT. A white X.
 - Aimed up-Bs (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a ring around
   the target at the travel distance, from the special attributes the event's
-  AimedDistance reads. It's the offstage half, except for the FULL_RING
-  characters, who can up-B from under the stage. The teleports and Quick
+  AimedDistance reads. It's the offstage half, except for the UNDER_STAGE
+  characters, who can up-B from under the stage: theirs carries on under it
+  to 3/4 of a circle, and gets a white tick on the ring level with the target,
+  where holding straight toward the stage sweetspots. The teleports and Quick
   Attack go farther the more you tilt the stick, so they also get a dim ring
   at the least tilt that still aims.
 - Path up-Bs (Mario, Dr. Mario, Luigi, Marth, Roy, Falcon, Ganondorf, Peach,
@@ -81,9 +83,10 @@ CHARACTERS = [
 # 0x78 a frame from frame 0x70. The rest: (frames, speed per tilt, base
 # speed, least tilt), from TravelFrames, TravelSpeed and AimedThreshold.
 SPACIES = ('fox', 'falco')
-# The whole ring instead of the offstage half. The event gives Fox and Falco
-# one; the README's to-do list tracks bringing the other codes up to it.
-FULL_RING = ('fox',)
+# 3/4 of a ring (on under the stage, not over it) and the level tick, as the
+# event gives Fox and Falco; the README's to-do list tracks the other codes.
+UNDER_STAGE = ('fox',)
+LEVEL_TICK = 6      # LEVEL_TICK in the event: half the tick's length
 TRAVEL = {
     'sheik': (0x38, 0x44, 0x48, 0x40),
     'zelda': (0x48, 0x54, 0x58, 0x50),
@@ -153,11 +156,15 @@ def shapes(slug, n):
     drawn = []
     for i, radius in enumerate(n.get('rings', ())):
         points = []
-        for step in range((2 if slug in FULL_RING else 1) * ARC_STEPS + 1):
+        for step in range((ARC_STEPS * 3 // 2 if slug in UNDER_STAGE else ARC_STEPS) + 1):
             angle = math.radians(90 - 180 * step / ARC_STEPS)
             points.append((tx + math.cos(angle) * radius, ty + math.sin(angle) * radius))
         what = 'ring at the full travel' if i == 0 else 'dim ring at the least tilt'
         drawn.append(('GX_LINESTRIP', ARC_WIDTH, BLUE if i == 0 else DIM_BLUE, points, f'{what}, {radius:.2f}'))
+        if i == 0 and slug in UNDER_STAGE:
+            drawn.append(('GX_LINES', LINE_WIDTH, WHITE,
+                          [(tx + radius - LEVEL_TICK, ty), (tx + radius + LEVEL_TICK, ty)],
+                          'tick: hold straight toward the stage from here'))
     if 'path' in n:
         rise, forward, end_rise, end_forward = n['path']
         tilts = ([(n['tilt'], DIM_BLUE)] if n['tilt'] else []) + [(0.0, BLUE)]

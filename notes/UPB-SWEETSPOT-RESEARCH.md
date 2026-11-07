@@ -109,7 +109,7 @@ All of these are drawn in world space with the match camera, like Side-B's `Draw
         `  .  ´  ring: radius = travel (Fox 81.5, Falco 60.1)
 ```
 
-- **Before up-B: the sweetspot ring.** An arc of radius D (the travel distance) around T, drawn only offstage, except for Fox and Falco, who can also come up from under the stage: their ring goes all the way round, over the stage. Up-B anywhere on it, aimed at T, and the travel ends with the ledge in the box: the fastest grab.
+- **Before up-B: the sweetspot ring.** An arc of radius D (the travel distance) around T, drawn only offstage, except for Fox and Falco, who can also come up from under the stage: their ring carries on under the stage to 3/4 of a circle (not over the top of it), drawn over the stage, with a white tick where it's level with T: up-B there and hold straight toward the stage. Up-B anywhere on it, aimed at T, and the travel ends with the ledge in the box: the fastest grab.
     - Above the ledge, the whole inside of the ring works, angled down at the ledge (the travel grabs on the way, in either direction).
     - Below it, closer than D overshoots onto the stage.
     - Ending travel anywhere in the column just outside the ledge also works, only slower (you fall to it).
