@@ -329,6 +329,7 @@ static void MC_Think(GOBJ *gobj)
     if (data->picker) {
         if (inputs & HSD_BUTTON_B) data->picker = 0;
         else if (inputs & HSD_BUTTON_A) {
+            if (EventMenu_ShoulderMoving(pad)) return; /* The exit combo starting. */
             EventOption *target = data->picker; int value = data->picker_value;
             data->picker = 0; EventMenu_ChangeOptionVal(gobj, target, value); return;
         } else if (vertical) {
@@ -369,7 +370,7 @@ static void MC_Think(GOBJ *gobj)
         else if (!option || option->disable) { SFX_PlayCommon(4); return; }
         else if (option->kind == OPTKIND_MENU && option->menu) { EventMenu_NextMenu(gobj, option->menu); return; }
         else if (option->kind == OPTKIND_RESUME) { EventMenu_ExitMenu(gobj); return; }
-        else if (option->kind == OPTKIND_FUNC) { EventMenu_RunFuncOption(gobj, option); return; }
+        else if (option->kind == OPTKIND_FUNC) { EventMenu_SelectOption(gobj, option); return; }
         else if (option->kind == OPTKIND_STRING || option->kind == OPTKIND_INT || option->kind == OPTKIND_TOGGLE) {
             data->picker = option; data->picker_value = option->val; data->picker_scroll = 0;
         } else return;

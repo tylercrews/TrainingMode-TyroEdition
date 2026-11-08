@@ -13,8 +13,11 @@ enum options_main
     OPT_DAMAGETHRESHOLD,
     OPT_SCALE,
     OPT_VELOCITY,
+    OPT_UNDERPLATFORMS,
+    OPT_INAIR,
     OPT_COLLISION,
     OPT_HITBOXTRAILS,
+    OPT_COUNTERPOSITION,
     OPT_DEFAULTS,
     OPT_EXIT,
 
@@ -33,6 +36,8 @@ int Egg_OnTakeDamage(GOBJ *gobj);
 void Event_Think(GOBJ *event);
 void Eggs_ChangeHitboxTrails(GOBJ *menu_gobj, int value);
 void Eggs_ChangeSavedSetting(GOBJ *menu_gobj, int value);
+void Eggs_ChangeSpawnSetting(GOBJ *menu_gobj, int value);
+void Eggs_ChangeCounterPosition(GOBJ *menu_gobj, int value);
 void Eggs_ResetSettings(GOBJ *menu);
 
 static GXColor text_gold = {255, 211, 0, 255};
@@ -40,6 +45,9 @@ static GXColor text_white = {255, 255, 255, 255};
 
 static float EggOptions_Size[] = {1.0f, .5f, 2.0f};
 static const char *EggOptions_SizeText[] = {"Normal", "Small", "Large"};
+static const char *EggOptions_CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
+    "Top Left", "Top Right", "Bottom Left", "Bottom Right", "Under Timer"
+};
 
 enum options_hitbox_trails
 {
@@ -131,6 +139,25 @@ static EventOption Options_Main[OPT_COUNT] = {
     },
     {
         .kind = OPTKIND_TOGGLE,
+        .name = "Eggs Under Platforms",
+        .desc = { "Put about half the eggs on the ground under a side",
+                  "platform, with no hop to lift them up through it.",
+                  "A third, if Eggs In The Air is on too.",
+                  "Stages without side platforms ignore this." },
+        .disable = 1,
+        .OnChange = Eggs_ChangeSpawnSetting,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Eggs In The Air",
+        .desc = { "Put about half the eggs high in the air, slowly",
+                  "falling to the stage.",
+                  "A third, if Eggs Under Platforms is on too." },
+        .disable = 1,
+        .OnChange = Eggs_ChangeSpawnSetting,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
         .name = "Fighter Collision",
         .desc = {"Toggle hitbox and hurtbox visualization.",
                  "Hurtboxes: yellow=hurt, purple=ungrabbable, blue=shield.",
@@ -143,6 +170,15 @@ static EventOption Options_Main[OPT_COUNT] = {
         .menu = &Menu_HitboxTrails,
         .name = "Hitbox Trails",
         .desc = {"Create a trail of your hitboxes to visualize spacing."},
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .value_num = countof(EggOptions_CounterPositionText),
+        .name = "Egg Counter Position",
+        .desc = { "Move the egg count and the text under it to a",
+                  "corner of the screen or under the timer." },
+        .values = EggOptions_CounterPositionText,
+        .OnChange = Eggs_ChangeCounterPosition,
     },
     {
         .kind = OPTKIND_FUNC, .name = "Reset Event Settings",

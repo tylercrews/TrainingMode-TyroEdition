@@ -216,6 +216,43 @@ EventDesc LedgeChase = {
     .matchData = &LedgeChase_MatchData,
 };
 
+// 2v1 Grab Punish Practice
+static EventMatchData GrabPunish_MatchData = {
+    .timer = MATCH_TIMER_COUNTUP,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = true,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+/* The VS select picks you, a teammate CPU and an enemy CPU and their team
+ * colors; TM/grabpunishCSS.dat keeps exactly one CPU on your team there, and
+ * GrabPunish_PrepareMatch makes the match the same way. */
+EventDesc GrabPunish = {
+    .tyro_edited = true,
+    .eventName = "2v1 Grab Punish Practice\n",
+    .eventDescription = "Your teammate grabs the enemy. Punish them\nbefore they mash out, without hitting your teammate!",
+    .eventFile = "grabpunish",
+    .jumpTableIndex = -1,
+    .eventCSSFile = "TM/grabpunishCSS.dat",
+    .CSSType = SLCHRKIND_VS,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = -1,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &GrabPunish_MatchData,
+};
+
 // Float Cancel Training
 static EventMatchData FloatCancel_MatchData = {
     .timer = MATCH_TIMER_HIDE,
@@ -271,6 +308,32 @@ EventDesc Sweetspot = {
     .CSSType = SLCHRKIND_EVENT,
     .allowed_characters = {
         .hmn = CSSID_FALCO | CSSID_FOX,
+        .cpu = -1,
+    },
+    .playerKind = -1,
+    .cpuKind = CKIND_MARTH,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &Sweetspot_MatchData,
+};
+
+/* Every character with a recovery up-B: Yoshi's and Jigglypuff's don't recover. */
+EventDesc UpBSweetspot = {
+    .tyro_edited = true,
+    .eventName = "Up-B Sweetspot\n",
+    .eventDescription = "Up-B from the right spot to grab the\nledge, and don't overshoot into Marth!",
+    .eventFile = "upbsweetspot",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = {
+        .hmn = CSSID_DOCTOR_MARIO | CSSID_MARIO | CSSID_LUIGI | CSSID_BOWSER | CSSID_PEACH
+            | CSSID_DONKEY_KONG | CSSID_CAPTAIN_FALCON | CSSID_GANONDORF | CSSID_FALCO | CSSID_FOX
+            | CSSID_NESS | CSSID_ICE_CLIMBERS | CSSID_KIRBY | CSSID_SAMUS | CSSID_ZELDA | CSSID_LINK
+            | CSSID_YOUNG_LINK | CSSID_PICHU | CSSID_PIKACHU | CSSID_MEWTWO | CSSID_GAME_AND_WATCH
+            | CSSID_MARTH | CSSID_ROY,
         .cpu = -1,
     },
     .playerKind = -1,
@@ -758,6 +821,23 @@ EventDesc Ledgestall = {
     .matchData = 0,
 };
 
+static EventMatchData LedgegrabSpeedrun_MatchData = {
+    .timer = MATCH_TIMER_HIDE, .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true, .hideReady = true, .isCreateHUD = true,
+    .isCheckForZRetry = true,
+};
+EventDesc LedgegrabSpeedrun = {
+    .tyro_edited = true,
+    .eventName = "Ledgegrab Speedrun\n",
+    .eventDescription = "How few frames can you reach the ledge\nin? Start = more options.",
+    .eventFile = "ledgegrab", .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = {.hmn = -1, .cpu = -1},
+    .playerKind = -1, .cpuKind = -1, .stage = -1,
+    .disable_hazards = true, .scoreType = SCORETYPE_KO, .callbackPriority = 3,
+    .matchData = &LedgegrabSpeedrun_MatchData,
+};
+
 ///////////////////////
 /// Page Defintions ///
 ///////////////////////
@@ -769,6 +849,7 @@ static EventDesc *Minigames_Events[] = {
     &Multishine,
     &Reaction,
     &Ledgestall,
+    &LedgegrabSpeedrun,
 };
 static EventPage Minigames_Page = {
     .name = "Minigames",
@@ -795,6 +876,7 @@ static EventDesc *General_Events[] = {
     &SlideOff,
     &GrabMash,
     &LedgeChase,
+    &GrabPunish,
 };
 static EventPage General_Page = {
     .name = "General Tech",
@@ -807,6 +889,7 @@ static EventDesc *CharacterSpecific_Events[] = {
     &TechCounter,
     &Edgeguard,
     &Sweetspot,
+    &UpBSweetspot,
     &LaserLand,
     &EscapeSheik,
     &EscapeDThrowKnee,
@@ -827,13 +910,17 @@ EventPage *EventPages[] = {
 /* Persisted score identities do not follow menu insertion order. The original
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
-typedef char event_score_map_matches[(countof(Minigames_Events) == 5 &&
-    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 8) ? 1 : -1];
+typedef char event_score_map_matches[(countof(Minigames_Events) == 6 &&
+    countof(General_Events) == 18 && countof(CharacterSpecific_Events) == 9) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
-    if (page == 0) return event;
-    if (page == 1) return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : 5 + event;
-    return event < 7 ? 21 + event : UINT32_MAX; /* Low Laser is unscored free practice. */
+    if (page == 0) /* Ledgegrab Speedrun (5) only keeps session bests, in RAM. */
+        return event < 5 ? event : UINT32_MAX;
+    if (page == 1) /* 2v1 Grab Punish (17) is unscored free practice. */
+        return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;
+    /* Up-B Sweetspot (3) and Low Laser (8) are unscored free practice; the
+     * events after Up-B Sweetspot keep their original slots. */
+    return event == 3 || event > 7 ? UINT32_MAX : 21 + event - (event > 3);
 }
 
 ////////////////////////
@@ -907,6 +994,7 @@ EventVars stc_event_vars = {
     .HUD_DrawRects = HUD_DrawRects,
     .HUD_DrawTris = HUD_DrawTris,
     .HUD_DrawText = HUD_DrawText,
+    .HUD_DrawTextEx = HUD_DrawTextEx,
     .HUD_DrawActionLogBar = HUD_DrawActionLogBar,
     .HUD_DrawActionLogKey = HUD_DrawActionLogKey,
     .HUD_DrawInfoPanel = HUD_DrawInfoPanel,
@@ -946,7 +1034,7 @@ static int under_fire_in_iasa;
 static int under_fire_inv_total, under_fire_inv_frame, under_fire_inv_tick, under_fire_inv_remaining;
 static CmSubject *under_fire_camera;
 static GOBJ *under_fire_lava_gobj;
-enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_LAVA_OVERLAY, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
+enum { UF_HIGHLIGHT, UF_TRAILS, UF_SIDE, UF_PARTICLES, UF_LAVA_OVERLAY, UF_PILLARS, UF_REFRESH_OSDS, UF_SUPPRESS_OSDS, UF_EXIT };
 static void UnderFire_ChangeSide(GOBJ *menu, int value) { under_fire_restart = 1; }
 static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
     Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES, value);
@@ -955,6 +1043,7 @@ static void UnderFire_ChangeParticles(GOBJ *menu, int value) {
 }
 static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value);
 static void UnderFire_SyncLava(GOBJ *gobj);
+static void UnderFire_ChangePillars(GOBJ *menu, int value);
 static void UnderFire_UpdateCounterText(void) {
     if (!under_fire_count_text) return;
     for (int row = 10; row < 15; ++row)
@@ -1007,6 +1096,10 @@ static EventOption under_fire_options[] = {
      .desc = {"Draw the lava as a see-through overlay on top,",
               "so ledge grabs stay visible once it rises.",
               "The lava still hurts at the same height.", "This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Remove Fleshy Pillars", .OnChange = UnderFire_ChangePillars,
+     .desc = {"Make the pillars under the side platforms",
+              "invisible and intangible. Attacks pass through.",
+              "The platforms stay where they are.", "This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .val = 1, .name = "Ledge Refresh OSTs",
      .desc = {"Show Ledge Drop and Invincibility together.",
               "Perfect stall: 29f protection / 29f lockout.",
@@ -1033,11 +1126,15 @@ static int under_fire_lava_hidden_num;
 static int UnderFire_LavaOn(void) {
     return under_fire_active && under_fire_options[UF_LAVA_OVERLAY].val;
 }
-static JOBJ *UnderFire_LavaRoot(void) {
+static GOBJ *UnderFire_MapGObj(int index) {
     if (Stage_ExternalToInternal(Stage_GetExternalID()) != GRKIND_ZEBES) return 0;
-    GOBJ *map = Stage_GetMapGObj(UF_LAVA_MAP_GOBJ);
+    GOBJ *map = Stage_GetMapGObj(index);
     MapData *data = map ? map->userdata : 0;
-    return data && data->index == UF_LAVA_MAP_GOBJ ? map->hsd_object : 0;
+    return data && data->index == index ? map : 0;
+}
+static JOBJ *UnderFire_LavaRoot(void) {
+    GOBJ *map = UnderFire_MapGObj(UF_LAVA_MAP_GOBJ);
+    return map ? map->hsd_object : 0;
 }
 // Remember only the joints this overlay hid, so Off restores the model exactly.
 static void UnderFire_HideLava(JOBJ *joint) {
@@ -1096,14 +1193,68 @@ static void UnderFire_LavaGX(GOBJ *gobj, int pass) {
     GFX_AddVtx(-UF_LAVA_HALF_WIDTH, top, 0, surface);
     GFX_AddVtx(UF_LAVA_HALF_WIDTH, top, 0, surface);
 }
+/* Remove Fleshy Pillars: each pillar is only a map item's hurtbox and a skinned
+ * model, with no collision lines. An intangible hurtbox ends every hit, and a
+ * pillar that can't be hit never breaks, so its side platform stays down. The
+ * meshes hide with their own flag, which the display checks for each DObj
+ * (80374418) and no joint animation touches. The joint flags are kept for a
+ * pillar that's breaking or regrowing, and set every frame on link 5, after the
+ * stage's animation (1) and think (4). Only per-match instances change, so Exit
+ * has nothing to restore. */
+typedef struct {
+    u8 state; // 0 idle, 1 breaking, 2 broken, 3 growing back.
+    u8 pad[27];
+    GOBJ *item; // Holds the hurtbox.
+} UnderFirePillar;
+#define UF_PILLARS_LINK 5
+/* Left, then right: the map GObj, its pillar mesh, and its pillar's MapData
+ * offset. The mesh's child is the rest of the column. Stage_GetMapGObjJObj counts
+ * from the file's root as 0: the game puts a scale joint above it (801C1768), and
+ * the joints before these are the skeleton's bones, which hold no meshes. */
+static const struct { u8 map_gobj, mesh_joint, offset; } under_fire_pillars[] = {
+    {6, 37, 200},
+    {7, 19, 196},
+};
+static void UnderFire_HideMeshes(JOBJ *joint, int hidden) {
+    for (DOBJ *mesh = joint ? joint->dobj : 0; mesh; mesh = mesh->next)
+        mesh->flags = hidden ? mesh->flags | DOBJ_HIDDEN : mesh->flags & ~DOBJ_HIDDEN;
+}
+static void UnderFire_SetPillars(int removed) {
+    for (unsigned i = 0; i < countof(under_fire_pillars); ++i) {
+        GOBJ *map = UnderFire_MapGObj(under_fire_pillars[i].map_gobj);
+        JOBJ *mesh = map ? Stage_GetMapGObjJObj(map, under_fire_pillars[i].mesh_joint) : 0;
+        if (!mesh) continue;
+        UnderFirePillar *pillar = (void *)((char *)map->userdata + under_fire_pillars[i].offset);
+        Item_SetHurtboxTangibility(pillar->item, removed ? 2 : 0); // Spawn sets 0.
+        UnderFire_HideMeshes(mesh, removed);
+        UnderFire_HideMeshes(mesh->child, removed);
+        if (removed) {
+            JOBJ_SetFlags(mesh, JOBJ_HIDDEN);
+            JOBJ_SetFlags(mesh->child, JOBJ_HIDDEN);
+            continue;
+        }
+        JOBJ_ClearFlags(mesh, JOBJ_HIDDEN);
+        // Break and regrow animate this flag, and regrowing shows it again.
+        if (pillar->state == 0) JOBJ_ClearFlags(mesh->child, JOBJ_HIDDEN);
+    }
+}
+static void UnderFire_SyncPillars(GOBJ *gobj) {
+    if (under_fire_options[UF_PILLARS].val) UnderFire_SetPillars(1);
+}
+static void UnderFire_ChangePillars(GOBJ *menu, int value) {
+    Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_REMOVE_PILLARS, value);
+    UnderFire_SetPillars(value); // Apply now: a toggle while paused runs no procs.
+}
 static void UnderFire_InitLava(void) {
     under_fire_lava_hidden_num = 0;
     under_fire_lava_gobj = GObj_Create(0, 7, 0);
     if (!under_fire_lava_gobj) return;
     GObj_AddProc(under_fire_lava_gobj, UnderFire_SyncLava, 0);
+    GObj_AddProc(under_fire_lava_gobj, UnderFire_SyncPillars, UF_PILLARS_LINK);
     // The in-game effects link draws after the stage and fighters.
     GObj_AddGXLink(under_fire_lava_gobj, UnderFire_LavaGX, MATCHGX_EFFECT, 255);
     UnderFire_SyncLava(under_fire_lava_gobj);
+    UnderFire_SyncPillars(under_fire_lava_gobj);
 }
 static void UnderFire_ChangeLavaOverlay(GOBJ *menu, int value) {
     Settings_Set(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY, value);
@@ -1373,6 +1524,8 @@ void UnderFire_InitMenu(void) {
         Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_ATTACK_PARTICLES);
     under_fire_options[UF_LAVA_OVERLAY].val = under_fire_options[UF_LAVA_OVERLAY].val_prev =
         Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_LAVA_OVERLAY);
+    under_fire_options[UF_PILLARS].val = under_fire_options[UF_PILLARS].val_prev =
+        Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_REMOVE_PILLARS);
     // The pre-counter format stores survival time, not a refresh count.
     under_fire_high_score = Settings_Get(TM_SETTING_UNDERFIRE, TM_UNDERFIRE_COUNTER_SCORE) ?
         Events_GetSavedScore(under_fire_event) : 0;
@@ -1475,6 +1628,9 @@ void GFX_Start(u16 vtx_count, GFX_Params params)
     HSD_StateSetLineWidth(params.size, 5);
     HSD_StateSetPointSize(params.size, 5);
     HSD_SetupRenderMode(0x68000002);
+    // Through HSD's cached state, so later draws restore their own modes.
+    if (params.no_depth)
+        HSD_StateSetZMode(GX_DISABLE, GX_ALWAYS, GX_DISABLE);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XYZ, GX_F32, 0);
     GXSetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
     GXSetVtxDesc(GX_VA_POS, GX_DIRECT);
@@ -1853,6 +2009,64 @@ void HUD_DrawActionLogKey(char **action_names, GXColor *action_colors, int actio
 /// Event Functions ///
 ///////////////////////
 
+/* Whether an event's CPU can be either form: yours to pick from the whole cast.
+ * Edgeguard's list stands for Sheik: only she has a recovery there. */
+static int Events_CpuFormFree(EventDesc *event) {
+    return event->CSSType == SLCHRKIND_TRAINING && event->cpuKind == -1 && event->allowed_characters.cpu == -1;
+}
+
+static int TeamCostume(int c_kind, int team) {
+    if (team == TEAMKIND_BLUE) return CSS_GetCostumeBlue(c_kind);
+    if (team == TEAMKIND_GREEN) return CSS_GetCostumeGreen(c_kind);
+    return CSS_GetCostumeRed(c_kind);
+}
+
+/* 2v1 Grab Punish Practice is always a team match of you, a teammate CPU and
+ * an enemy CPU. The CPU on your team is the teammate (its CSS keeps that to
+ * one), or else the first CPU; the next CPU is the enemy, on another team.
+ * Anyone else sits out. Everyone wears their team's costume. */
+static void GrabPunish_PrepareMatch(MatchInit *match) {
+    PlayerData *players = match->playerData;
+    int hmn = -1, mate = -1, enemy = -1;
+    for (int i = 0; i < 4; i++)
+        players[i].c_kind = Settings_DoorCharacter(i, players[i].c_kind);
+    for (int i = 0; i < 6 && hmn < 0; i++)
+        if (players[i].p_kind == PKIND_HMN) hmn = i;
+    if (hmn < 0) return;
+    int was_teams = match->is_teams;
+    int team = was_teams ? players[hmn].team : TEAMKIND_RED;
+    if (team > TEAMKIND_GREEN) team = TEAMKIND_RED;
+    for (int i = 0; i < 6 && was_teams && mate < 0; i++)
+        if (players[i].p_kind == PKIND_CPU && players[i].team == team) mate = i;
+    for (int i = 0; i < 6; i++) {
+        if (players[i].p_kind != PKIND_CPU || i == mate) continue;
+        if (mate < 0) mate = i;
+        else if (enemy < 0) enemy = i;
+    }
+
+    int count = 0;
+    for (int i = 0; i < 6; i++) {
+        PlayerData *player = &players[i];
+        if (i != hmn && i != mate && i != enemy) {
+            player->p_kind = PKIND_NONE;
+            continue;
+        }
+        if (i != enemy)
+            player->team = team;
+        else if (!was_teams || player->team == team || player->team > TEAMKIND_GREEN)
+            player->team = (team + 1) % 3;
+        player->costume = TeamCostume(player->c_kind, player->team);
+        count++;
+    }
+    match->is_teams = 1;
+    match->hudPos = count;
+
+    // The next time, grabpunish_css.c starts from these teams.
+    Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_YOUR_TEAM, team);
+    if (enemy >= 0)
+        Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_ENEMY_TEAM, players[enemy].team);
+}
+
 void EventInit(int page, int eventID, MatchInit *matchData)
 {
 
@@ -1925,6 +2139,7 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             preload->queued.fighters[i].kind = restart_fighters[i].kind;
             preload->queued.fighters[i].costume = restart_fighters[i].costume;
             if (i == 1) restart_exact_cpu = 1;
+            else Settings_Set(TM_SETTING_DOOR_ZELDA, 0, restart_fighters[i].kind == CKIND_ZELDA);
         }
         if (new_stage) preload->queued.stage = restart_stage;
         Preload_Update();
@@ -1956,11 +2171,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             cpu_costume = preload->queued.fighters[1].costume;
         }
 
-        /* Ledgechase's native controller supports either selected form. Other
-         * events retain their existing Sheik CPU convention, unless Zelda was
-         * picked in-event. */
-        if (cpu_kind == CKIND_ZELDA && event != &LedgeChase && !restart_exact_cpu)
-            cpu_kind = CKIND_SHEIK;
+        // Picked in-event, the CPU stays as chosen.
+        if (cpu_kind == CKIND_ZELDA && !restart_exact_cpu)
+            cpu_kind = Events_CpuFormFree(event) ? Settings_DoorCharacter(1, cpu_kind) : CKIND_SHEIK;
 
         if (cpu_kind != -1) {
             matchData->playerData[1].costume = cpu_costume;
@@ -1969,7 +2182,7 @@ void EventInit(int page, int eventID, MatchInit *matchData)
             matchData->playerData[1].portNumberOverride = cpu_port;
         }
         
-        matchData->playerData[0].c_kind = preload->queued.fighters[0].kind;
+        matchData->playerData[0].c_kind = Settings_DoorCharacter(0, preload->queued.fighters[0].kind);
         matchData->playerData[0].costume = preload->queued.fighters[0].costume;
         matchData->playerData[0].p_kind = PKIND_HMN;
         matchData->playerData[0].portNumberOverride = hmn_port;
@@ -1988,6 +2201,9 @@ void EventInit(int page, int eventID, MatchInit *matchData)
         }
         matchData->hudPos = hudPos;
     }
+
+    if (event == &GrabPunish)
+        GrabPunish_PrepareMatch(matchData);
 
     // set to enter fall on match start
     for (int i = 0; i < 6; i++)
@@ -2531,6 +2747,7 @@ GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, 
     msg_data->queue_num = queue_num;
     msg_data->layout_key = -1;
     msg_data->native_frame = stc_match->time_frames;
+    OSDContext_Result(queue_num, msg_data->settings_id);
     if (msg_data->settings_id == 0 && msg_data->kind == 0 && (unsigned)queue_num < 6) {
         GOBJ *fighter = Fighter_GetSubcharGObj(queue_num, 0);
         if (fighter && fighter->userdata) {
@@ -2851,6 +3068,17 @@ void Message_EndCombo(int queue_num) {
         msg->lifetime = 60;
         msg->alive_timer = 0;
         Text_SetColor(msg->text, 1, &stc_msg_colors[MSGCOLOR_GREEN]);
+    }
+}
+/* An Act Oo attempt with no result: its OSD's older pop-up leaves now. */
+void Message_Retire(int queue_num, int settings_id) {
+    if ((unsigned)queue_num >= MSGQUEUE_NUM) return;
+    MsgMngrData *manager = stc_msgmgr->userdata;
+    for (unsigned i = 0; i < MSGQUEUE_SIZE; ++i) {
+        GOBJ *gobj = manager->msg_queue[queue_num][i];
+        if (!gobj) continue;
+        MsgData *msg = gobj->userdata;
+        if (msg->settings_id == settings_id && msg->alive_timer < msg->lifetime) msg->alive_timer = msg->lifetime;
     }
 }
 void Message_FreeObject(GOBJ *object) {
@@ -3265,11 +3493,149 @@ AllowedCharacters *GetEventCharList(int eventID,int pageID) {
     return &desc->allowed_characters;
 }
 
-void Settings_EventCharacters(unsigned save) {
+/* Z on the character select: the Zelda icon is Sheik until you choose Zelda.
+ * Melee has no Sheik portrait, so the door's name is what changes. A held puck
+ * picks the door, and otherwise your own, then any other door on the icon. */
+#define CSS_ICON_COUNT 25
+static int form_doors, form_cpu_locked, form_icon;
+
+static int FormDoorOpen(int door) {
+    MnSlChrDoor *css_door = &stc_css_data->doors[door];
+    return css_door->sel_icon == form_icon && css_door->p_kind != PKIND_NONE;
+}
+static int FormDoorLocked(int door) { return door == 1 && form_cpu_locked; }
+static int FormTarget(int own_door, CSSCursor *cursor) {
+    int held = cursor->state == SLCHRCUR_HOLD && cursor->puck < form_doors ? cursor->puck : -1;
+    if (held >= 0)
+        return FormDoorOpen(held) && !FormDoorLocked(held) ? held : -1;
+    if (FormDoorOpen(own_door) && !FormDoorLocked(own_door))
+        return own_door;
+    for (int door = 0; door < form_doors; door++)
+        if (FormDoorOpen(door) && !FormDoorLocked(door))
+            return door;
+    return -1;
+}
+/* The door a port's Z changes, or -1. The solo select has one cursor, yours. */
+static int FormPortTarget(int port, int solo) {
+    if (solo && port != *stc_css_hmnport)
+        return -1;
+    return FormTarget(solo ? 0 : port, stc_css_cursors[solo ? 0 : port]);
+}
+
+/* A hint under the name of each door Z would change, naming the form it
+ * changes to. It sits in the nameplate's base, below the name's line: both
+ * the solo and the team select have room there (KO stars only show for a
+ * nametag with VS wins). It's centered on the name, which centers itself in
+ * its box, and squeezes rather than run past a little more than that box. */
+#define FORM_HINT_SCALE 0.045f
+#define FORM_HINT_GAP 0.4f
+#define FORM_HINT_WIDTH 1.4f
+static Text *form_hints[4];
+static int form_hint_zelda[4];
+static GXColor form_hint_color = {255, 211, 0, 255};
+
+static void FormHint_Update(int door, int show) {
+    Text *hint = form_hints[door];
+    MnSlChrTagData *tag = stc_css_data->tags[door].tag_data;
+    Text *name = tag->name;
+    show = show && !tag->state && !name->hidden; // Not over an open nametag list.
+    hint->hidden = !show;
+    if (!show)
+        return;
+    int zelda = Settings_Get(TM_SETTING_DOOR_ZELDA, door) != 0;
+    if (zelda != form_hint_zelda[door]) {
+        form_hint_zelda[door] = zelda;
+        Text_SetText(hint, 0, zelda ? "Press Z for Sheik" : "Press Z for Zelda");
+        Text_SetColor(hint, 0, &form_hint_color);
+    }
+    float name_width = name->aspect.X * name->viewport_scale.X;
+    hint->trans.X = name->trans.X + name_width / 2;
+    hint->trans.Y = name->trans.Y + 32 * name->viewport_scale.Y + FORM_HINT_GAP;
+    hint->trans.Z = name->trans.Z;
+    hint->aspect.X = FORM_HINT_WIDTH * name_width / FORM_HINT_SCALE;
+}
+
+static void FormToggle_Think(GOBJ *gobj) {
+    int solo = *stc_css_maxply == 1;
+    for (int port = 0; port < 4; port++) {
+        if (!(stc_css_pad[port].down & HSD_TRIGGER_Z))
+            continue;
+        int door = FormPortTarget(port, solo);
+        if (door < 0)
+            continue;
+        int zelda = !Settings_Get(TM_SETTING_DOOR_ZELDA, door);
+        Settings_Set(TM_SETTING_DOOR_ZELDA, door, zelda);
+        CSS_UpdateCSP(door); // Puts the native name back; Sheik's goes over it below.
+        CSS_PlayFighterName(zelda ? CKIND_ZELDA : CKIND_SHEIK);
+    }
+    for (int door = 0; door < form_doors; door++) {
+        MnSlChrTagData *tag = stc_css_data->tags[door].tag_data;
+        if (FormDoorOpen(door) && !tag->use_tag
+            && (FormDoorLocked(door) || !Settings_Get(TM_SETTING_DOOR_ZELDA, door)))
+            Text_SetText(tag->name, 0, CSS_GetFighterName(CKIND_SHEIK));
+    }
+    // A team select port with no controller has no hand, and no Z to press.
+    int hinted = 0;
+    for (int port = 0; port < 4; port++) {
+        if (!solo && stc_css_cursors[port]->state == SLCHRCUR_HIDDEN)
+            continue;
+        int door = FormPortTarget(port, solo);
+        if (door >= 0)
+            hinted |= 1 << door;
+    }
+    for (int door = 0; door < form_doors; door++)
+        FormHint_Update(door, hinted >> door & 1);
+}
+static void FormToggle_Start(EventDesc *desc) {
+    int solo = *stc_css_maxply == 1;
+    form_doors = !solo ? 4 : desc->CSSType == SLCHRKIND_TRAINING ? 2 : 1;
+    form_cpu_locked = solo && !Events_CpuFormFree(desc);
+    for (form_icon = 0; form_icon < CSS_ICON_COUNT; form_icon++)
+        if (stc_css_data->icons[form_icon].c_kind == CKIND_ZELDA)
+            break;
+    for (int door = 0; door < form_doors; door++) {
+        Text *hint = Text_CreateText(0, 0); // The CSS's own canvas, like its names.
+        hint->kerning = 1;
+        hint->align = 1;
+        hint->use_aspect = 1;
+        hint->viewport_scale.X = FORM_HINT_SCALE;
+        hint->viewport_scale.Y = FORM_HINT_SCALE;
+        hint->hidden = 1;
+        Text_AddSubtext(hint, 0, 0, "");
+        form_hints[door] = hint;
+        form_hint_zelda[door] = -1;
+    }
+    GObj_AddProc(GObj_Create(4, 5, 0), FormToggle_Think, 2); // After the CSS's own input.
+}
+
+int Settings_EventCharacters(unsigned step) {
+    if (step == TM_CHARACTERS_NOTE_FORMS) { Savestate_NoteForms(); return 0; }
+    if (step == TM_CHARACTERS_KEEP_FORMS) { Savestate_KeepForms(); return 0; }
     unsigned page = Settings_Get(TM_SETTING_EVENT_PAGE, 0);
     unsigned event = stc_memcard->EventBackup.event;
-    if (page >= sizeof(EventPages) / sizeof(EventPages[0]) || event >= (unsigned)EventPages[page]->eventNum) return;
+    if (page >= sizeof(EventPages) / sizeof(EventPages[0]) || event >= (unsigned)EventPages[page]->eventNum) return 0;
     EventDesc *desc = GetEventDesc(page, event);
-    Settings_Characters(save, desc->allowed_characters.hmn, desc->allowed_characters.cpu,
-        desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1);
+    int team_select = desc->CSSType == SLCHRKIND_VS;
+    switch (step) {
+    case TM_CHARACTERS_OPEN:
+        if (team_select) Settings_OpenTeamSelect();
+        break;
+    case TM_CHARACTERS_CSS_LOADED:
+        FormToggle_Start(desc);
+        break;
+    case TM_CHARACTERS_CPU: // Legacy events, which come here only for Zelda's icon.
+        return Events_CpuFormFree(desc) ? Settings_DoorCharacter(1, CKIND_ZELDA) : CKIND_SHEIK;
+    case TM_CHARACTERS_SAVE:
+        Settings_ApplyDoorForms();
+        if (team_select) {
+            Settings_SaveTeamSelect();
+            break;
+        }
+        // Fall through.
+    default:
+        Settings_Characters(step, desc->allowed_characters.hmn, desc->allowed_characters.cpu,
+            desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1);
+        if (step == TM_CHARACTERS_RESTORE) Settings_LoadDoorForms();
+    }
+    return 0;
 }

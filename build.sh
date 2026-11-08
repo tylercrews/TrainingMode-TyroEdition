@@ -106,19 +106,27 @@ queue_mex_build "tmFunction" "build/eventMenu.dat" "src/events.c src/shield_trai
 queue_mex_build "cssFunction" "build/labCSS.dat" "src/lab_css.c" "dats/labCSS.dat"
 queue_mex_build "evFunction" "build/lab.dat" "src/lab.c src/stadium.c" "dats/lab.dat"
 queue_mex_build "evFunction" "build/lcancel.dat" "src/lcancel.c"
-queue_mex_build "evFunction" "build/ledgedash.dat" "src/ledgedash.c src/ledgedash_logic.c"
+# ledgedash and sweetspot both compile ledgedash_logic.c to build/ledgedash_logic.o, so they can't run at once
+{
+    mex_build "evFunction" "build/ledgedash.dat" "src/ledgedash.c src/ledgedash_logic.c" &&
+    mex_build "evFunction" "build/sweetspot.dat" "src/sweetspot.c src/ledgedash_logic.c"
+} &
+build_jobs+=("$!")
 queue_mex_build "evFunction" "build/wavedash.dat" "src/wavedash.c" "dats/wavedash.dat"
 queue_mex_build "evFunction" "build/powershield.dat" "src/powershield.c"
 queue_mex_build "evFunction" "build/dthrowknee.dat" "src/dthrowknee.c"
 queue_mex_build "evFunction" "build/edgeguard.dat" "src/edgeguard.c"
 queue_mex_build "evFunction" "build/fc.dat" "src/fc.c"
-queue_mex_build "evFunction" "build/sweetspot.dat" "src/sweetspot.c"
+queue_mex_build "evFunction" "build/upbsweetspot.dat" "src/upbsweetspot.c"
 queue_mex_build "evFunction" "build/lowlaser.dat" "src/lowlaser.c"
 queue_mex_build "evFunction" "build/laserland.dat" "src/laserland.c"
 queue_mex_build "evFunction" "build/eggs.dat" "src/eggs.c"
 queue_mex_build "evFunction" "build/techchase.dat" "src/techchase.c"
 queue_mex_build "evFunction" "build/ledgechase.dat" "src/ledgechase.c"
 queue_mex_build "evFunction" "build/slalom.dat" "src/slalom.c" "dats/wavedash.dat"
+queue_mex_build "evFunction" "build/grabpunish.dat" "src/grabpunish.c"
+queue_mex_build "evFunction" "build/ledgegrab.dat" "src/ledgegrab.c"
+queue_mex_build "cssFunction" "build/grabpunishCSS.dat" "src/grabpunish_css.c"
 
 # wait for compilation to finish
 build_failed=false
@@ -159,12 +167,15 @@ ${gc_fst} fs "${tyro_output_iso}" \
     insert TM/edgeguard.dat build/edgeguard.dat \
     insert TM/fc.dat build/fc.dat \
     insert TM/sweetspot.dat build/sweetspot.dat \
+    insert TM/upbsweetspot.dat build/upbsweetspot.dat \
     insert TM/lowlaser.dat build/lowlaser.dat \
     insert TM/laserland.dat build/laserland.dat \
     insert TM/eggs.dat build/eggs.dat \
     insert TM/techchase.dat build/techchase.dat \
     insert TM/ledgechase.dat build/ledgechase.dat \
     insert TM/slalom.dat build/slalom.dat \
+    insert TM/grabpunish.dat build/grabpunish.dat \
+    insert TM/grabpunishCSS.dat build/grabpunishCSS.dat     insert TM/ledgegrab.dat build/ledgegrab.dat \
     insert codes.gct build/codes.gct \
     insert Start.dol build/Start.dol \
     insert opening.bnr build/opening.bnr

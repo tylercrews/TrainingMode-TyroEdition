@@ -7,6 +7,8 @@ static MenuData data;
 static EventMenu root, submenu;
 static int exits, saves, destroyed, custom_thinks;
 static int native_exits, develop_updates;
+static int func_runs;
+static EventOption func_row, toggle_row;
 static GOBJ osd_gobj;
 void StartOSDs(void);
 static uint32_t GetSetting(unsigned field, unsigned index) { return 0; }
@@ -14,6 +16,8 @@ static const TMSettingsAPI settings = {.get = GetSetting};
 static void Exit(GOBJ *gobj) { if (gobj == &menu_gobj) ++exits; }
 static void Destroy(GOBJ *gobj) { ++destroyed; }
 static int CustomThink(GOBJ *gobj) { ++custom_thinks; return 0; }
+static void FuncRow(GOBJ *gobj) { ++func_runs; }
+static void ToggleRow(GOBJ *gobj, int value) { }
 
 void Memcard_SaveIfChanged(void) { ++saves; }
 void Match_UnfreezeGame(int kind) {}
@@ -52,6 +56,19 @@ void TestMenuExitPad(int port, int held, int down, int triggers) {
     pad->triggerRight = triggers;
 }
 void TestMenuExitUpdate(void) { EventMenu_Update(&menu_gobj); }
+void TestMenuExitNoExitOption(void) { root.on_exit = 0; }
+/* What the menus do with A on a function row. */
+void TestMenuExitSelect(void) {
+    func_row.kind = OPTKIND_FUNC;
+    func_row.OnSelect = FuncRow;
+    EventMenu_SelectOption(&menu_gobj, &func_row);
+}
+/* And A on a toggle, the row that changes a saved setting. */
+void TestMenuExitToggle(void) {
+    toggle_row.kind = OPTKIND_TOGGLE;
+    toggle_row.OnChange = ToggleRow;
+    EventMenu_SelectOption(&menu_gobj, &toggle_row);
+}
 void TestMenuExitLegacyInit(int paused) {
     stc_match->state = 0;
     stc_hsd_update->pause_kind = paused;
@@ -69,6 +86,8 @@ int TestMenuExitResult(int which) {
     case 6: return native_exits;
     case 7: return stc_match->state;
     case 8: return develop_updates;
+    case 9: return func_runs;
+    case 10: return toggle_row.val;
     default: return 0;
     }
 }

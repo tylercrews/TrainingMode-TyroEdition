@@ -43,14 +43,19 @@ int sprintf(char *out, const char *format, ...) {
 }
 int TestDirty(void) { return stc_memcard_state->memcard_changed; }
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
-    static const unsigned counts[3] = {5, 17, 7};
+    static const unsigned counts[3] = {5, 17, 8};
     if (page >= 3 || event >= counts[page]) return UINT32_MAX;
     if(page==1 && event==16) return 50;
-    unsigned index = event;
+    if(page==2 && event==3) return UINT32_MAX; /* Up-B Sweetspot is unscored. */
+    unsigned index = event - (page==2 && event>3);
     for (unsigned p = 0; p < page; ++p) index += p==1?16:counts[p];
     return index;
 }
-void TestEventCharacters(unsigned save) { Settings_Characters(save, -1, -1, 1); }
+unsigned test_character_steps; /* Each hook call's step + 1, a nibble each. */
+void TestEventCharacters(unsigned step) {
+    test_character_steps = test_character_steps << 4 | (step + 1);
+    if (step != TM_CHARACTERS_OPEN) Settings_Characters(step, -1, -1, 1);
+}
 int TestTextCopyFormat(char *out, int limit, const char *format, void *args) {
     /* Native SetText fixture inputs are already formatted, as in the timing
      * builder. Keep native conversion, buffer shifting and setters real. */
@@ -105,9 +110,14 @@ int TestStickTip(int x, int y, unsigned axis) {
 static const char *wait_label;
 static GOBJ wait_object;
 static int wave_frame, wave_hop;
+static int retire_queue = -1, retire_id = -1;
+void Message_Retire(int queue, int settings_id) { retire_queue = queue; retire_id = settings_id; }
+int TestRetired(void) { return retire_queue < 0 ? -1 : retire_queue * 64 + retire_id; }
+int TestStyleBlank(void) { return style_message.timing_blank; }
 GOBJ *Message_Display(int tag, int queue, int color, char *format, ...) {
     va_list args; va_start(args, format);
     unsigned id = OSD_MessageSettings(tag);
+    OSDContext_Result(queue, id);
     if (OSD_MessagePointerFirst(tag)) {
         wait_label = va_arg(args, const char *); wait_frame = va_arg(args, int);
     } else {
@@ -141,7 +151,7 @@ int TestStyleEncoded(void) { return style_message.timing_encoded; }
 
 int TestWaitFrame(void) { return wait_frame; }
 unsigned TestWaitLabelChar(unsigned i) { return wait_label ? wait_label[i] : 0; }
-void TestWaitClear(void) { wait_frame = wait_tag = 0; wait_label = 0; }
+void TestWaitClear(void) { wait_frame = wait_tag = 0; wait_label = 0; retire_queue = retire_id = -1; }
 void TestWaitDisplay(unsigned slot) { OSD_ActOutWait(Fighter_GetSubcharGObj(slot / 2, slot & 1)); }
 int TestWaitTag(void) { return wait_tag; }
 void TestContextStep(TMOSDContext *context, unsigned frame, int *sample) {
@@ -364,8 +374,9 @@ void GObj_AddGXLink(GOBJ *gobj, void *callback, int link, int priority) {
     if (link == 5) trail_draw = callback;
 }
 void Develop_DrawSphere(float size, Vec3 *a, Vec3 *b, GXColor *diffuse, GXColor *ambient) { ++trail_spheres; }
+/* Native: Playerblock.gobj[isTransformed[sub]]. Zelda/Sheik swap the indexes. */
 GOBJ *Fighter_GetSubcharGObj(int ply, int sub) {
-    unsigned slot = ply * 2 + sub;
+    unsigned slot = ply >= 0 && ply < 6 && sub >= 0 && sub < 2 ? ply * 2 + cue_players[ply].isTransformed[sub] : 12;
     return slot < 12 && cue_active[slot] ? &cue_objects[slot] : 0;
 }
 Playerblock *Fighter_GetPlayerblock(int ply) { return ply >= 0 && ply < 6 ? &cue_players[ply] : 0; }
@@ -414,6 +425,8 @@ void TestCueInit(void) {
         cue_data[slot].state_id = ASID_WAIT;
         cue_data[slot].state.rate = 1;
         cue_lengths[slot] = 40;
+        cue_players[slot / 2].gobj[slot & 1] = &cue_objects[slot];
+        cue_players[slot / 2].isTransformed[slot & 1] = slot & 1;
     }
     stc_match->time_frames = 0;
     ActionCues_MatchStart();
@@ -423,6 +436,7 @@ static const TMTrailAPI test_trail_api = {Trails_Configure, Trails_Clear, Trails
 static const TMSettingsAPI test_trail_settings = {Settings_Get, Settings_Set, Settings_Status};
 static EventVars test_trail_vars;
 static void TestTrailTangibility(const s16 *option) {}
+static const void *TestTrailCarryTake(u32 tag, u32 size) { return 0; } /* No Change Stage restart. */
 void TestTrailInit(void) {
     TestCueInit();
     *stc_gobj_lookup = trail_lookup;
@@ -431,6 +445,7 @@ void TestTrailInit(void) {
     test_trail_vars.trails=&test_trail_api;
     test_trail_vars.settings=&test_trail_settings;
     test_trail_vars.set_tangibility_overlay=TestTrailTangibility;
+    test_trail_vars.carry_take=TestTrailCarryTake;
     *event_vars_ptr_loc=&test_trail_vars;
 }
 void TestTrailHit(int active) {
@@ -488,6 +503,8 @@ void TestCueSpawn(unsigned slot, int spawn, int dead) {
     cue_data[slot].spawn_num = spawn; cue_data[slot].flags.dead = dead;
 }
 void TestCueInputTimer(unsigned slot, int timer) { cue_data[slot].input.timer_trigger_any_ignore_hitlag = timer; }
+void TestCueHitstun(unsigned slot, int hitstun) { cue_data[slot].flags.hitstun = hitstun; }
+void TestCuePrevious(unsigned slot, int state) { cue_data[slot].TM.state_prev[0] = state; }
 unsigned TestCueDrawCount(unsigned slot) { return cue_draw_count[slot]; }
 int TestCueWrapped(unsigned slot) { return cue_objects[slot].gx_cb != TestCueNativeDraw; }
 void TestCueLocal(unsigned slot, unsigned rgba) {
@@ -505,6 +522,16 @@ void TestCueCapsules(unsigned slot, int num, int state) {
 void TestCueCapsule(unsigned slot, unsigned index, int state) { cue_data[slot].hurtbox[index].state = state; }
 void TestCuePlayer(unsigned ply, int accent, int cpu) {
     cue_players[ply].color_accent = accent; cue_players[ply].p_kind = cpu;
+}
+/* Native Zelda/Sheik transform (0x8007EFE0): swap the active index and the ms bits. */
+void TestCueTransform(unsigned ply) {
+    Playerblock *player = &cue_players[ply];
+    u8 index = player->isTransformed[0];
+    player->isTransformed[0] = player->isTransformed[1]; player->isTransformed[1] = index;
+    for (unsigned sub = 0; sub < 2; ++sub) cue_data[ply * 2 + sub].flags.ms ^= 1;
+}
+void TestCueTeam(unsigned ply, int team, int present) {
+    cue_players[ply].team = team; cue_players[ply].state = present ? 2 : 0;
 }
 void TestCueMissed(unsigned slot, int timer) {
     cue_data[slot].input.timer_trigger_any_ignore_hitlag = timer;
@@ -661,6 +688,7 @@ unsigned TestLayoutFooterRowChar(GOBJ *object,unsigned row,unsigned index) {
     return i>=0 && row<9 ? (unsigned char)layout_texts[i].body[row][index] : 0;
 }
 void TestStyleFailed(int fail) { style_message.timing_failed=fail; }
+void TestLayoutBlank(GOBJ *object) { ((MsgData *)object->userdata)->timing_blank = 1; }
 int TestLayoutFooterMetric(GOBJ *object,unsigned row,unsigned metric){
     int i=layout_text_index(((MsgData *)object->userdata)->layout_footer);
     return i<0 || row>=9 ? 0 : (metric<2 ? layout_texts[i].pos[row][metric] : layout_texts[i].scale[row][metric-2]*100+.5f);

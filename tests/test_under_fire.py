@@ -1,9 +1,13 @@
 """Execute Under Fire's relocated shared DAT, regrab hook and native reset."""
+import importlib.util
+import re
 import struct
 import unittest
 from unicorn import UC_HOOK_CODE
 import test_settings as fixtures
 from test_settings import ROOT, gpr, reg
+
+GRKIND_ZEBES = 8
 
 
 class UnderFireTests(unittest.TestCase):
@@ -26,6 +30,8 @@ class UnderFireTests(unittest.TestCase):
         self.native_timer, self.timer_hides = False, 0
         self.exit_calls = []
         self.lava_gobjs = 0
+        self.overlay_gobj, self.procs, self.stage_maps, self.mesh_joints = 0, [], {}, {}
+        self.hurtbox_states = []
         self.second_values = []
         start = m.symbols['DAT_UnderFire']
         for pc in range(start, start + 1024, 4):
@@ -69,7 +75,19 @@ class UnderFireTests(unittest.TestCase):
         elif address == 0x801A45E8: cpu.reg_write(gpr(3), self.paused)
         elif address == 0x803A611C: cpu.reg_write(gpr(3), 7)
         elif address == 0x803901F0:
-            self.lava_gobjs += 1; cpu.reg_write(gpr(3), 0)  # No Lava Overlay GOBJ outside a match.
+            # Unless a test builds a stage, no Lava Overlay GOBJ, as outside a match.
+            self.lava_gobjs += 1; cpu.reg_write(gpr(3), self.overlay_gobj)
+        elif address == 0x8038FD54: self.procs.append((r(4), r(5)))
+        elif address == 0x8039069C: pass
+        elif address == 0x80225194: cpu.reg_write(gpr(3), 0)
+        elif address == 0x8022519C: cpu.reg_write(gpr(3), GRKIND_ZEBES)
+        elif address == 0x801C2BA4: cpu.reg_write(gpr(3), self.stage_maps.get(r(3), 0))
+        elif address == 0x801C3FA4: cpu.reg_write(gpr(3), self.mesh_joints[r(3), r(4)])
+        elif address == 0x80271508: self.hurtbox_states.append((r(3), r(4)))
+        elif address in (0x80371D00, 0x80371F00):
+            flags = self.word(r(3)+0x14)
+            flags = flags | r(4) if address == 0x80371D00 else flags & ~r(4)
+            cpu.mem_write(r(3)+0x14, struct.pack('>I', flags))
         elif address == 0x803A6754:
             text = 0x80409000 + len(self.texts)*0x400
             self.texts.append(text); self.subtexts[text] = 0
@@ -101,8 +119,8 @@ class UnderFireTests(unittest.TestCase):
 
     def test_defaults_menu_and_dpad_share_side_and_full_reset_request(self):
         m = self.m; core = m.record()
-        self.assertEqual(m.cpu.mem_read(self.menu+4,1)[0],8)
-        for row, name, value in ((2,'Ledge Side',0),(3,'Disable Attack Particles',0),(4,'Lava Overlay',0),(5,'Ledge Refresh OSTs',1),(6,'Suppress Global OSTs',1)):
+        self.assertEqual(m.cpu.mem_read(self.menu+4,1)[0],9)
+        for row, name, value in ((2,'Ledge Side',0),(3,'Disable Attack Particles',0),(4,'Lava Overlay',0),(5,'Remove Fleshy Pillars',0),(6,'Ledge Refresh OSTs',1),(7,'Suppress Global OSTs',1)):
             at = self.option(row)
             self.assertEqual(self.string(self.word(at+12)),name)
             self.assertEqual(bytes(m.cpu.mem_read(at+6,4)),struct.pack('>hh',value,value))
@@ -147,10 +165,10 @@ class UnderFireTests(unittest.TestCase):
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][3],-3)
         self.assertEqual(self.colors[-1][2],bytes.fromhex('FF4646FF'))
-        count = len(self.rows); self.option(5,0)
+        count = len(self.rows); self.option(6,0)
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(len(self.rows),count)
-        self.option(5,1); self.control(1); self.protection(0)
+        self.option(6,1); self.control(1); self.protection(0)
         m.call('DAT_UnderFireRegrab',self.fighter)
         self.assertEqual(self.rows[-1][3],0)  # Retry clears timing history.
 
@@ -340,7 +358,7 @@ class UnderFireTests(unittest.TestCase):
         self.grant();self.tick(1,30);self.timing(0);self.timing(1)
         count=len(self.rows);self.timing(2,29)
         self.assertEqual(len(self.rows),count)  # Collision outside IASA is not an action.
-        self.control(1);self.grant();self.option(5,0)
+        self.control(1);self.grant();self.option(6,0)
         count=len(self.rows)  # Retry updates the counter to zero.
         self.tick(2,30);self.timing(0);self.timing(2,29)
         self.assertEqual(len(self.rows),count)
@@ -399,6 +417,187 @@ class UnderFireTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(self.option(3)+6,4)),bytes(4))
         self.assertEqual(self.effects,[])  # No blanket removal of utility effects.
         self.assertEqual(m.record(),core)
+
+    def pillars(self):
+        """A stage holding both native pillar records, then the event entered on it."""
+        m = self.m; base = 0x80420000
+        self.pillar = []
+        for side, (index, joint, offset) in enumerate(((6, 37, 200), (7, 19, 196))):
+            map_gobj, data, mesh, child, item = (base + side*0x1000 + n*0x200 for n in range(5))
+            m.cpu.mem_write(map_gobj + 0x2C, struct.pack('>I', data))
+            m.cpu.mem_write(data + 0x14, struct.pack('>i', index))
+            m.cpu.mem_write(data + offset + 0x1C, struct.pack('>I', item))
+            m.cpu.mem_write(mesh + 0x10, struct.pack('>I', child))
+            for model in (mesh, child):  # Each joint holds a chain of meshes.
+                m.cpu.mem_write(model + 0x18, struct.pack('>I', model + 0x100))
+                m.cpu.mem_write(model + 0x104, struct.pack('>I', model + 0x120))
+            self.stage_maps[index], self.mesh_joints[map_gobj, joint] = map_gobj, mesh
+            self.pillar.append((data + offset, mesh, child, item))
+        self.overlay_gobj = 0x80428000
+        m.call('DAT_UnderFire')
+        m.symbols['ChangePillars'] = self.word(self.option(5)+36)
+        link5 = [fn for fn, link in self.procs if link == 5]
+        self.assertEqual(len(link5), 1)  # After the stage's animation (1) and think (4).
+        m.symbols['SyncPillars'] = link5[0]
+        self.hurtbox_states.clear()
+    def toggle_pillars(self, value):
+        self.option(5, value); self.m.call('ChangePillars', self.menu_obj, value)
+    def hidden(self, joint): return self.word(joint + 0x14) & 0x10 != 0
+
+    def test_remove_pillars_toggle_saves_and_restores_through_event_menu(self):
+        m = self.m; core = m.record(); self.pillars()
+        self.toggle_pillars(1)
+        self.assertEqual(m.call('DAT_Get',29,3),1)
+        self.assertEqual((m.call('DAT_Get',29,0),m.call('DAT_Get',29,2)),(0,0))  # Its neighbors keep their bits.
+        m.call('DAT_UnderFire')
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(5)+6,4)),struct.pack('>hh',1,1))
+        self.toggle_pillars(0)
+        m.call('DAT_UnderFire')
+        self.assertEqual(bytes(m.cpu.mem_read(self.option(5)+6,4)),bytes(4))
+        self.assertEqual(m.record(),core)
+
+    def test_the_pillar_joints_are_the_pillars_in_the_real_stage_file(self):
+        """Walks GrZe.dat the way Stage_GetMapGObjJObj walks the live tree. The
+        fixture above can't catch a wrong number: it just returns what's asked for."""
+        iso_path = ROOT / 'melee.iso'
+        if not iso_path.exists():
+            self.skipTest('needs melee.iso')
+        spec = importlib.util.spec_from_file_location('move_data', ROOT / 'scripts/fighter_move_data.py')
+        move_data = importlib.util.module_from_spec(spec); spec.loader.exec_module(move_data)
+        with iso_path.open('rb') as iso:
+            body, roots = move_data.archive(move_data.read_file(iso, 'GrZe.dat'))
+        word = lambda at: move_data.u32(body, at)
+        source = (ROOT / 'src/events.c').read_text(encoding='utf-8')
+        rows = re.search(r'under_fire_pillars\[\] = \{(.*?)\n\};', source, re.S).group(1)
+        pillars = [tuple(map(int, row)) for row in re.findall(r'\{(\d+), (\d+), \d+\}', rows)]
+        self.assertEqual(len(pillars), 2)
+        textures = {offset: name for name, offset in roots.items()}
+        def mesh_textures(joint):
+            names, dobj = set(), word(joint + 0x10)
+            while dobj:
+                tobj = word(word(dobj + 8) + 8)
+                while tobj:
+                    names.add(textures[word(word(tobj + 0x4C))].split('Samus1')[1].split('_')[0])
+                    tobj = word(tobj + 4)
+                dobj = word(dobj + 4)
+            return names
+        table = word(roots['map_head'] + 8)
+        for map_gobj, index in pillars:
+            joints = []
+            def walk(joint):
+                while joint:
+                    joints.append(joint)
+                    walk(word(joint + 8))
+                    joint = word(joint + 0xC)
+            walk(word(table + map_gobj * 0x34))  # The file's root is the live root's child.
+            mesh = joints[index]
+            self.assertEqual(mesh_textures(mesh), {'Bio5', 'Bio8'})
+            self.assertEqual(mesh_textures(word(mesh + 8)), {'Bio9'})
+
+    def meshes_hidden(self):
+        return [self.word(model + mesh + 0x14) & 1 for pillar in self.pillar for model in pillar[1:3]
+                for mesh in (0x100, 0x120)]
+
+    def test_the_meshes_hide_themselves_so_a_visibility_track_cant_show_them(self):
+        m = self.m; self.pillars()
+        self.assertEqual(self.meshes_hidden(), [0] * 8)
+        self.toggle_pillars(1)
+        self.assertEqual(self.meshes_hidden(), [1] * 8)
+        for _, mesh, child, _ in self.pillar:
+            m.cpu.mem_write(mesh + 0x14, bytes(4)); m.cpu.mem_write(child + 0x14, bytes(4))
+        self.assertEqual(self.meshes_hidden(), [1] * 8)
+
+    def test_turning_it_off_shows_the_meshes_again(self):
+        self.pillars(); self.toggle_pillars(1)
+        self.toggle_pillars(0)
+        self.assertEqual(self.meshes_hidden(), [0] * 8)
+
+    def test_removed_pillars_are_hidden_and_intangible_on_both_sides_the_same_frame(self):
+        self.pillars()
+        self.m.call('SyncPillars', self.overlay_gobj)
+        self.assertEqual(self.hurtbox_states, [])  # Off leaves the stage alone.
+        self.assertFalse(any(self.hidden(p[1]) or self.hidden(p[2]) for p in self.pillar))
+        self.toggle_pillars(1)
+        self.assertEqual(self.hurtbox_states, [(p[3], 2) for p in self.pillar])
+        self.assertTrue(all(self.hidden(p[1]) and self.hidden(p[2]) for p in self.pillar))
+
+    def test_removed_pillars_stay_hidden_when_the_idle_animation_shows_the_child_mesh(self):
+        m = self.m; self.pillars(); self.toggle_pillars(1)
+        for _, mesh, child, _ in self.pillar:
+            m.cpu.mem_write(child + 0x14, bytes(4))  # The native BRANCH track, every idle loop.
+        self.hurtbox_states.clear()
+        m.call('SyncPillars', self.overlay_gobj)
+        self.assertTrue(all(self.hidden(p[2]) for p in self.pillar))
+        self.assertEqual(self.hurtbox_states, [(p[3], 2) for p in self.pillar])
+
+    def test_saved_removal_applies_on_entry(self):
+        m = self.m; self.pillars(); self.toggle_pillars(1)
+        for _, mesh, child, _ in self.pillar:
+            m.cpu.mem_write(mesh + 0x14, bytes(4)); m.cpu.mem_write(child + 0x14, bytes(4))
+        self.hurtbox_states.clear()
+        m.call('DAT_UnderFire')
+        self.assertTrue(all(self.hidden(p[1]) and self.hidden(p[2]) for p in self.pillar))
+        self.assertEqual(self.hurtbox_states, [(p[3], 2) for p in self.pillar])
+
+    def test_turning_it_off_restores_hurtbox_and_both_meshes(self):
+        self.pillars(); self.toggle_pillars(1); self.hurtbox_states.clear()
+        self.toggle_pillars(0)
+        self.assertEqual(self.hurtbox_states, [(p[3], 0) for p in self.pillar])  # What item spawn sets.
+        self.assertFalse(any(self.hidden(p[1]) or self.hidden(p[2]) for p in self.pillar))
+
+    def test_turning_it_off_leaves_a_broken_pillars_animated_mesh_to_its_animation(self):
+        m = self.m; self.pillars(); self.toggle_pillars(1)
+        broken, idle = self.pillar
+        m.cpu.mem_write(broken[0], bytes([2]))  # Broken: the animation hides the child until regrowth.
+        self.toggle_pillars(0)
+        self.assertFalse(self.hidden(broken[1]))
+        self.assertTrue(self.hidden(broken[2]))
+        self.assertFalse(self.hidden(idle[2]))
+
+    def test_missing_map_gobjs_are_skipped_but_the_choice_still_saves(self):
+        self.pillars(); self.stage_maps.clear()
+        self.toggle_pillars(1)
+        self.assertEqual(self.hurtbox_states, [])
+        self.assertEqual(self.m.call('DAT_Get',29,3),1)
+
+    @unittest.skipUnless((ROOT / 'melee.iso').is_file(), 'needs a vanilla melee.iso at the repo root')
+    def test_pillar_joints_are_the_native_stage_files_pillar_meshes(self):
+        # The joints from events.c, walked the way Stage_GetMapGObjJObj walks them.
+        with open(ROOT / 'melee.iso', 'rb') as iso:
+            iso.seek(0x424); fst_at, fst_size = struct.unpack('>II', iso.read(8))
+            iso.seek(fst_at); fst = iso.read(fst_size)
+            count = struct.unpack_from('>I', fst, 8)[0]; names = fst[12*count:]
+            for i in range(1, count):
+                name, at, size = struct.unpack_from('>3I', fst, 12*i)
+                if names[name & 0xFFFFFF:].split(b'\0', 1)[0] == b'GrZe.dat':
+                    iso.seek(at); dat = iso.read(size); break
+        data_size, relocs, roots = struct.unpack_from('>3I', dat, 4)
+        table = 32 + data_size + 4*relocs; strings = table + 8*roots
+        symbols = {}
+        for i in range(roots):
+            at, name = struct.unpack_from('>II', dat, table + i*8)
+            text = dat[strings + name:].split(b'\0', 1)[0].decode()
+            symbols[at], symbols[text] = text, at
+        word = lambda at: struct.unpack_from('>I', dat, 32 + at)[0]
+        def joint_at(root, index):
+            parents, joint = {}, word(root + 8)
+            parents[joint] = root
+            while index:
+                index -= 1
+                child, sibling = word(joint + 8), word(joint + 12)
+                if child: parents[child] = joint; joint = child; continue
+                while not sibling:
+                    joint = parents[joint]; sibling = word(joint + 12)
+                parents[sibling] = parents[joint]; joint = sibling
+            return joint
+        def image(joint):  # Its first dobj's material's first texture's image.
+            return symbols[word(word(word(word(word(joint + 0x10) + 8) + 8) + 0x4C))]
+        gobjs = word(symbols['map_head'] + 8)
+        for map_gobj, mesh_joint in ((6, 36), (7, 18)):
+            mesh = joint_at(word(gobjs + map_gobj*0x34), mesh_joint)
+            self.assertEqual(image(mesh), 'GrdSamus1Bio5_CMPR_image')
+            self.assertEqual(image(word(mesh + 8)), 'GrdSamus1Bio9_RGB5A3_image')
+            self.assertEqual(word(word(mesh + 8) + 8), 0)  # Nothing below the child mesh to hide.
 
     def test_lava_overlay_toggle_saves_and_restores_through_event_menu(self):
         m=self.m;core=m.record()
@@ -498,7 +697,7 @@ class UnderFireTests(unittest.TestCase):
         m=self.m
         m.cpu.mem_write(self.menu_data+9,b'\x01')
         m.call('DAT_UnderFireScore',1)
-        m.symbols['Exit']=self.word(self.option(7)+40)
+        m.symbols['Exit']=self.word(self.option(8)+40)
         m.call('Exit',self.menu_obj)
         self.assertEqual(self.saved_score,1)
         self.assertEqual(m.cpu.mem_read(self.menu_data+9,1)[0],0)
@@ -530,7 +729,7 @@ class UnderFireTests(unittest.TestCase):
         self.assertEqual(self.counter(),1)
         self.refresh(20,1);self.refresh(30,2);self.refresh(40,3)
         self.assertEqual(self.counter(),1)
-        self.option(5,0);self.refresh(50)
+        self.option(6,0);self.refresh(50)
         self.assertEqual(self.counter(),2)
         self.assertEqual(self.session_best(),2)
         self.assertEqual(self.rows[-1][2:],('Session Best: %d',2))

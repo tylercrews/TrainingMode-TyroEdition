@@ -353,6 +353,7 @@ int CSS_GetCostumeRed(int c_kind);
 int CSS_GetCostumeBlue(int c_kind);
 int CSS_GetCostumeGreen(int c_kind);
 void CSS_PlayFighterName(int ext_id);
+char *CSS_GetFighterName(int ext_id);
 void CSS_CostumeChange(int port, int button_down);
 void CSS_UpdateCSPTexture(int port, int costume, int is_none);
 #endif

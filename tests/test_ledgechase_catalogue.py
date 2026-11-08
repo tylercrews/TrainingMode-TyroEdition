@@ -17,7 +17,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
 
     def test_general_seventeenth_entry_preserves_existing_order(self):
         pages = self.functions[0]
-        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [5, 17, 8])
+        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(3)], [6, 18, 9])
         general = self.word(pages + 4)
         events = self.word(general + 8)
         expected = ['Training Lab', 'L-Cancel Training', 'Ledgedash Training',
@@ -28,6 +28,47 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         descriptor = self.word(events + 16 * 4)
         self.assertEqual(self.text(self.word(descriptor)).strip(), 'Ledgechase Training')
         self.assertEqual(self.text(self.word(descriptor + 8)), 'ledgechase')
+        descriptor = self.word(events + 17 * 4)
+        self.assertEqual(self.text(self.word(descriptor)).strip(), '2v1 Grab Punish Practice')
+        self.assertEqual(self.text(self.word(descriptor + 8)), 'grabpunish')
+        self.assertEqual(self.m.call(self.functions[10], 1, 17), 0)  # SLCHRKIND_VS
+        self.assertEqual(self.m.call(self.functions[11], 1, 17), 1)  # stage select
+        self.assertEqual(self.text(self.m.call(self.functions[15], 1, 17)), 'TM/grabpunishCSS.dat')
+
+    def test_only_the_team_select_opens_its_doors(self):
+        machine, functions = self.m, self.functions
+        css, memcard = 0x80497758, self.word(machine.cpu.reg_read(gpr(13)) - 30656)
+        machine.call(functions[28], 2, 0, 1)  # TM_SETTING_EVENT_PAGE, General Tech.
+        for event, kinds in ((17, (0, 1, 1, 3)), (16, (3, 3, 3, 3))):  # Grab Punish, Ledgechase.
+            with self.subTest(event=event):
+                machine.cpu.mem_write(memcard + 0x535, bytes((event,)))
+                machine.cpu.mem_write(css, struct.pack('>H', 1))
+                for door in range(4):
+                    machine.cpu.mem_write(css + 0x70 + door * 36, bytes((2, 3)))
+                machine.call(functions[39], 2)  # TM_CHARACTERS_OPEN
+                self.assertEqual(tuple(machine.cpu.mem_read(css + 0x71 + door * 36, 1)[0] for door in range(4)), kinds)
+
+    def test_upb_sweetspot_sits_under_side_b_sweetspot_with_a_stage_select(self):
+        character = self.word(self.word(self.functions[0] + 8) + 8)
+        names = [self.text(self.word(self.word(character + index * 4))).strip() for index in (2, 3)]
+        self.assertEqual(names, ['Side-B Sweetspot', 'Up-B Sweetspot'])
+        self.assertEqual(self.text(self.word(self.word(character + 3 * 4) + 8)), 'upbsweetspot')
+        self.assertEqual(self.m.call(self.functions[11], 2, 3), 1)  # stage select
+
+    def test_ledgegrab_speedrun_ends_the_minigames_page_with_no_cpu_or_score_slot(self):
+        functions, machine = self.functions, self.m
+        minigames = self.word(self.word(functions[0]) + 8)
+        descriptor = self.word(minigames + 5 * 4)
+        self.assertEqual(self.text(self.word(descriptor)).strip(), 'Ledgegrab Speedrun')
+        self.assertEqual(self.text(self.word(descriptor + 8)), 'ledgegrab')
+        self.assertEqual(machine.call(functions[11], 0, 5), 1)  # stage select
+        self.assertEqual(machine.call(functions[12], 0, 5), 0xFFFFFFFF)  # no CPU
+        machine.call(functions[28], 2, 0, 0)  # TM_SETTING_EVENT_PAGE
+        self.assertEqual(machine.call(functions[43], 5), 0)
+        reaction = machine.call(functions[43], 3)
+        self.assertNotEqual(reaction, 0)
+        machine.call(functions[28], 2, 0, 1)
+        self.assertEqual(machine.call(functions[43], 0), reaction + 2 * 4)  # Slot 5 stays Training Lab's.
 
     def test_both_fighters_selectable_fixed_fd_and_percent_hud_enabled(self):
         functions = self.functions
@@ -49,17 +90,19 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         machine.call(0x8024E858,0,0,stop=0x8024E85C)
         self.assertEqual(machine.cpu.reg_read(gpr(30)),16)
         # Execute the actual native scroll initializer and its page-size hooks.
-        # Nine visible rows put event 17 at row 9, with eight preceding entries.
+        # Nine visible rows over 18 events scroll down to event 10 at most, so
+        # event 17 (index 16) is row 8 and 2v1 Grab Punish (17) the last row.
         machine.install_hook(0x8024E438,0x80612000)
         machine.install_hook(0x8024CFFC,0x80614000)
         scroll=0x8050A000
-        machine.cpu.mem_write(scroll-4,b'\xA5'*0x84)
-        machine.call(0x8024E420,scroll,16)
-        self.assertEqual(bytes(machine.cpu.mem_read(scroll,1)),b'\x08')
-        self.assertEqual(self.word(scroll+4),8)
+        for event, row in ((16, 7), (17, 8)):
+            machine.cpu.mem_write(scroll-4,b'\xA5'*0x84)
+            machine.call(0x8024E420,scroll,event)
+            self.assertEqual(bytes(machine.cpu.mem_read(scroll,1)),bytes((row,)))
+            self.assertEqual(self.word(scroll+4),9)
+            self.assertEqual(bytes(machine.cpu.mem_read(scroll-4,4)),b'\xA5'*4)
+            self.assertEqual(bytes(machine.cpu.mem_read(scroll+0x7C,4)),b'\xA5'*4)
         self.assertEqual(machine.call(functions[27],26,0),16)
-        self.assertEqual(bytes(machine.cpu.mem_read(scroll-4,4)),b'\xA5'*4)
-        self.assertEqual(bytes(machine.cpu.mem_read(scroll+0x7C,4)),b'\xA5'*4)
 
 
 if __name__ == '__main__':

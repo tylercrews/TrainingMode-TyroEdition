@@ -196,6 +196,7 @@ static inline void RectSplitD(Rect *dst, Rect *src, float size, float padding)
 typedef struct GFX_Params {
     u8 shape; // GX_TRIANGLES, GX_LINES, etc.
     u8 size; // width of lines and points
+    u8 no_depth; // draw over everything, even what's in front of it
 
     // more fields may be added in the future
 } GFX_Params;
@@ -361,6 +362,7 @@ void Message_Init(void);
 GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, ...);
 void Message_Manager(GOBJ *mngr_gobj);
 void Message_EndCombo(int queue_num);
+void Message_Retire(int queue_num, int settings_id);
 void Message_Destroy(GOBJ **msg_queue, int msg_num);
 void Message_Add(GOBJ *msg_gobj, int queue_num);
 void Message_CObjThink(GOBJ *gobj);
@@ -420,6 +422,7 @@ typedef struct MsgData
     Vec2 stick_direction; // Snapshot of the attempt, in controller coordinates (+Y = up).
     int stick_angle; // Angle row has an octagonal stick diagram; currently Wavedash row 1.
     int timing_jump_frame; // Fastfall: jump frame the result took effect on; 0 = absent
+    int timing_blank; // Act Oo attempt with no result in TM_NO_ACTION_FRAMES; the result reads "--"
 } MsgData;
 void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction);
 void Message_FreeObject(GOBJ *object);
@@ -461,9 +464,11 @@ void OSDContext_Clear(void);
 void OSDContext_Tick(FighterData *fighter);
 void OSDContext_LCancel(GOBJ *fighter);
 unsigned OSDContext_MessageHitlag(int queue, unsigned category);
+void OSDContext_Result(int queue, int settings_id);
 void OSD_ActOutWait(GOBJ *fighter);
 void OSD_FormatTiming(MsgData *message, int inline_layout, int y);
 void OSD_TimingText(MsgData *message, char *line, int part); /* 0: full, 1: prefix, 2: result */
+uint32_t OSD_ResultColor(const MsgData *message);
 void OSD_ShineBeforeIASA(GOBJ *fighter);
 void OSD_ShineAfterIASA(GOBJ *fighter);
 void Events_NotifyRestore(void);

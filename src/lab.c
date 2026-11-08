@@ -2066,6 +2066,8 @@ void CPUThink(GOBJ *event, GOBJ *hmn, GOBJ *cpu)
             goto CPULOGIC_RECOVER;
         }
 
+        Recovery_RefreshCyclone(cpu_data);
+
     CPULOGIC_START_NO_RECOVERY:
         // clear held inputs
         Fighter_ZeroCPUInputs(cpu_data);
@@ -4795,7 +4797,7 @@ void Record_Restart(Savestate_v1 *savestate, int flags) {
     stc_playback_cancelled_cpu = false;
     
     if (mirror) flags |= Savestate_Mirror;
-    event_vars->Savestate_Load_v1(savestate, flags);
+    event_vars->Savestate_Load_v1(savestate, flags | Savestate_ExactForm);
 }
 
 void Record_LoadSavestate(Savestate_v1 *savestate) {
@@ -6093,7 +6095,7 @@ void Event_PostThink(GOBJ *gobj)
  * and the recording setup are left alone. Stage menus belong to one stage, so
  * Reset includes the current one but a stage change does not carry them. */
 #define LAB_SESSION_MAX 272
-#define LAB_RECOVERY_MAX 8
+#define LAB_RECOVERY_MAX 12
 typedef char lab_session_capacity[(OPTGEN_COUNT + OPTCPU_COUNT + OPTTECH_COUNT + 2 * OPTINF_COUNT +
     OPTHITBOXTRAILS_COUNT + OPTCHARRNG_MAXCOUNT + LAB_RECOVERY_MAX + ADV_COUNTER_COUNT * OPTCTR_COUNT +
     ACTION_LOG_MAX * OPTACTIONLOG_COUNT + OPTSTAGE_STADIUM_COUNT + OPTSTAGE_FOD_COUNT <= LAB_SESSION_MAX) ? 1 : -1];

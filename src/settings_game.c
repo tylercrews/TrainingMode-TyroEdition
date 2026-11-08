@@ -85,7 +85,9 @@ static void extension_set(unsigned field,unsigned index,u32 value) {
     u8 *view=extension_view();
     if(TMExtension_Write(view,field,index,value) && view!=extension_fallback) mark_changed();
 }
+static u8 door_zelda[4]; /* See TM_SETTING_DOOR_ZELDA, and Settings_DoorCharacter. */
 uint32_t Settings_Get(unsigned field, unsigned index) {
+    if (field == TM_SETTING_DOOR_ZELDA) return index < 4 ? door_zelda[index] : 0;
     if (field == TM_SETTING_OSD_PAGE) return osd_page;
     if (field == TM_SETTING_EDITOR_PAGE) return editor_page;
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
@@ -98,7 +100,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
         u32 extra=TMExtension_Read(extension_view(),TM_SETTING_OSD_COLOR_EXTRA,slot);
         return extra?TM_COLOR_LEGACY_COUNT-1+extra:base;
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ)
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN || field==TM_SETTING_LEDGEGRAB_RESET)
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index))
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
@@ -112,6 +114,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
 }
 
 void Settings_Set(unsigned field, unsigned index, uint32_t value) {
+    if (field == TM_SETTING_DOOR_ZELDA) { if (index < 4) door_zelda[index] = !!value; return; }
     if (field == TM_SETTING_OSD_PAGE) { if (value < 19) osd_page = value; return; }
     if (field == TM_SETTING_EDITOR_PAGE) { if (value < TM_EDITOR_PAGES) editor_page = value; return; }
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
@@ -124,7 +127,7 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
         extension_set(TM_SETTING_OSD_COLOR_EXTRA,slot,extended?value-TM_COLOR_LEGACY_COUNT+1:0);
         if(extended) value=legacy_color[value-TM_COLOR_LEGACY_COUNT];
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ) {
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN || field==TM_SETTING_LEDGEGRAB_RESET) {
         extension_set(field,index,value); return;
     }
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index)) {
@@ -241,4 +244,104 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
         }
         backup[offset] = kind;
     }
+}
+/* The CSS has one icon for Zelda and Sheik and its own code only knows Zelda, so
+ * she stays Zelda in everything it sees. Each door keeps which of them the icon
+ * means there, Sheik unless Z chose Zelda, and the choice joins the character at
+ * these edges: from the save into the door before the CSS loads, and from the
+ * door to what's saved and what the match starts as when it's done. */
+int Settings_DoorCharacter(int door, int kind) {
+    return kind == CKIND_ZELDA && !door_zelda[door] ? CKIND_SHEIK : kind;
+}
+void Settings_LoadDoorForms(void) {
+    u8 *backup = (u8 *)stc_memcard + 3344;
+    for (unsigned door = 0; door < 4; ++door) door_zelda[door] = 0;
+    for (unsigned door = 0; door < 2; ++door) {
+        u8 *kind = &backup[door ? 140 : 104];
+        door_zelda[door] = *kind == CKIND_ZELDA;
+        if (*kind == CKIND_SHEIK) *kind = CKIND_ZELDA;
+    }
+}
+void Settings_ApplyDoorForms(void) {
+    u8 *backup = (u8 *)stc_memcard + 3344;
+    for (unsigned door = 0; door < 2; ++door) {
+        u8 *kind = &backup[door ? 140 : 104];
+        *kind = Settings_DoorCharacter(door, *kind);
+    }
+    /* Legacy events start you from here, and it was copied before this ran. */
+    stc_memcard->EventBackup.c_kind = Settings_DoorCharacter(0, stc_memcard->EventBackup.c_kind);
+}
+/* A team character select dresses everyone in their team's costume, so what
+ * the native backup just copied from it is nobody's normal choice. Put the
+ * saved choices back, for the next event's character select. Settings_SaveTeamSelect
+ * has already saved the characters. */
+void Settings_RestoreCharacters(void) {
+    u8 *backup = (u8 *)stc_memcard + 3344;
+    for (unsigned player = 0; player < 2; ++player) {
+        unsigned offset = player ? 140 : 104, costume = player ? 143 : 107;
+        unsigned kind = Settings_Get(TM_SETTING_CHARACTER, player);
+        if (kind >= 26) { backup[costume] = 0; continue; }
+        unsigned color = Settings_Get(TM_SETTING_COSTUME, player);
+        backup[offset] = kind;
+        backup[costume] = color < character_costumes[kind] ? color : 0;
+    }
+}
+
+/* The team select's memories go to its doors in this order: yours, the CPU's
+ * (where Restore Event CPU.asm puts them: your port, then the first other one),
+ * then P3's and P4's on the next two. With your controller in port 1 that's
+ * simply P1 to P4. */
+#define EVENT_CSS ((VSMinorData *)0x80497758) /* Restore Event CPU.asm's CSS Match Info. */
+#define TEAM_SELECT_SHARED 2 /* The memories every event shares: yours and the CPU's. */
+#define TEAM_SELECT_OPEN 3 /* You and two CPUs, all the event uses. */
+#define NO_NAMETAG 120
+static void team_select_doors(int doors[4]) {
+    int hmn = EVENT_CSS->snglply_port - 1, slot = 1;
+    doors[0] = hmn;
+    for (int i = 0; i < 4; ++i)
+        if (i != hmn) doors[slot++] = i;
+}
+/* Runs between the native character restore and the CSS's load, which builds
+ * each door from its player, the same as coming back from a VS match. So the
+ * pucks, portraits and door animations are all the native ones. P4 stays closed
+ * but keeps their character, for grabpunish_css.c to open them with. */
+void Settings_OpenTeamSelect(void) {
+    PlayerData *players = EVENT_CSS->vs_data.match_init.playerData;
+    int doors[4];
+    team_select_doors(doors);
+    for (int slot = 0; slot < 4; ++slot) {
+        PlayerData *player = &players[doors[slot]];
+        unsigned saved;
+        if (slot >= TEAM_SELECT_SHARED) {
+            saved = Settings_Get(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED);
+            saved = saved ? saved - 1 : CKIND_FOX;
+            player->c_kind = saved;
+        } else {
+            saved = Settings_Get(TM_SETTING_CHARACTER, slot);
+        }
+        door_zelda[doors[slot]] = saved == CKIND_ZELDA;
+        if (player->c_kind == CKIND_SHEIK) player->c_kind = CKIND_ZELDA;
+        if (slot) player->nametag = NO_NAMETAG; /* The native restore gives the CPU a stale one. */
+        if (slot < TEAM_SELECT_OPEN) player->p_kind = slot ? PKIND_CPU : PKIND_HMN;
+    }
+}
+/* Start on a team select. A closed door keeps its memory. Your character and the
+ * CPU's are the ones every event shares, but their costumes here are the teams',
+ * so the saved costume only changes with the character it belongs to. */
+void Settings_SaveTeamSelect(void) {
+    const PlayerData *players = EVENT_CSS->vs_data.match_init.playerData;
+    int doors[4];
+    team_select_doors(doors);
+    for (int slot = 0; slot < 4; ++slot) {
+        const PlayerData *player = &players[doors[slot]];
+        if (player->p_kind == PKIND_NONE || player->c_kind >= 26) continue;
+        int kind = Settings_DoorCharacter(doors[slot], player->c_kind);
+        if (slot >= TEAM_SELECT_SHARED) {
+            Settings_Set(TM_SETTING_GRAB_PUNISH, TM_GP_P3_CHARACTER + slot - TEAM_SELECT_SHARED, kind + 1);
+        } else if (Settings_Get(TM_SETTING_CHARACTER, slot) != (unsigned)kind) {
+            Settings_Set(TM_SETTING_CHARACTER, slot, kind);
+            Settings_Set(TM_SETTING_COSTUME, slot, 0);
+        }
+    }
+    Settings_RestoreCharacters();
 }

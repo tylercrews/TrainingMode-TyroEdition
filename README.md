@@ -55,18 +55,27 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T9
-- for the side b sweetspot event I want to have a mode where you get knocked down high enough that you can fall into position, practice where you don't need to double jump at all. there should be some presets instead of having to fiddle with the trajectory
-- I'm failing to punish grabs in doubles with jc upsmash. In fact maybe an entire event where your opponent gets grabbed by your teammate and you have to jc upsmash to kill before they get let go. Be able to pick how far away you are initially and what percent oppo is at. Show a timer for how long you have before they can mash out and a success/failure/partial success/mega failure for hit enemy, didn't hit enemy, hit enemy and teammate, only hit teammate
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T10
+- add an edgeguarding distance for edgeguarding event where the cpu gets knocked from the edge of the stage as if they just got fox shined. practicing punishing that distance in particular would be extremely helpful. and seeing the hitstun
+- notch marks boxx marks in settings for up b sweetspot
+- add the 2/3 ring and level tick to the rest of the up-b overlay gecko codes. Only Fox's has them so far. Falco's event already has them so his code should match, and Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `UNDER_STAGE` in scripts/upb_overlay_numbers.py
+- add rolling as an option in the techchase event
+- punish roll event?
+- passing teams event, But you can build it INTO the 2v1 event!! Select between them in game, reuses memory. 
+Another 2v1 Doubles event where you pick a teammate and an opponent, and choose a percent and a move. The opponent will be at that percent, get hit by a cpu. If you hit it towards the cpu They will try to jump up and hit it back. There's a counter and you see how many hits you can get up to.
+Frozen % and rising percent. The rising % doesn't reset the menu so you can go in and click a to reset, or click down on the d pad to reset. left and right swap sides.
+- MORE DOUBLES!! WHAT CAN I DO TO PRACTICE DOUBLES
+- a doubles event where you try to shoot or get hit by a falco laser to recover
+- teams shield pressure practice event?
+- edge cancelling moves event, with overlays on platforms where you need to hit, different overlays for every character with gecko codes
+- expand up b sweetspot event to include differences for wallriding
+- sdi practice where you're trying to get out of like falcon nair
+- anti handoff event where it tells you what direction to DI, and where you try to mash out as fast as possible
+- double jump sweet spot event (really good for luigi where you have to do like a reverse double jump in a specific spot)
+- improve up-b overlay and sweetspot event with indicators on angled characters's arcs where the fixed angle spots are for boxx players
 - new objects in eggsercise. practice hitting in other spots other than on the floor
-- create a better version of the invincibility overlay that I have in Gecko, but make it more doubles compatible. When opponent team is green and my teammate is invincible with green it feels terrible. There's only ever 3 v 1 at max, so choose 3 different colors per team color (g, b, r) for p1 p2 and p3. Like blue team: 1. blue 2. lavender 3. cyan, green team: 1. green 2. teal 3. lime, red team: 1. red 2. orange 3. pink.
-- have an overlay like a crescent circle around the side of the ledge that shows where you can sweet spot fox's up-b. Maybe even an event where you can practice it too?
 - expand the edgeguarding event, i want at least doc and game and watch if I didn't already do doc. get some more in there like dk and all the mid tiers
-- act OOWait and (and maybe other OSDs like ooattack?) should clear out if nothing happens after like 20 frames. Similar to how we put FAIL to jump out of shine after 15, but I don't want it to say that you failed all the time, so maybe after 20 frames it just blanks out to indicate no action was taken.
-- Sweet Spot Side B Event should also have knockback variation selectors similar to the edgeguarding practice
-- edgeguarding event should have a camera zoom out view. (Blast zone boxes are done: the Blast Zone Overlay, T8.)
-- split fox+falco's side bs up into to ledge and to stage and to side plat
-- make a new event where you practice getting to ledge as quickly as possible (counted in frames) from various distances away from the ledge. Should be able to switch what ledge you're working on and what way your character is facing. should also be able to set platforms as spawn points, 
+- test pikachu's recovery in both the up b sweet spot event and the recovery event. It might be too much for me to try to build out as a non-pika player, but would be nice to expand
 - set up the Training Lab settings to save now that we have the memory available to use. XX Actually, there are about 100 settings in Training Lab, and so that would take 100 bytes, but we only have 52 remaining. We can either start cannibalizing the event high scores or leave as is
 - Similar Actionable X>Green for hitstun ending?
 - change name of low laser puff practice to frozen puff (low laser?) practice
@@ -77,6 +86,49 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T9 (V1.4.1T9) - 2026-11-02
+
+- **New events**
+    - **Ledgegrab Speedrun** (Minigames): reach a ledge from a set starting spot in as few frames as possible. It's for finding and drilling your fastest route to the ledge from anywhere on the stage.
+        - Pick the goal ledge, one of eight starts (either ledge, center stage, on or under a platform) and which way you face. The D-pad changes them and restarts right away.
+        - A big frame counter, with the time beside it, starts on your first input and stops when you grab the goal ledge. Results are colored by how close they are to your Session Best, kept separately for each start, facing and ledge.
+        - Markers show the goal and wrong ledges, the camera frames you and the goal ledge, and **Reset Speed** sets how long a result stays up.
+        - Any character, on the six legal stages, with Change Stage in the menu.
+    - **2v1 Grab Punish Practice** (General Tech): your CPU teammate grabs the enemy CPU, and you punish the enemy (like with a JC up-smash) before they mash out, without hitting your teammate. It's for learning how much time a teammate's grab gives you in doubles.
+        - Uses the VS character select in Teams mode, which remembers your last teams and characters.
+        - The HUD counts down the frames left in the grab and then the release, shows each result (**Grab Hit**, **Release Hit**, **Escaped** or **Late Hit**) and tracks how often you hit the enemy and your teammate. The count also shows big under the match timer, and the enemy flashes red once they can act.
+        - Set where the grab and you start, the enemy's and teammate's percent (0-200%), how fast the CPU mashes (No Mash to Inhuman), which way your teammate faces, and whether a hit during the release counts. **Mashing Info** in the menu explains how long a grab lasts.
+    - **Up-B Sweetspot** (Character-specific Tech, under Side-B Sweetspot): start on an angel platform off the ledge and recover with your up-B, while a frozen Marth tipper waits to punish an overshoot. It's for learning the spacing and angle of your character's up-B sweetspot.
+        - Every character with a recovery up-B (not Yoshi or Jigglypuff), on the six legal stages.
+        - **Line Guides** mark where you grab the ledge, plus a guide for most up-Bs: a ring at its range for aimed ones like Fox's, with a live line for the angle you're holding, or the best spot to start fixed ones like Marth's.
+        - The HUD shows your last attempt, your success rate and, for aimed up-Bs, the angle you're holding next to the angle you need.
+        - Marth can hold a forward smash or down-tilt tipper, or be turned off. The camera can zoom out like Edgeguard's.
+        - New [Slippi Gecko codes](slippi-gecko-codes/up-b-overlay/README.md) draw the same guides for 17 characters in any match (not tested in Dolphin yet).
+- **Globals and all events**
+    - **Zelda/Sheik toggle** on every event's character select: the Zelda icon now picks Sheik, and **Z** swaps it to Zelda, for CPUs too. A small hint under the name shows what Z will do, and your choice is remembered.
+    - **Fixed Zelda and Sheik:** savestates and event resets (including Under Fire's) now keep each form's own data and the form you're in, and transforming no longer turns them invisible while an overlay that tints fighters is on.
+    - **Fixed:** quitting with L+R+A+Start could also run the selected pause menu row or flip a setting.
+    - **Invincibility Overlay** gives each teammate their own shade of the team color, so an invincible teammate no longer looks like the other team. Lavender is a little darker. A new [Slippi Gecko code](slippi-gecko-codes/invincibility-overlay/README.md) matches it (not tested in Dolphin yet).
+    - **Act Oo OSDs** show `--` when you don't act within 20 frames, instead of leaving an old result up.
+- **Event changes**
+    - **Side-B Sweetspot:** a new HUD panel shows your last attempt and success rate. New **Success Criteria** can require a ledgedash after the sweetspot, and **Knockback** presets choose where hitstun ends (above, level with or below the ledge, close or far).
+    - **Edgeguard Training**
+        - Fox and Falco CPUs get six side-B recoveries to practice against one at a time (Instant, Ledge Sweetspot, To Ledge, To Main Stage, To Side Plat, Shortest Shorten), plus Firefox / Firebird To Ledge. See [the spacie side-B notes](notes/EDGEGUARD-SPACIE-SIDE-B.md).
+        - Luigi recovers on a plan each attempt, can actually use the Cyclone now, and gets Up B Sweetspot and Backflip Jump Sweetspot options.
+        - **Knockback Height** and **Knockback Distance** replace Hit Strength, so you choose where the CPU ends up instead of how hard it's hit. Old settings carry over. See [the knockback notes](notes/EDGEGUARD-KNOCKBACK.md).
+    - **Low Laser Puff Practice:** a clock in the bottom left shows how long you've been practicing. Characters other than Fox and Falco now time any aerial B (**B Press Start**), like Samus's missiles.
+    - **Eggs-ercise:** **Egg Counter Position** moves the egg count to any corner or under the timer. Free Practice can also spawn **Eggs Under Platforms** and **Eggs In The Air**.
+    - **Powershield Training:** rolling or spotdodging out of laser stun now counts as a fail.
+    - **Under Fire:** new **Remove Fleshy Pillars** setting clears the two pillars beside the ledges, so your moves pass through them.
+- **Program changes**
+    - The save record is now version 21 (76 bytes, 12 spare). Saves from older Tyro builds update on their own; an older Tyro build can't read the new record and uses defaults until you're back on T9.
+    - Events can now use the VS character select.
+    - New scripts for the [Up-B](scripts/build_upb_overlay_gecko.py) and [Invincibility](scripts/build_invincibility_gecko.py) Gecko codes, [Side-B knockback presets](scripts/sweetspot_knockback_presets.py) and [fighter ECBs](scripts/fighter_ecb_pose.py), plus an [Edgeguard recovery simulator](tests/recovery_sim.py) and tests for the Gecko codes, the Zelda/Sheik toggle, savestates and Up-B Sweetspot.
+    - New [up-B sweetspot research notes](notes/UPB-SWEETSPOT-RESEARCH.md) for every character.
+    - Working copies use LF line endings, `build.sh` no longer fails building Ledgedash and Sweetspot at once, `GFX_Start` has a `no_depth` option, and stage ground lookups moved to [src/stage_points.h](src/stage_points.h).
+
+For T9 I was working with Claude Opus 5.5 Extra High
 
 ### T8 (V1.4.1T8) - 2026-10-28
 

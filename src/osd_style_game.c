@@ -19,6 +19,12 @@ static char *append_text(char *out, const char *in) {
     while (*in) *out++ = *in++;
     return out;
 }
+/* The result's color: muted like an empty cell for "--", red for FAIL. */
+uint32_t OSD_ResultColor(const MsgData *msg) {
+    if (msg->timing_blank) return 0xB4BECDFF;
+    return msg->timing_second_turn || msg->timing_failed ? 0xFFA2BAFF :
+        OSD_TimingColorFor(msg->timing_frame, msg->timing_best);
+}
 void OSD_TimingText(MsgData *msg, char *line, int which) {
     char part[24];
     char *out = line;
@@ -33,9 +39,9 @@ void OSD_TimingText(MsgData *msg, char *line, int which) {
         out = append_text(out, part);
     }
     if (which != 1) {
-    out = append_color(out, msg->timing_second_turn || msg->timing_failed ? 0xFFA2BAFF :
-        OSD_TimingColorFor(msg->timing_frame, msg->timing_best));
+    out = append_color(out, OSD_ResultColor(msg));
     if (msg->timing_failed) strcpy(part, "FAIL");
+    else if (msg->timing_blank) strcpy(part, "--");
     else sprintf(part, msg->timing_second_turn ? "%dtrn" : msg->settings_id == 1 ? "%df/7f" : "%df", msg->timing_frame);
     out = append_text(out, part);
     if (msg->timing_jump_frame > 0 && !msg->timing_failed && !msg->timing_second_turn) {
@@ -47,7 +53,8 @@ void OSD_TimingText(MsgData *msg, char *line, int which) {
 }
 void OSD_FormatTiming(MsgData *msg, int inline_layout, int y) {
     if (msg->timing_frame < 0) return;
-    if (!inline_layout && !msg->timing_hitlag && !msg->timing_turn && !msg->timing_encoded && !msg->timing_failed) return;
+    if (!inline_layout && !msg->timing_hitlag && !msg->timing_turn && !msg->timing_encoded && !msg->timing_failed &&
+        !msg->timing_blank) return;
     char line[128], body[112];
     OSD_TimingText(msg, body, 0);
     if (inline_layout) { sprintf(line, "Wavedash %s", body); msg->timing_subtext = 0; }

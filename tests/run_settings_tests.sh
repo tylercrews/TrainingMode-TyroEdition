@@ -15,13 +15,18 @@ esac
        src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c \
        src/powershield_osd_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c src/stage_overlay_game.c -dat dats/eventMenu.dat
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
-    -t MexTK/evFunction.txt -o build/sweetspot-reset-test.dat -i src/sweetspot.c
+    -t MexTK/evFunction.txt -o build/sweetspot-reset-test.dat -i src/sweetspot.c src/ledgedash_logic.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/upbsweetspot-test.dat -i src/upbsweetspot.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/grabpunish-test.dat -i src/grabpunish.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgechase-test.dat -i src/ledgechase.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgedash-trails-test.dat -i src/ledgedash.c src/ledgedash_logic.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/lowlaser-test.dat -i src/lowlaser.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction     -t MexTK/evFunction.txt -o build/ledgegrab-test.dat -i src/ledgegrab.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/powershield-test.dat -i src/powershield.c
 powerpc-eabi-gcc -O2 -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
@@ -47,7 +52,14 @@ python tests/test_event_trails.py -v
 python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
 python tests/test_lowlaser.py -v
+python tests/test_ledgegrab.py -v
+python tests/test_eggs.py -v
+python tests/test_edgeguard.py -v
+python tests/test_grabpunish.py -v
+python tests/test_upbsweetspot.py -v
+python tests/test_savestate.py -v
 python tests/test_stage_swap.py -v
+python tests/test_form_toggle.py -v
 python tests/test_lab_session.py -v
 python tests/test_powershield.py -v
 

@@ -1,6 +1,6 @@
 #ifndef TM_ZOOM_CAMERA_H
 #define TM_ZOOM_CAMERA_H
-/* "Camera" option for offstage events (Side-B Sweetspot, Edgeguard Training):
+/* "Camera" option for offstage events (Side-B and Up-B Sweetspot, Edgeguard Training):
  * Normal, or Zoomed Out to see farther offstage. Each including event calls
  * ZoomCamera_Init from Event_Init, then ZoomCamera_Apply when its row changes,
  * and attaches ZoomCamera_Restore as a GObj's userdata cleanup. */

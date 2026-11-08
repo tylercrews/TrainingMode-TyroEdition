@@ -46,3 +46,9 @@ WriteCPU:
     li r8, 0
     lbz r9, 0x0006(r31)     # Player who accessed CSS
     branchl r12, 0x801b07b4
+
+    # Native code leaves every door closed, which a team select can't start from.
+    SettingsBackup
+    li r3, 2
+    rtocbl r12, TM_SettingsEventCharacters
+    SettingsRestore

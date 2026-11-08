@@ -100,6 +100,7 @@ void TestPSAnimation(int frame_tenths, int rate_tenths, int end_tenths) {
     animation_end = end_tenths / 10.f;
 }
 void TestPSExit(void) { Exit(0); }
+int TestPSEscape(int which) { return (int[]){ASID_ESCAPEF, ASID_ESCAPEB, ASID_ESCAPE}[which]; }
 int TestPSDelay(int low, int high) {
     Options_Main[OPT_FIRE_DELAY_RANDOM_MIN].val = low;
     Options_Main[OPT_FIRE_DELAY_RANDOM_MAX].val = high;

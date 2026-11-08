@@ -18,8 +18,8 @@ def build():
     ], cwd=ROOT, check=True)
 
 
-def load_probe(machine):
-    elf = (ROOT / 'build/lowlaser-probe.elf').read_bytes()
+def load_probe(machine, name='lowlaser-probe.elf', init='TestLaserInit'):
+    elf = (ROOT / 'build' / name).read_bytes()
     at = struct.unpack_from('>I', elf, 0x20)[0]
     stride, count = struct.unpack_from('>HH', elf, 0x2E)
     sections = [struct.unpack_from('>10I', elf, at + i * stride) for i in range(count)]
@@ -32,7 +32,7 @@ def load_probe(machine):
             for i in range(0, size, entry):
                 name, value, *_ = struct.unpack_from('>IIIBBH', elf, offset+i)
                 machine.symbols[names[name:].split(b'\0',1)[0].decode()] = value
-    machine.call('TestLaserInit')
+    machine.call(init)
 
 
 class LowLaserTests(unittest.TestCase):
@@ -222,9 +222,25 @@ class LowLaserTests(unittest.TestCase):
         reset_name=struct.unpack('>I',m.cpu.mem_read(rows+6*44+12,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(reset_name,8)).split(b'\0',1)[0],b'Reset %')
 
+    def test_clock_sits_in_bottom_left_and_shows_match_time(self):
+        m = self.m
+        # Eggs-ercise's Bottom Left spot: left edge at 50, left aligned, white.
+        self.assertEqual([self.info(k) for k in (52, 53, 54, 55)], [50, 433, 0, 1])
+        self.assertEqual(self.info(36), 0)  # The clock never overwrites the Laser Start label.
+        for frames, seconds, fields in ((0, 0, 2), (59, 0, 2), (60, 1, 2), (3599 * 60 + 59, 3599, 2),
+                                        (3665 * 60, 3665, 3)):
+            m.call('TestLaserClock', frames); self.step()
+            self.assertEqual((self.info(49), self.info(50)), (seconds, fields))
+        self.assertEqual(self.info(51), 0)
+        m.call('TestLaserPause', 1); self.step()
+        self.assertEqual(self.info(51), 1)  # Hidden with the pause menu, like the readouts.
+        m.call('TestLaserPause', 0); self.step()
+        self.assertEqual(self.info(51), 0)
+
 
 FD_EDGE = struct.unpack('>f', struct.pack('>f', 85.5656967))[0]
 MARIO, FOX = 0, 1
+BUTTON_A, BUTTON_B = 0x100, 0x200
 # Expected apex rises: gravity before movement, from Puff's PlPr.dat values.
 def rise(velocity, gravity=.064):
     height = 0
@@ -235,7 +251,6 @@ def rise(velocity, gravity=.064):
 HEIGHTS = (0, rise(1.05), rise(1.6), rise(1.05) + rise(1.65), rise(1.6) + rise(1.65))
 LEGAL = [('GrNLa.dat', 32, None), ('GrNBa.dat', 31, None), ('GrOp.dat', 28, None),
          ('GrSt.dat', 8, {1, 2, 3, 4, 5, 6}), ('GrPs.dat', 3, {34, 35, 36, 51, 52, 53, 54})]
-
 
 class LowLaserStageTests(unittest.TestCase):
     """Production placement against each legal stage's native collision lines."""
@@ -399,43 +414,46 @@ class LowLaserStageTests(unittest.TestCase):
         self.choose(0, 8)  # Under Left Plat stays on the main floor.
         self.assertEqual(self.puff(), (-35, 0))
 
-    def test_every_character_times_first_aerial_neutral_b_by_native_move_transition(self):
+    def test_other_characters_time_first_aerial_b_press_and_fox_keeps_laser_start(self):
         m = self.m
-        def sample(state, airborne=1):
-            m.call('TestLaserSample', state, airborne, 0, 0, 0); m.call('TestLaserThink')
-        m.call('TestLaserMove', MARIO, 1); m.call('TestLaserReenter'); m.call('TestLaserThink')
-        self.assertEqual(self.info(36), 1)  # Neutral-B Start label for non-blasters.
-        sample(360, 0)
-        m.call('TestLaserMove', MARIO, 18); sample(361, 0)  # Grounded neutral-B is ignored.
+        def sample(state, airborne=1, down=0, frozen=0):
+            m.call('TestLaserDown', down)
+            m.call('TestLaserSample', state, airborne, 0, 0, frozen); m.call('TestLaserThink')
+        m.call('TestLaserCharacter', MARIO); m.call('TestLaserReenter'); m.call('TestLaserThink')
+        label = bytes(m.cpu.mem_read(self.info(36), 16)).split(b'\0', 1)[0]
+        self.assertEqual(label, b'B Press Start')
+        sample(361, 0, BUTTON_B)  # Grounded press is ignored.
         self.assertEqual(self.info(0), -1)
-        for _ in range(3): sample(25)
-        sample(362)
+        sample(25, down=BUTTON_A); sample(25)
+        sample(25, down=BUTTON_B, frozen=1)  # Hitlag freezes the clock and the press with it.
+        self.assertEqual((self.info(0), self.info(2)), (-1, 2))
+        sample(25); sample(25, down=BUTTON_A | BUTTON_B)  # No move state needed.
         self.assertEqual(self.info(0), 4)
-        sample(14, 0); sample(25)  # atk_kind still 18 after the move: not a new neutral-B.
-        self.assertEqual(self.info(0), -1)
-        m.call('TestLaserMove', MARIO, 20); sample(363)  # Up-B.
-        self.assertEqual(self.info(0), -1)
-        m.call('TestLaserMove', MARIO, 18); sample(363)  # No state transition.
-        self.assertEqual(self.info(0), -1)
-        sample(364)
-        self.assertEqual(self.info(0), 4)
-        m.call('TestLaserMove', FOX, 0); m.call('TestLaserReenter'); m.call('TestLaserThink')
+        sample(25); sample(363, down=BUTTON_B)  # Only the first press of the jump counts.
+        self.assertEqual((self.info(0), self.info(2)), (4, 6))
+        sample(14, 0); sample(25, down=BUTTON_B)  # A new jump clears it; press on frame 1.
+        self.assertEqual(self.info(0), 1)
+        m.call('TestLaserCharacter', FOX); m.call('TestLaserReenter'); m.call('TestLaserThink')
         self.assertEqual(self.info(36), 0)  # Fox and Falco keep Laser Start.
+        sample(14, 0); sample(25, down=BUTTON_B)  # Side-B or a mistimed press isn't a laser.
+        self.assertEqual(self.info(0), -1)
+        sample(344, down=BUTTON_B)
+        self.assertEqual(self.info(0), 2)
 
 
 class LowLaserCatalogueTests(unittest.TestCase):
-    def test_eighth_character_event_allows_every_character_and_stage_select_without_score_bytes(self):
+    def test_ninth_character_event_allows_every_character_and_stage_select_without_score_bytes(self):
         m=NativeMachine(); functions=m.load_services()
-        desc=m.call(functions[1],2,7)
+        desc=m.call(functions[1],2,8)
         word=lambda at: struct.unpack('>I',m.cpu.mem_read(at,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(word(desc),80)).split(b'\0',1)[0],b'Low Laser Puff Practice\n')
         self.assertEqual(bytes(m.cpu.mem_read(word(desc+8),12)).split(b'\0',1)[0],b'lowlaser')
-        whitelist=m.call(functions[25],7,2)
+        whitelist=m.call(functions[25],8,2)
         self.assertEqual(word(whitelist),0xFFFFFFFF)  # Every human character.
-        self.assertEqual(m.call(functions[12],2,7),15)  # External Jigglypuff ID.
-        self.assertEqual(m.call(functions[13],2,7)&0xFFFF,0xFFFF)  # -1: stage select.
+        self.assertEqual(m.call(functions[12],2,8),15)  # External Jigglypuff ID.
+        self.assertEqual(m.call(functions[13],2,8)&0xFFFF,0xFFFF)  # -1: stage select.
         m.call(functions[28],2,0,2)
-        self.assertEqual(m.call(functions[43],7),0)
+        self.assertEqual(m.call(functions[43],8),0)
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

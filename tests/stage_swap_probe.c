@@ -1,6 +1,15 @@
 /* Production in-event stage change and EventInit, with native boundaries stubbed. */
 #include "../src/events.h"
 
+/* The character select's forms, as settings_game.c keeps them. */
+static u8 door_zelda[4];
+void Settings_Set(unsigned field, unsigned index, uint32_t value) {
+    if (field == TM_SETTING_DOOR_ZELDA && index < 4) door_zelda[index] = value;
+}
+int Settings_DoorCharacter(int door, int kind) {
+    return kind == CKIND_ZELDA && !door_zelda[door] ? CKIND_SHEIK : kind;
+}
+
 extern EventVars stc_event_vars;
 int GetPageNum(void);
 int GetPageEventNum(int page);

@@ -18,8 +18,8 @@ unpausing restores the HUD. The score counters remain visible during play.
 The shared menu owns pausing. Under Fire disables the native pause menu and
 its HUD, and skips native camera hotkeys while the shared menu is open. Exit
 unpauses before ending the match. The high-score display reads the existing
-record and adds no save fields. Lava Overlay uses one spare bit of the
-existing settings record (see below).
+record and adds no save fields. Lava Overlay and Remove Fleshy Pillars each use
+one spare bit of the existing settings record (see below).
 
 Event Select displays an integer count. Old survival-time records are hidden
 until the first positive count replaces them, rather than treating a frame
@@ -34,13 +34,15 @@ stays 16 bytes. Other event records are unchanged.
 | Ledge Side | Left | Left or Right; changing it restarts the attempt on that ledge. |
 | Disable Attack Particles | Off, saved | Hides attack/special effects, including Fox/Falco up-B flames; preserves the ledge-grab circle and double-jump rings. |
 | Lava Overlay | Off, saved | Hides the lava model and draws a translucent stand-in at its height over the stage and fighter, so ledge grabs stay visible through it. The lava's rise and hitbox are unchanged. |
+| Remove Fleshy Pillars | Off, saved | Makes the two fleshy pillars under the side platforms invisible and intangible. The side platforms stay where they are. |
 | Ledge Refresh OSTs | On | Toggles both Ledge Drop and Invincibility. Counting still works when Off. |
 | Suppress Global OSTs | On | Hides global OSD results and layout placeholders only during Under Fire. Saved global choices stay unchanged. |
 
 D-pad Left/Right selects the corresponding ledge and restarts immediately.
 The native restore resets lava height, the lava delay, player state and counter;
-the camera also moves to the chosen ledge. Disable Attack Particles and Lava
-Overlay are saved; the other Under Fire options are session-only.
+the camera also moves to the chosen ledge. Disable Attack Particles, Lava
+Overlay and Remove Fleshy Pillars are saved; the other Under Fire options are
+session-only.
 
 Invincibility shows **green 0 at the perfect refresh boundary**, green +x
 for earlier regrabs, magenta -1 or -2 for close misses, and red -3 or later.
@@ -94,3 +96,49 @@ per-match instance flags change, never the stage file's shared data, so later
 Brinstar matches are unaffected. Exit releases it, and scene changes forget the
 old joints. The setting is saved in `TYEX` word 20 bit 21 (former padding that
 every record owning word 20 zeroed), so the extension stays version 19.
+
+Remove Fleshy Pillars is also event-local code in
+[src/events.c](../src/events.c). Brinstar's two pillars stand beside the ledges
+(x about -48 and +48; the ledges are at -52.8 and +56.3), each holding down a
+side platform. A pillar is only a map item's hurtbox and a skinned model: it has
+no collision lines, so fighters already walk through it. Hitting one causes
+hitlag, and enough damage breaks it, which lifts its platform until it regrows.
+
+| | Left pillar | Right pillar |
+| --- | --- | --- |
+| Map GObj | 6 | 7 |
+| Pillar record in `MapData` | 200 | 196 |
+| Mesh joint (`Stage_GetMapGObjJObj`) | 37, and its child | 19, and its child |
+
+In each record, byte 0 is the state (0 idle, 1 breaking, 2 broken, 3 growing
+back) and the word at 28 is the item.
+
+- **Intangible:** `Item_SetHurtboxTangibility(item, 2)`. Melee and projectile
+  checks both go through `Hitbox_CheckForHitboxCollisionWithHurtbox`, which skips
+  status 2. Nothing but item spawn ever writes this status, so it can't race the
+  stage's own hurtbox switch (`ItemData.xd0c`), which breaking and regrowing flip.
+- **Platforms:** an intangible pillar takes no damage, so it never breaks and its
+  platform stays down. Nothing has to pin the platform.
+- **Joint numbers:** `Stage_GetMapGObjJObj` starts at the live root's child, and
+  that child is the file's root, because the game loads a scale joint and puts it
+  above the file's tree (`Ground_GetStageGObj`, 801C1768; `HSD_JObjAddNext` makes
+  its second argument the first's parent, despite the name). So an index is a
+  depth-first count through `GrZe.dat` with the file's root as 0. 36 and 18 are
+  bones with no mesh and no child. Hiding them did nothing, while the hurtbox half
+  worked because it comes from the `MapData` record. `test_under_fire.py` walks the
+  real file to check these numbers. Under Fire's assembly also makes the left
+  pillar intangible on its own, so intangibility doesn't prove this code ran.
+- **Invisible:** `DOBJ_HIDDEN` on every mesh of both joints. The display checks it
+  for each DObj (`HSD_JObjDispSub`, 80374418), and no joint animation touches it.
+  The joint flags are also set every frame, in a proc on link 5: after the stage's
+  animation (link 1) and think (link 4), and before drawing.
+- **Off:** restores status 0, the spawn value, and clears both flags. If a pillar
+  is broken at that moment, the child mesh stays hidden: its animation owns that
+  flag and shows it again as the pillar regrows.
+
+If the option is turned on while a pillar is already broken, that pillar and its
+platform finish regrowing normally, unseen. Only per-match instances change, so
+Exit restores nothing and later Brinstar matches are unaffected. With Collision
+Bubbles on, the pillars' hurtboxes still draw, in the intangible color. The
+setting is saved in `TYEX` word 9 bit 23: every record started with it zero and
+migrations only keep it, so the extension stays version 20.

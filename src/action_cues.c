@@ -98,14 +98,31 @@ unsigned TMCue_Update(TMCueState *cue, int state, float frame, unsigned instance
     return cue->red_source ? TM_CUE_RED : TM_CUE_NONE;
 }
 unsigned TMCue_RedAlpha(unsigned phase) {
-    static const uint8_t pulse[] = {180,140,100,60,20,60,100,140};
+    static const uint8_t pulse[] = TM_CUE_RED_PULSE;
     return pulse[phase % TM_CUE_PULSE_FRAMES];
 }
 uint32_t TMCue_CPUInvincibilityColor(unsigned choice) {
-    /* Match the existing player/trail hues and protection opacity. */
+    /* Match the existing player/trail hues and protection opacity.
+     * Lavender (also blue team's second shade) was 0xB48CFF, too pale; if
+     * 0xA06EFF still reads washed out, the next step is 0x9060FF. */
     static const uint32_t palette[] = {
         0x00000000, 0xFF464670, 0x4691FF70, 0xFFE14170,
-        0x4BE16470, 0x00FFFF70, 0xFF00FF70, 0xB48CFF70,
+        0x4BE16470, 0x00FFFF70, 0xFF00FF70, 0xA06EFF70,
     };
     return choice < TM_CPU_INVINCIBILITY_COUNT ? palette[choice] : 0;
+}
+uint32_t TMCue_InvincibilityColor(const uint8_t *teams, unsigned ply, unsigned accent, int cpu) {
+    /* At most three a side (3 v 1): the first teammate keeps the team color. */
+    static const uint32_t shades[3][3] = {
+        {0xFF464670, 0xFF701E70, 0xFF82D270}, /* Red, Orange, Pink */
+        {0x4691FF70, 0xA06EFF70, 0x00FFFF70}, /* Blue, Lavender, Cyan */
+        {0x4BE16470, 0x8CFF2870, 0x228B2270}, /* Green, Lime, Forest */
+    };
+    if (teams && ply < 6 && teams[ply] < 3) {
+        unsigned member = 0;
+        for (unsigned i = 0; i < ply; ++i) member += teams[i] == teams[ply];
+        return shades[teams[ply]][member < 3 ? member : 2];
+    }
+    /* CPUs get Lavender rather than the trail Gray, which is hard to see. */
+    return TMCue_CPUInvincibilityColor(!cpu && accent < 4 ? accent + 1 : TM_CPU_INVINCIBILITY_LAVENDER);
 }

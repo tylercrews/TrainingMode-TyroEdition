@@ -221,7 +221,7 @@ class Machine:
         for i, value in enumerate(args, 3):
             self.cpu.reg_write(gpr(i), value & 0xFFFFFFFF)
         self.cpu.reg_write(reg.UC_PPC_REG_LR, STOP)
-        self.cpu.emu_start(self.symbols[name], STOP, count=300000)
+        self.cpu.emu_start(self.symbols[name], STOP, count=400000)
         if self.cpu.reg_read(reg.UC_PPC_REG_PC) != STOP:
             raise AssertionError(f"{name} did not return")
         return self.cpu.reg_read(gpr(3))
@@ -359,7 +359,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             m.call('DAT_UnderFire')
             self.assertEqual(len(menus), 1)
             menu = menus[0]
-            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x08\0\0')
+            self.assertEqual(bytes(m.cpu.mem_read(menu + 4, 3)), b'\x09\0\0')
             options = struct.unpack('>I', m.cpu.mem_read(menu + 8, 4))[0]
             label = struct.unpack('>I', m.cpu.mem_read(options + 12, 4))[0]
             self.assertEqual(bytes(m.cpu.mem_read(label, 32)), b'Highlight Dropped Invincibility\0')
@@ -392,7 +392,7 @@ class RelocatedDATSettingsTests(unittest.TestCase):
             for _ in range(3):m.call('DAT_UnderFireScore',1)
             self.assertEqual(text_rows[-6][:2],(4,3))
             self.assertEqual(text_rows[-1][:2],(9,120))
-            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 7 * 44 + 40, 4))[0]
+            m.symbols['DAT_UnderFireExit'] = struct.unpack('>I', m.cpu.mem_read(options + 8 * 44 + 40, 4))[0]
             m.call('DAT_UnderFireExit', 0x80407600)
             self.assertEqual(ended, [True])
             self.assertEqual(scores, [(2, 120)])
@@ -1038,6 +1038,199 @@ class CharacterPreferenceTests(unittest.TestCase):
         fresh.cpu.mem_write(backup+104,b'\x21');fresh.call('Settings_Characters',1,-1,-1,1)
         self.assertEqual(fresh.call('Settings_Get',24,0),20)
 
+    def test_a_team_select_leaves_the_normal_characters_and_costumes_alone(self):
+        m=self.m;backup=0x8045A6C0+3344
+        m.cpu.mem_write(backup+104,b'\x02');m.cpu.mem_write(backup+107,b'\x03')
+        m.cpu.mem_write(backup+140,b'\x09');m.cpu.mem_write(backup+143,b'\x04')
+        m.call('Settings_Characters',1,-1,-1,1)
+        record=m.record()
+        # The select's exit backed up its team costumes, and other characters.
+        m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+107,b'\x01')
+        m.cpu.mem_write(backup+140,b'\x02');m.cpu.mem_write(backup+143,b'\x02')
+        m.call('Settings_RestoreCharacters')
+        self.assertEqual(m.record(),record)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+104,4))[0::3],b'\x02\x03')
+        self.assertEqual(bytes(m.cpu.mem_read(backup+140,4))[0::3],b'\x09\x04')
+        self.assertEqual((m.call('Settings_Get',24,0),m.call('Settings_Get',38,0)),(2,3))
+        # The same character in a team costume, the reported case.
+        m.cpu.mem_write(backup+107,b'\x01');m.call('Settings_RestoreCharacters')
+        m.call('Settings_Characters',0,-1,-1,1)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+107,1)),b'\x03')
+
+    def test_a_team_select_with_nothing_saved_yet_saves_nothing(self):
+        m=self.m;backup=0x8045A6C0+3344
+        record=m.record()
+        m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+107,b'\x01')
+        m.call('Settings_RestoreCharacters')
+        self.assertEqual(m.record(),record)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+107,1)),b'\0')
+
+    # The event CSS's data and each player's bytes, from the native code that
+    # builds a door from them: c_kind, p_kind, costume and nametag.
+    CSS=0x80497758;PLAYERS=CSS+0x70;P3,P4=9,10  # TM_GP_P3_CHARACTER, TM_GP_P4_CHARACTER
+    NONE,GP,COSTUME=33,42,38  # No character, TM_SETTING_GRAB_PUNISH, TM_SETTING_COSTUME
+    def native_css(self,m,hmn,cpu,hmn_kind=2,cpu_kind=2):
+        # What ScenePrep_EventMode_CSS leaves: every player wiped, every door
+        # closed, then the human and CPU restored with a stale CPU name tag.
+        m.cpu.mem_write(self.CSS,struct.pack('>H',hmn+1))
+        for i in range(6):
+            m.cpu.mem_write(self.PLAYERS+i*36,bytes((self.NONE,3,0,0)))
+            m.cpu.mem_write(self.PLAYERS+i*36+10,b'\x78')
+        m.cpu.mem_write(self.PLAYERS+hmn*36,bytes((hmn_kind,)))
+        m.cpu.mem_write(self.PLAYERS+cpu*36,bytes((cpu_kind,)))
+        m.cpu.mem_write(self.PLAYERS+cpu*36+10,b'\0')
+    def door(self,m,i):
+        return tuple(bytes(m.cpu.mem_read(self.PLAYERS+i*36,2)))
+    def set_doors(self,m,*doors):
+        for i,(kind,player) in enumerate(doors):
+            m.cpu.mem_write(self.PLAYERS+i*36,bytes((kind,player)))
+
+    def test_a_team_select_opens_with_you_and_two_cpus_and_p4_closed_on_its_memory(self):
+        m=self.m
+        m.call('Settings_Set',self.GP,self.P3,16+1);m.call('Settings_Set',self.GP,self.P4,15+1)  # Samus and Puff.
+        self.native_css(m,0,1,20,9)  # Falco and Marth, from the shared memory.
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(m,i) for i in range(4)],[(20,0),(9,1),(16,1),(15,3)])
+        self.assertEqual(bytes(m.cpu.mem_read(self.PLAYERS+46,1)),b'\x78')  # No stale tag on the CPU.
+        self.assertEqual(self.door(m,4),(self.NONE,3))  # The sixth-player slots stay out of it.
+
+    def test_a_team_select_on_a_fresh_save_starts_everyone_as_fox(self):
+        m=self.m
+        self.native_css(m,0,1)
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(m,i) for i in range(4)],[(2,0),(2,1),(2,1),(2,3)])
+
+    def test_a_team_select_keeps_you_on_your_own_port(self):
+        m=self.m
+        m.call('Settings_Set',self.GP,self.P3,16+1);m.call('Settings_Set',self.GP,self.P4,15+1)
+        for hmn,doors in ((1,[(9,1),(20,0),(16,1),(15,3)]),(2,[(9,1),(16,1),(20,0),(15,3)]),(3,[(9,1),(16,1),(15,3),(20,0)])):
+            with self.subTest(port=hmn+1):
+                self.native_css(m,hmn,0,20,9)
+                m.call('Settings_OpenTeamSelect')
+                self.assertEqual([self.door(m,i) for i in range(4)],doors)
+
+    def test_a_team_select_shows_a_saved_sheik_as_zelda(self):
+        m=self.m
+        self.native_css(m,0,1,19)
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual(self.door(m,0),(18,0))
+
+    def test_starting_a_team_select_remembers_all_four_doors_across_a_reload(self):
+        m=self.m;backup=0x8045A6C0+3344
+        self.native_css(m,0,1)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        self.set_doors(m,(20,0),(9,1),(16,1),(15,1))
+        m.call('Settings_SaveTeamSelect')
+        fresh=Machine();fresh.put(m.record());fresh.cpu.mem_write(0x8045A6C0+0x1AE0,bytes(m.cpu.mem_read(0x8045A6C0+0x1AE0,88)))
+        fresh.call('TMSettings_Prepare',RECORD,1)
+        fresh.call('Settings_Characters',0,-1,-1,0)
+        self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1))+bytes(fresh.cpu.mem_read(backup+140,1)),bytes((20,9)))
+        self.native_css(fresh,0,1,20,9)
+        fresh.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(fresh,i) for i in range(4)],[(20,0),(9,1),(16,1),(15,3)])
+
+    def test_a_closed_or_empty_door_keeps_its_memory(self):
+        m=self.m
+        m.call('Settings_Set',self.GP,self.P3,16+1);m.call('Settings_Set',self.GP,self.P4,15+1);m.write(24,1,9)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        for p3,p4 in (((12,3),(26,1)),((33,3),(26,0))):
+            self.set_doors(m,(20,0),(26,1),p3,p4)  # 26 is the CSS's no character.
+            m.call('Settings_SaveTeamSelect')
+            self.assertEqual((m.call('Settings_Get',self.GP,self.P3),m.call('Settings_Get',self.GP,self.P4),m.read(24,1)),(16+1,15+1,9))
+
+    def test_a_team_select_only_touches_the_saved_costume_with_its_character(self):
+        m=self.m;backup=0x8045A6C0+3344
+        m.write(24,0,2);m.call('Settings_Set',self.COSTUME,0,3);m.write(24,1,9);m.call('Settings_Set',self.COSTUME,1,4)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        # The same characters, wearing team costumes: the case that was reported.
+        for i,kind in enumerate((2,9)):
+            m.cpu.mem_write(self.PLAYERS+i*36,bytes((kind,i,0,1)))
+        m.cpu.mem_write(backup+107,b'\x01');m.cpu.mem_write(backup+143,b'\x01')  # The native backup.
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.call('Settings_Get',self.COSTUME,0),m.call('Settings_Get',self.COSTUME,1)),(3,4))
+        self.assertEqual(bytes(m.cpu.mem_read(backup+107,1))+bytes(m.cpu.mem_read(backup+143,1)),b'\x03\x04')
+        # A new character can't keep the old one's costume.
+        m.cpu.mem_write(self.PLAYERS,b'\x14')
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.read(24,0),m.call('Settings_Get',self.COSTUME,0),m.read(24,1),m.call('Settings_Get',self.COSTUME,1)),(20,0,9,4))
+        self.assertEqual(bytes(m.cpu.mem_read(backup+104,1))+bytes(m.cpu.mem_read(backup+107,1)),b'\x14\0')
+
+    def test_a_saved_sheik_shown_as_zelda_stays_sheik_with_its_costume(self):
+        m=self.m
+        m.write(24,0,19);m.call('Settings_Set',self.COSTUME,0,3)
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        self.set_doors(m,(18,0),(26,3),(26,3),(26,3))
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.read(24,0),m.call('Settings_Get',self.COSTUME,0)),(19,3))
+
+    DOOR_ZELDA,ZELDA,SHEIK=47,18,19  # TM_SETTING_DOOR_ZELDA and the external IDs.
+    EVENT_BACKUP=0x8045A6C0+1330  # Where legacy events take your character from.
+    def backup_kinds(self,m):
+        backup=0x8045A6C0+3344
+        return tuple(m.cpu.mem_read(backup+at,1)[0] for at in (104,140))
+    def set_backup(self,m,hmn,cpu):
+        backup=0x8045A6C0+3344
+        m.cpu.mem_write(backup+104,bytes((hmn,)));m.cpu.mem_write(backup+140,bytes((cpu,)))
+    def door_zelda(self,m,door):
+        return m.call('Settings_Get',self.DOOR_ZELDA,door)
+
+    def test_the_zelda_icon_means_sheik_unless_a_door_chose_zelda(self):
+        m=self.m
+        self.assertEqual(m.call('Settings_DoorCharacter',0,self.ZELDA),self.SHEIK)
+        m.call('Settings_Set',self.DOOR_ZELDA,0,1)
+        self.assertEqual(m.call('Settings_DoorCharacter',0,self.ZELDA),self.ZELDA)
+        self.assertEqual(m.call('Settings_DoorCharacter',1,self.ZELDA),self.SHEIK)  # Each door its own.
+        self.assertEqual(m.call('Settings_DoorCharacter',0,2),2)
+        m.call('Settings_Set',self.DOOR_ZELDA,9,1)  # Not a door.
+        self.assertEqual(self.door_zelda(m,9),0)
+
+    def test_the_css_gets_the_icon_it_knows_and_the_door_remembers_the_form(self):
+        m=self.m
+        self.set_backup(m,self.SHEIK,self.ZELDA)
+        m.call('Settings_LoadDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.ZELDA,self.ZELDA))
+        self.assertEqual((self.door_zelda(m,0),self.door_zelda(m,1)),(0,1))
+        self.set_backup(m,self.ZELDA,2)
+        m.call('Settings_LoadDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.ZELDA,2))
+        self.assertEqual((self.door_zelda(m,0),self.door_zelda(m,1)),(1,0))
+
+    def test_a_pick_of_the_icon_comes_out_of_the_css_as_the_doors_form(self):
+        m=self.m
+        m.call('Settings_Set',self.DOOR_ZELDA,1,1)
+        self.set_backup(m,self.ZELDA,self.ZELDA)
+        m.cpu.mem_write(self.EVENT_BACKUP,bytes((self.ZELDA,)))
+        m.call('Settings_ApplyDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.SHEIK,self.ZELDA))
+        self.assertEqual(m.cpu.mem_read(self.EVENT_BACKUP,1)[0],self.SHEIK)  # Legacy events start from this.
+        m.call('Settings_Characters',1,-1,-1,1)
+        self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.ZELDA))
+
+    def test_a_saved_form_survives_a_trip_through_the_css(self):
+        m=self.m
+        m.write(24,0,self.SHEIK);m.write(24,1,self.ZELDA)
+        self.set_backup(m,2,2)
+        m.call('Settings_Characters',0,-1,-1,1)
+        m.call('Settings_LoadDoorForms')
+        self.assertEqual(self.backup_kinds(m),(self.ZELDA,self.ZELDA))
+        m.call('Settings_ApplyDoorForms')
+        m.call('Settings_Characters',1,-1,-1,1)
+        self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.ZELDA))
+
+    def test_a_team_select_remembers_each_doors_form(self):
+        m=self.m
+        m.cpu.mem_write(self.CSS,struct.pack('>H',1))
+        m.call('Settings_Set',self.DOOR_ZELDA,2,1)
+        self.set_doors(m,(self.ZELDA,0),(self.ZELDA,1),(self.ZELDA,1),(self.ZELDA,1))
+        m.call('Settings_SaveTeamSelect')
+        self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.SHEIK))
+        self.assertEqual((m.call('Settings_Get',self.GP,self.P3),m.call('Settings_Get',self.GP,self.P4)),
+                         (self.ZELDA+1,self.SHEIK+1))
+        self.native_css(m,0,1,self.ZELDA,self.ZELDA)
+        m.call('Settings_OpenTeamSelect')
+        self.assertEqual([self.door(m,i)[0] for i in range(4)],[self.ZELDA]*4)  # All the icon the CSS has.
+        self.assertEqual([self.door_zelda(m,i) for i in range(4)],[0,0,1,0])
+
     def test_assembled_css_hooks_restore_and_commit_native_selected_characters(self):
         m=self.m;dol=(ROOT/'build/Start.dol').read_bytes()
         for section in range(18):
@@ -1062,10 +1255,14 @@ class CharacterPreferenceTests(unittest.TestCase):
         m.cpu.emu_start(start,0x801BAA9C,count=100000)
         self.assertEqual(bytes(m.cpu.mem_read(0x80497758+0x70,1)),b'\x14')
         self.assertEqual(bytes(m.cpu.mem_read(0x80497758+0x94,1)),b'\x09')
+        # Restoring, then the team select's step once the characters are in.
+        steps=m.symbols['test_character_steps']
+        self.assertEqual(struct.unpack('>I',m.cpu.mem_read(steps,4))[0],0x13)
         m.cpu.mem_write(0x80497758+0x70,b'\x02');m.cpu.mem_write(0x80497758+0x94,b'\x0C')
         start=m.install_hook(0x801BAB18,0x80481000)
         m.cpu.emu_start(start,0x801BAB1C,count=100000)
         self.assertEqual((m.call('Settings_Get',24,0),m.call('Settings_Get',24,1)),(2,12))
+        self.assertEqual(struct.unpack('>I',m.cpu.mem_read(steps,4))[0],0x132)
 
 
 class EventPreferenceTests(unittest.TestCase):
@@ -1487,6 +1684,17 @@ class OSDLayoutTests(unittest.TestCase):
         self.assertEqual(self.footer(object).count(b"4f"),1)
         object=m.call("TestLayoutEmit",0,20,1,64);m.call("TestLayoutTick",5)
         self.assertNotIn(b"2f",self.footer(object));self.assertNotIn(b"4f",self.footer(object))
+
+    def test_panel_history_keeps_a_no_action_attempt_as_muted_dashes(self):
+        self.start(2);m=self.m
+        m.call("TestLayoutTick",1);m.call("TestLayoutEmit",0,16,3,5);m.call("TestLayoutTick",1)
+        m.call("TestLayoutTick",2);blank=m.call("TestLayoutEmit",0,16,0,5);m.call("TestLayoutBlank",blank)
+        m.call("TestLayoutTick",2)
+        self.assertEqual(bytes(m.call("TestLayoutTimingChar",blank,i) for i in range(11)),b"\x1bB4BECDFF--")
+        self.assertIn(b"3f",self.footer(blank));self.assertNotIn(b"0f",self.footer(blank))
+        m.call("TestLayoutTick",3);latest=m.call("TestLayoutEmit",0,16,2,5);m.call("TestLayoutTick",3)
+        rows=[bytes(m.call("TestLayoutFooterRowChar",latest,row,i) for i in range(20)).split(b"\0",1)[0] for row in (4,5)]
+        self.assertEqual(rows,[b"\x1bB4BECDFF--",b"\x1bFFF000FF3f"])
 
     def test_all_and_cpu_overrides_preserve_human_slot_coordinates(self):
         self.start(1);m=self.m
@@ -2067,6 +2275,118 @@ class AttackEpisodeTests(unittest.TestCase):
             m.call("TestCueState",0,after,f,40,100);m.call("TestShineAfter",0)
         self.assertEqual(m.call("TestWaitFrame"),1)
         self.assertEqual("".join(chr(m.call("TestWaitLabelChar",i)) for i in range(12)),"Ledge attack")
+
+
+LANDING, LANDINGAIRN, FALL, JUMPF, JUMPAERIALF, PASS = 42, 70, 29, 25, 27, 244
+GUARD, GUARDSETOFF, DAMAGEFALL, CLIFFWAIT = 179, 181, 38, 253
+
+class NoActionTests(unittest.TestCase):
+    """Act Oo attempts with no result show "--" after TM_NO_ACTION_FRAMES (20)."""
+    def setUp(self):
+        self.m=Machine(); self.wait=0x80404000
+        self.m.cpu.mem_write(self.wait,bytes(12))
+
+    def tick(self,frozen=0,dead=0):
+        return self.m.call("TMNoAction_Tick",self.wait,frozen,dead)
+
+    def test_runs_out_once_after_twenty_unfrozen_updates(self):
+        self.assertEqual(self.tick(),0)  # Nothing pending.
+        self.m.call("TMNoAction_Start",self.wait,0,0)
+        self.assertEqual([self.tick() for _ in range(19)],[0]*19)
+        self.assertEqual(self.tick(frozen=1),0)  # Hitlag does not count.
+        self.assertEqual(self.tick(),1);self.assertEqual(self.tick(),0)
+
+    def test_result_landing_lag_and_death(self):
+        m=self.m
+        m.call("TMNoAction_Start",self.wait,0,0)
+        for _ in range(5): self.tick()
+        m.call("TMNoAction_Result",self.wait)
+        self.assertEqual(sum(self.tick() for _ in range(40)),0)
+        m.call("TMNoAction_Start",self.wait,4,0)  # Four frames of landing lag come first.
+        self.assertEqual([self.tick() for _ in range(23)],[0]*23);self.assertEqual(self.tick(),1)
+        m.call("TMNoAction_Start",self.wait,0,0);self.tick()
+        self.assertEqual(self.tick(dead=1),0)
+        self.assertEqual(sum(self.tick() for _ in range(40)),0)
+
+    def game(self,ids,mode=1):
+        m=self.m;m.init();m.call("TestCueInit")
+        for id in (3,16,18,28): m.write(14,id,6 if id in ids else 0)
+        m.call("Settings_Set",14,27,6 if 27 in ids else 0)  # Act OoAttack's color lives in the extension.
+        m.call("Settings_Set",21,0,mode);m.call("TestWaitClear")
+        self.frame=0
+
+    def step(self,state,count=1,slot=0,attack=False):
+        """Return the update (1-based, within this call) that showed a message; 0 = none."""
+        shown=0
+        for i in range(count):
+            self.frame+=1;m=self.m
+            m.call("TestCueState",slot,state,self.frame,40,100);m.call("TestContextTick",slot,self.frame)
+            if attack: m.call("TestShineBefore",slot);m.call("TestShineAfter",slot)
+            if not shown and m.call("TestWaitTag"): shown=i+1
+        return shown
+
+    def blank(self,id,kind,rows,label=None):
+        m=self.m;tag=m.call("TestWaitTag")
+        self.assertEqual((m.call("OSD_MessageSettings",tag),m.call("OSD_MessageKind",tag)),(id,kind))
+        self.assertEqual(m.call("TestStyleBlank"),1)
+        text,_,raw=styled_ascii(m,rows-1)
+        self.assertEqual(text,"--");self.assertIn(b"\x1bB4BECDFF--",raw)
+        if label: self.assertEqual(bytes(m.call("TestWaitLabelChar",i) for i in range(len(label)+1)),label+b"\0")
+        m.call("TestWaitClear")
+
+    def test_act_oowait_blanks_twenty_frames_after_wait_or_landing_lag(self):
+        m=self.m;self.game([16])
+        self.step(LANDINGAIRN,3)  # The first update only observes.
+        m.call("TestCuePrevious",0,LANDINGAIRN)
+        self.assertEqual(self.step(WAIT,20),20)
+        self.blank(16,5,3,b"Missed L-cancel")
+        self.assertEqual(self.step(WAIT,40),0)  # Once per attempt.
+        m.call("TestCueLanding",0,4,1);m.call("TestCuePrevious",0,FALL)
+        self.assertEqual(self.step(LANDING,24),24)  # Landing lag, then 20 actionable frames.
+        self.blank(16,5,3,b"Landing")
+        m.call("TestCuePrevious",0,WALK);self.step(WALK);self.assertEqual(self.step(WAIT,40),0)  # No source.
+
+    def test_a_result_cancels_and_recent_retires_the_old_popup_instead(self):
+        m=self.m;self.game([16])
+        self.step(LANDINGAIRN);m.call("TestCuePrevious",0,LANDINGAIRN);self.step(WAIT,5)
+        m.call("OSDContext_Result",0,16);self.assertEqual(self.step(WAIT,40),0)
+        self.game([16],mode=0)
+        self.step(LANDINGAIRN);m.call("TestCuePrevious",0,LANDINGAIRN);self.step(WAIT,20)
+        self.assertEqual(m.call("TestWaitTag"),0);self.assertEqual(m.call("TestRetired"),16)
+        self.game([])  # Off: nothing at all.
+        self.step(LANDINGAIRN);m.call("TestCuePrevious",0,LANDINGAIRN);self.step(WAIT,30)
+        self.assertEqual((m.call("TestWaitTag"),m.call("TestRetired")),(0,0xFFFFFFFF))
+        self.game([16])  # Nana never reports.
+        self.step(LANDINGAIRN,slot=1);m.call("TestCuePrevious",1,LANDINGAIRN)
+        self.assertEqual(self.step(WAIT,30,slot=1),0)
+
+    def test_act_oos_and_oohitstun_start_when_stun_ends(self):
+        m=self.m;self.game([3,28])
+        self.step(GUARDSETOFF,4);self.assertEqual(self.step(GUARD,20),20)
+        self.blank(3,3,2)
+        m.call("TestCueHitstun",0,1);self.step(DAMAGE,5)
+        m.call("TestCueHitstun",0,0);self.assertEqual(self.step(DAMAGE,20),20)
+        self.blank(28,5,2)
+        m.call("TestCueHitstun",0,1);self.step(DAMAGE,3)
+        m.call("TestCueHitstun",0,0);self.assertEqual(self.step(WAIT,30),0)  # Hitstun ended outside a damage state.
+
+    def test_act_oojump_blanks_once_per_jump_drop_or_ledge_drop(self):
+        m=self.m;self.game([18])
+        self.step(KNEEBEND,3);self.assertEqual(self.step(JUMPF,20),20)
+        self.blank(18,18,2)
+        m.call("TestCuePrevious",0,JUMPF);self.assertEqual(self.step(FALL,40),0)  # A jump's own fall.
+        m.call("TestCuePrevious",0,FALL);self.assertEqual(self.step(JUMPAERIALF,20),20)
+        self.blank(18,18,2)
+        self.step(WAIT,3);self.assertEqual(self.step(PASS,20),20);self.blank(18,18,2)
+        m.call("TestCuePrevious",0,PASS);self.assertEqual(self.step(FALL,40),0)
+        self.step(CLIFFWAIT,3);m.call("TestCuePrevious",0,CLIFFWAIT)
+        self.assertEqual(self.step(FALL,20),20);self.blank(18,18,2)
+
+    def test_act_ooattack_starts_on_the_first_actionable_update(self):
+        m=self.m;self.game([27])
+        self.step(FTILT,3,attack=True)
+        self.assertEqual(self.step(WAIT,21,attack=True),21)  # Wait 1 is opportunity 1.
+        self.blank(27,27,3,b"Ftilt")
 
 
 class ShineEpisodeTests(unittest.TestCase):
@@ -2927,6 +3247,18 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual((self.choice(m, editor_row(0)[1], 4), self.choice(m, 27, 4), self.choice(m, 28)), ("Auto", "Auto", "Press A"))
 
 
+def event_exports(dat_path):
+    """An event DAT's evFunction exports: index -> code offset."""
+    dat = dat_path.read_bytes()
+    _, size, relocs, roots, refs = struct.unpack_from('>5I', dat)
+    nodes = 32 + size + relocs * 4; strings = nodes + (roots + refs) * 8
+    for i in range(roots):
+        at, name = struct.unpack_from('>II', dat, nodes + i * 8)
+        if dat[strings+name:].split(b'\0', 1)[0] == b'evFunction':
+            _, _, _, exports, count, _ = struct.unpack_from('>6I', dat, 32+at)
+            return dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
+
+
 class SweetspotCameraTests(unittest.TestCase):
     dat_path = ROOT / 'build/sweetspot-reset-test.dat'
     dat_root = b'evFunction'
@@ -2936,20 +3268,12 @@ class SweetspotCameraTests(unittest.TestCase):
         from unicorn import UC_HOOK_CODE
         RelocatedDATSettingsTests.setUp(self)
         m = self.m; m.init(); m.call('TestTrailInit')
-        dat = self.dat_path.read_bytes()
-        _, size, relocs, roots, refs = struct.unpack_from('>5I', dat)
-        nodes = 32 + size + relocs * 4; strings = nodes + (roots + refs) * 8
-        for i in range(roots):
-            at, name = struct.unpack_from('>II', dat, nodes + i * 8)
-            if dat[strings+name:].split(b'\0', 1)[0] == b'evFunction':
-                _, _, _, exports, count, _ = struct.unpack_from('>6I', dat, 32+at)
-                break
-        exported = dict(struct.unpack_from('>II', dat, 32+exports+i*8) for i in range(count))
+        exported = event_exports(self.dat_path)
         m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
         menu = self.word(self.base + exported[3])
-        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 6)
-        options = self.word(menu+8)
-        self.row = options + 44
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 8)
+        self.options = options = self.word(menu+8)
+        self.row = options + 3 * 44  # Knockback, Success Criteria and Line Guides come first.
         self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
         self.assertEqual(struct.unpack('>H', m.cpu.mem_read(self.row+4, 2))[0], 2)
         names = self.word(self.row+32)
@@ -3053,6 +3377,120 @@ class SweetspotCameraTests(unittest.TestCase):
         self.assertEqual(m.record(), before)  # The core record has no room; it lives in TYEX.
         m.call('DAT_InitSweetspot', 0)
         self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 1, 1))
+
+    def test_knockback_and_success_criteria_default_first_and_save_only_their_extension_bits(self):
+        m = self.m
+        knockback, success = self.options, self.options + 44
+        rows = ((knockback, 'Knockback', ['Random', 'Above, Close', 'Above, Far', 'Level, Close',
+                 'Level, Far', 'Below, Close', 'Below, Far', 'Random Preset']),
+                (success, 'Success Criteria', ['Sweetspot', 'Sweetspot + Ledgedash']))
+        for row, name, values in rows:
+            self.assertEqual(self.text(self.word(row+12)), name)
+            self.assertEqual(struct.unpack('>H', m.cpu.mem_read(row+4, 2))[0], len(values))
+            names = self.word(row+32)
+            self.assertEqual([self.text(self.word(names+i*4)) for i in range(len(values))], values)
+        before = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        for row, _, _ in rows:
+            self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 0, 0))
+        m.symbols['DAT_ChangeKnockback'] = self.word(knockback+36)
+        m.symbols['DAT_ChangeSuccess'] = self.word(success+36)
+        for choice in (7, 1, 6):
+            m.call('DAT_ChangeKnockback', 0, choice)
+            self.assertEqual(m.call('Settings_Get', 41, 1), choice)
+            self.assertEqual(m.call('Settings_Get', 41, 0), 0)  # Success keeps its own bit.
+        m.call('DAT_ChangeSuccess', 0, 1)
+        self.assertEqual([m.call('Settings_Get', 41, i) for i in range(2)], [1, 6])
+        self.assertEqual([m.call('Settings_Get', *key) for key in ((40, 0), (25, 0), (32, 0))], [0, 1, 0])
+        self.assertEqual(m.record(), before)  # Both live in TYEX.
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(knockback+6, 4)), struct.pack('>2h', 6, 6))
+        self.assertEqual(bytes(m.cpu.mem_read(success+6, 4)), struct.pack('>2h', 1, 1))
+
+
+class EventMenuSaveTests:
+    """Run an event's compiled Event_Init and menu callbacks: each saved row is
+    written to its TYEX bits as it changes, and Event_Init shows the saved
+    choices. Subclasses give the DAT, the setting field and the saved rows
+    (name, number of values, default), which come first in the menu."""
+    dat_root = b'evFunction'
+    extension = 0x8045A6C0 + 0x1AE0
+    natives = ('Match_SetNormalCamera', 'Match_CorrectCamera', 'Stage_GetExternalID',
+               'Stage_GetLeftOfLineCoordinates', 'Stage_GetRightOfLineCoordinates', 'Stage_GetBlastzoneBottom',
+               'CameraSubject_Alloc', 'GObj_Create', 'GObj_AddGXLink', 'GObj_AddUserData')
+
+    def setUp(self):
+        from unicorn import UC_HOOK_CODE
+        RelocatedDATSettingsTests.setUp(self)
+        m = self.m; m.init(); m.call('TestTrailInit')
+        exported = event_exports(self.dat_path)
+        m.symbols['DAT_EventInit'] = self.base + exported[0]
+        options = self.word(self.word(self.base + exported[3]) + 8)
+        self.rows = [options + i * 44 for i in range(len(self.saved))]
+        for row, (name, count, _) in zip(self.rows, self.saved):
+            self.assertEqual(self.text(self.word(row+12)), name)
+            toggle = m.cpu.mem_read(row, 1)[0] == 5  # OPTKIND_TOGGLE has no value count.
+            self.assertEqual(struct.unpack('>H', m.cpu.mem_read(row+4, 2))[0], 0 if toggle else count, name)
+        link = (ROOT/'MexTK/melee.link').read_text().splitlines()
+        natives = {int(next(line.split(':')[0] for line in link if line.endswith(':'+name)), 16): name
+                   for name in self.natives}
+        def dependencies(cpu, address, size, user):
+            name = natives.get(address)
+            if not name: return
+            if name == 'Stage_GetExternalID': cpu.reg_write(gpr(3), 32)
+            elif name in ('GObj_Create', 'CameraSubject_Alloc'): cpu.reg_write(gpr(3), 0x8040D000)
+            cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        self.hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
+
+    def tearDown(self): self.m.cpu.hook_del(self.hook)
+    def word(self, address): return struct.unpack('>I', self.m.cpu.mem_read(address, 4))[0]
+    def text(self, address): return bytes(self.m.cpu.mem_read(address, 80)).split(b'\0', 1)[0].decode()
+    def shown(self): return [struct.unpack('>2h', self.m.cpu.mem_read(row+6, 4)) for row in self.rows]
+    def saved_values(self): return [self.m.call('Settings_Get', self.field, i) for i in range(len(self.saved))]
+
+    def change(self, index, value):
+        row = self.rows[index]
+        self.m.cpu.mem_write(row+6, struct.pack('>2h', value, self.shown()[index][0]))
+        self.m.symbols['DAT_Change'] = self.word(row+36)
+        self.m.call('DAT_Change', 0, value)
+
+    def test_defaults_show_without_a_saved_record_and_init_writes_nothing(self):
+        m = self.m
+        core, extension = m.record(), bytes(m.cpu.mem_read(self.extension, 88))
+        m.call('DAT_EventInit', 0)
+        self.assertEqual(self.shown(), [(default, default) for _, _, default in self.saved])
+        self.assertEqual((m.record(), bytes(m.cpu.mem_read(self.extension, 88))), (core, extension))
+        self.assertEqual(m.call('TestDirty'), 0)
+
+    def test_each_row_saves_as_it_changes_and_init_shows_the_saved_choices(self):
+        m = self.m
+        core = m.record()
+        m.call('DAT_EventInit', 0)
+        chosen = [default for _, _, default in self.saved]
+        for index, (name, count, default) in enumerate(self.saved):
+            for value in list(range(count)) + [(default + 1) % count]:
+                self.change(index, value)
+                chosen[index] = value
+                self.assertEqual(self.saved_values(), chosen, name)
+        self.assertEqual(m.record(), core)  # Both events live in TYEX,
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x15\x44')  # on the card itself.
+        for row, (_, _, default) in zip(self.rows, self.saved):
+            m.cpu.mem_write(row+6, struct.pack('>2h', default, default))
+        m.call('DAT_EventInit', 0)
+        self.assertEqual(self.shown(), [(value, value) for value in chosen])
+
+
+class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/grabpunish-test.dat'
+    field = 42  # TM_SETTING_GRAB_PUNISH
+    saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 11, 3), ('Teammate Percent', 11, 0),
+             ('CPU Mashing', 6, 1), ('Teammate Facing', 3, 0), ('Release Hit = Success', 2, 1))
+
+
+class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/upbsweetspot-test.dat'
+    field = 43  # TM_SETTING_UPB_SWEETSPOT
+    saved = (('Enable Line Guides', 2, 1), ('Marth', 3, 0), ('Camera', 2, 0))
 
 
 class SweetspotDoubleJumpDrawTests(unittest.TestCase):
@@ -3238,6 +3676,48 @@ class SweetspotResetTests(unittest.TestCase):
         self.attempt(False)
         for frame in range(35): self.step(349, 1)
         self.assertEqual(self.resets, [])
+
+    def ledgedash_criterion(self):
+        """Choose Sweetspot + Ledgedash, the menu's second row, then sweetspot."""
+        menu = struct.unpack('>I', self.m.cpu.mem_read(self.base + event_exports(self.dat_path)[3], 4))[0]
+        options = struct.unpack('>I', self.m.cpu.mem_read(menu + 8, 4))[0]
+        self.m.cpu.mem_write(options + 44 + 6, struct.pack('>h', 1))
+        self.attempt(True)
+        self.step(252)  # CliffCatch unfreezes Marth but waits for the ledgedash.
+        self.assertEqual(self.speeds[-1], 1)
+        for frame in range(90): self.step(253)  # CliffWait.
+        self.assertEqual(self.resets, [])
+
+    def waveland(self, galint):
+        self.m.cpu.mem_write(self.human + 0x1990, struct.pack('>i', galint))  # Ledge intangibility.
+        self.step(29); self.step(236)  # Let go, then air dodge.
+        self.m.cpu.mem_write(self.human + 0x824, struct.pack('>I', 0x18000))  # ECB_GROUND.
+        for frame in range(10): self.step(43, 0)  # LandingFallSpecial is not a failed landing here.
+        self.assertEqual(self.resets, [])
+        self.m.call('TestCuePrevious', 0, 43)
+        self.step(14, 0)  # Actionable in Wait.
+
+    def test_ledgedash_criterion_counts_a_ledgedash_with_galint(self):
+        self.ledgedash_criterion()
+        self.waveland(5)
+        for frame in range(59):
+            self.step(14, 0)
+            self.assertEqual(self.resets, [])
+        self.step(14, 0)
+        self.assertEqual(self.resets, [2])
+
+    def test_ledgedash_criterion_fails_without_galint_or_on_a_ledge_option(self):
+        for fail in ('galint', 'getup'):
+            with self.subTest(fail=fail):
+                self.tearDown(); self.setUp()
+                self.ledgedash_criterion()
+                if fail == 'galint': self.waveland(0)
+                else: self.step(255)  # CliffClimbQuick.
+                for frame in range(29):
+                    self.step(14, 0)
+                    self.assertEqual(self.resets, [])
+                self.step(14, 0)
+                self.assertEqual(self.resets, [2])
 
 
 class UnderFireNativeTests(unittest.TestCase):
@@ -3531,6 +4011,28 @@ class ActionCueTests(unittest.TestCase):
         self.show(6, 13, 0)
         self.assertEqual(m.call("TestCueDrawCount", 0), before + 5)
 
+    def test_zelda_sheik_transforms_keep_both_renderers(self):
+        # Sheik is Zelda's second fighter (ms set) and each transform swaps the
+        # ms bits, so ply/ms no longer identifies the same object afterward.
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)  # Wraps both forms' renderers.
+        for slot in [0, 1]:
+            m.call("TestCueState", slot, 14, 0, 40, 100)
+        for frame in range(1, 13):
+            m.call("TestCueTick", frame)
+            if frame % 3 == 0:
+                m.call("TestCueTransform", 0)
+            for slot in [0, 1]:
+                before = m.call("TestCueDrawCount", slot)
+                m.call("TestCueDraw", slot)
+                self.assertEqual(m.call("TestCueDrawCount", slot), before + 1, (frame, slot))
+        m.call("TestCueProtection", 1, 0, 1, 0)
+        m.call("TestCueDraw", 1)
+        self.assertEqual(m.call("TestCueDrawColor", 1), 0xFF464670)
+        for flag in range(8): m.call("Settings_Set", 11, flag, 0)
+        m.call("TestCueTick", 13)
+        self.assertEqual([m.call("TestCueWrapped", slot) for slot in [0, 1]], [0, 0])
+
     def test_lcancel_entry_fallback_uses_native_integer_window(self):
         m = self.m
         m.call("Settings_Set", 11, 4, 0)
@@ -3688,7 +4190,7 @@ class ActionCueTests(unittest.TestCase):
     def test_protection_overlay_uses_trail_palette_for_all_sources_and_lavender_for_cpu(self):
         m = self.m
         m.call("Settings_Set", 11, 7, 1)
-        palette = [0xFF464670, 0x4691FF70, 0xFFE14170, 0x4BE16470, 0xB48CFF70]
+        palette = [0xFF464670, 0x4691FF70, 0xFFE14170, 0x4BE16470, 0xA06EFF70]
         for source in [(0, 1), (0, 2), (1, 0), (2, 0)]:
             for accent, color in enumerate(palette):
                 m.call("TestCuePlayer", 5, accent, accent == 4)
@@ -3707,6 +4209,42 @@ class ActionCueTests(unittest.TestCase):
         m.call("TestCueProtection", 11, 0, 1, 0)
         m.call("TestCueDraw", 11)
         self.assertEqual(m.call("TestCueDrawColor", 11), palette[4])
+
+    def test_protection_overlay_gives_each_teammate_its_own_shade(self):
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)
+        shades = {0: [0xFF464670, 0xFF701E70, 0xFF82D270],  # Red, Orange, Pink
+                  1: [0x4691FF70, 0xA06EFF70, 0x00FFFF70],  # Blue, Lavender, Cyan
+                  2: [0x4BE16470, 0x8CFF2870, 0x228B2270]}  # Green, Lime, Forest
+
+        frames = iter(range(1, 1000))
+
+        def color(ply):
+            m.call("TestCueState", ply * 2, 181, 0, 40, 100)
+            m.call("TestCueTick", next(frames))  # Wraps the slot's renderer.
+            m.call("TestCueProtection", ply * 2, 0, 2, 0)
+            m.call("TestCueDraw", ply * 2)
+            return m.call("TestCueDrawColor", ply * 2)
+
+        for teams in [[1, 2, 1, 1], [0, 0, 1, 0], [2, 0, 2, 2], [0, 1, 1, 0]]:
+            with self.subTest(teams=teams):
+                for ply, team in enumerate(teams):
+                    m.call("TestCuePlayer", ply, [0, 1, 3][team], int(ply == 3))  # P4 is a CPU.
+                    m.call("TestCueTeam", ply, team, 1)
+                m.cpu.mem_write(0x8046DB70, b"\x01")  # MatchInfo's teams flag.
+                for ply, team in enumerate(teams):
+                    self.assertEqual(color(ply), shades[team][teams[:ply].count(team)])
+                m.cpu.mem_write(0x8046DB70, b"\x00")  # FFA: back to accents, CPU Lavender.
+                for ply, team in enumerate(teams):
+                    self.assertEqual(color(ply), 0xA06EFF70 if ply == 3 else
+                                     [0xFF464670, 0x4691FF70, 0, 0x4BE16470][[0, 1, 3][team]])
+        m.cpu.mem_write(0x8046DB70, b"\x01")
+        m.call("TestCueTeam", 0, 1, 0)  # An empty port doesn't take a shade.
+        m.call("TestCueTeam", 1, 0, 1)
+        m.call("TestCueTeam", 2, 1, 1)
+        m.call("TestCueTeam", 3, 1, 1)
+        self.assertEqual(color(2), shades[1][0])
+        self.assertEqual(color(3), shades[1][1])
 
     def test_protection_is_live_while_paused_and_timing_has_priority(self):
         m = self.m

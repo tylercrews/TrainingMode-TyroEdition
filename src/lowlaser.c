@@ -1,14 +1,10 @@
 #include "events.h"
+#include "stage_points.h"
 #include "stage_swap.h"
 
 /* Squat startup, never SquatWait. A zero animation rate holds the compressed
  * pose while normal hurtbox collision and percent accumulation remain live. */
 #define PUFF_CROUCH_FRAME 2.f
-/* FD's main-stage edge. Ground positions scale from FD's original X values
- * to each stage's live edges, so FD keeps exactly 0/±35/±70 and the player ±50. */
-#define FD_EDGE 85.5656967f
-#define MOVE_SPECIAL_N 18 /* Native move ID copied to atk_kind by ActionStateChange. */
-#define FIRST_SPECIAL_STATE (ASID_BARRELCANNONWAIT + 1) /* 341: character-specific states. */
 enum { OPT_POSITION, OPT_HEIGHT, OPT_STAGE, OPT_OSDS, OPT_SUPPRESS, OPT_EXIT, OPT_RESET_PERCENT };
 enum {
     POS_CENTER, POS_FAR_LEFT, POS_CENTER_LEFT, POS_CENTER_RIGHT, POS_FAR_RIGHT,
@@ -17,12 +13,12 @@ enum {
 enum { HEIGHT_GROUNDED, HEIGHT_SHORT, HEIGHT_FULL, HEIGHT_SHORT_DOUBLE, HEIGHT_FULL_DOUBLE, HEIGHT_COUNT };
 typedef struct LowLaserData {
     EventDesc *desc;
-    int initialized, airborne, air_frame, laser_frame, fastfall_frame, fastfall, prev_state;
+    int initialized, airborne, air_frame, laser_frame, fastfall_frame, fastfall;
     unsigned restore_serial;
     Vec3 puff_position; /* Surface point; Puff is held puff_height above it. */
     float puff_height;
     int puff_line, puff_tracks_line;
-    Text *text[2];
+    Text *text[2], *timer;
 } LowLaserData;
 typedef char low_laser_data_fits[(sizeof(LowLaserData) <= EVENT_DATASIZE) ? 1 : -1];
 
@@ -53,7 +49,8 @@ static EventOption options[] = {
     {.kind = OPTKIND_MENU, .name = "Change Stage", .menu = &StageSwap_Menu,
      .desc = {"Restart on another tournament-legal stage.", "Saved settings are kept; Puff's percent resets."}},
     {.kind = OPTKIND_TOGGLE, .name = "Event OSDs", .val = 1, .OnChange = ChangeOSDs,
-     .desc = {"Show Laser Start and the regular Fastfall timing.", "Laser Start counts from the first airborne frame.", "Both results stay white. This setting is saved."}},
+     .desc = {"Show Laser Start and the regular Fastfall timing.", "Laser Start counts from the first airborne frame.",
+              "Other characters show B Press Start for any aerial B.", "Both results stay white. This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .name = "Suppress Global OSDs", .OnChange = ChangeSuppression,
      .desc = {"Hide global OSDs during this event only.", "Event OSDs keep their own On/Off setting.", "Defaults Off. This setting is saved."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = Exit,
@@ -66,92 +63,6 @@ EventMenu *Event_Menu = &menu;
 
 static LowLaserData *Data(void) { return event_vars->event_gobj->userdata; }
 
-/* Live collision geometry, as in Techchase: current vertices follow Fountain's
- * moving platforms, and only enabled lines count (Stadium's base layout). */
-static int IsPlatformLine(const CollLineDesc *line) {
-    /* Native MapLine.lo_flags LINE_FLAG_PLATFORM is 0x0100. */
-    return ((const u8 *)line)[0xE] & 1;
-}
-static int FloorLine(int i, Vec2 *a, Vec2 *b, int *platform) {
-    CollDataStage *stage = *stc_colldata;
-    CollLine *lines = *stc_collline;
-    CollVert *verts = *stc_collvert;
-    if (!stage || !lines || !verts || i < 0 || i >= stage->line_num) return 0;
-    CollLineDesc *line = lines[i].desc;
-    if (!line || !line->is_floor || line->disabled || !GrColl_CheckIfLineEnabled(i) ||
-        line->vert_prev < 0 || line->vert_next < 0 ||
-        line->vert_prev >= stage->vert_num || line->vert_next >= stage->vert_num) return 0;
-    *a = verts[line->vert_prev].pos_curr;
-    *b = verts[line->vert_next].pos_curr;
-    if (a->X > b->X) { Vec2 swap = *a; *a = *b; *b = swap; }
-    *platform = IsPlatformLine(line);
-    return b->X - a->X >= 0.01f;
-}
-static int LineCount(void) { return *stc_colldata ? (*stc_colldata)->line_num : 0; }
-static int LineY(int i, float x, float *y) {
-    Vec2 a, b;
-    int platform;
-    if (!FloorLine(i, &a, &b, &platform) || x < a.X || x > b.X) return 0;
-    *y = a.Y + (b.Y - a.Y) * (x - a.X) / (b.X - a.X);
-    return 1;
-}
-static int FindSolidGround(float x, Vec3 *position, int *index) {
-    int found = 0;
-    for (int i = 0; i < LineCount(); ++i) {
-        Vec2 a, b;
-        int platform;
-        float y;
-        if (!FloorLine(i, &a, &b, &platform) || platform || !LineY(i, x, &y)) continue;
-        if (!found || y > position->Y) { *position = (Vec3){x, y, 0}; *index = i; found = 1; }
-    }
-    return found;
-}
-static void GroundEdges(float *left, float *right) {
-    *left = -FD_EDGE; *right = FD_EDGE;
-    int found = 0;
-    for (int i = 0; i < LineCount(); ++i) {
-        Vec2 a, b;
-        int platform;
-        if (!FloorLine(i, &a, &b, &platform) || platform) continue;
-        if (!found || a.X < *left) *left = a.X;
-        if (!found || b.X > *right) *right = b.X;
-        found = 1;
-    }
-}
-/* Solid ground at x, moving toward center if a non-legal stage has a gap. */
-static void GroundPoint(float x, Vec3 *position, int *index) {
-    float inward = x;
-    for (int i = 0; i < 4; ++i, inward *= .5f)
-        if (FindSolidGround(inward, position, index)) return;
-    Vec3 slope;
-    int kind;
-    *position = (Vec3){x, 0, 0};
-    *index = -1;
-    GrColl_RaycastGround(position, index, &kind, &slope, -1, -1, -1, 0, x, 10, x, -20, 0);
-}
-static int LegalStage(void) {
-    int stage = Stage_GetExternalID();
-    return stage == GRKINDEXT_STORY || stage == GRKINDEXT_IZUMI || stage == GRKINDEXT_FD ||
-        stage == GRKINDEXT_PSTAD || stage == GRKINDEXT_BATTLE || stage == GRKINDEXT_OLDPU;
-}
-/* side -1/0/1: left, top, right one-way platform. Puff stands at its center. */
-static int FindPlatform(int side, Vec3 *position, int *index) {
-    if (!LegalStage()) return 0;
-    int found = 0;
-    float best = 0;
-    for (int i = 0; i < LineCount(); ++i) {
-        Vec2 a, b;
-        int platform;
-        float y;
-        if (!FloorLine(i, &a, &b, &platform) || !platform || b.X - a.X < 10) continue;
-        float x = (a.X + b.X) * .5f;
-        if (side < 0 ? x >= -10 : side > 0 ? x <= 10 : a.X > 0 || b.X < 0) continue;
-        if (!LineY(i, x, &y)) continue;
-        float score = side ? -fabs(x) : y;
-        if (!found || score > best) { *position = (Vec3){x, y, 0}; *index = i; best = score; found = 1; }
-    }
-    return found;
-}
 static int ResolvePosition(int choice, Vec3 *position, int *index, int *tracks) {
     *tracks = 0;
     if (choice < POS_ON_LEFT) {
@@ -206,35 +117,6 @@ static float PuffHeight(FighterData *ft, int option) {
     return first + (option >= HEIGHT_SHORT_DOUBLE ? RiseHeight(air, gravity) : 0);
 }
 
-static void ClearVelocity(FighterData *ft) {
-    ft->phys.self_vel = ft->phys.kb_vel = ft->phys.self_vel_ground = (Vec3){0};
-    ft->phys.atk_shield_kb_vel = (Vec3){0};
-    ft->phys.nudge_vel = (Vec2){0};
-}
-static void UpdatePosition(GOBJ *fighter) {
-    FighterData *ft = fighter->userdata;
-    Vec3 pos = ft->phys.pos;
-    ft->phys.pos_prev = pos;
-    ft->coll_data.topN_Curr = ft->coll_data.topN_CurrCorrect = pos;
-    ft->coll_data.topN_Prev = ft->coll_data.topN_Proj = pos;
-    ft->coll_data.coll_test = *stc_colltest;
-    JOBJ *joint = fighter->hsd_object;
-    joint->trans = pos;
-    JOBJ_SetMtxDirtySub(joint);
-    Fighter_SetPosition(ft->ply, ft->flags.ms, &pos);
-}
-static void GroundAt(GOBJ *fighter, Vec3 ground, int line) {
-    FighterData *ft = fighter->userdata;
-    if (line >= 0) ft->coll_data.ground_index = line;
-    ft->phys.pos = ground;
-    ClearVelocity(ft);
-    UpdatePosition(fighter);
-    EnvironmentCollision_WaitLanding(fighter);
-    Fighter_SetGrounded(ft);
-    ft->hurt.kind_game = ft->hurt.kind_script = 0;
-    ft->hurt.intang_frames.ledge = ft->hurt.intang_frames.respawn = 0;
-    Fighter_SetAllHurtboxState(fighter, 0);
-}
 /* Current surface under Puff. A platform position follows its live line
  * (Fountain); if that line is gone, Puff uses the ground below until it returns. */
 static Vec3 PuffSurface(LowLaserData *data, int *line) {
@@ -326,7 +208,6 @@ void Event_Init(GOBJ *gobj) {
     EventDesc *desc = data->desc;
     memset(data, 0, sizeof(*data));
     data->desc = desc;
-    data->prev_state = -1;
     ClearTiming(data);
     data->restore_serial = event_vars->get_restore_serial();
     for (int i = 0; i < POS_COUNT; ++i) positions_display[i] = positions[i];
@@ -351,6 +232,17 @@ void Event_Init(GOBJ *gobj) {
         Text_SetColor(text, 0, &white);
         Text_SetColor(text, 1, &white);
     }
+    /* Clock in the bottom left corner, at Eggs-ercise's Bottom Left counter
+     * spot and size. Full-size digits sit 4 to 22 into their 32 tall line, so
+     * at 433 they end 25 above the bottom edge, the corner counters' margin. */
+    Text *timer = data->timer = Text_CreateText(2, canvas);
+    if (timer) {
+        timer->kerning = 1;
+        timer->trans = (Vec3){50, 433, 0};
+        timer->viewport_scale.X = timer->viewport_scale.Y = 1;
+        Text_AddSubtext(timer, 0, 0, "00:00");
+        Text_SetColor(timer, 0, &white);
+    }
 }
 static int IsBlaster(FighterData *ft) { return ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO; }
 void Event_Think(GOBJ *gobj) {
@@ -360,7 +252,7 @@ void Event_Think(GOBJ *gobj) {
     FighterData *hmn = human->userdata, *cpu = puff->userdata;
     if (!data->initialized) {
         data->initialized = 1;
-        if (data->text[0] && !IsBlaster(hmn)) Text_SetText(data->text[0], 0, "Neutral-B Start");
+        if (data->text[0] && !IsBlaster(hmn)) Text_SetText(data->text[0], 0, "B Press Start");
         PlaceFighters();
     }
     if (data->restore_serial != event_vars->get_restore_serial()) {
@@ -381,12 +273,11 @@ void Event_Think(GOBJ *gobj) {
     }
     if (airborne && data->air_frame < 32767) ++data->air_frame;
     /* Fox and Falco share SpecialAirNStart (344), Loop (345), End (346).
-     * Others: entering a character special state whose native move ID is
-     * neutral-B. atk_kind persists after a move, so only a transition counts.
+     * Others: the press itself, so every special counts (Samus's side-B
+     * missiles), and so does a press that starts no move.
      * Grounded shots are not a low aerial-laser attempt. */
-    int neutral_b = IsBlaster(hmn) ? hmn->state_id == 344 :
-        hmn->state_id != data->prev_state && hmn->state_id >= FIRST_SPECIAL_STATE && hmn->atk_kind == MOVE_SPECIAL_N;
-    if (airborne && neutral_b && data->laser_frame < 0)
+    int started = IsBlaster(hmn) ? hmn->state_id == 344 : hmn->input.down & PAD_BUTTON_B;
+    if (airborne && started && data->laser_frame < 0)
         data->laser_frame = data->air_frame;
     if (airborne && hmn->flags.is_fastfall && !data->fastfall) {
         /* Reuse the exact native counter consumed by Display FF Timing.asm:
@@ -395,7 +286,6 @@ void Event_Think(GOBJ *gobj) {
     }
     data->airborne = airborne;
     data->fastfall = airborne && hmn->flags.is_fastfall;
-    data->prev_state = hmn->state_id;
 }
 void Event_Update(void) {
     LowLaserData *data = Data();
@@ -407,6 +297,14 @@ void Event_Update(void) {
         text->hidden = paused || !options[OPT_OSDS].val;
         if (frames[i] < 0) Text_SetText(text, 1, "-");
         else Text_SetText(text, 1, "%df", frames[i]);
+    }
+    if (data->timer) {
+        /* The match's own frame count (0x24), which the game advances on
+         * every unpaused frame even with the timer hidden. */
+        int seconds = stc_match->time_frames / 60;
+        data->timer->hidden = paused;
+        if (seconds < 3600) Text_SetText(data->timer, 0, "%02d:%02d", seconds / 60, seconds % 60);
+        else Text_SetText(data->timer, 0, "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60);
     }
 }
 static void ChangePosition(GOBJ *menu, int value) {

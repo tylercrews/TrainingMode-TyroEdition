@@ -1,6 +1,6 @@
 # Save data memory map
 
-What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T6 (core settings format 3, `TYEX` extension version 19).
+What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T9 (core settings format 3, `TYEX` extension version 21).
 
 Everything here is inside Melee's existing main save entry, so it uses the game's own save, checksum and encryption. Tyro never adds a new file or grows the save. Offsets are from the start of the game-data object (`stc_memcard`), not raw GCI offsets.
 
@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b23) | `0x1AE0..0x1B23` | 68 bytes | 68 bytes | **35 loose bits** inside the record |
-| **Unallocated spare score slots** | `0x1B24..0x1B37` | **20 bytes** | nothing | **20 bytes (160 bits)** |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **18 bits** in word 72 |
+| **Unallocated spare score slots** | `0x1B2C..0x1B37` | **12 bytes** | nothing | **12 bytes (96 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 20 whole bytes are free, all in one block at `0x1B24..0x1B37`, plus scattered single bits. The core record is full.
+**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 18 bits in word 72 and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -33,6 +33,8 @@ The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37
 | 17 | T6 | 52 bytes | Player/CPU costume colors |
 | 18 | T6 | 64 bytes | Edgeguard settings and per-CPU recovery options |
 | 19 | T6 | 68 bytes | Recovery options of the CPUs added to Edgeguard (Yoshi to Samus) |
+| 20 | T9 | 72 bytes | 2v1 Grab Punish and Up-B Sweetspot settings |
+| 21 | T9 | 76 bytes | 2v1 Grab Punish's P3 and P4 characters |
 
 ## Core settings record (`0x1F24..0x1F4F`)
 
@@ -107,12 +109,12 @@ Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't foll
 | 25 | `0x1AD4` | Escape Sheik Techchase |
 | 26 | `0x1AD8` | Escape DThrow Knee |
 | 27 | `0x1ADC` | Float Cancel Training |
-| 28..44 | `0x1AE0..0x1B23` | `TYEX` record (next section) |
-| 45..49 | `0x1B24..0x1B37` | **Free (20 bytes)** |
+| 28..46 | `0x1AE0..0x1B2B` | `TYEX` record (next section) |
+| 46..49 | `0x1B2C..0x1B37` | **Free (12 bytes)** |
 | 50 | `0x1B38` | Ledgechase Training |
 | — | — | Low Laser Puff Practice is free practice and has no score |
 
-## `TYEX` extension record (`0x1AE0..0x1B23`)
+## `TYEX` extension record (`0x1AE0..0x1B2B`)
 
 Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_extension.c). Byte numbers are relative to `0x1AE0`. Multi-byte words are little-endian, and "word N" means the 4 bytes starting at byte N.
 
@@ -120,25 +122,27 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 
 | Bytes | Owner | Contents | Free inside |
 | --- | --- | --- | --- |
-| 0..7 | Header | `TYEX`, version (19), payload size (60), marker `A5 5A` | — |
+| 0..7 | Header | `TYEX`, version (21), payload size (68), marker `A5 5A` | — |
 | 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
-| 9..11 | Techchase | word 9 bits 0-14 and 16-22 (table below) | bit 15 (byte 10 bit 7), bit 23 (byte 11 bit 7) |
+| 9..11 | Techchase, Under Fire | word 9 bits 0-14 and 16-23 (table below) | bit 15 (byte 10 bit 7) |
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
-| 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side | word 20 bits 0-25 | bits 26-31 (6 bits) |
-| 24..34 | Global OSD colors | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender | byte 34 high nibble |
-| 35 | Low Laser Puff Practice | bits 0-3 Puff position, bits 4-6 Puff height | bit 7 |
-| 36..49 | Fixed Grid OSD positions | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell | byte 49 bits 6-7 |
-| 50 | Character select | **Player costume** (0..5) | top 5 bits |
-| 51 | Character select | **CPU costume** (0..5) | top 5 bits |
-| 52..63 | Edgeguard | words 52, 56 and 60 (tables below) | bit 31 of word 56 |
+| 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish | word 20, fully used | — |
+| 24..34 | Global OSD colors, Ledgegrab Speedrun, 2v1 Grab Punish | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender. Byte 34 bits 4-5 are Ledgegrab Speedrun's Reset Speed (T9), stored as an offset from the default: 0 Short, 1 Linger, 2 Instant, and an invalid 3 reads as Short. Byte 34 bits 6-7 are the top bits of Grab Punish's Enemy Percent and Teammate Percent (T9). No version bump: every migration to version 15 zeroed this nibble and the color code keeps it. Read only from version 15 on, and Grab Punish's only from version 20 on | — |
+| 35 | Low Laser Puff Practice, 2v1 Grab Punish | bits 0-3 Puff position, bits 4-6 Puff height, bit 7 the top bit of Grab Punish's CPU Mashing (T9, no version bump: nothing else ever wrote it) | — |
+| 36..49 | Fixed Grid OSD positions, Eggs-ercise | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell. Byte 49 bits 6-7 are Eggs Under Platforms and Eggs In The Air (T9), Off by default. No version bump: every migration to version 16 zeroed them and the grid cells keep them. Read only from version 17 on, like the Egg Counter Position | — |
+| 50 | Character select, 2v1 Grab Punish | bits 0-2 **Player costume** (0..5), bits 5-7 the low bits of Teammate Percent (T9): 0% to 200% in steps of 20, default 0%, with its top bit in byte 34 bit 7. No version bump, for the same reason as the Egg Counter Position below. The costume is read and repaired through the low 5 bits | bits 3-4 |
+| 51 | Character select, Eggs-ercise | bits 0-2 **CPU costume** (0..5), bits 5-7 Eggs-ercise Egg Counter Position (T9): 0 Top Left (default), 1 Top Right, 2 Bottom Left, 3 Bottom Right, 4 Under Timer. No version bump: a costume is at most 5 and a higher byte always repaired to 0, so these bits are clear in every record that owns the byte. Read only from records that do (version 17 on). The costume is read and repaired through the low 5 bits, so a damaged byte still repairs to Default and keeps the position | bits 3-4 |
+| 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
+| 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
+| 72..75 | 2v1 Grab Punish's team select, Edgeguard's newer recovery rows | word 72 (table below) | bits 14-31 |
 
-Free bits inside the record: 2 + 6 + 6 + 4 + 1 + 2 + 10 + 1 = **32 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 1 + 6 + 4 = **11 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
-**Word 9: Techchase**
+**Word 9: Techchase, Under Fire**
 
 | Bits | Setting |
 | --- | --- |
@@ -154,7 +158,7 @@ Free bits inside the record: 2 + 6 + 6 + 4 + 1 + 2 + 10 + 1 = **32 bits**. The 6
 | 16-18 | CPU invincibility color |
 | 19-20 | Height |
 | 21-22 | Distance |
-| 23 | *free* |
+| 23 | Under Fire: Remove Fleshy Pillars (T9). No version bump: every record started with it zero and migrations only keep it |
 
 **Word 12: Ledgechase, Under Fire, Low Laser**
 
@@ -192,7 +196,7 @@ Free bits inside the record: 2 + 6 + 6 + 4 + 1 + 2 + 10 + 1 = **32 bits**. The 6
 | 24-27 | Ledgechase preset |
 | 28-31 | Ledgechase aerial attack |
 
-**Word 20: Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side**
+**Word 20: Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish**
 
 | Bits | Setting |
 | --- | --- |
@@ -210,9 +214,11 @@ Free bits inside the record: 2 + 6 + 6 + 4 + 1 + 2 + 10 + 1 = **32 bits**. The 6
 | 22 | Side-B Sweetspot: Double-Jump Height Indicator (no version bump, same reason) |
 | 23 | Blast Zone Overlay, a global flag (T8, no version bump, same reason) |
 | 24-25 | Edgeguard Side (T8): 0 Random (default), 1 Left, 2 Right. No version bump. Migrations keep this padding as it was, so only choosing a Side writes it, and an invalid 3 reads as Random. Read only from records that own the Edgeguard words |
-| 26-31 | *free* |
+| 26 | Side-B Sweetspot: Success Criteria (T9): 0 Sweetspot (default), 1 Sweetspot + Ledgedash. No version bump: every record that owns word 20 zeroed it and nothing else ever wrote it |
+| 27-29 | Side-B Sweetspot: Knockback (T9): 0 Random (default), 1..6 the presets (Above, Close to Below, Far), 7 Random Preset. No version bump, same reason |
+| 30-31 | 2v1 Grab Punish: the enemy's team in your last match (T9): 0 Red, 1 Blue, 2 Green. No version bump. Like Edgeguard Side, migrations keep this padding, so only a match writes it, and an invalid 3 reads as Red. The character select moves the enemy off your team if they match, so a fresh save is Red vs Blue |
 
-**Word 52: Edgeguard Custom Hit Strength** (fully used)
+**Word 52: Edgeguard Custom Knockback** (fully used)
 
 | Bits | Setting |
 | --- | --- |
@@ -229,17 +235,17 @@ Free bits inside the record: 2 + 6 + 6 + 4 + 1 + 2 + 10 + 1 = **32 bits**. The 6
 | 10-19 | CPU percent min (0..999, default 50) |
 | 20-29 | CPU percent max (0..999, default 80) |
 | 30 | Camera (T8): 0 Normal (default), 1 Zoomed Out. Every record that owned word 56 had this bit clear, so older saves read as Normal with no version bump. |
-| 31 | *free* |
+| 31 | Up-B Sweetspot: Marth's top bit (T9), see word 68. No version bump: nothing else ever wrote it, so it's clear in every record |
 
-**Word 60: Edgeguard Hit Strength, recovery options and Player Position** (fully used)
+**Word 60: Edgeguard Knockback Height, recovery options and Player Position** (fully used)
 
 Each recovery mask has one bit per row of that CPU's Recovery Options menu, in row order ([src/recovery.c](../src/recovery.c)). Defaults match the menu's defaults.
 
 | Bits | Setting |
 | --- | --- |
-| 0-2 | Hit Strength (Weak / Normal / Hard / Shallow / Custom, default Normal) |
-| 3-8 | Fox recovery (6 rows, default Firefox Low) |
-| 9-14 | Falco recovery (6 rows, default Firebird Low) |
+| 0-2 | Knockback Height (T9): 0 Random, 1 Very High, 2 High, 3 Level, 4 Low, 5 Very Low, 6 Custom. While word 68's Knockback Distance is still 0, this field is the Hit Strength it replaced (0 Weak, 1 Normal, 2 Hard, 3 Shallow, 4 Custom, default Normal), which `LoadKnockback` converts ([the knockback notes](EDGEGUARD-KNOCKBACK.md)) |
+| 3-8 | Fox recovery, first six bits (default Firefox Low). Since T9 these are Firefox Low, Mid and High (rows 1-3), Double Jump (row 5), Illusion Instant (row 7, the old Illusion bit), then Fast Fall (row 6); the other side-B rows are in word 68, and Firefox To Ledge (row 4) in word 72 |
+| 9-14 | Falco recovery, first six bits (default Firebird Low), laid out like Fox's |
 | 15-20 | Sheik recovery (6 rows, default the three Vanish rows) |
 | 21-25 | Captain Falcon recovery (5 rows, default Falcon Dive + Drift Back) |
 | 26-29 | Marth recovery (4 rows, default Dolphin Slash Early + Double Jump) |
@@ -253,22 +259,57 @@ Same layout as word 60's masks. These CPUs' recoveries are described in [the Edg
 | --- | --- |
 | 0-4 | Yoshi (5 rows, default Jump High + Jump Low + Air Dodge to Ledge) |
 | 5-9 | Peach (5 rows, default Float to Stage + Float Low + Parasol) |
-| 10-14 | Luigi (5 rows, default Double Jump + Cyclone + Green Missile) |
+| 10-14 | Luigi's first five rows, Fast Mashing in bit 14 though it's now the last row (default Double Jump + Cyclone + Green Missile); Up B Sweetspot and Backflip Jump Sweetspot are in word 72 |
 | 15-19 | Dr. Mario (5 rows, default Double Jump + Dr. Tornado) |
 | 20-22 | Ice Climbers (3 rows, default Belay + Squall Hammer) |
 | 23-26 | Jigglypuff (4 rows, all on) |
 | 27-31 | Samus (5 rows, all on but Screw Attack High) |
+
+**Word 68: 2v1 Grab Punish, Up-B Sweetspot and Edgeguard** (T9, version 20)
+
+Migrating to version 20 zeroes this word and then writes the defaults, so the spare bits are zero in every record that owns it. Any event can grow into its spare bits with no version bump if the new setting's default is 0, which is how Edgeguard took bits 19-31. Version 19 and older records read the defaults.
+
+| Bits | Setting |
+| --- | --- |
+| 0-2 | Grab Punish: Grab Location (8 choices, default Random) |
+| 3-5 | Grab Punish: Your Location (8 choices, default Random) |
+| 6-8 | Grab Punish: Enemy Percent, low bits (0% to 200% in steps of 20, default 60%), with its top bit in byte 34 bit 6 |
+| 9-10 | Grab Punish: CPU Mashing, low bits (No / Light / Medium / Heavy / Very Heavy / Inhuman, default Light), with its top bit in byte 35 bit 7 |
+| 11-12 | Grab Punish: Teammate Facing (Random / Toward You / Away From You, default Random) |
+| 13 | Grab Punish: Release Hit = Success, stored inverted: 0 On (default), 1 Off, so a save that never touched it reads On |
+| 14-15 | Grab Punish: your team in your last match (T9): 0 Red (default), 1 Blue, 2 Green. These are this event's own, apart from the normal costumes in bytes 50-51 |
+| 16 | Up-B Sweetspot: Enable Line Guides (default On) |
+| 17 | Up-B Sweetspot: Marth's low bit, with its top bit in word 56 bit 31. Stored 0 Forward Smash (default), 1 Off, 2 Down Tilt, so a save from when this row was Tipper / Off keeps its meaning. The menu order is Forward Smash, Down Tilt, Off |
+| 18 | Up-B Sweetspot: Camera (Normal / Zoomed Out, default Normal) |
+| 19-23 | Edgeguard: Fox's side-B rows 8-12 (Ledge Sweetspot, To Ledge, To Main Stage, To Side Plat, Shortest Shorten), default all off |
+| 24-28 | Edgeguard: Falco's side-B rows 8-12, the same way |
+| 29-31 | Edgeguard: Knockback Distance plus 1: 1 Random, 2 Close, 3 Near, 4 Medium, 5 Far. 0 means no choice saved yet, so word 60 bits 0-2 still hold Hit Strength |
+
+**Word 72: 2v1 Grab Punish's team select and Edgeguard's newer recovery rows** (T9, version 21)
+
+Every migration to version 21 zeroes this word, so its spare bits are zero in every record that owns it, and any event can grow into them with no version bump if the new setting's default is 0. Version 20 and older records read no character saved.
+
+| Bits | Setting |
+| --- | --- |
+| 0-4 | P3's last character: 0 none yet (Fox), otherwise the external ID + 1, so Zelda and Sheik are told apart |
+| 5-9 | P4's, the same way |
+| 10 | Edgeguard: Firefox To Ledge, default off. No version bump |
+| 11 | Edgeguard: Firebird To Ledge, the same way |
+| 12-13 | Edgeguard: Luigi's Up B Sweetspot and Backflip Jump Sweetspot, default off, the same way |
+
+P1 and P2 use the normal saved characters (core bytes 6 and 37), which already tell Zelda and Sheik apart.
 
 ## Not saved
 
 These live in RAM only and reset when the game closes:
 
 - The game's character-select backup (`stc_memcard + 0xD10`, 3344). Tyro restores it at boot from the saved character (core bytes 6/37) and costume (`TYEX` bytes 50/51).
+- Which form each character select door has on the Zelda icon (`TM_SETTING_DOOR_ZELDA`). It comes from the saved characters each time the select opens.
 - The Global Settings page, the manual OSD page, Techchase/Ledgechase manual chances, and custom camera coordinates.
-- All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 20 left.
+- All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 16 left.
 
 ## Adding something new
 
 1. **A few bits:** use one of the free bits above, if the setting is small and fits next to related settings. Old records must already have 0 there, or the migration must clear it.
-2. **Whole bytes:** append to `TYEX`, taking bytes from the free 20-byte block in order. Bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version, and zero the new bytes in `TMExtension_Prepare` when migrating. The static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if the record outgrows the 88-byte region.
-3. **More than 20 bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.
+2. **Whole bytes:** append to `TYEX`, taking bytes from the free 12-byte block in order. Bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version, and zero the new bytes in `TMExtension_Prepare` when migrating. The static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if the record outgrows the 88-byte region.
+3. **More than 12 bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.

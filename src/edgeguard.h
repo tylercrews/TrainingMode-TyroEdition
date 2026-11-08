@@ -10,7 +10,8 @@ static void Reset(void);
 static void ChangeSide(GOBJ *menu_gobj, int value);
 static void ChangePlayerPercent(GOBJ *menu_gobj, int value);
 static void ChangePlayerPosition(GOBJ *menu_gobj, int value);
-static void ChangeHitStrength(GOBJ *menu_gobj, int value);
+static void ChangeKnockbackHeight(GOBJ *menu_gobj, int value);
+static void ChangeKnockbackDistance(GOBJ *menu_gobj, int value);
 static void ChangeBlastZones(GOBJ *menu_gobj, int value);
 static void ChangeCamera(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value);
@@ -21,26 +22,56 @@ static void ChangeCustomKB_DmgMin(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_DmgMax(GOBJ *menu_gobj, int value);
 
 static EventMenu Menu_Main;
-static EventMenu Menu_CustomHitStrength;
+static EventMenu Menu_CustomKnockback;
 static EventMenu Menu_Characters;
 
 // Common values -------------------------------------------------
 
-typedef struct KBValues {
-    float mag_min, mag_max;
-    float ang_min, ang_max;
-    float dmg_min, dmg_max;
-} KBValues;
+/* Where the CPU can act again when hitstun ends: how high its feet are over
+ * the ledge, and how far out from the ledge. The launch is worked out for the
+ * CPU and stage (ChooseLaunch), so these mean the same for every CPU. */
+enum knockback_height {
+    KB_HEIGHT_RANDOM,
+    KB_HEIGHT_VERY_HIGH,
+    KB_HEIGHT_HIGH,
+    KB_HEIGHT_LEVEL,
+    KB_HEIGHT_LOW,
+    KB_HEIGHT_VERY_LOW,
+    KB_HEIGHT_CUSTOM,
 
-enum options_kbvals {
-    KBVALS_WEAK,
-    KBVALS_NORMAL,
-    KBVALS_HARD,
-    KBVALS_SHALLOW,
-    KBVALS_CUSTOM,
-    
-    KBVALS_COUNT
+    KB_HEIGHT_COUNT
 };
+
+enum knockback_distance {
+    KB_DISTANCE_RANDOM,
+    KB_DISTANCE_CLOSE,
+    KB_DISTANCE_NEAR,
+    KB_DISTANCE_MEDIUM,
+    KB_DISTANCE_FAR,
+
+    KB_DISTANCE_COUNT
+};
+
+typedef struct KBRange { float min, max; } KBRange;
+
+static const KBRange Knockback_Heights[KB_HEIGHT_CUSTOM] = {
+    [KB_HEIGHT_VERY_HIGH] = {  51,  61 },
+    [KB_HEIGHT_HIGH]      = {  23,  33 },
+    [KB_HEIGHT_LEVEL]     = {  -5,   5 },
+    [KB_HEIGHT_LOW]       = { -33, -23 },
+    [KB_HEIGHT_VERY_LOW]  = { -61, -51 },
+};
+
+static const KBRange Knockback_Distances[KB_DISTANCE_COUNT] = {
+    [KB_DISTANCE_CLOSE]  = { 20, 30 },
+    [KB_DISTANCE_NEAR]   = { 40, 50 },
+    [KB_DISTANCE_MEDIUM] = { 60, 70 },
+    [KB_DISTANCE_FAR]    = { 80, 90 },
+};
+
+// The CPU's percent, for every height but Custom.
+#define KB_PERCENT_MIN 50
+#define KB_PERCENT_MAX 80
 
 #define CUSTOMKB_INIT_MAGMIN 100
 #define CUSTOMKB_INIT_MAGMAX 120
@@ -49,46 +80,22 @@ enum options_kbvals {
 #define CUSTOMKB_INIT_DMGMIN 50
 #define CUSTOMKB_INIT_DMGMAX 80
 
-static const char *Values_HitStrength[] = {"Weak", "Normal", "Hard", "Shallow", "Custom"};
+static const char *Values_KnockbackHeight[] = {"Random", "Very High", "High", "Level", "Low", "Very Low", "Custom"};
+typedef char edgeguard_height_names[(countof(Values_KnockbackHeight) == KB_HEIGHT_COUNT && KB_HEIGHT_COUNT == TM_EG_KB_HEIGHT_COUNT) ? 1 : -1];
+static const char *Values_KnockbackDistance[] = {"Random", "Close", "Near", "Medium", "Far"};
+typedef char edgeguard_distance_names[(countof(Values_KnockbackDistance) == KB_DISTANCE_COUNT && KB_DISTANCE_COUNT == TM_EG_KB_DISTANCE_COUNT) ? 1 : -1];
 static const char *Values_PlayerPosition[] = {"At Ledge", "Close", "Halfway", "Mid Stage"};
 typedef char edgeguard_position_names[(countof(Values_PlayerPosition) == TM_EG_POSITION_COUNT) ? 1 : -1];
 static const char *Values_Side[] = {"Random", "Left", "Right"};
 typedef char edgeguard_side_names[(countof(Values_Side) == TM_EG_SIDE_COUNT) ? 1 : -1];
-static KBValues HitStrength_KBRange[] = {
-    {
-         80.f, 100.f, // mag
-         45.f,  60.f, // ang
-         10.f,  40.f, // dmg
-    },
-    {
-        106.f, 120.f, // mag
-         45.f,  60.f, // ang
-         50.f,  80.f, // dmg
-    },
-    {
-        140.f, 200.f, // mag
-         65.f,  70.f, // ang
-         80.f, 110.f, // dmg
-    },
-    {
-        110.f, 130.f, // mag
-         20.f,  40.f, // ang
-         60.f,  80.f, // dmg
-    },
-    {
-        CUSTOMKB_INIT_MAGMIN, CUSTOMKB_INIT_MAGMAX,
-        CUSTOMKB_INIT_ANGMIN, CUSTOMKB_INIT_ANGMAX,
-        CUSTOMKB_INIT_DMGMIN, CUSTOMKB_INIT_DMGMAX,
-    },
-};
-
 enum options_initial {
     OPT_MAIN_RECOVERY,
     OPT_MAIN_SIDE,
     OPT_MAIN_PERCENT,
     OPT_MAIN_POSITION,
-    OPT_MAIN_HITSTRENGTH,
-    OPT_MAIN_HITSTRENGTH_CUSTOMMENU,
+    OPT_MAIN_KB_HEIGHT,
+    OPT_MAIN_KB_DISTANCE,
+    OPT_MAIN_KB_CUSTOMMENU,
     OPT_MAIN_BLAST_ZONES,
     OPT_MAIN_CAMERA,
     OPT_MAIN_CHARACTERS,
@@ -138,18 +145,31 @@ static EventOption Options_Main[] = {
     },
     {
         .kind = OPTKIND_STRING,
-        .name = "Hit Strength",
-        .desc = {"How far the CPU will be knocked back.",
+        .name = "Knockback Height",
+        .desc = {"How high above or below the ledge the CPU is",
+                 "when it can act again after hitstun. Random picks",
+                 "one each reset. Custom uses Customize Knockback.",
                  "This setting is saved."},
-        .values = Values_HitStrength,
-        .value_num = countof(Values_HitStrength),
-        .val = 1,
-        .OnChange = ChangeHitStrength,
+        .values = Values_KnockbackHeight,
+        .value_num = countof(Values_KnockbackHeight),
+        .val = KB_HEIGHT_LOW,
+        .OnChange = ChangeKnockbackHeight,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Knockback Distance",
+        .desc = {"How far out from the ledge the CPU is when it can",
+                 "act again after hitstun. Random picks one each",
+                 "reset. This setting is saved."},
+        .values = Values_KnockbackDistance,
+        .value_num = countof(Values_KnockbackDistance),
+        .val = KB_DISTANCE_NEAR,
+        .OnChange = ChangeKnockbackDistance,
     },
     {
         .kind = OPTKIND_MENU,
-        .menu = &Menu_CustomHitStrength,
-        .name = "Customize Hit Strength",
+        .menu = &Menu_CustomKnockback,
+        .name = "Customize Knockback",
         .desc = {"Manually adjust where and how far the CPU",
                  "will be knocked back. These settings are saved."},
     },
@@ -198,20 +218,20 @@ static EventMenu Menu_Main = {
     .options = Options_Main,
 };
 
-// Custom Hit Strength ---------------------------------
+// Custom Knockback ------------------------------------
 
-enum options_custom_hit_strength {
-    OPT_CUSTOMHIT_MAGMIN,
-    OPT_CUSTOMHIT_MAGMAX,
-    OPT_CUSTOMHIT_ANGMIN,
-    OPT_CUSTOMHIT_ANGMAX,
-    OPT_CUSTOMHIT_DMGMIN,
-    OPT_CUSTOMHIT_DMGMAX,
+enum options_custom_knockback {
+    OPT_CUSTOMKB_MAGMIN,
+    OPT_CUSTOMKB_MAGMAX,
+    OPT_CUSTOMKB_ANGMIN,
+    OPT_CUSTOMKB_ANGMAX,
+    OPT_CUSTOMKB_DMGMIN,
+    OPT_CUSTOMKB_DMGMAX,
     
-    OPT_CUSTOMHIT_COUNT
+    OPT_CUSTOMKB_COUNT
 };
 
-static EventOption Options_CustomHitStrength[] = {
+static EventOption Options_CustomKnockback[] = {
     {
         .kind = OPTKIND_INT,
         .value_num = 301,
@@ -270,10 +290,10 @@ static EventOption Options_CustomHitStrength[] = {
     },
 };
 
-static EventMenu Menu_CustomHitStrength = {
-    .name = "Custom Hit Strength",
-    .option_num = sizeof(Options_CustomHitStrength) / sizeof(EventOption),
-    .options = Options_CustomHitStrength,
+static EventMenu Menu_CustomKnockback = {
+    .name = "Custom Knockback",
+    .option_num = sizeof(Options_CustomKnockback) / sizeof(EventOption),
+    .options = Options_CustomKnockback,
 };
 
 // Change Characters ---------------------------------

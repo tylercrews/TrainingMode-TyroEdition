@@ -131,6 +131,13 @@ enum TMSettingsField {
     TM_SETTING_COSTUME, /* Index 0 human / 1 CPU: costume of the saved CHARACTER, in the extension. */
     TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
     TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
+    TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
+    TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu and team colors; see TMGrabPunishPreference. */
+    TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18. */
+    TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
+    TM_SETTING_EGGS_SPAWN, /* Free Practice's egg spots, TYEX byte 49 bits 6-7. */
+    TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
+    TM_SETTING_DOOR_ZELDA, /* Index: CSS door. 1 if its Zelda icon means Zelda, not Sheik. Runtime-only. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 
@@ -142,6 +149,17 @@ enum TMLedgedashPreference {
 enum TMEggsPreference {
     TM_EGGS_DAMAGE, TM_EGGS_SCALE, TM_EGGS_VELOCITY, TM_EGGS_COLLISION,
     TM_EGGS_FREE_PRACTICE, TM_EGGS_PREF_COUNT,
+};
+/* Where Eggs-ercise draws its egg count and the label under it. */
+enum TMEggsCounterPosition {
+    TM_EGGS_COUNTER_TOP_LEFT, TM_EGGS_COUNTER_TOP_RIGHT, TM_EGGS_COUNTER_BOTTOM_LEFT,
+    TM_EGGS_COUNTER_BOTTOM_RIGHT, TM_EGGS_COUNTER_UNDER_TIMER, TM_EGGS_COUNTER_COUNT,
+};
+/* Eggs Under Platforms and Eggs In The Air, both off by default. */
+enum TMEggsSpawnPreference { TM_EGGS_UNDER_PLATFORMS, TM_EGGS_IN_AIR, TM_EGGS_SPAWN_PREF_COUNT };
+/* How long Ledgegrab Speedrun shows a result before the restart. */
+enum TMLedgegrabResetSpeed {
+    TM_LEDGEGRAB_RESET_INSTANT, TM_LEDGEGRAB_RESET_SHORT, TM_LEDGEGRAB_RESET_LINGER, TM_LEDGEGRAB_RESET_COUNT,
 };
 enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUNT };
 enum TMTechchasePreference {
@@ -161,6 +179,7 @@ enum TMUnderFirePreference {
     TM_UNDERFIRE_ATTACK_PARTICLES,
     TM_UNDERFIRE_COUNTER_SCORE, /* Record-format marker; old survival frames are not counts. */
     TM_UNDERFIRE_LAVA_OVERLAY, /* TYEX word 20 bit 21, still version 19. */
+    TM_UNDERFIRE_REMOVE_PILLARS, /* TYEX word 9 bit 23, no version bump. */
     TM_UNDERFIRE_PREF_COUNT
 };
 enum TMLowLaserPreference {
@@ -180,22 +199,62 @@ enum TMReversalPreference {
 enum TMAttackShieldPreference {
     TM_AOS_ACTION, TM_AOS_HITS, TM_AOS_INFINITE, TM_AOS_DISTANCE, TM_AOS_SHIELD_DI, TM_AOS_PREF_COUNT
 };
-/* Custom Hit Strength ranges, then the percents, then Hit Strength and one
+/* Custom Knockback ranges, then the percents, then Knockback Height and one
  * recovery-toggle mask per CPU (bit N = row N of that CPU's recovery menu).
  * Append; the CPUs from Yoshi on live in a later TYEX word. Player Position
  * uses word 60's spare top bits, Camera (Normal / Zoomed Out) word 56's bit 30,
- * Side word 20's bits 24-25. */
+ * Side word 20's bits 24-25. Fox's and Falco's side-B rows past their first
+ * six are a second 5-bit mask each, in word 68's bits 19-23 and 24-28.
+ * Knockback Height took over Hit Strength's field; Knockback Distance, word
+ * 68's bits 29-31, is stored plus 1, so 0 means that field is still Hit
+ * Strength (LoadKnockback in edgeguard.c). */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
-    TM_EG_HIT_STRENGTH, TM_EG_RECOVERY_FOX, TM_EG_RECOVERY_FALCO, TM_EG_RECOVERY_SHEIK,
+    TM_EG_KB_HEIGHT, TM_EG_RECOVERY_FOX, TM_EG_RECOVERY_FALCO, TM_EG_RECOVERY_SHEIK,
     TM_EG_RECOVERY_FALCON, TM_EG_RECOVERY_MARTH,
     TM_EG_RECOVERY_YOSHI, TM_EG_RECOVERY_PEACH, TM_EG_RECOVERY_LUIGI, TM_EG_RECOVERY_DRMARIO,
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
-    TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE, TM_EG_PREF_COUNT
+    TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE,
+    TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB, TM_EG_KB_DISTANCE,
+    TM_EG_RECOVERY_FOX_UPB, TM_EG_RECOVERY_FALCO_UPB, TM_EG_RECOVERY_LUIGI2, TM_EG_PREF_COUNT
 };
+/* Side-B Sweetspot: Success Criteria in word 20 bit 26, Knockback in bits
+ * 27-29. Zero, which every record that owns word 20 has there, is the default. */
+enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_PREF_COUNT };
+#define TM_SWEETSPOT_SUCCESS_COUNT 2 /* Sweetspot / Sweetspot + Ledgedash. */
+#define TM_SWEETSPOT_KNOCKBACK_COUNT 8 /* Random, six presets, Random Preset. */
+/* 2v1 Grab Punish: its menu rows in row order (Grab Location, Your Location,
+ * Enemy Percent, Teammate Percent, CPU Mashing, Teammate Facing and Release
+ * Hit = Success), then the teams its character select last started a match with
+ * and P3's and P4's last characters there. Those are this event's own, so the
+ * normal saved costume stays out of it. The rows are in word 68 (version 20) but
+ * for Teammate Percent, in byte 50's spare top bits; the teams take word 68's
+ * bits 14-15 and word 20's bits 30-31. Both percents and CPU Mashing keep their
+ * top bit apart from the rest, in word 32. The characters are in word 72 (version
+ * 21): 0 means none yet, otherwise the external ID + 1. */
+enum TMGrabPunishPreference {
+    TM_GP_GRAB_SPOT, TM_GP_YOUR_SPOT, TM_GP_PERCENT, TM_GP_MATE_PERCENT, TM_GP_MASH, TM_GP_FACING,
+    TM_GP_RELEASE_HITS, TM_GP_ROW_COUNT,
+    TM_GP_YOUR_TEAM = TM_GP_ROW_COUNT, TM_GP_ENEMY_TEAM, TM_GP_P3_CHARACTER, TM_GP_P4_CHARACTER, TM_GP_PREF_COUNT
+};
+#define TM_GP_LOCATION_COUNT 8 /* Random, then seven spots. */
+#define TM_GP_PERCENT_COUNT 11 /* 0% to 200% in steps of 20. */
+#define TM_GP_MASH_COUNT 6 /* No Mash, Light, Medium, Heavy, Very Heavy, Inhuman. */
+#define TM_GP_FACING_COUNT 3
+#define TM_GP_TEAM_COUNT 3 /* Red, Blue, Green. */
+#define TM_GP_CHARACTER_COUNT 27 /* None yet, then the 26 external IDs. */
+#define TM_GP_DEFAULT_PERCENT 3 /* 60% */
+#define TM_GP_DEFAULT_MASH 1 /* Light Mash */
+/* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
+ * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
+ * word 68 (version 20). */
+enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
+enum TMUpBMarth { TM_UPB_MARTH_FSMASH, TM_UPB_MARTH_DTILT, TM_UPB_MARTH_OFF, TM_UPB_MARTH_COUNT };
 /* Edgeguard Side choices: which ledge each attempt uses. */
 enum { TM_EG_SIDE_RANDOM, TM_EG_SIDE_LEFT, TM_EG_SIDE_RIGHT, TM_EG_SIDE_COUNT };
+#define TM_EG_KB_HEIGHT_COUNT 7 /* Random, five heights, Custom. */
+#define TM_EG_KB_DISTANCE_COUNT 5 /* Random, four distances. */
 /* Edgeguard Player Position choices, ledge to center. Close is the original spot. */
 enum { TM_EG_POSITION_AT_LEDGE, TM_EG_POSITION_CLOSE, TM_EG_POSITION_HALFWAY,
     TM_EG_POSITION_MID_STAGE, TM_EG_POSITION_COUNT };
@@ -247,7 +306,19 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value);
 int Settings_Status(void);
 void Settings_CommitPending(void);
 void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable);
-void Settings_EventCharacters(unsigned save);
+void Settings_RestoreCharacters(void);
+void Settings_OpenTeamSelect(void);
+void Settings_SaveTeamSelect(void);
+void Settings_LoadDoorForms(void);
+void Settings_ApplyDoorForms(void);
+int Settings_DoorCharacter(int door, int kind);
+/* What an event's character select and legacy events ask for. The ASM hooks pass
+ * these numbers, and all of them share one rtoc slot. */
+enum TMCharacterStep {
+    TM_CHARACTERS_RESTORE, TM_CHARACTERS_SAVE, TM_CHARACTERS_OPEN,
+    TM_CHARACTERS_NOTE_FORMS, TM_CHARACTERS_KEEP_FORMS, TM_CHARACTERS_CPU, TM_CHARACTERS_CSS_LOADED,
+};
+int Settings_EventCharacters(unsigned step);
 void Settings_ResetEventRecords(void *card);
 void *Settings_EventScoreSlot(unsigned event);
 unsigned Events_ScoreIndex(unsigned page, unsigned event);

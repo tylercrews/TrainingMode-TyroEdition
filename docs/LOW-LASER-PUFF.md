@@ -46,12 +46,18 @@ A raised Puff is airborne in a frozen frame-0 `Fall` pose, not a crouch. Its col
 
 The two white timing readouts form a centered pair at the same height and scale as Under Fire's timing displays:
 
-- **Laser Start** (Fox and Falco) / **Neutral-B Start** (everyone else): the first aerial neutral-B startup of the jump. Frame 1 is the first airborne frame; jumpsquat, hitlag and paused updates do not add frames. A new jump clears both results; landing leaves the last results visible.
+- **Laser Start** (Fox and Falco) / **B Press Start** (everyone else): the first aerial laser, or the first aerial B press, of the jump. Frame 1 is the first airborne frame; jumpsquat, hitlag and paused updates do not add frames. A new jump clears both results; landing leaves the last results visible.
   - Fox and Falco use their shared `SpecialAirNStart` state (344), unchanged from earlier versions.
-  - Other characters count the frame they enter a character-specific state (341+) whose native move ID is neutral-B (18). Native `ActionStateChange` copies the new state's move ID into `atk_kind` (0x2068) through `0x800890D0`, but skips that write for non-attack states (ID 1). The value therefore lingers after a move, so only a state transition counts.
+  - Other characters count the first airborne frame with B in `input.down` (0x668), the native press-this-frame flags. It reads the button rather than a move, so every special counts (Samus's side-B missiles), and so does a press that starts no move, such as one during an aerial. Grounded presses and presses during hitlag don't count.
 - **Fastfall:** the regular Fastfall OSD measurement, read from the same `TM.can_fastfall_frames` counter used by `Display FF Timing.asm`. It counts eligible fastfall frames, so 1 means the first possible fastfall frame. It does not count from takeoff. Repeated updates during the same fastfall retain its activation result.
 
 Neither readout applies timing-result colors or the global OSD palette. Both hide during the event pause menu. Event OSDs and global suppression work independently.
+
+## Clock
+
+The match timer stays hidden (`MATCH_TIMER_HIDE`), and the event draws its own clock in the bottom left corner instead: white, full-size, left-aligned at (50, 433) on the 640x480 HUD canvas, the same spot and size as Eggs-ercise's Bottom Left egg counter. Full-size digits sit 4 to 22 into their 32-tall line, so they end 25 above the bottom edge. Melee's 2-player damage HUD uses its own two-slot layout near the center (`ifAll_802F343C`, joints 11 and 12), which leaves the corner free.
+
+It shows `MM:SS`, and `H:MM:SS` from an hour on. The time is `stc_match->time_frames / 60`, the match's own frame count at `0x24`. The game advances that count on every unpaused frame while the HUD exists, whether or not the timer is shown (`fn_8016CD98`), so the clock stops while paused. It hides with the pause menu, like the timing readouts. Neither Event OSDs nor Suppress Global OSDs affects it. Dying and repositioning Puff leave it running; Change Stage starts a new match, which starts it over.
 
 ## Persistence and validation
 
@@ -63,9 +69,10 @@ Event OSDs and Suppress Global OSDs use bits 20–21 of the extension word at by
 - airborne timing, frozen/paused clocks, independent saved toggles and neutral colors
 - all-character and stage-select catalogue entries, and score isolation
 - Change Stage: the current stage greyed out and labelled, each row's stage ID, and OSD suppression released before the restart
+- the clock: its corner spot, the seconds it shows from the match's frame count (with hours from 1:00:00 on), hiding while paused, and never writing over the timing label
 
-`LowLaserStageTests` loads each legal stage's real collision lines from the ISO (Stadium's base group, Yoshi's without Randall) and checks every position: Puff's surface point, the player's side, ground height and facing, the availability masks and the saved value. FD keeps its exact old coordinates. Other tests cover direction-aware skipping and (N/A) labels, falling back from a saved missing platform without overwriting the save, every height on every Battlefield position (state, airborne flag and no-op collision included), and Fountain-style moving and disappearing platforms. The neutral-B test covers grounded shots, a lingering `atk_kind`, up-B and the no-transition case.
+`LowLaserStageTests` loads each legal stage's real collision lines from the ISO (Stadium's base group, Yoshi's without Randall) and checks every position: Puff's surface point, the player's side, ground height and facing, the availability masks and the saved value. FD keeps its exact old coordinates. Other tests cover direction-aware skipping and (N/A) labels, falling back from a saved missing platform without overwriting the save, every height on every Battlefield position (state, airborne flag and no-op collision included), and Fountain-style moving and disappearing platforms. The B press test covers the label, grounded presses, presses during hitlag, other buttons, a press with no move, only the jump's first press counting, and Fox ignoring presses outside his laser state.
 
 Update-order regressions run physics/model preparation before the late event callback and check that it leaves the prepared matrices valid during play, pause/resume and damage. Native DOL tests verify blend-argument semantics and the regular fastfall routine with its existing counter hook. Settings tests cover migration, byte-35 ownership and repair, older records ignoring byte 35, fresh-service and relocated-DAT reloads, field isolation and native score/reset boundaries.
 
-These tests do not render GPU output or run Fountain's real platform animation. Still to check in Dolphin: Puff's look in the frozen Fall pose, Fountain riding, and the stage-select flow. UI checks stay disabled at the user's request.
+These tests do not render GPU output or run Fountain's real platform animation. Still to check in Dolphin: Puff's look in the frozen Fall pose, Fountain riding, the stage-select flow, and the clock's spot next to the damage HUD. UI checks stay disabled at the user's request.

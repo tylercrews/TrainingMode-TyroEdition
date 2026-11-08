@@ -4,6 +4,9 @@
 
 enum { TM_CUE_NONE, TM_CUE_YELLOW, TM_CUE_GREEN, TM_CUE_RED };
 #define TM_CUE_PULSE_FRAMES 8
+/* The red cue, for events that show it themselves through the timing overlay. */
+#define TM_CUE_RED_COLOR {255,40,40,180}
+#define TM_CUE_RED_PULSE {180,140,100,60,20,60,100,140}
 #define TM_CPU_INVINCIBILITY_NAMES "Off", "Red", "Blue", "Yellow", "Green", "Cyan", "Magenta", "Lavender"
 enum TMCPUInvincibilityColor {
     TM_CPU_INVINCIBILITY_OFF, TM_CPU_INVINCIBILITY_RED, TM_CPU_INVINCIBILITY_BLUE,
@@ -12,6 +15,12 @@ enum TMCPUInvincibilityColor {
 };
 #define TM_CPU_INVINCIBILITY_DEFAULT TM_CPU_INVINCIBILITY_LAVENDER
 uint32_t TMCue_CPUInvincibilityColor(unsigned choice);
+/* Invincibility Overlay color. FFA: the port color (accent), Lavender for CPUs.
+ * Teams: teams[ply] is each port's team (Red 0, Blue 1, Green 2), or
+ * TM_TEAM_NONE for an empty port. Teammates are numbered in port order and
+ * each gets its own shade of the team color. Pass NULL teams outside teams. */
+#define TM_TEAM_NONE 0xFF
+uint32_t TMCue_InvincibilityColor(const uint8_t *teams, unsigned ply, unsigned accent, int cpu);
 /* Borrow an event's palette option. NULL returns CPUs to the global setting.
  * Off is an explicit CPU override; other choices enable natural protection.
  * Draw-time reads include paused edits; restore clears retain the binding. */

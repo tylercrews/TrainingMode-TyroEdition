@@ -86,7 +86,7 @@ static EventOption help_options[] = {
               "You cannot instantly drop shield into a dash."}},
     {.kind = OPTKIND_INFO, .name = "Choose a Follow-up",
      .desc = {"Jump into an aerial or wavedash to reposition.",
-              "Or grab, dodge, or jump-cancel into up-smash / up-B.",
+              "Or grab, or jump-cancel into up-smash / up-B.",
               "Wavedashing skips shield-drop lag, but has landing lag.",
               "Choose based on spacing and your character's options."}},
     {.kind = OPTKIND_INFO, .name = "Physical vs Projectile",
@@ -98,7 +98,7 @@ static EventOption help_options[] = {
      .desc = {"Frame 1 is your first unfrozen chance after laser stun.",
               "Laser hit, Shield hit, or Powershield identifies the source.",
               "Shielding and walking do not finish the count.",
-              "1f Cyan, 2f Green, 3f Yellow, 4+f Red."}},
+              "1f Cyan, 2f Green, 3f Yellow, 4+f Red; ROLL or DODGE fails."}},
     {.kind = OPTKIND_INFO, .name = "Laser Recovery Cue",
      .desc = {"Yellow: final two frames of laser hitstun / shieldstun.",
               "Green: first 2 recovery frames; 4 for reflected lasers.",
@@ -205,11 +205,13 @@ typedef struct PowershieldData {
     FighterData *fighter;
     int spawn, kind, armed, ready, opportunities, opportunity_tick, input_tick, input_state, in_iasa;
     int tick, seen_tick, cue_green, cue_color;
-    int act_frame, act_kind, ps_valid, ps_kind, ps_frame, ps_reason;
+    int act_frame, act_kind, act_fail, ps_valid, ps_kind, ps_frame, ps_reason;
     Text *text[2];
 } PowershieldData;
 typedef char powershield_data_fits[(sizeof(PowershieldData) <= EVENT_DATASIZE) ? 1 : -1];
 static PowershieldData *Data(void) { return event_vars->event_gobj->userdata; }
+/* Rolling or spotdodging out of laser stun fails the attempt, whatever its frame. */
+enum { ACT_OK, ACT_FAIL_ROLL, ACT_FAIL_DODGE };
 static const unsigned preference_rows[TM_PS_PREF_COUNT] = {
     OPT_FIRE_SPEED, OPT_FIRE_DELAY_RANDOM_MIN, OPT_FIRE_DELAY_RANDOM_MAX, OPT_LASER_HEIGHT,
     OPT_DIRECTION, OPT_MOVEMENT, OPT_ALLOW_NANA, OPT_OSDS, OPT_SUPPRESS, OPT_OVERLAY,
@@ -239,7 +241,7 @@ static void ClearTiming(void) {
     data->armed = data->ready = data->opportunities = data->in_iasa = 0;
     data->seen_tick = data->cue_green = data->cue_color = data->ps_valid = 0;
     data->opportunity_tick = data->input_tick = -1;
-    data->act_frame = -1;
+    data->act_frame = -1; data->act_fail = ACT_OK;
     ApplyCue();
 }
 static void LaserContact(FighterData *ft, int kind, int frame, int reason) {
@@ -248,7 +250,7 @@ static void LaserContact(FighterData *ft, int kind, int frame, int reason) {
     data->fighter = ft; data->spawn = ft->spawn_num;
     data->kind = kind; data->armed = 1; data->ready = data->opportunities = data->in_iasa = 0;
     data->opportunity_tick = data->input_tick = -1;
-    data->act_frame = -1; data->act_kind = kind;
+    data->act_frame = -1; data->act_kind = kind; data->act_fail = ACT_OK;
     data->ps_valid = 1; data->ps_kind = kind; data->ps_frame = frame; data->ps_reason = reason;
     data->cue_green = data->cue_color = 0;
     ApplyCue();
@@ -300,6 +302,8 @@ static void LaserTiming(FighterData *ft, int phase, int next) {
         !(next >= ASID_DAMAGEHI1 && next <= ASID_DAMAGEFLYROLL) &&
         next > ASID_REBIRTHWAIT && !IgnoreLaserAction(ft, next)) {
         data->act_frame = data->opportunities; data->act_kind = data->kind;
+        data->act_fail = next == ASID_ESCAPE ? ACT_FAIL_DODGE :
+            next == ASID_ESCAPEF || next == ASID_ESCAPEB ? ACT_FAIL_ROLL : ACT_OK;
         data->armed = data->in_iasa = 0;
     }
 }
@@ -339,13 +343,16 @@ void Event_Update(void) {
     int paused = ((MenuData *)event_vars->menu_gobj->userdata)->mode == MenuMode_Paused;
     static const char *sources[] = {"Laser hit", "Shield hit", "Powershield"};
     static const char *reasons[] = {"Reflected laser", "Reflect active", "Reflect ended", "No hard press", "No shield"};
+    static const char *fails[] = {"", "ROLL", "DODGE"};
     GXColor white = {255,255,255,255}, cyan = {0,255,255,255}, green = {141,255,110,255}, yellow = {255,240,0,255}, red = {255,80,80,255};
+    GXColor fail = {255,162,186,255}; /* Jump Out Of Shine's FAIL color. */
     for (int i = 0; i < 2; ++i) if (data->text[i]) data->text[i]->hidden = paused || !Options_Main[OPT_OSDS].val;
     if (data->text[0]) {
         if (data->act_frame < 0) Text_SetText(data->text[0], 1, "-");
+        else if (data->act_fail) Text_SetText(data->text[0], 1, "%s", fails[data->act_fail]);
         else Text_SetText(data->text[0], 1, "%df", data->act_frame);
         Text_SetText(data->text[0], 2, "%s", data->ps_valid ? sources[data->act_kind] : "-");
-        Text_SetColor(data->text[0], 1, data->act_frame < 0 ? &white : data->act_frame == 1 ? &cyan :
+        Text_SetColor(data->text[0], 1, data->act_frame < 0 ? &white : data->act_fail ? &fail : data->act_frame == 1 ? &cyan :
             data->act_frame == 2 ? &green : data->act_frame == 3 ? &yellow : &red);
     }
     if (data->text[1]) {

@@ -274,6 +274,9 @@ class ShieldTrainingTests(unittest.TestCase):
                         self.put(0x804C1FAC+3*68,0x1160) # Held LRAS, controller port 4.
                     m.symbols['Update']=self.word(0x80479D58+0x30)
                     m.call('Update')
+                    if route=='option': # A waits, in case it's the start of the exit combo.
+                        self.put(0x804C1FAC+12,0)
+                        for frame in range(6):m.call('Update')
                     self.assertEqual([state for address,state in self.exit_calls if address==0x8016C7F0],[3])
                     self.assertEqual(sum(address==0x801A4674 for address,_ in self.exit_calls),paused)
                     self.assertEqual(m.cpu.mem_read(0x80407800+9,1)[0],0)

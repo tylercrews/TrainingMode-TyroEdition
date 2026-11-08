@@ -93,6 +93,16 @@ unsigned TMAttack_After(TMAttackEpisode *a, uint32_t frame, int state, unsigned 
     a->active = 0;
     return a->opportunity;
 }
+void TMNoAction_Start(TMNoAction *n, int delay, const char *label) {
+    n->pending = 1; n->elapsed = -delay; n->label = label;
+}
+void TMNoAction_Result(TMNoAction *n) { n->pending = 0; }
+int TMNoAction_Tick(TMNoAction *n, int frozen, int dead) {
+    if (dead) n->pending = 0;
+    if (!n->pending || frozen || ++n->elapsed < TM_NO_ACTION_FRAMES) return 0;
+    n->pending = 0;
+    return 1;
+}
 void TMOSDContext_Step(TMOSDContext *c, uint32_t frame, int state, int attack,
     int airborne, int shine, int shield, int victim, int hitlag, int dead) {
     if (c->seen && frame == c->frame) return;
