@@ -472,3 +472,8 @@ For T4 I was working with ChatGPT Sol 6.1 (mostly on High, some Medium and Ultra
     - Simple to add new events - no need to touch ASM.
     - Fast recompilation on Linux using make.
     - Simplified and performant [tool](https://github.com/AlexanderHarrison/gc_fst) to extract and rebuild ISOs.
+ 
+Shouts out to Lambardi for this gem clowning on my insane amount of settings <3
+<img width="1279" height="1071" alt="tm-te hud ui" src="https://github.com/user-attachments/assets/d0ca98b1-ae42-4713-bc4c-1fc6efc2286d" />
+
+
