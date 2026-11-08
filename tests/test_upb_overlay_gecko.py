@@ -326,13 +326,14 @@ class DrawTests(unittest.TestCase):
                          [(0xB0, 10, 61), (0xA8, 12, 2), (0xA8, 12, 4)] * 2)
         left_ring, left_tick, left_x, right_ring, right_tick, right_x = (batch[3] for batch in batches)
         rounded = lambda v: (round(v[0], 2), round(v[1], 2), v[3])
-        # 3/4 of the way round: above, out, below, and in under the stage, not over it.
-        self.assertEqual([rounded(v) for v in right_ring[::20]],
-                         [(92.07, 68.5, 0x30C8FFFF), (173.57, -13.0, 0x30C8FFFF), (92.07, -94.5, 0x30C8FFFF),
-                          (10.57, -13.0, 0x30C8FFFF)])
-        self.assertEqual([rounded(v) for v in left_ring[::20]],
-                         [(-92.07, 68.5, 0x30C8FFFF), (-173.57, -13.0, 0x30C8FFFF), (-92.07, -94.5, 0x30C8FFFF),
-                          (-10.57, -13.0, 0x30C8FFFF)])
+        # 2/3 of the way round, every 60 degrees: above, out and up, out and down,
+        # below, and in under the stage, stopping 30 degrees short of level.
+        self.assertEqual([rounded(v) for v in right_ring[::15]],
+                         [(92.07, 68.5, 0x30C8FFFF), (162.65, 27.75, 0x30C8FFFF), (162.65, -53.75, 0x30C8FFFF),
+                          (92.07, -94.5, 0x30C8FFFF), (21.48, -53.75, 0x30C8FFFF)])
+        self.assertEqual([rounded(v) for v in left_ring[::15]],
+                         [(-92.07, 68.5, 0x30C8FFFF), (-162.65, 27.75, 0x30C8FFFF), (-162.65, -53.75, 0x30C8FFFF),
+                          (-92.07, -94.5, 0x30C8FFFF), (-21.48, -53.75, 0x30C8FFFF)])
         # The tick across the ring, level with the X: 6 each side of 81.5 out.
         self.assertEqual([rounded(v) for v in right_tick], [(167.57, -13.0, 0xFFFFFFFF), (179.57, -13.0, 0xFFFFFFFF)])
         self.assertEqual([rounded(v) for v in left_tick], [(-167.57, -13.0, 0xFFFFFFFF), (-179.57, -13.0, 0xFFFFFFFF)])

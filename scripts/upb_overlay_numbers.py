@@ -12,7 +12,7 @@ Each code draws the targets the Up-B Sweetspot event's line guides draw
   the target at the travel distance, from the special attributes the event's
   AimedDistance reads. It's the offstage half, except for the UNDER_STAGE
   characters, who can up-B from under the stage: theirs carries on under it
-  to 3/4 of a circle, and gets a white tick on the ring level with the target,
+  to 2/3 of a circle, and gets a white tick on the ring level with the target,
   where holding straight toward the stage sweetspots. The teleports and Quick
   Attack go farther the more you tilt the stick, so they also get a dim ring
   at the least tilt that still aims.
@@ -83,9 +83,11 @@ CHARACTERS = [
 # 0x78 a frame from frame 0x70. The rest: (frames, speed per tilt, base
 # speed, least tilt), from TravelFrames, TravelSpeed and AimedThreshold.
 SPACIES = ('fox', 'falco')
-# 3/4 of a ring (on under the stage, not over it) and the level tick, as the
-# event gives Fox and Falco; the README's to-do list tracks the other codes.
+# 2/3 of a ring (on under the stage, stopping 30 degrees short of level so it
+# doesn't stick up into it) and the level tick, as the event gives Fox and
+# Falco; the README's to-do list tracks the other codes.
 UNDER_STAGE = ('fox',)
+UNDER_STAGE_SWEEP, UNDER_STAGE_STEPS = 240, 60   # as in the event
 LEVEL_TICK = 6      # LEVEL_TICK in the event: half the tick's length
 TRAVEL = {
     'sheik': (0x38, 0x44, 0x48, 0x40),
@@ -156,8 +158,9 @@ def shapes(slug, n):
     drawn = []
     for i, radius in enumerate(n.get('rings', ())):
         points = []
-        for step in range((ARC_STEPS * 3 // 2 if slug in UNDER_STAGE else ARC_STEPS) + 1):
-            angle = math.radians(90 - 180 * step / ARC_STEPS)
+        sweep, steps = (UNDER_STAGE_SWEEP, UNDER_STAGE_STEPS) if slug in UNDER_STAGE else (180, ARC_STEPS)
+        for step in range(steps + 1):
+            angle = math.radians(90 - sweep * step / steps)
             points.append((tx + math.cos(angle) * radius, ty + math.sin(angle) * radius))
         what = 'ring at the full travel' if i == 0 else 'dim ring at the least tilt'
         drawn.append(('GX_LINESTRIP', ARC_WIDTH, BLUE if i == 0 else DIM_BLUE, points, f'{what}, {radius:.2f}'))

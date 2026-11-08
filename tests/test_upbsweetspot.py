@@ -277,14 +277,16 @@ class UpBLineTests(unittest.TestCase):
 
     def on_top(self): return self.m.call('TestUpBOnTopVertices')
 
-    def test_fox_and_falco_get_3_4_of_a_ring_and_a_level_tick_over_the_stage(self):
+    def test_fox_and_falco_get_2_3_of_a_ring_and_a_level_tick_over_the_stage(self):
         for kind in FTKIND_FOX, FTKIND_FALCO:
             with self.subTest(kind=kind):
                 self.m.call('TestUpBAimed', kind)
                 ring = self.drawn(BLUE)
-                # 81.6 around the X at (-85, 0): above, out, below, and in under the stage.
+                # 81.6 around the X at (-85, 0), every 60 degrees: above, out and up, out
+                # and down, below, and in under the stage, 30 degrees short of level.
                 self.assertEqual(len(ring), 61)
-                self.assert_at(ring[::20], [(-85, 81.6), (-166.6, 0), (-85, -81.6), (-3.4, 0)])
+                self.assert_at(ring[::15], [(-85, 81.6), (-155.67, 40.8), (-155.67, -40.8),
+                                            (-85, -81.6), (-14.33, -40.8)])
                 self.assertEqual(self.on_top(), 61 + 2)
                 # After the ledge lines: the tick, 6 each side of the ring's outermost point, level with the X.
                 self.assert_at(self.drawn(WHITE)[4:6], [(-172.6, 0), (-160.6, 0)])

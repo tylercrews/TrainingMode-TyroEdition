@@ -40,6 +40,10 @@
 #define SPACIES_CHARGE_FRAMES 43
 
 #define ARC_STEPS 40 // In half a circle.
+// Fox's and Falco's ring: 2/3 of a circle, ending 30 degrees short of level
+// under the stage so it doesn't stick up into the stage.
+#define UNDER_STAGE_SWEEP 240
+#define UNDER_STAGE_STEPS 60
 // Half the length of Fox's and Falco's tick where holding straight toward the
 // stage sweetspots.
 #define LEVEL_TICK 6
@@ -669,16 +673,15 @@ static void DrawCross(Vec2 at, float size, GXColor color) {
     GFX_AddVtx(at.X + size, at.Y - size, 0, color);
 }
 
-// The offstage half of a circle around center, from straight above, out past
-// the ledge, to straight below: ARC_STEPS steps. Going on to 3/4 of a circle
-// carries it under the stage, level with center, drawn over the stage. The
-// last quarter, above the stage, is left out.
-static void DrawArc(Vec2 center, float radius, GXColor color, int steps) {
+// An arc around center from straight above, out past the ledge and down,
+// sweep degrees in steps: 180 is the offstage half, to straight below. More
+// carries it on under the stage, drawn over the stage.
+static void DrawArc(Vec2 center, float radius, GXColor color, float sweep, int steps) {
     event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10,
-                                                    .no_depth = steps > ARC_STEPS });
+                                                    .no_depth = sweep > 180 });
     float outward = Outward();
     for (int i = 0; i <= steps; i++) {
-        float angle = (90 - 180.f * i / ARC_STEPS) * M_1DEGREE;
+        float angle = (90 - sweep * i / steps) * M_1DEGREE;
         GFX_AddVtx(center.X + outward * cos(angle) * radius, center.Y + sin(angle) * radius, 0, color);
     }
 }
@@ -707,13 +710,16 @@ static void DrawAimedGuide(FighterData *ft, Vec2 target) {
     // straight toward the stage sweetspots.
     bool spacie = IsSpacie(ft);
     float distance = AimedDistance(ft, 1);
-    DrawArc(target, distance, Blue, spacie ? ARC_STEPS * 3 / 2 : ARC_STEPS);
+    if (spacie)
+        DrawArc(target, distance, Blue, UNDER_STAGE_SWEEP, UNDER_STAGE_STEPS);
+    else
+        DrawArc(target, distance, Blue, 180, ARC_STEPS);
     if (spacie) {
         float x = target.X + Outward() * distance;
         DrawLine((Vec2) { x - LEVEL_TICK, target.Y }, (Vec2) { x + LEVEL_TICK, target.Y }, White, 12, true);
     }
     if (!spacie) // Their distance grows with tilt: the inner ring is the least.
-        DrawArc(target, AimedDistance(ft, AimedThreshold(ft)), DimBlue, ARC_STEPS);
+        DrawArc(target, AimedDistance(ft, AimedThreshold(ft)), DimBlue, 180, ARC_STEPS);
     if (!upb.aiming)
         return;
     DrawLine(upb.launch, target, White, 8, spacie);
