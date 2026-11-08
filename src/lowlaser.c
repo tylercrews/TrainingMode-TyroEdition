@@ -18,7 +18,7 @@ typedef struct LowLaserData {
     Vec3 puff_position; /* Surface point; Puff is held puff_height above it. */
     float puff_height;
     int puff_line, puff_tracks_line;
-    Text *text[2];
+    Text *text[2], *timer;
 } LowLaserData;
 typedef char low_laser_data_fits[(sizeof(LowLaserData) <= EVENT_DATASIZE) ? 1 : -1];
 
@@ -232,6 +232,17 @@ void Event_Init(GOBJ *gobj) {
         Text_SetColor(text, 0, &white);
         Text_SetColor(text, 1, &white);
     }
+    /* Clock in the bottom left corner, at Eggs-ercise's Bottom Left counter
+     * spot and size. Full-size digits sit 4 to 22 into their 32 tall line, so
+     * at 433 they end 25 above the bottom edge, the corner counters' margin. */
+    Text *timer = data->timer = Text_CreateText(2, canvas);
+    if (timer) {
+        timer->kerning = 1;
+        timer->trans = (Vec3){50, 433, 0};
+        timer->viewport_scale.X = timer->viewport_scale.Y = 1;
+        Text_AddSubtext(timer, 0, 0, "00:00");
+        Text_SetColor(timer, 0, &white);
+    }
 }
 static int IsBlaster(FighterData *ft) { return ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO; }
 void Event_Think(GOBJ *gobj) {
@@ -286,6 +297,14 @@ void Event_Update(void) {
         text->hidden = paused || !options[OPT_OSDS].val;
         if (frames[i] < 0) Text_SetText(text, 1, "-");
         else Text_SetText(text, 1, "%df", frames[i]);
+    }
+    if (data->timer) {
+        /* The match's own frame count (0x24), which the game advances on
+         * every unpaused frame even with the timer hidden. */
+        int seconds = stc_match->time_frames / 60;
+        data->timer->hidden = paused;
+        if (seconds < 3600) Text_SetText(data->timer, 0, "%02d:%02d", seconds / 60, seconds % 60);
+        else Text_SetText(data->timer, 0, "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60);
     }
 }
 static void ChangePosition(GOBJ *menu, int value) {

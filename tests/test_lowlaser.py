@@ -222,6 +222,21 @@ class LowLaserTests(unittest.TestCase):
         reset_name=struct.unpack('>I',m.cpu.mem_read(rows+6*44+12,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(reset_name,8)).split(b'\0',1)[0],b'Reset %')
 
+    def test_clock_sits_in_bottom_left_and_shows_match_time(self):
+        m = self.m
+        # Eggs-ercise's Bottom Left spot: left edge at 50, left aligned, white.
+        self.assertEqual([self.info(k) for k in (52, 53, 54, 55)], [50, 433, 0, 1])
+        self.assertEqual(self.info(36), 0)  # The clock never overwrites the Laser Start label.
+        for frames, seconds, fields in ((0, 0, 2), (59, 0, 2), (60, 1, 2), (3599 * 60 + 59, 3599, 2),
+                                        (3665 * 60, 3665, 3)):
+            m.call('TestLaserClock', frames); self.step()
+            self.assertEqual((self.info(49), self.info(50)), (seconds, fields))
+        self.assertEqual(self.info(51), 0)
+        m.call('TestLaserPause', 1); self.step()
+        self.assertEqual(self.info(51), 1)  # Hidden with the pause menu, like the readouts.
+        m.call('TestLaserPause', 0); self.step()
+        self.assertEqual(self.info(51), 0)
+
 
 FD_EDGE = struct.unpack('>f', struct.pack('>f', 85.5656967))[0]
 MARIO, FOX = 0, 1
@@ -236,7 +251,6 @@ def rise(velocity, gravity=.064):
 HEIGHTS = (0, rise(1.05), rise(1.6), rise(1.05) + rise(1.65), rise(1.6) + rise(1.65))
 LEGAL = [('GrNLa.dat', 32, None), ('GrNBa.dat', 31, None), ('GrOp.dat', 28, None),
          ('GrSt.dat', 8, {1, 2, 3, 4, 5, 6}), ('GrPs.dat', 3, {34, 35, 36, 51, 52, 53, 54})]
-
 
 class LowLaserStageTests(unittest.TestCase):
     """Production placement against each legal stage's native collision lines."""

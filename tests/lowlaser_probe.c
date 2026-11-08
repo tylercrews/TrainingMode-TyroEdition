@@ -8,7 +8,7 @@ static JOBJ joints[2];
 static JOBJ model_joints[2];
 static LowLaserData data;
 static MenuData menu_data;
-static Text texts[2];
+static Text texts[3]; /* Laser Start, Fastfall, then the clock. */
 static unsigned preferences[TM_LOW_LASER_PREF_COUNT] = {1, 0, 0, 0}, serial;
 static CollDataStage test_stage;
 static CollLine test_lines[180];
@@ -17,8 +17,10 @@ static CollVert test_vertices[360];
 static int test_enabled[180], test_stage_id = GRKINDEXT_FD;
 static FtMultiJumpDesc puff_jumps;
 static const char *label;
-static int paused, text_count, text_rows[2], text_result[2], writes;
-static u32 text_colors[2][2];
+static int paused, text_count, text_rows[3], text_result[3], writes;
+static u32 text_colors[3][2];
+/* The clock's last text: its fields, read as seconds, and how many there were. */
+static int timer_seconds = -1, timer_fields;
 static const s16 *suppression;
 static int percent_hud, ended, restarted = -1;
 static ftCommonData common;
@@ -74,6 +76,12 @@ int Text_AddSubtext(Text *text, float x, float y, char *fmt, ...) { return text_
 void Text_SetColor(Text *text, int row, GXColor *color) { text_colors[text - texts][row] = *(u32 *)color; }
 void Text_SetText(Text *text, int row, const char *fmt, ...) {
     va_list args; va_start(args, fmt);
+    if (text == &texts[2]) {
+        timer_seconds = timer_fields = 0;
+        for (const char *c = fmt; *c; ++c)
+            if (*c == '%') { timer_seconds = timer_seconds * 60 + va_arg(args, int); ++timer_fields; }
+        va_end(args); return;
+    }
     if (row == 0) { label = fmt; va_end(args); return; }
     text_result[text - texts] = fmt[0] == '-' ? -1 : va_arg(args, int);
     va_end(args);
@@ -150,7 +158,8 @@ void TestLaserHit(int percent) {
     ft[1].phys.pos.X += 12; ft[1].phys.kb_vel.X = 9; ft[1].phys.nudge_vel.X = 3;
 }
 void TestLaserReenter(void) { text_count = 0; label = 0; Event_Init(&event); }
-void TestLaserPrepare(void) { text_count = 0; text_rows[0] = text_rows[1] = 0; }
+void TestLaserPrepare(void) { text_count = 0; text_rows[0] = text_rows[1] = text_rows[2] = 0; }
+void TestLaserClock(int frames) { stc_match->time_frames = frames; }
 void TestLaserRestore(void) { ++serial; }
 void TestLaserNativeInput(int down) {
     *stc_ftcommon = &common;
@@ -217,6 +226,13 @@ int TestLaserInfo(int key) {
     case 46: return restarted;
     case 47: return options[OPT_STAGE].kind == OPTKIND_MENU && options[OPT_STAGE].menu == &StageSwap_Menu;
     case 48: { int mask = 0; for (int i = 0; i < STAGE_SWAP_COUNT; ++i) mask |= !!StageSwap_Options[i].value_string << i; return mask; }
+    case 49: return timer_seconds;
+    case 50: return timer_fields;
+    case 51: return texts[2].hidden;
+    case 52: return texts[2].trans.X;
+    case 53: return texts[2].trans.Y;
+    case 54: return texts[2].align;
+    case 55: return data.timer == &texts[2] && text_rows[2] == 1 && text_colors[2][0] == 0xFFFFFFFF;
     }
     return -999;
 }
