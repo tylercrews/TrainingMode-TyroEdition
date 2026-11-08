@@ -3515,12 +3515,52 @@ static int FormTarget(int own_door, CSSCursor *cursor) {
             return door;
     return -1;
 }
+/* The door a port's Z changes, or -1. The solo select has one cursor, yours. */
+static int FormPortTarget(int port, int solo) {
+    if (solo && port != *stc_css_hmnport)
+        return -1;
+    return FormTarget(solo ? 0 : port, stc_css_cursors[solo ? 0 : port]);
+}
+
+/* A hint under the name of each door Z would change, naming the form it
+ * changes to. It sits in the nameplate's base, below the name's line: both
+ * the solo and the team select have room there (KO stars only show for a
+ * nametag with VS wins). It's centered on the name, which centers itself in
+ * its box, and squeezes rather than run past a little more than that box. */
+#define FORM_HINT_SCALE 0.045f
+#define FORM_HINT_GAP 0.4f
+#define FORM_HINT_WIDTH 1.4f
+static Text *form_hints[4];
+static int form_hint_zelda[4];
+static GXColor form_hint_color = {255, 211, 0, 255};
+
+static void FormHint_Update(int door, int show) {
+    Text *hint = form_hints[door];
+    MnSlChrTagData *tag = stc_css_data->tags[door].tag_data;
+    Text *name = tag->name;
+    show = show && !tag->state && !name->hidden; // Not over an open nametag list.
+    hint->hidden = !show;
+    if (!show)
+        return;
+    int zelda = Settings_Get(TM_SETTING_DOOR_ZELDA, door) != 0;
+    if (zelda != form_hint_zelda[door]) {
+        form_hint_zelda[door] = zelda;
+        Text_SetText(hint, 0, zelda ? "Press Z for Sheik" : "Press Z for Zelda");
+        Text_SetColor(hint, 0, &form_hint_color);
+    }
+    float name_width = name->aspect.X * name->viewport_scale.X;
+    hint->trans.X = name->trans.X + name_width / 2;
+    hint->trans.Y = name->trans.Y + 32 * name->viewport_scale.Y + FORM_HINT_GAP;
+    hint->trans.Z = name->trans.Z;
+    hint->aspect.X = FORM_HINT_WIDTH * name_width / FORM_HINT_SCALE;
+}
+
 static void FormToggle_Think(GOBJ *gobj) {
     int solo = *stc_css_maxply == 1;
     for (int port = 0; port < 4; port++) {
-        if ((solo && port != *stc_css_hmnport) || !(stc_css_pad[port].down & HSD_TRIGGER_Z))
+        if (!(stc_css_pad[port].down & HSD_TRIGGER_Z))
             continue;
-        int door = FormTarget(solo ? 0 : port, stc_css_cursors[solo ? 0 : port]);
+        int door = FormPortTarget(port, solo);
         if (door < 0)
             continue;
         int zelda = !Settings_Get(TM_SETTING_DOOR_ZELDA, door);
@@ -3534,6 +3574,17 @@ static void FormToggle_Think(GOBJ *gobj) {
             && (FormDoorLocked(door) || !Settings_Get(TM_SETTING_DOOR_ZELDA, door)))
             Text_SetText(tag->name, 0, CSS_GetFighterName(CKIND_SHEIK));
     }
+    // A team select port with no controller has no hand, and no Z to press.
+    int hinted = 0;
+    for (int port = 0; port < 4; port++) {
+        if (!solo && stc_css_cursors[port]->state == SLCHRCUR_HIDDEN)
+            continue;
+        int door = FormPortTarget(port, solo);
+        if (door >= 0)
+            hinted |= 1 << door;
+    }
+    for (int door = 0; door < form_doors; door++)
+        FormHint_Update(door, hinted >> door & 1);
 }
 static void FormToggle_Start(EventDesc *desc) {
     int solo = *stc_css_maxply == 1;
@@ -3542,6 +3593,18 @@ static void FormToggle_Start(EventDesc *desc) {
     for (form_icon = 0; form_icon < CSS_ICON_COUNT; form_icon++)
         if (stc_css_data->icons[form_icon].c_kind == CKIND_ZELDA)
             break;
+    for (int door = 0; door < form_doors; door++) {
+        Text *hint = Text_CreateText(0, 0); // The CSS's own canvas, like its names.
+        hint->kerning = 1;
+        hint->align = 1;
+        hint->use_aspect = 1;
+        hint->viewport_scale.X = FORM_HINT_SCALE;
+        hint->viewport_scale.Y = FORM_HINT_SCALE;
+        hint->hidden = 1;
+        Text_AddSubtext(hint, 0, 0, "");
+        form_hints[door] = hint;
+        form_hint_zelda[door] = -1;
+    }
     GObj_AddProc(GObj_Create(4, 5, 0), FormToggle_Think, 2); // After the CSS's own input.
 }
 

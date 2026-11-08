@@ -15,9 +15,10 @@ static GOBJ proc_gobj;
 static void (*proc)(GOBJ *gobj);
 static int proc_link;
 static MnSlChrTagData tags[4];
-static Text names[4];
+static Text names[4], hints[4];
 static CSSCursor cursors[4];
 static int sheik_names[4], updates[4], voices, last_voice;
+static int hints_made, hint_says[4], hint_colored[4]; /* 1: Zelda, 2: Sheik */
 
 uint32_t Settings_Get(unsigned field, unsigned index) {
     if (field == TM_SETTING_DOOR_ZELDA) return index < 4 ? door_zelda[index] : 0;
@@ -37,8 +38,30 @@ GOBJProc *GObj_AddProc(GOBJ *gobj, void *callback, int link) {
     return 0;
 }
 char *CSS_GetFighterName(int kind) { return kind == CKIND_SHEIK ? "Sheik" : "Zelda"; }
+static int ends_with(const char *s, const char *end) {
+    int n = 0, m = 0;
+    while (s[n]) ++n;
+    while (end[m]) ++m;
+    if (m > n) return 0;
+    for (int i = 0; i < m; ++i)
+        if (s[n - m + i] != end[i]) return 0;
+    return 1;
+}
 void Text_SetText(Text *text, int subtext, const char *format, ...) {
-    if (format[0] == 'S') ++sheik_names[text - names];
+    if (text >= names && text < names + 4 && format[0] == 'S') ++sheik_names[text - names];
+    if (text >= hints && text < hints + 4)
+        hint_says[text - hints] = ends_with(format, "Zelda") ? 1 : ends_with(format, "Sheik") ? 2 : 0;
+}
+Text *Text_CreateText(int sis_id, int canvas) {
+    Text *text = &hints[hints_made++];
+    text->aspect.X = 640; /* Native defaults. */
+    text->aspect.Y = 480;
+    text->hidden = 0;
+    return text;
+}
+int Text_AddSubtext(Text *text, float x, float y, char *format, ...) { return 0; }
+void Text_SetColor(Text *text, int subtext, GXColor *color) {
+    if (text >= hints && text < hints + 4) hint_colored[text - hints] = color->r == 255 && color->g == 211;
 }
 void CSS_UpdateCSP(int door) { ++updates[door]; }
 void CSS_PlayFighterName(int kind) { ++voices; last_voice = kind; }
@@ -66,13 +89,24 @@ found:
         stc_css_data->tags[i].tag_data = &tags[i];
         tags[i].name = &names[i];
         tags[i].use_tag = 0;
+        tags[i].state = 0;
+        /* Where mncharsel.c puts each name: solo at y 20.2 in a 200 wide box,
+         * the team select under each door's name joint in a 160 wide one. */
+        names[i].trans.X = players == 1 ? (i ? 15.6f : -27.2f) : -27.5f + 15.3f * i;
+        names[i].trans.Y = players == 1 ? 20.2f : 18.6f;
+        names[i].trans.Z = 0;
+        names[i].aspect.X = players == 1 ? 200 : 160;
+        names[i].viewport_scale.X = 0.058f;
+        names[i].viewport_scale.Y = 0.055f;
+        names[i].hidden = 0;
         stc_css_cursors[i] = &cursors[i];
         cursors[i].state = SLCHRCUR_POINT;
         cursors[i].puck = 0;
         stc_css_pad[i].down = 0;
         door_zelda[i] = sheik_names[i] = updates[i] = 0;
+        hint_says[i] = hint_colored[i] = 0;
     }
-    voices = last_voice = 0;
+    voices = last_voice = hints_made = 0;
     Settings_EventCharacters(TM_CHARACTERS_CSS_LOADED);
 }
 void TestFormDoor(int door, int icon) {
@@ -84,6 +118,8 @@ void TestFormHold(int cursor, int puck) {
     cursors[cursor].puck = puck;
 }
 void TestFormTag(int door) { tags[door].use_tag = 1; }
+void TestFormTagList(int door) { tags[door].state = 1; }
+void TestFormUnplug(int port) { cursors[port].state = SLCHRCUR_HIDDEN; }
 void TestFormZelda(int door, int zelda) { door_zelda[door] = zelda; }
 void TestFormPress(int port) {
     stc_css_pad[port].down = HSD_TRIGGER_Z;
@@ -100,6 +136,16 @@ int TestFormInfo(int key, int door) {
     case 3: return voices;
     case 4: return last_voice;
     case 5: return proc_link;
+    case 6: return hints_made;
+    /* The hint: 0 hidden, 1 offers Zelda, 2 offers Sheik. */
+    case 7: return hints[door].hidden ? 0 : hint_says[door];
+    case 8: return hint_colored[door];
+    /* Its settings, times 1000. */
+    case 9: return (int)(hints[door].trans.X * 1000);
+    case 10: return (int)(hints[door].trans.Y * 1000);
+    case 11: return (int)(hints[door].viewport_scale.X * 1000);
+    case 12: return (int)(hints[door].aspect.X * 1000);
+    case 13: return hints[door].align * 100 + hints[door].use_aspect * 10 + hints[door].kerning;
     }
     return -1;
 }

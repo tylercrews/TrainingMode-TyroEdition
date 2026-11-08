@@ -3,12 +3,13 @@ import re
 import subprocess
 import unittest
 from pathlib import Path
-from test_menu import Machine, ROOT
+from test_menu import Machine, ROOT, reg
 
 ZELDA, SHEIK = 18, 19  # CKIND_* (external)
 ZELDA_ICON, OTHER_ICON, NO_ICON = 7, 3, 25
 HUMAN, CPU = 0, 1  # The solo CSS's two doors.
 SOLO, VS = 1, 4  # Its maximum players.
+NO_HINT, OFFERS_ZELDA, OFFERS_SHEIK = 0, 1, 2
 
 
 def build():
@@ -29,6 +30,7 @@ class FormToggleTests(unittest.TestCase):
 
     def setUp(self):
         self.m = Machine('form-toggle-test.elf', 'TestFormInit')
+        self.m.cpu.reg_write(reg.UC_PPC_REG_MSR, 1 << 13)  # The hints are placed in floats.
 
     def enter(self, event, players=SOLO):
         self.m.call('TestFormEnter', self.m.symbols[event], players)
@@ -143,6 +145,84 @@ class FormToggleTests(unittest.TestCase):
         self.door(1)
         self.press(0)
         self.assertEqual((self.zelda(0), self.zelda(1)), (0, 1))
+
+    def hint(self, door=0): return self.info(7, door)
+
+    def test_every_door_z_can_reach_gets_a_hint(self):
+        for event, players, made in (('Wavedash', SOLO, 1), ('Lab', SOLO, 2), ('GrabPunish', VS, 4)):
+            self.enter(event, players)
+            self.assertEqual(self.info(6), made, event)
+
+    def test_the_hint_names_the_form_z_changes_to(self):
+        self.enter('Wavedash')
+        self.frame()
+        self.assertEqual(self.hint(), NO_HINT)
+        self.door(HUMAN)
+        self.frame()
+        self.assertEqual((self.hint(), self.info(8)), (OFFERS_ZELDA, 1))  # In gold.
+        self.press()
+        self.assertEqual(self.hint(), OFFERS_SHEIK)
+        self.press()
+        self.assertEqual(self.hint(), OFFERS_ZELDA)
+
+    def test_the_hint_sits_centered_under_the_name(self):
+        self.enter('Wavedash')
+        self.door(HUMAN)
+        self.frame()
+        # The name's 200 wide box at 0.058 starts at -27.2, so it centers on
+        # -21.4; its 32 tall line at 0.055 runs from 20.2 to 21.96.
+        self.assertAlmostEqual(self.info(9) / 1000, -21.4, places=2)
+        self.assertAlmostEqual(self.info(10) / 1000, 21.96 + 0.4, places=2)
+        self.assertEqual(self.info(11), 45)
+        self.assertAlmostEqual(self.info(12) / 1000, 1.4 * 200 * 0.058 / 0.045, places=1)
+        self.assertEqual(self.info(13), 111)  # Centered, squeezed to fit, tight.
+
+    def test_the_team_select_hint_goes_under_that_doors_name(self):
+        self.enter('GrabPunish', VS)
+        self.door(2)
+        self.frame()
+        self.assertEqual([self.hint(i) for i in range(4)], [NO_HINT, NO_HINT, OFFERS_ZELDA, NO_HINT])
+        self.assertAlmostEqual(self.info(9, 2) / 1000, 3.1 + 80 * 0.058, places=2)
+        self.assertAlmostEqual(self.info(10, 2) / 1000, 18.6 + 32 * 0.055 + 0.4, places=2)
+
+    def test_the_hint_shows_only_where_z_lands(self):
+        self.enter('Lab')
+        self.door(HUMAN)
+        self.door(CPU)
+        self.frame()
+        self.assertEqual((self.hint(HUMAN), self.hint(CPU)), (OFFERS_ZELDA, NO_HINT))
+        self.m.call('TestFormHold', 0, CPU)
+        self.frame()
+        self.assertEqual((self.hint(HUMAN), self.hint(CPU)), (NO_HINT, OFFERS_ZELDA))
+
+    def test_no_hint_where_z_does_nothing(self):
+        self.enter('Wavedash')
+        self.door(HUMAN, OTHER_ICON)
+        self.frame()
+        self.assertEqual(self.hint(), NO_HINT)
+        self.enter('Edgeguard')  # Its CPU is always Sheik.
+        self.door(HUMAN, OTHER_ICON)
+        self.door(CPU)
+        self.frame()
+        self.assertEqual(self.hint(CPU), NO_HINT)
+
+    def test_an_open_nametag_list_hides_the_hint(self):
+        self.enter('Wavedash')
+        self.door(HUMAN)
+        self.m.call('TestFormTagList', HUMAN)
+        self.frame()
+        self.assertEqual(self.hint(), NO_HINT)
+
+    def test_an_unplugged_team_select_port_shows_no_hint(self):
+        self.enter('GrabPunish', VS)
+        self.door(0)
+        self.door(1)
+        self.frame()
+        self.assertEqual([self.hint(i) for i in range(2)], [OFFERS_ZELDA, OFFERS_ZELDA])
+        for port in (1, 2, 3):
+            self.m.call('TestFormUnplug', port)
+        self.frame()
+        self.assertEqual([self.hint(i) for i in range(2)], [OFFERS_ZELDA, NO_HINT])
 
     def test_legacy_events_ask_what_the_cpu_door_chose(self):
         self.enter('Combo')
