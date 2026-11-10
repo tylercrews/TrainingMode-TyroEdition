@@ -3494,8 +3494,8 @@ class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
 class PassingSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/passing-test.dat'
     field = 48  # TM_SETTING_PASSING
-    saved = (('Teammate Aerial', 5, 2), ('Enemy Percent', 21, 4), ('Percent Mode', 2, 0), ('Distance', 5, 2),
-             ('Your Side', 3, 0))
+    saved = (('Teammate Aerial', 5, 2), ('Enemy Percent', 21, 4), ('Percent Mode', 2, 0),
+             ('Reset If Hitstun Ends', 2, 0), ('Distance', 5, 2), ('Your Side', 3, 0), ('Your Facing', 2, 0))
     natives = EventMenuSaveTests.natives + ('Text_CreateCanvas', 'Text_CreateText', 'Text_AddSubtext',
                                             'Text_SetColor', 'Text_SetScale', 'GObj_AddProc', 'memset')
     returns_null = ('Text_CreateText',)  # No HUD, as before a match has its text canvases.

@@ -16,10 +16,12 @@ from test_lowlaser import load_probe
 ROOT = Path(__file__).resolve().parents[1]
 SERVE, VOLLEY, RESULT = range(3)
 NONE, MATE, YOU = range(3)
-AERIAL_ROW, PERCENT_ROW, MODE_ROW, DISTANCE_ROW, SIDE_ROW = range(5)
+AERIAL_ROW, PERCENT_ROW, MODE_ROW, HITSTUN_ROW, DISTANCE_ROW, SIDE_ROW, FACING_ROW = range(7)
 NAIR, FAIR, BAIR, UAIR, DAIR = range(5)
 FROZEN, RISING = range(2)
+OFF, ON = range(2)
 LEFT, RIGHT, RANDOM = range(3)
+TOWARD, AWAY = range(2)
 FOX, MARTH, PEACH, PUFF, BOWSER, PIKACHU = range(6)
 STARTUP = {FOX: 3, MARTH: 4, PEACH: 5, PUFF: 5, BOWSER: 8, PIKACHU: 3}
 DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN = 1, 2, 4
@@ -28,8 +30,8 @@ SERVE_DELAY, RESULT_FRAMES = 30, 45
 WHITE, CYAN, RED = 0xFFFFFF, 0x00FFFF, 0xFF2828
 NEW_BEST_SFX = 303
 DISTANCES = (20, 30, 42, 55, 70)
-# Defaults: Back Air, 40%, Frozen %, Medium, Left.
-DEFAULTS = (BAIR, 4, FROZEN, 2, LEFT)
+# Defaults: Back Air, 40%, Frozen %, Off, Medium, Left, Toward.
+DEFAULTS = (BAIR, 4, FROZEN, OFF, 2, LEFT, TOWARD)
 
 
 def build():
@@ -81,7 +83,8 @@ class Event:
     def toward(self): return self.info(17)
     def mate_hits(self): return self.info(15)
     def mate_ready(self): return WAIT <= self.info(14) <= RUNBRAKE
-    def preferences(self): return tuple(self.info(key) for key in range(26, 31))
+    def preferences(self): return tuple(signed(self.m.call('TestPassPreference', row)) for row in range(7))
+    def you_facing(self): return self.info(41)
     def hud(self): return [self.text(row) for row in range(3)]
 
     def serve(self, limit=150):
@@ -108,11 +111,15 @@ class Event:
                 return True
         return False
 
-    def you_hit(self, speed, angle, damage=8):
-        """Your hit sends the enemy toward your teammate."""
+    def you_hit(self, speed, angle, damage=8, hitstun=None):
+        """Your hit sends the enemy toward your teammate, with Melee's hitstun
+        for that launch speed unless it's given: floor(0.4 * knockback), and
+        the speed is 0.03 * knockback."""
         vx = -self.toward() * speed * math.cos(math.radians(angle))
         vy = speed * math.sin(math.radians(angle))
-        self.m.call('TestPassYouHit', int(vx * 100) & 0xFFFFFFFF, int(vy * 100) & 0xFFFFFFFF, damage)
+        if hitstun is None:
+            hitstun = int(speed / .03 * .4)
+        self.m.call('TestPassYouHit', int(vx * 100) & 0xFFFFFFFF, int(vy * 100) & 0xFFFFFFFF, damage, hitstun)
 
     def wait_for_return(self, limit=150):
         """After your hit: True once your teammate hits the enemy back."""
@@ -245,6 +252,31 @@ class PassingTests(unittest.TestCase):
         e.step(2)
         self.assertEqual((e.hits(), e.last()), (5, YOU))
 
+    def test_your_teammate_waits_while_you_pass_to_yourself_then_returns_your_pass(self):
+        # An up tilt you'll back air: it comes down nearer you, so it's still yours.
+        e = Event(FOX, MARTH)
+        self.assertTrue(e.serve())
+        self.assertTrue(e.until_reachable())
+        home = e.mate()[0]
+        e.you_hit(1.6, 88)
+        prev_y = e.enemy()[1]
+        for _ in range(80):
+            e.step()
+            self.assertEqual(e.mate()[1], 0)  # No jump for the up tilt.
+            y = e.enemy()[1]
+            if y < prev_y and y < 14:
+                break
+            prev_y = y
+        self.assertEqual((e.phase(), e.hits()), (VOLLEY, 1))
+        self.assertLessEqual(abs(e.mate()[0] - home), 2)
+        # Then your back air passes it: still one hit, and it comes back.
+        e.you_hit(2.2, 45)
+        e.step()
+        self.assertEqual((e.hits(), e.last()), (1, YOU))
+        self.assertTrue(e.wait_for_return())
+        e.step()  # The event sees the hit's damage the frame after.
+        self.assertEqual((e.hits(), e.last()), (1, MATE))
+
     def test_your_teammate_returns_passes_that_come_down_near_it(self):
         setups = [(FOX, FOX, BAIR, None), (FOX, MARTH, BAIR, None), (MARTH, MARTH, FAIR, (4, 7, 12, 8, 6)),
                   (PEACH, PEACH, NAIR, (3, 20, 3, 6, 7)), (BOWSER, PIKACHU, FAIR, (10, 14, 10, 9, 7))]
@@ -322,6 +354,70 @@ class PassingTests(unittest.TestCase):
         self.assertEqual(e.hud()[1:], ['Session Best Frozen %: 0', 'Previous: 0'])
         self.assertEqual(e.info(31), RED)
 
+    def test_the_enemy_catching_the_ledge_ends_the_volley(self):
+        e = Event()
+        self.assertTrue(e.serve())
+        self.assertTrue(e.pass_back())
+        loads = e.info(16)
+        e.m.call('TestPassEnemyOnLedge')  # Still airborne, as on the real ledge.
+        e.step()
+        self.assertEqual(e.phase(), RESULT)
+        self.assertEqual(e.hud(), ['Hits: 1', 'Session Best Frozen %: 1', 'Previous: 1'])
+        e.step(RESULT_FRAMES)
+        self.assertEqual((e.phase(), e.info(16)), (SERVE, loads + 1))
+
+    # Reset If Hitstun Ends.
+    def test_reset_if_hitstun_ends_has_the_enemy_jump_away_and_ends_the_volley(self):
+        e = Event()
+        e.choose(PERCENT_ROW, 0)  # A serve with little hitstun, which runs out well before it lands.
+        e.choose(HITSTUN_ROW, ON)
+        e.step()
+        self.assertEqual(e.preferences()[HITSTUN_ROW], ON)
+        self.assertTrue(e.serve())
+        loads = e.info(16)
+        for _ in range(60):
+            e.step()
+            if e.phase() != VOLLEY:
+                break
+        self.assertEqual(e.phase(), RESULT)
+        self.assertEqual((e.info(42), e.info(34)), (0, 1))  # Out of hitstun, in the air.
+        x = e.enemy()[0]
+        nearer = e.you_x() if abs(x - e.you_x()) < abs(x - e.mate()[0]) else e.mate()[0]
+        away = 1 if x > nearer else -1
+        # A double jump away from whichever of you is nearer.
+        self.assertEqual((e.info(43), e.info(45)), (1, away))
+        self.assertGreater(e.info(44) * away, 100)
+        self.assertEqual(e.hud(), ['Hits: 0', 'Session Best Frozen %: 0', 'Previous: 0'])
+        e.step(RESULT_FRAMES)
+        self.assertEqual((e.phase(), e.info(16), e.info(43)), (SERVE, loads + 1, 1))
+
+    def test_without_reset_if_hitstun_ends_the_enemy_never_acts(self):
+        e = Event()
+        e.choose(PERCENT_ROW, 0)
+        e.step()
+        self.assertTrue(e.serve())
+        for _ in range(60):
+            e.step()
+            if not e.info(42) or e.phase() != VOLLEY:
+                break
+        self.assertEqual((e.phase(), e.info(42), e.info(34)), (VOLLEY, 0, 1))  # Out of hitstun, still falling.
+        e.step(3)
+        self.assertEqual((e.phase(), e.info(43)), (VOLLEY, 0))
+
+    def test_your_own_pass_has_to_keep_it_in_hitstun_too(self):
+        e = Event()
+        e.choose(HITSTUN_ROW, ON)
+        e.step()
+        self.assertTrue(e.serve())
+        self.assertTrue(e.until_reachable())
+        e.you_hit(1.6, 88, hitstun=6)  # A weak up tilt: it can act long before it's back down.
+        for _ in range(20):
+            e.step()
+            if e.phase() != VOLLEY:
+                break
+        self.assertEqual((e.phase(), e.hits(), e.info(43)), (RESULT, 1, 1))
+        self.assertEqual(e.hud()[1:], ['Session Best Frozen %: 1', 'Previous: 1'])
+
     def test_each_percent_mode_keeps_its_own_session_best_and_previous(self):
         e = Event()
         self.assertTrue(e.serve())
@@ -379,7 +475,17 @@ class PassingTests(unittest.TestCase):
             self.assertEqual(e.info(10), value * 10)
 
     # Controls.
-    def test_dpad_down_restarts_without_counting_the_volley(self):
+    def test_you_start_facing_your_teammate_or_facing_away(self):
+        e = Event()
+        self.assertEqual(e.you_facing(), -e.toward())  # Toward your teammate.
+        e.choose(FACING_ROW, AWAY)
+        e.step()
+        self.assertEqual((e.you_facing(), e.preferences()[FACING_ROW]), (e.toward(), AWAY))
+        e.choose(SIDE_ROW, RIGHT)
+        e.step()
+        self.assertEqual((e.toward(), e.you_facing()), (1, 1))
+
+    def test_dpad_down_flips_your_facing_saves_it_and_restarts_without_counting_the_volley(self):
         e = Event()
         self.assertTrue(e.serve())
         self.assertTrue(e.pass_back())
@@ -387,6 +493,9 @@ class PassingTests(unittest.TestCase):
         e.press(DPAD_DOWN)
         self.assertEqual((e.phase(), e.hits(), e.info(16)), (SERVE, 0, loads + 1))
         self.assertEqual(e.hud()[1:], ['Session Best Frozen %: --', 'Previous: --'])
+        self.assertEqual((e.you_facing(), e.preferences()[FACING_ROW]), (e.toward(), AWAY))
+        e.press(DPAD_DOWN)
+        self.assertEqual((e.you_facing(), e.preferences()[FACING_ROW]), (-e.toward(), TOWARD))
 
     def test_dpad_left_and_right_pick_your_side_and_save_it(self):
         e = Event()
@@ -405,7 +514,8 @@ class PassingTests(unittest.TestCase):
         e.choose(AERIAL_ROW, FAIR)
         e.choose(PERCENT_ROW, 9)
         e.choose(DISTANCE_ROW, 4)
-        self.assertEqual(e.preferences(), (FAIR, 9, FROZEN, 4, LEFT))
+        e.choose(HITSTUN_ROW, ON)
+        self.assertEqual(e.preferences(), (FAIR, 9, FROZEN, ON, 4, LEFT, TOWARD))
         e.step()
         self.assertEqual((e.phase(), e.info(16)), (SERVE, loads + 1))
         self.assertAlmostEqual(e.mate()[0] - e.you_x(), 70, places=1)

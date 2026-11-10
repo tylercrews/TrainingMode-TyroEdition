@@ -47,7 +47,7 @@
 #define LEVEL_TICK 6
 // Degrees either side of each straight mark that a bit of ring runs through
 // it, at the mark's distance.
-#define STRAIGHT_ARC 4
+#define STRAIGHT_ARC 2
 // B0XX Angles' dots, and how close two spots are to be one dot: holding B
 // moves Fox's and Falco's under half a degree.
 #define B0XX_DOT_SIZE 30

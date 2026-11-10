@@ -57,13 +57,17 @@ GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3, 27, 27)
 GP_PERCENT, GP_MATE_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM, GP_ENEMY_TEAM = 2, 3, 4, 6, 7, 8
 GP_P3_CHARACTER, GP_P4_CHARACTER = 9, 10
 LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET
-# Passing Practice (T10) takes word 72's spare bits 14-27 with no version bump:
-# Teammate Aerial (Back Air), Enemy Percent (40%), Percent Mode (Frozen %),
-# Distance (Medium) and Your Side (Left), each stored as its distance from its
-# default, so the zeros every migration to 21 left there read as the defaults.
+# Passing Practice (T10) takes word 72's spare bits 14-27, 29 and 30 with no
+# version bump: Teammate Aerial (Back Air), Enemy Percent (40%), Percent Mode
+# (Frozen %), Reset If Hitstun Ends (Off), Distance (Medium), Your Side (Left)
+# and Your Facing (Toward), each stored as its distance from its default, so
+# the zeros every migration to 21 left there read as the defaults.
 PASSING = 48  # TM_SETTING_PASSING
-PASSING_COUNTS, PASSING_DEFAULTS = (5, 21, 2, 5, 3), (2, 4, 0, 2, 0)
-PASSING_FIELDS = ((14, 3), (17, 5), (22, 1), (23, 3), (26, 2))  # (shift, width) in word 72.
+PASSING_COUNTS, PASSING_DEFAULTS = (5, 21, 2, 2, 5, 3, 2), (2, 4, 0, 0, 2, 0, 0)
+PASSING_HITSTUN, PASSING_FACING = 3, 6
+# (shift, width) in word 72, in menu order.
+PASSING_FIELDS = ((14, 3), (17, 5), (22, 1), (29, 1), (23, 3), (26, 2), (30, 1))
+PASSING_MASK = 0x3FFF << 14 | 3 << 29
 UPB_COUNTS, UPB_DEFAULTS = (2, 2, 3, 2), (1, 0, 0, 0)
 UPB_B0XX, UPB_MARTH, UPB_CAMERA = 1, 2, 3  # TMUpBSweetspotPreference, in menu order.
 MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 0, 1, 2
@@ -445,18 +449,19 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(self.passing(), PASSING_DEFAULTS)
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
         word = int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little')
-        self.assertEqual(word >> 14 & 0x3FFF, 0)
+        self.assertEqual(word & PASSING_MASK, 0)
         self.assertEqual(self.passing(), PASSING_DEFAULTS)
         snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         m.call('Settings_Set', PASSING, len(PASSING_COUNTS), 1)  # Not a row.
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
 
-    def test_passing_menu_round_trips_in_word_72_bits_14_to_27_beside_the_team_characters(self):
+    def test_passing_menu_round_trips_in_word_72_bits_14_to_27_29_and_30_beside_its_other_rows(self):
         m = self.m
         m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's bits 0-9,
         m.call('Settings_Set', GRAB_PUNISH, GP_P4_CHARACTER, 21)
-        m.call('Settings_Set', EDGEGUARD, EG_FOX_UPB, 1)  # and 10-13.
+        m.call('Settings_Set', EDGEGUARD, EG_FOX_UPB, 1)  # 10-13,
         m.call('Settings_Set', EDGEGUARD, EG_LUIGI2, 3)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)  # and 28.
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         neighbors = int.from_bytes(before[72:76], 'little')
         values = list(PASSING_DEFAULTS)
@@ -468,7 +473,7 @@ class ExtensionTests(unittest.TestCase):
                 after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
                 self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
                 word = int.from_bytes(after[72:76], 'little')
-                self.assertEqual(word & ~(0x3FFF << 14), neighbors)
+                self.assertEqual(word & ~PASSING_MASK, neighbors)  # Bit 31 stays spare, too.
                 shift, width = PASSING_FIELDS[index]
                 default = PASSING_DEFAULTS[index]
                 self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - default) % count)
@@ -478,16 +483,21 @@ class ExtensionTests(unittest.TestCase):
                 self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_P3_CHARACTER, GP_P4_CHARACTER)), (26, 21))
         self.assertEqual((m.call('Settings_Get', EDGEGUARD, EG_FOX_UPB), m.call('Settings_Get', EDGEGUARD, EG_LUIGI2)), (1, 3))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX), 1)
 
     def test_passing_menu_repairs_stored_values_past_its_choices_to_their_defaults(self):
         m = self.m
         m.call('Settings_Set', PASSING, 1, 12)  # 120%: a real choice to keep.
+        m.call('Settings_Set', PASSING, PASSING_HITSTUN, 1)  # On and Away: one-bit rows are always valid.
+        m.call('Settings_Set', PASSING, PASSING_FACING, 1)
         m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 5)
         word = int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little')
-        # Aerial 5..7, Distance 5..7 and Side 3 aren't choices; Percent and Mode are kept.
+        # Aerial 5..7, Distance 5..7 and Side 3 aren't choices; the rest are kept.
         damaged = word | 7 << 14 | 7 << 23 | 3 << 26
         m.cpu.mem_write(EXT + 72, damaged.to_bytes(4, 'little'))
-        self.assertEqual(self.passing(), (PASSING_DEFAULTS[0], 12, 0, PASSING_DEFAULTS[3], PASSING_DEFAULTS[4]))
+        expected = list(PASSING_DEFAULTS)
+        expected[1], expected[PASSING_HITSTUN], expected[PASSING_FACING] = 12, 1, 1
+        self.assertEqual(self.passing(), tuple(expected))
         repaired = int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little')
         self.assertEqual(repaired, word)  # Back to the defaults' zeros, the rest kept.
         m.cpu.mem_write(EXT + 72, (word | 31 << 17).to_bytes(4, 'little'))  # Percent 21..31 isn't one either.

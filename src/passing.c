@@ -27,7 +27,18 @@
  * loses kb_frameDecay a frame along its direction (Fighter_procUpdate), and
  * position += self_vel + kb_vel. The teammate's jump follows ftCo_800CB110 and
  * ftCo_Jump_Phys (the first frame in the air skips gravity and drift), and its
- * drift ftCommon_CalcSelfAccel_AccelToVelClampedFrom.
+ * drift ftCommon_CalcSelfAccel_AccelToVelClampedFrom. It only goes for an
+ * enemy that's coming down nearer it than you. One coming down nearer you is
+ * still yours, as when an up tilt sets up your own back air, so your teammate
+ * waits on its spot for where your last hit sends it. However many times you
+ * hit it first, that's one pass.
+ *
+ * The volley is over when the enemy lands or catches the ledge: a fighter on
+ * the ledge is airborne (ftCliffCommon_80081370 calls ftCommon_8007D5D4). With
+ * Reset If Hitstun Ends on, it's also over once the enemy can act again in the
+ * air: its hitstun flag (x221C_b6, MexTK's flags.hitstun) clears when the
+ * hitstun timer runs out (ftCo_8008F744), and ftCo_Damage_IASA then lets it
+ * double jump, which it does, away from whichever of you is nearer.
  *
  * Within a frame the fighter procs run: hitlag (0), animation and script (1),
  * input (3, where this event's think runs first, so a press takes effect that
@@ -58,7 +69,7 @@
 
 void Exit(GOBJ *menu);
 
-enum menu_options { OPT_AERIAL, OPT_PERCENT, OPT_MODE, OPT_DISTANCE, OPT_SIDE };
+enum menu_options { OPT_AERIAL, OPT_PERCENT, OPT_MODE, OPT_HITSTUN, OPT_DISTANCE, OPT_SIDE, OPT_FACING };
 enum aerial { AERIAL_NAIR, AERIAL_FAIR, AERIAL_BAIR, AERIAL_UAIR, AERIAL_DAIR };
 static const char *Values_Aerial[] = {"Neutral Air", "Forward Air", "Back Air", "Up Air", "Down Air"};
 enum mode { MODE_FROZEN, MODE_RISING, MODE_COUNT };
@@ -67,10 +78,13 @@ static const char *Values_Percent[] = {
     "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%",
     "110%", "120%", "130%", "140%", "150%", "160%", "170%", "180%", "190%", "200%",
 };
+static const char *Values_OnOff[] = {"Off", "On"};
 static const char *Values_Distance[] = {"Very Close", "Close", "Medium", "Far", "Very Far"};
 static const float Distances[] = {20, 30, 42, 55, 70};
 enum side { SIDE_LEFT, SIDE_RIGHT, SIDE_RANDOM };
 static const char *Values_Side[] = {"Left", "Right", "Random"};
+enum facing { FACING_TOWARD, FACING_AWAY };
+static const char *Values_Facing[] = {"Toward", "Away"};
 
 /* Before the first measurement, where each aerial is guessed to hit: in front
  * of and above your teammate's feet, at scale 1, this many frames in. */
@@ -79,10 +93,12 @@ static const Vec2 Guess_Hit[] = {{6, 6}, {9, 7}, {-9, 6}, {1, 15}, {1, -6}};
 
 // Each saved row's preference ID is its row number.
 typedef char passing_saved_rows[((int)OPT_AERIAL == TM_PASS_AERIAL && (int)OPT_PERCENT == TM_PASS_PERCENT &&
-    (int)OPT_MODE == TM_PASS_MODE && (int)OPT_DISTANCE == TM_PASS_DISTANCE && (int)OPT_SIDE == TM_PASS_SIDE &&
+    (int)OPT_MODE == TM_PASS_MODE && (int)OPT_HITSTUN == TM_PASS_HITSTUN && (int)OPT_DISTANCE == TM_PASS_DISTANCE &&
+    (int)OPT_SIDE == TM_PASS_SIDE && (int)OPT_FACING == TM_PASS_FACING && OPT_FACING + 1 == TM_PASS_PREF_COUNT &&
     countof(Values_Aerial) == TM_PASS_AERIAL_COUNT && countof(Values_Percent) == TM_PASS_PERCENT_COUNT &&
-    countof(Values_Mode) == TM_PASS_MODE_COUNT && countof(Values_Distance) == TM_PASS_DISTANCE_COUNT &&
-    countof(Distances) == TM_PASS_DISTANCE_COUNT && countof(Values_Side) == TM_PASS_SIDE_COUNT &&
+    countof(Values_Mode) == TM_PASS_MODE_COUNT && countof(Values_OnOff) == TM_PASS_HITSTUN_COUNT &&
+    countof(Values_Distance) == TM_PASS_DISTANCE_COUNT && countof(Distances) == TM_PASS_DISTANCE_COUNT &&
+    countof(Values_Side) == TM_PASS_SIDE_COUNT && countof(Values_Facing) == TM_PASS_FACING_COUNT &&
     countof(Guess_Hit) == TM_PASS_AERIAL_COUNT) ? 1 : -1];
 static void ChangeSetting(GOBJ *menu, int value);
 
@@ -125,6 +141,17 @@ static EventOption Options_Main[] = {
     },
     {
         .kind = OPTKIND_STRING,
+        .name = "Reset If Hitstun Ends",
+        .values = Values_OnOff,
+        .value_num = countof(Values_OnOff),
+        .OnChange = ChangeSetting,
+        .desc = {"On: if the enemy's hitstun runs out before the",
+                 "next hit, it jumps away and the volley is over, as",
+                 "in a match. Low percents and long distances make",
+                 "that harder. Off: it never acts."},
+    },
+    {
+        .kind = OPTKIND_STRING,
         .name = "Distance",
         .values = Values_Distance,
         .value_num = countof(Values_Distance),
@@ -147,12 +174,22 @@ static EventOption Options_Main[] = {
                  "D-Pad left/right also picks a side and restarts."},
     },
     {
+        .kind = OPTKIND_STRING,
+        .name = "Your Facing",
+        .values = Values_Facing,
+        .value_num = countof(Values_Facing),
+        .OnChange = ChangeSetting,
+        .desc = {"Whether you start facing your teammate, or facing",
+                 "away from them, as for a back air.",
+                 "D-Pad down also flips it and restarts."},
+    },
+    {
         .kind = OPTKIND_INFO,
         .name = "Help",
         .desc = {"Your teammate serves the enemy to you. Hit it back",
                  "and they pass it back with their aerial. Hits counts",
-                 "your hits in a row until the enemy lands.",
-                 "D-Pad down restarts without counting the volley."},
+                 "your hits in a row until the enemy lands or grabs",
+                 "the ledge. The D-Pad picks your side and facing."},
     },
     {
         .kind = OPTKIND_FUNC,
@@ -272,6 +309,7 @@ static struct layout {
     int you_line, mate_line;
     int toward;          // From your teammate toward you: -1 or 1.
     int facing;          // Your teammate's facing for its aerial.
+    int you_facing;      // Yours: toward your teammate, or away.
     float floor;         // The main stage's lowest ground.
 } layout;
 
@@ -288,6 +326,7 @@ static void ChooseLayout(void) {
     GroundPoint(mid + layout.toward * half, &layout.you, &layout.you_line);
     GroundPoint(mid - layout.toward * half, &layout.mate, &layout.mate_line);
     layout.facing = Options_Main[OPT_AERIAL].val == AERIAL_BAIR ? -layout.toward : layout.toward;
+    layout.you_facing = Options_Main[OPT_FACING].val == FACING_AWAY ? layout.toward : -layout.toward;
     layout.floor = layout.you.Y < layout.mate.Y ? layout.you.Y : layout.mate.Y;
 }
 
@@ -435,6 +474,31 @@ static void TrackHits(FighterData *enemy) {
         }
     }
     volley.enemy_pct = percent;
+}
+
+static bool OnLedge(FighterData *ft) { return ft->state_id >= ASID_CLIFFCATCH && ft->state_id <= ASID_CLIFFJUMPQUICK2; }
+
+/* Reset If Hitstun Ends: the frame the enemy can act in the air again, it
+ * double jumps away from whichever of you is nearer, and the volley is over. */
+static struct escape { int dir, at; } escape;
+static bool CanAct(FighterData *enemy) {
+    return enemy->phys.air_state && !enemy->flags.hitstun && !enemy->flags.freeze && !Floating(enemy);
+}
+static void Escape(FighterData *enemy, FighterData *hmn, FighterData *mate) {
+    float from_you = enemy->phys.pos.X - hmn->phys.pos.X, from_mate = enemy->phys.pos.X - mate->phys.pos.X;
+    escape.dir = Sign(fabs(from_you) < fabs(from_mate) ? from_you : from_mate);
+    escape.at = frame;
+    EndVolley();
+}
+/* The enemy never acts on its own: no DI, no tech, no jump out of tumble. An
+ * escape holds the stick away, and presses X on its first frame, which the
+ * enemy's own input proc reads later this frame. */
+static void EnemyInputs(FighterData *enemy) {
+    enemy->cpu.ai = 15;
+    Fighter_ZeroCPUInputs(enemy);
+    if (!escape.dir) return;
+    enemy->cpu.lstickX = escape.dir > 0 ? 127 : -128;
+    if (frame == escape.at) enemy->cpu.held = PAD_BUTTON_X;
 }
 
 // Your teammate's aerial and jumps ------------------------------------------
@@ -980,9 +1044,22 @@ static void GoHome(FighterData *mate, int category, Input *in) {
     else if (category == CAT_AIR || category == CAT_AERIAL) FallHome(mate, in);
 }
 
+/* Whether the enemy comes down nearer your teammate than you: a pass. One that
+ * comes down nearer you, as after an up tilt you'll back air, is still yours. */
+static bool PassToMate(const Path *path, FighterData *hmn, FighterData *mate) {
+    float end = path->feet_x[path->frames];
+    return fabs(end - mate->phys.pos.X) <= fabs(end - hmn->phys.pos.X);
+}
+
 static Path path;
-static void Intercept(FighterData *mate, FighterData *enemy, int category, Input *in) {
+static void Intercept(FighterData *hmn, FighterData *mate, FighterData *enemy, int category, Input *in) {
     PredictEnemy(enemy, &path);
+    // Not passed yet: back to its spot, ready for where your next hit sends it.
+    // A jump already started goes ahead.
+    if (category != CAT_KNEEBEND && !PassToMate(&path, hmn, mate)) {
+        GoHome(mate, category, in);
+        return;
+    }
     int facing = mate->facing_direction > 0 ? 1 : -1;
     switch (category) {
         case CAT_GROUND: {
@@ -1058,7 +1135,7 @@ static void Intercept(FighterData *mate, FighterData *enemy, int category, Input
     }
 }
 
-static void TeammateThink(FighterData *mate, FighterData *enemy) {
+static void TeammateThink(FighterData *hmn, FighterData *mate, FighterData *enemy) {
     Input in = { 0 };
     int category = Category(mate);
     if (category == CAT_AIR && control.lifted_at < 0 && control.jump_at >= 0) {
@@ -1071,7 +1148,7 @@ static void TeammateThink(FighterData *mate, FighterData *enemy) {
     }
     if (category == CAT_GROUND) control.jump_at = -1;
     if (phase == PHASE_SERVE) Serve(mate, category, &in);
-    else if (phase == PHASE_VOLLEY && volley.last == TOUCH_YOU && AerialKnown()) Intercept(mate, enemy, category, &in);
+    else if (phase == PHASE_VOLLEY && volley.last == TOUCH_YOU && AerialKnown()) Intercept(hmn, mate, enemy, category, &in);
     else GoHome(mate, category, &in);
 
     /* L-cancel: an R within 7 frames of landing halves the aerial's landing lag
@@ -1194,7 +1271,9 @@ static void ReadDPad(FighterData *hmn) {
         Options_Main[OPT_SIDE].val = Options_Main[OPT_SIDE].val_prev = side;
         ChangeSetting(0, side);
     } else if (down & HSD_BUTTON_DPAD_DOWN) {
-        restart_pending = true;
+        int facing = Options_Main[OPT_FACING].val == FACING_AWAY ? FACING_TOWARD : FACING_AWAY;
+        Options_Main[OPT_FACING].val = Options_Main[OPT_FACING].val_prev = facing;
+        ChangeSetting(0, facing);
     }
 }
 
@@ -1207,13 +1286,14 @@ static void Reset(void) {
     WorkOutJumps(mate);
     GatherFloors();
     ChooseLayout();
-    PlacePlayer(hmn_ply, layout.you, layout.you_line, -layout.toward);
+    PlacePlayer(hmn_ply, layout.you, layout.you_line, layout.you_facing);
     PlacePlayer(mate_ply, layout.mate, layout.mate_line, layout.facing);
     BenchFollower(mate_ply);
     BenchFollower(enemy_ply);
     SetPercent(enemy_ply, BasePercent());
     SetPercent(mate_ply, 0);
     volley = (struct volley) { .last = TOUCH_NONE, .enemy_pct = BasePercent() };
+    escape = (struct escape) { 0 };
     phase = PHASE_SERVE;
     phase_timer = 0;
     ResetControl();
@@ -1252,9 +1332,6 @@ void Event_Think(GOBJ *gobj) {
         return;
     }
     GatherFloors();
-    // The enemy never acts: no DI, no tech, no jump out of tumble.
-    enemy->cpu.ai = 15;
-    Fighter_ZeroCPUInputs(enemy);
     // Hold the floating enemy's body on its spot as its pose changes.
     if (phase == PHASE_SERVE && Floating(enemy) && !control.serving) MoveFloat(ServeSpot(mate));
     TrackHits(enemy);
@@ -1262,9 +1339,11 @@ void Event_Think(GOBJ *gobj) {
 
     if (phase == PHASE_VOLLEY) {
         volley.since_touch++;
-        if (enemy->flags.dead || hmn->flags.dead || mate->flags.dead || enemy->phys.air_state == 0 ||
+        if (enemy->flags.dead || hmn->flags.dead || mate->flags.dead || enemy->phys.air_state == 0 || OnLedge(enemy) ||
             enemy->phys.pos.Y < layout.floor - FALL_LIMIT || volley.since_touch > TOUCH_TIMEOUT)
             EndVolley();
+        else if (Options_Main[OPT_HITSTUN].val && CanAct(enemy))
+            Escape(enemy, hmn, mate);
     } else if (phase == PHASE_RESULT) {
         if (++phase_timer >= RESULT_FRAMES) {
             Reset();
@@ -1274,7 +1353,8 @@ void Event_Think(GOBJ *gobj) {
         Reset();
         return;
     }
-    TeammateThink(mate, enemy);
+    EnemyInputs(enemy);
+    TeammateThink(hmn, mate, enemy);
 }
 
 void Exit(GOBJ *menu) {

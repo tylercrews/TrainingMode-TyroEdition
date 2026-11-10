@@ -1,9 +1,11 @@
 /* Production Passing Practice event, with a small engine at the native
  * boundaries: the teammate's jumpsquat, jump, drift and aerial, a scripted
  * hitbox, knockback that decays like the game's, landing on Final
- * Destination's floor, and hitlag. The procs run in the game's order around
- * the event's think: hitlag (0) and animation (1) before it, then input (3)
- * and physics (4), then hitbox spots and collision. */
+ * Destination's floor, hitlag, the enemy's hitstun (floor(0.4 * knockback)
+ * frames, run down outside hitlag) and its double jump once it can act. The
+ * procs run in the game's order around the event's think: hitlag (0) and
+ * animation (1) before it, then input (3) and physics (4), then hitbox spots
+ * and collision. */
 #include "../src/passing.c"
 #include <stdarg.h>
 
@@ -19,7 +21,7 @@ static CollLineDesc test_descriptor;
 static CollVert test_vertices[2];
 static ftCommonData common;
 static unsigned preferences[TM_PASS_PREF_COUNT] = {
-    TM_PASS_DEFAULT_AERIAL, TM_PASS_DEFAULT_PERCENT, 0, TM_PASS_DEFAULT_DISTANCE, 0,
+    TM_PASS_DEFAULT_AERIAL, TM_PASS_DEFAULT_PERCENT, 0, 0, TM_PASS_DEFAULT_DISTANCE, 0, 0,
 };
 static int loads, saves, sfx, hud_percent[PLAYERS], randi;
 static Text hud;
@@ -38,6 +40,9 @@ static int hit_victim; // The enemy has been hit by this aerial.
 static int landing_lag, lcancels;
 static int mate_hits, player_hits;
 static float decay = .051f;
+/* The enemy: hitstun frames left, held still (as on the ledge), its double
+ * jumps and the stick of the last one, and last frame's buttons. */
+static int enemy_hitstun, enemy_held, enemy_jumps, enemy_jump_stick, enemy_prev_held;
 
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
 void memcpy(void *dest, const void *src, int size) { u8 *d = dest; const u8 *s = src; while (size--) *d++ = *s++; }
@@ -81,13 +86,18 @@ static int Load(void *state, int flags) {
         ft[i].dmg.percent = ft[i].dmg.percent_temp = 0;
         ft[i].phys.self_vel = ft[i].phys.kb_vel = (Vec3){0};
         ft[i].flags.freeze = 0;
+        ft[i].flags.hitstun = 0;
         ft[i].dmg.hitlag_frames = 0;
         ft[i].state_id = ASID_WAIT;
         ft[i].phys.air_state = 0;
+        ft[i].jump.jumps_used = 0;
         ft[i].cb.Phys = 0;
         ft[i].cb.Coll = 0;
         ft[i].hitbox[0].active = 0;
+        ft[i].cpu.held = 0;
+        ft[i].cpu.lstickX = 0;
     }
+    enemy_hitstun = enemy_held = enemy_prev_held = 0;
     return 1;
 }
 static void Panel(const char **label, const char **info, int count) { }
@@ -104,7 +114,7 @@ GOBJProc *GObj_AddProc(GOBJ *gobj, void *cb, int s_link) { if (s_link == 15) lat
 void JOBJ_SetMtxDirtySub(JOBJ *joint) { }
 void Fighter_SetPosition(int ply, int ms, Vec3 *pos) { }
 void Fighter_SetGrounded(FighterData *f) { f->phys.air_state = 0; }
-void Fighter_SetAirborne(FighterData *f) { f->phys.air_state = 1; }
+void Fighter_SetAirborne(FighterData *f) { f->phys.air_state = 1; f->jump.jumps_used = 1; }
 int GrColl_CheckIfLineEnabled(int line) { return 1; }
 int GrColl_RaycastGround(Vec3 *pos, int *line, int *kind, Vec3 *slope, int a, int b, int c, void *d,
     float x1, float y1, float x2, float y2, float e) { return 0; }
@@ -165,6 +175,8 @@ static void Launch(int attacker, float damage) {
     e->cb.Coll = 0;
     e->flags.freeze = a->flags.freeze = 1;
     e->dmg.hitlag_frames = a->dmg.hitlag_frames = 5;
+    e->flags.hitstun = 1;
+    enemy_hitstun = (int)(kb * .4f);
 }
 
 static void EnterFall(FighterData *f) { f->state_id = ASID_FALL; anim[f - ft] = 0; }
@@ -186,6 +198,12 @@ static void BeforeThink(void) {
             f->dmg.hitlag_frames -= 1;
             if (f->dmg.hitlag_frames <= 0) { f->dmg.hitlag_frames = 0; f->flags.freeze = 0; }
         }
+    }
+    // The damage state's animation runs its hitstun down, as ftCo_8008F744 does.
+    FighterData *e = &ft[ENEMY];
+    if (!e->flags.freeze && e->flags.hitstun) {
+        if (enemy_hitstun > 0) enemy_hitstun--;
+        if (enemy_hitstun <= 0) e->flags.hitstun = 0;
     }
     FighterData *m = &ft[MATE];
     if (m->flags.freeze) return;
@@ -262,6 +280,18 @@ static void EngineInput(void) {
     mate_prev_ly = Stick(m->cpu.lstickY);
     mate_prev_cx = cx;
     mate_prev_cy = cy;
+    // The enemy: out of hitstun in the air, X is a double jump the stick's way.
+    FighterData *e = &ft[ENEMY];
+    int enemy_pressed = e->cpu.held & ~enemy_prev_held;
+    enemy_prev_held = e->cpu.held;
+    if ((enemy_pressed & PAD_BUTTON_X) && e->phys.air_state && !e->flags.hitstun && !e->flags.freeze && !e->cb.Phys &&
+        e->jump.jumps_used < 2) {
+        e->jump.jumps_used = 2;
+        e->state_id = ASID_JUMPAERIALF;
+        e->phys.self_vel = (Vec3){Stick(e->cpu.lstickX), 2.5f, 0};
+        enemy_jumps++;
+        enemy_jump_stick = e->cpu.lstickX;
+    }
 }
 
 static float DriftOf(FighterData *f, float vx, float s) { return DriftStep(f, vx, s); }
@@ -294,9 +324,11 @@ static void Physics(void) {
     FighterData *e = &ft[ENEMY];
     if (e->cb.Phys) {
         e->cb.Phys(&fighters[ENEMY]);
+    } else if (enemy_held) {
+        // On the ledge: it hangs there.
     } else if (!e->flags.freeze && e->phys.air_state) {
         e->phys.self_vel.Y = FallStep(e, e->phys.self_vel.Y);
-        e->phys.self_vel.X = DriftOf(e, e->phys.self_vel.X, 0);
+        e->phys.self_vel.X = DriftOf(e, e->phys.self_vel.X, Stick(e->cpu.lstickX));
         float kx = e->phys.kb_vel.X, ky = e->phys.kb_vel.Y, k = sqrtf(kx * kx + ky * ky);
         if (k < decay) e->phys.kb_vel = (Vec3){0};
         else { e->phys.kb_vel.X -= decay * kx / k; e->phys.kb_vel.Y -= decay * ky / k; }
@@ -438,9 +470,9 @@ void TestPassThink(int frames) {
         Event_Update();
     }
 }
-/* Your hit: the enemy launched with this velocity (hundredths a frame), as
- * after a collision at the end of last frame. */
-void TestPassYouHit(int vx100, int vy100, int damage) {
+/* Your hit: the enemy launched with this velocity (hundredths a frame), and
+ * this much hitstun, as after a collision at the end of last frame. */
+void TestPassYouHit(int vx100, int vy100, int damage, int hitstun) {
     FighterData *e = &ft[ENEMY];
     e->phys.kb_vel = (Vec3){vx100 / 100.f, vy100 / 100.f, 0};
     e->phys.self_vel = (Vec3){0};
@@ -451,8 +483,16 @@ void TestPassYouHit(int vx100, int vy100, int damage) {
     e->cb.Phys = 0;
     e->flags.freeze = 1;
     e->dmg.hitlag_frames = 4;
+    e->flags.hitstun = 1;
+    enemy_hitstun = hitstun;
     player_hits++;
 }
+/* The enemy catches the ledge and hangs there. */
+void TestPassEnemyOnLedge(void) {
+    ft[ENEMY].state_id = ASID_CLIFFWAIT;
+    enemy_held = 1;
+}
+int TestPassPreference(int index) { return preferences[index]; }
 /* One think, for measuring its cost against the emulator's budget. */
 void TestPassThinkOnly(void) { Event_Think(&event); }
 void TestPassPad(int down) { PadGetEngine(HMN)->down = down; PadGetEngine(HMN)->held = down; }
@@ -490,11 +530,6 @@ int TestPassInfo(int key) {
     case 23: return float_spot.Y * 10;
     case 24: return jumps.liftoff;
     case 25: return Floating(e);
-    case 26: return preferences[key - 26 + 0];
-    case 27: return preferences[1];
-    case 28: return preferences[2];
-    case 29: return preferences[3];
-    case 30: return preferences[4];
     case 31: return counter_color.r << 16 | counter_color.g << 8 | counter_color.b;
     case 32: return sfx;
     case 33: return m->facing_direction;
@@ -505,6 +540,11 @@ int TestPassInfo(int key) {
     case 38: return (int)(m->hitbox[0].pos.Y * 10);
     case 39: return e->facing_direction;
     case 40: return lcancels;
+    case 41: return ft[HMN].facing_direction;
+    case 42: return e->flags.hitstun;
+    case 43: return enemy_jumps;
+    case 44: return enemy_jump_stick;
+    case 45: return escape.dir;
     }
     return -1;
 }

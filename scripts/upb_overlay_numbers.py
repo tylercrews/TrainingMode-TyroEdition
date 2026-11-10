@@ -113,7 +113,7 @@ SPACIES = ('fox', 'falco')
 UNDER_STAGE = ('fox', 'falco')
 UNDER_STAGE_SWEEP = 240   # as in the event
 LEVEL_TICK = 6      # LEVEL_TICK in the event: half a tick's length
-STRAIGHT_ARC = 4    # STRAIGHT_ARC in the event: degrees of ring either side of a straight mark
+STRAIGHT_ARC = 2    # STRAIGHT_ARC in the event: degrees of ring either side of a straight mark
 # The stick the aimed up-Bs read (input.lstick): 80ths of full tilt inside a
 # circle of radius 80 (gmmain.c's pad clamp), with an axis at or under its
 # deadzone (PlCo.dat ftLoadCommonData 0x0 across, 0x4 up, both 0.28) read as
