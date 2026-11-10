@@ -57,8 +57,8 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 
 ## BUGS/FEATURES TO INVESTIGATE WORKING IN T10
 - add an edgeguarding distance for edgeguarding event where the cpu gets knocked from the edge of the stage as if they just got fox shined. practicing punishing that distance in particular would be extremely helpful. and seeing the hitstun
-- notch marks boxx marks in settings for up b sweetspot
-- add the 2/3 ring and level tick to the rest of the up-b overlay gecko codes. Only Fox's has them so far. Falco's event already has them so his code should match, and Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `UNDER_STAGE` in scripts/upb_overlay_numbers.py
+- ~~notch marks boxx marks in settings for up b sweetspot~~ (**T10:** the aimed rings leave out the angles the game can't read from any stick, with ticks where straight works, and the new **B0XX Angles** setting draws a dot for each B0XX angle instead)
+- add the 2/3 ring and level tick to the rest of the up-b overlay gecko codes. Only Fox's has them so far. Falco's event already has them so his code should match, and Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `UNDER_STAGE` in scripts/upb_overlay_numbers.py (**T10:** Falco's code now matches his event. Before giving the rest the 2/3 ring: Sheik's travel only checks for the ledge in the direction she faces, and aiming up and out from under the stage turns her to face away from it)
 - add rolling as an option in the techchase event
 - punish roll event?
 - ~~passing teams event, But you can build it INTO the 2v1 event!! Select between them in game, reuses memory. 
@@ -72,7 +72,7 @@ Frozen % and rising percent. The rising % doesn't reset the menu so you can go i
 - sdi practice where you're trying to get out of like falcon nair
 - anti handoff event where it tells you what direction to DI, and where you try to mash out as fast as possible
 - double jump sweet spot event (really good for luigi where you have to do like a reverse double jump in a specific spot)
-- improve up-b overlay and sweetspot event with indicators on angled characters's arcs where the fixed angle spots are for boxx players
+- ~~improve up-b overlay and sweetspot event with indicators on angled characters's arcs where the fixed angle spots are for boxx players~~ (**T10:** Up-B Sweetspot's **B0XX Angles** setting, and a B0XX Gecko code for each aimed up-B)
 - new objects in eggsercise. practice hitting in other spots other than on the floor
 - expand the edgeguarding event, i want at least doc and game and watch if I didn't already do doc. get some more in there like dk and all the mid tiers
 - test pikachu's recovery in both the up b sweet spot event and the recovery event. It might be too much for me to try to build out as a non-pika player, but would be nice to expand
@@ -97,8 +97,14 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - Your teammate measures its own aerial on its first serve, then plans every return from where the enemy will fly: when to jump, short or full hop, when to press the aerial and which way to drift. It fast-falls and L-cancels to be ready sooner, and walks back to its spot after each pass. It hasn't been tested in Dolphin yet.
 - **Event changes**
     - New **Doubles** page of events, after Character-specific Tech, so the 2v1 events don't sit at the end of General Tech. **Grab Punish Practice** (was 2v1 Grab Punish Practice) moved there. The page costs no save space: the saved page always had room for four.
+    - **Up-B Sweetspot**
+        - The rings for Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu and Pichu leave out the angles you can't aim. Melee reads a stick axis at or under 0.28 as exactly 0, so holding near straight across, up or down reads exactly straight, and the shallowest angle off straight is 16.8°. That's the game, not the controller, so no stick can aim into those gaps. A white tick on each straight direction marks where holding straight sweetspots.
+        - The teleports and Quick Attack need more tilt the closer to straight they aim, so their dim inner ring now follows the least tilt that aims each way, curving out to meet the blue ring at the gaps. Their white marks run between the two, since straight works at any tilt.
+        - New **B0XX Angles** setting (Off by default, saved), under Enable Line Guides: instead of the ring, a dot where each of the B0XX's up-B angles sweetspots. White dots are no modifier, blue ones Mod X or Mod Y, alone or with a C-button. The teleports and Quick Attack go less far without B held, so their blue dots are with B and their dim ones without. The coordinates are the B0XX V3's, as HayBox's Melee mode has them.
+        - The [Up-B Gecko codes](slippi-gecko-codes/up-b-overlay/README.md) leave out the same gaps, Falco's now has his 2/3 ring and ticks like the event, and seven new B0XX codes draw B0XX Angles in any match. They pass emulator tests but haven't been tested in Dolphin yet.
 - **Program changes**
-    - The save record is still version 21: Passing Practice's menu uses 14 of word 72's 18 spare bits.
+    - The save record is still version 21: Passing Practice's menu uses 14 of word 72's 18 spare bits, and Up-B Sweetspot's B0XX Angles 1 more (bit 28).
+    - The Up-B tests check the event's guides against the Gecko script's shapes, and the [up-B research notes](notes/UPB-SWEETSPOT-RESEARCH.md#the-sticks-dead-zones-and-b0xx-angles-t10) explain the stick's dead zones and list the B0XX's angles.
     - New [tests/test_passing.py](tests/test_passing.py) runs the event against a small engine of jumps, drift, aerial hitboxes, knockback and hitlag ([tests/passing_probe.c](tests/passing_probe.c)), and [tests/passing_trace.py](tests/passing_trace.py) prints one return frame by frame.
 
 For T10 I'm working with Claude Opus 5.5 Max

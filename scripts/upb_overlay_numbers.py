@@ -2,7 +2,9 @@
 from a vanilla Melee ISO.
 
 Each code draws the targets the Up-B Sweetspot event's line guides draw
-(src/upbsweetspot.c), fixed for its character instead of read live:
+(src/upbsweetspot.c), fixed for its character instead of read live. The aimed
+up-Bs also get a B0XX code, which draws what the event's B0XX Angles setting
+does:
 
 - Target: where the fighter is when the ledge sits in the middle of its
   ledge-grab box. Out from the ledge by half of (ECB front + ledge snap x),
@@ -12,10 +14,13 @@ Each code draws the targets the Up-B Sweetspot event's line guides draw
   the target at the travel distance, from the special attributes the event's
   AimedDistance reads. It's the offstage half, except for the UNDER_STAGE
   characters, who can up-B from under the stage: theirs carries on under it
-  to 2/3 of a circle, and gets a white tick on the ring level with the target,
-  where holding straight toward the stage sweetspots. The teleports and Quick
-  Attack go farther the more you tilt the stick, so they also get a dim ring
-  at the least tilt that still aims.
+  to 2/3 of a circle. The ring leaves out the angles the stick can't aim, a
+  gap either side of straight across, up and down (see STICK_UNITS), with a
+  white tick at each straight one. The teleports and Quick Attack go farther
+  the more you tilt the stick, so they also get a dim edge at the least tilt
+  that aims at each angle, and their white marks run between the two.
+- B0XX codes, for the same seven: the white X, and a dot where each of the
+  B0XX's up-B angles (B0XX_PLAIN, B0XX_MOD_B, B0XX_MOD) sweetspots.
 - Path up-Bs (Mario, Dr. Mario, Luigi, Marth, Roy, Falcon, Ganondorf, Peach,
   Kirby, Samus): a blue dot where to up-B for the fastest grab, and a line to
   where the slower grab, falling back at the end, starts. Mario, Dr. Mario,
@@ -29,6 +34,7 @@ covers all six legal stages.
 Usage: python -I scripts/upb_overlay_numbers.py [path/to/melee.iso] [--write]
        --write rewrites slippi-gecko-codes/up-b-overlay/*.asm.
 """
+from collections import namedtuple
 import importlib.util
 import math
 from pathlib import Path
@@ -45,7 +51,8 @@ f32, read_file, roots = _dj.f32, _dj.read_file, _dj.roots
 BLUE, DIM_BLUE, WHITE = 0x30C8FFFF, 0x1C6C94FF, 0xFFFFFFFF
 # Line widths and point size in sixths of a pixel, as the event draws them.
 ARC_WIDTH, LINE_WIDTH, DOT_SIZE = 10, 12, 42
-ARC_STEPS = 40      # ARC_STEPS in the event
+ARC_STEP = 4        # ARC_STEP in the event: degrees of ring per line
+B0XX_DOT_SIZE = 30  # B0XX_DOT_SIZE in the event
 TARGET_SIZE = 2.5   # half the X's width
 
 # Slug, name, internal kind (FTKIND), DAT, hook, the instruction it replaces,
@@ -78,17 +85,53 @@ CHARACTERS = [
     ('pichu', 'Pichu', 23, 'PlPc.dat', 0x8016E7F4, 'lhz r3, 14(r31)', 2.00),
     ('kirby', 'Kirby', 4, 'PlKb.dat', 0x8016E7EC, 'li r3, 64', 2.00),
 ]
+# The B0XX codes' hooks: more of StartMelee's unconditional instructions that
+# aren't branches, with no float register live across them. They run before
+# it loads the stage, like the six earliest above.
+B0XX_HOOKS = {
+    'fox': (0x8016E7D8, 'li r3, 31'),
+    'falco': (0x8016E7D0, 'li r3, 0'),
+    'sheik': (0x8016E7BC, 'mr r3, r31'),
+    'zelda': (0x8016E7B0, 'li r3, 70'),
+    'mewtwo': (0x8016E76C, 'li r3, 1'),
+    'pikachu': (0x8016E764, 'addi r3, r3, 22356'),
+    'pichu': (0x8016E760, 'lis r3, -32734'),
+}
+# Every code: key names its text file, and b0xx says which kind it is.
+Code = namedtuple('Code', 'key slug name kind dat hook original ecb b0xx')
+CODES = [Code(c[0], *c, False) for c in CHARACTERS] + [
+    Code(f'{slug}-b0xx', slug, name, kind, dat, *B0XX_HOOKS[slug], ecb, True)
+    for slug, name, kind, dat, _, _, ecb in CHARACTERS if slug in B0XX_HOOKS]
 
 # Aimed up-Bs. Fox and Falco: travel speed 0x74 for 0x68 frames, slowing by
 # 0x78 a frame from frame 0x70. The rest: (frames, speed per tilt, base
 # speed, least tilt), from TravelFrames, TravelSpeed and AimedThreshold.
 SPACIES = ('fox', 'falco')
-# 2/3 of a ring (on under the stage, stopping 30 degrees short of level so it
-# doesn't stick up into it) and the level tick, as the event gives Fox and
-# Falco; the README's to-do list tracks the other codes.
-UNDER_STAGE = ('fox',)
-UNDER_STAGE_SWEEP, UNDER_STAGE_STEPS = 240, 60   # as in the event
-LEVEL_TICK = 6      # LEVEL_TICK in the event: half the tick's length
+# 2/3 of a ring, on under the stage, stopping 30 degrees short of level so it
+# doesn't stick up into it, as the event gives Fox and Falco.
+UNDER_STAGE = ('fox', 'falco')
+UNDER_STAGE_SWEEP = 240   # as in the event
+LEVEL_TICK = 6      # LEVEL_TICK in the event: half a tick's length
+# The stick the aimed up-Bs read (input.lstick): 80ths of full tilt inside a
+# circle of radius 80 (gmmain.c's pad clamp), with an axis at or under its
+# deadzone (PlCo.dat ftLoadCommonData 0x0 across, 0x4 up, both 0.28) read as
+# 0 by Fighter_procInput. A tilted axis reads at least 23/80, so the shallowest
+# angle off straight is atan(23 / 76), 16.84 degrees: 76 is the most the other
+# axis can read with 23 inside the circle.
+STICK_UNITS = 80
+# The B0XX's up-B sticks for one quadrant, in 80ths (toward the stage, up), as
+# HayBox's Melee mode gives them, "up to date with B0XX V3 specifications"
+# (src/modes/Melee20Button.cpp). Mod X and Mod Y on a diagonal, alone and with
+# C-Down, C-Left, C-Up or C-Right, step from 23 degrees to 67, 4.4 apart, and
+# holding B too gives the same angles longer. Mod Y with B across is full.
+B0XX_PLAIN = ((80, 0), (0, 80), (56, 56))
+B0XX_MOD_B = ((53, 0), (0, 43), (73, 31), (70, 36), (68, 42), (59, 43), (51, 43),    # Mod X + B
+              (80, 0), (0, 59), (31, 73), (36, 70), (42, 68), (47, 64), (47, 57))    # Mod Y + B
+B0XX_MOD = ((53, 0), (0, 43), (59, 25), (56, 29), (63, 39), (56, 41), (49, 42),      # Mod X
+            (27, 0), (0, 59), (25, 59), (29, 56), (39, 63), (41, 56), (51, 61))      # Mod Y
+# Spots closer than this are the same dot: holding B moves Fox's and Falco's
+# under half a degree, since their travel doesn't depend on tilt.
+B0XX_SAME_SPOT = 1.0
 TRAVEL = {
     'sheik': (0x38, 0x44, 0x48, 0x40),
     'zelda': (0x48, 0x54, 0x58, 0x50),
@@ -134,16 +177,116 @@ def spacie_distance(attr_f):
     return distance
 
 
-def numbers(slug, dat, ecb):
+def deadzones(iso):
+    """The stick deadzones across and up, from PlCo.dat."""
+    body, found = roots(read_file(iso, 'PlCo.dat'))
+    data = struct.unpack_from('>I', body, found['ftLoadCommonData'])[0]
+    return struct.unpack_from('>2f', body, data)
+
+
+def least_axis(deadzone):
+    """The least an axis reads once it isn't 0, in 80ths: the step past the deadzone."""
+    return int(f32(f32(deadzone) * STICK_UNITS + 1))
+
+
+def gap(least):
+    """Degrees from straight to the shallowest angle the stick aims, when the
+    axis across straight reads `least` and the other as much as the circle allows."""
+    return math.degrees(math.atan2(least, int(math.sqrt(STICK_UNITS ** 2 - least ** 2))))
+
+
+def stick(across, up):
+    """The stick from its deadzones: the least each axis reads (across, up),
+    and the gaps beside straight across and straight up, in degrees."""
+    least = (least_axis(across), least_axis(up))
+    return {'least': least, 'gaps': (gap(least[1]), gap(least[0]))}
+
+
+def ring_arcs(sweep, gaps):
+    """Each stretch of a ring the stick can aim at, as (from, to) ring angles:
+    90 is straight above the target, 0 straight out, -90 below. Each quarter
+    between straight directions loses a gap at both ends."""
+    level, upright = gaps
+    arcs = []
+    for top in (90, 0, -90):
+        if top <= 90 - sweep:
+            break
+        start = top - (upright if top else level)
+        end = max(top - 90 + (level if top else upright), 90 - sweep)
+        if start > end:
+            arcs.append((start, end))
+    return arcs
+
+
+def straights(sweep):
+    """The straight directions on a ring, as ring angles."""
+    return [angle for angle in (90, 0, -90, -180) if angle >= 90 - sweep]
+
+
+def least_tilt(angle, least, threshold):
+    """The least stick that aims at ring angle `angle`: past the up-B's threshold,
+    with both axes reading at least their least."""
+    a = math.radians(angle)
+    tilt = max(threshold, least[1] / STICK_UNITS / abs(math.sin(a)), least[0] / STICK_UNITS / abs(math.cos(a)))
+    return min(tilt, 1.0)
+
+
+def arc_points(target, radius, start, end, steps):
+    """Points along a ring stretch, where radius(angle) is the distance out."""
+    points = []
+    for step in range(steps + 1):
+        angle = start - (start - end) * step / steps
+        a, r = math.radians(angle), radius(angle)
+        points.append((target[0] + math.cos(a) * r, target[1] + math.sin(a) * r))
+    return points
+
+
+def b0xx_spots(distance, threshold, spacie, least, sweep):
+    """[(out, up, color)] from the target: where up-B with each B0XX stick ends
+    at the target, by the move's own rule, within the ring's sweep. Plain sticks
+    are white, Mod X and Mod Y with B blue, and without B dim, each left out
+    where an earlier one already is."""
+    spots = []
+    for sticks, color in ((B0XX_PLAIN, WHITE), (B0XX_MOD_B, BLUE), (B0XX_MOD, DIM_BLUE)):
+        for bx, by in sticks:
+            for sx in (1, -1):
+                for sy in (1, -1):
+                    x, y = sx * bx, sy * by
+                    x, y = (0 if abs(x) < least[0] else x), (0 if abs(y) < least[1] else y)
+                    length = math.hypot(x, y)
+                    tilt = min(length / STICK_UNITS, 1.0)
+                    aimed = (abs(x) + abs(y)) / STICK_UNITS >= threshold if spacie else tilt > threshold
+                    if not aimed:
+                        x, y, length, tilt = 0, 1, 1, 1.0
+                    out, up = x / length, -y / length
+                    angle = math.degrees(math.atan2(up, out))
+                    if angle > 90.5 or angle < 89.5 - sweep:
+                        continue
+                    d = distance(tilt)
+                    spot = (out * d, up * d)
+                    if any(math.hypot(spot[0] - s[0], spot[1] - s[1]) < B0XX_SAME_SPOT for s in spots):
+                        continue
+                    spots.append((*spot, color))
+    return spots
+
+
+def numbers(slug, dat, ecb, stick_numbers):
     """The character's target and guide sizes."""
     attr_f, attr_i, snap_x, snap_y = fighter(dat)
     result = {'target': ((ecb + snap_x) / 2, -snap_y), 'snap': (snap_x, snap_y)}
     if slug in SPACIES:
-        result['rings'] = [spacie_distance(attr_f)]
+        full = spacie_distance(attr_f)
+        result['rings'] = [full]
+        result['distance'] = lambda tilt: full
+        result['threshold'] = attr_f(0x64)
+        result['stick'] = stick_numbers
     elif slug in TRAVEL:
         frames, per_tilt, base, least = TRAVEL[slug]
         speed = lambda tilt: f32(attr_f(per_tilt) * tilt + attr_f(base))
-        result['rings'] = [f32(attr_i(frames) * speed(1)), f32(attr_i(frames) * speed(attr_f(least)))]
+        result['distance'] = lambda tilt: f32(attr_i(frames) * speed(tilt))
+        result['threshold'] = attr_f(least)
+        result['rings'] = [result['distance'](1), result['distance'](result['threshold'])]
+        result['stick'] = stick_numbers
     else:
         rise, forward, end_rise, end_forward, tilt = PATHS[slug]
         result['path'] = (rise, forward, end_rise, end_forward)
@@ -151,23 +294,48 @@ def numbers(slug, dat, ecb):
     return result
 
 
-def shapes(slug, n):
-    """(GX shape, width, color, points, comment), drawn in order: dim first,
-    then blue, then the X."""
-    tx, ty = n['target']
+def aimed_shapes(slug, n, b0xx):
+    """The ring stretches, their least-tilt edges and the straight marks, or
+    the B0XX dots."""
+    target, distance, threshold = n['target'], n['distance'], n['threshold']
+    spacie, least = slug in SPACIES, n['stick']['least']
+    sweep = UNDER_STAGE_SWEEP if slug in UNDER_STAGE else 180
     drawn = []
-    for i, radius in enumerate(n.get('rings', ())):
-        points = []
-        sweep, steps = (UNDER_STAGE_SWEEP, UNDER_STAGE_STEPS) if slug in UNDER_STAGE else (180, ARC_STEPS)
-        for step in range(steps + 1):
-            angle = math.radians(90 - sweep * step / steps)
-            points.append((tx + math.cos(angle) * radius, ty + math.sin(angle) * radius))
-        what = 'ring at the full travel' if i == 0 else 'dim ring at the least tilt'
-        drawn.append(('GX_LINESTRIP', ARC_WIDTH, BLUE if i == 0 else DIM_BLUE, points, f'{what}, {radius:.2f}'))
-        if i == 0 and slug in UNDER_STAGE:
-            drawn.append(('GX_LINES', LINE_WIDTH, WHITE,
-                          [(tx + radius - LEVEL_TICK, ty), (tx + radius + LEVEL_TICK, ty)],
-                          'tick: hold straight toward the stage from here'))
+    if b0xx:
+        spots = b0xx_spots(distance, threshold, spacie, least, sweep)
+        for color, what in ((DIM_BLUE, 'Mod X or Mod Y without B'),
+                            (BLUE, 'Mod X or Mod Y, B held or not' if spacie else 'Mod X or Mod Y, with B'),
+                            (WHITE, 'no modifier')):
+            points = [(target[0] + x, target[1] + y) for x, y, c in spots if c == color]
+            if points:
+                drawn.append(('GX_POINTS', B0XX_DOT_SIZE, color, points, f'B0XX: {what}'))
+        return drawn
+    full = distance(1)
+    arcs = ring_arcs(sweep, n['stick']['gaps'])
+    if not spacie:
+        for start, end in arcs:
+            steps = 2 * (int((start - end) / ARC_STEP) + 1)
+            points = arc_points(target, lambda angle: distance(least_tilt(angle, least, threshold)), start, end, steps)
+            drawn.append(('GX_LINESTRIP', ARC_WIDTH, DIM_BLUE, points,
+                          f'least tilt that aims, {start:.2f} to {end:.2f} degrees'))
+    for start, end in arcs:
+        points = arc_points(target, lambda angle: full, start, end, int((start - end) / ARC_STEP) + 1)
+        drawn.append(('GX_LINESTRIP', ARC_WIDTH, BLUE, points,
+                      f'ring at the full travel {full:.2f}, {start:.2f} to {end:.2f} degrees'))
+    inner, outer = (full - LEVEL_TICK, full + LEVEL_TICK) if spacie else (distance(threshold), full)
+    points = []
+    for angle in straights(sweep):
+        c, s = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+        points += [(target[0] + c * inner, target[1] + s * inner), (target[0] + c * outer, target[1] + s * outer)]
+    drawn.append(('GX_LINES', LINE_WIDTH, WHITE, points, 'straight across, up and down: hold straight here'))
+    return drawn
+
+
+def shapes(slug, n, b0xx=False):
+    """(GX shape, width, color, points, comment), drawn in order: dim first,
+    then blue, then white, then the X."""
+    tx, ty = n['target']
+    drawn = aimed_shapes(slug, n, b0xx) if 'rings' in n else []
     if 'path' in n:
         rise, forward, end_rise, end_forward = n['path']
         tilts = ([(n['tilt'], DIM_BLUE)] if n['tilt'] else []) + [(0.0, BLUE)]
@@ -184,26 +352,28 @@ def shapes(slug, n):
     return drawn
 
 
-def asm(character, n):
-    slug, name, kind, _, hook, original, ecb = character
+def asm(code, n):
     tx, ty = n['target']
+    title = f'{code.name} Up-B Overlay' + (' B0XX' if code.b0xx else '')
+    what = ("Sweetspot event's B0XX Angles at both ledges. Written by" if code.b0xx else
+            "Sweetspot event's targets at both ledges. Written by")
     lines = [
-        f'    # To be inserted at {hook:08x}',
-        f'    # {name} Up-B Overlay for vanilla NTSC 1.02 Melee / Slippi.',
-        f'    # While {name} is in the match on a legal stage, draws the Up-B',
-        '    # Sweetspot event\'s targets at both ledges. Written by',
+        f'    # To be inserted at {code.hook:08x}',
+        f'    # {title} for vanilla NTSC 1.02 Melee / Slippi.',
+        f'    # While {code.name} is in the match on a legal stage, draws the Up-B',
+        f'    # {what}',
         '    # scripts/upb_overlay_numbers.py from the ISO; the drawing is shared',
         '    # in up-b-overlay.inc.',
         '',
-        f'    .set FIGHTER_KIND, {kind}',
+        f'    .set FIGHTER_KIND, {code.kind}',
         '',
         '    # Points are (out from the right ledge, up from it); the left ledge',
         '    # mirrors them.',
         '    .macro character_data',
-        f'    # Target: the ledge mid-grab-box, {tx:.2f} out (ECB front {ecb:.2f} + snap',
+        f'    # Target: the ledge mid-grab-box, {tx:.2f} out (ECB front {code.ecb:.2f} + snap',
         f'    # {n["snap"][0]:g}, halved) and {-ty:g} down.',
     ]
-    for shape, width, color, points, comment in shapes(slug, n):
+    for shape, width, color, points, comment in shapes(code.slug, n, code.b0xx):
         lines.append(f'    shape {shape}, {width}, {len(points)}, 0x{color:08X}    # {comment}')
         lines += [f'    point {x:.4f}, {y:.4f}' for x, y in points]
     lines += [
@@ -211,7 +381,7 @@ def asm(character, n):
         '    .endm',
         '',
         '    .macro original_instruction',
-        f'    {original}',
+        f'    {code.original}',
         '    .endm',
         '',
         '    .include "up-b-overlay.inc"',
@@ -219,25 +389,36 @@ def asm(character, n):
     return '\n'.join(lines) + '\n'
 
 
-def asm_path(character):
-    return FOLDER / f'{character[1]} Up-B Overlay.asm'
+def asm_path(code):
+    return FOLDER / (f'{code.name} Up-B Overlay' + (' B0XX' if code.b0xx else '') + '.asm')
+
+
+def code_numbers(iso, code, stick_numbers):
+    return numbers(code.slug, read_file(iso, code.dat), code.ecb, stick_numbers)
 
 
 def main():
     args = [arg for arg in sys.argv[1:] if arg != '--write']
     path = args[0] if args else ROOT / 'melee.iso'
     with open(path, 'rb') as iso:
-        for character in CHARACTERS:
-            slug, name, _, dat, hook, _, ecb = character
-            n = numbers(slug, read_file(iso, dat), ecb)
+        stick_numbers = stick(*deadzones(iso))
+        print('stick: least {} and {} 80ths across and up; gaps {:.2f} beside level, {:.2f} beside upright'.format(
+            *stick_numbers['least'], *stick_numbers['gaps']))
+        for code in CODES:
+            n = code_numbers(iso, code, stick_numbers)
             tx, ty = n['target']
-            guide = (', '.join(f'{r:.2f}' for r in n['rings']) + ' rings') if 'rings' in n else (
-                f"path {n['path']}" + (f", tilt {n['tilt']:g}" if n['tilt'] else ''))
-            print(f'{name}: hook {hook:08X}, target {tx:.2f} out, {-ty:g} down; {guide}')
+            if code.b0xx:
+                guide = f"{len(b0xx_spots(n['distance'], n['threshold'], code.slug in SPACIES, n['stick']['least'], UNDER_STAGE_SWEEP if code.slug in UNDER_STAGE else 180))} B0XX dots"
+            elif 'rings' in n:
+                guide = ', '.join(f'{r:.2f}' for r in n['rings']) + ' rings'
+            else:
+                guide = f"path {n['path']}" + (f", tilt {n['tilt']:g}" if n['tilt'] else '')
+            print(f'{code.key}: hook {code.hook:08X}, target {tx:.2f} out, {-ty:g} down; {guide}')
             if '--write' in sys.argv:
-                asm_path(character).write_text(asm(character, n), newline='\n')
+                with open(asm_path(code), 'wb') as f:
+                    f.write(asm(code, n).encode('utf-8'))
     if '--write' in sys.argv:
-        print(f'wrote {len(CHARACTERS)} files in {FOLDER.relative_to(ROOT)}')
+        print(f'wrote {len(CODES)} files in {FOLDER.relative_to(ROOT)}')
 
 
 if __name__ == '__main__':

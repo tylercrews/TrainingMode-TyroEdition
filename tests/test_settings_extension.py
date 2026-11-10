@@ -45,7 +45,8 @@ EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Light
 # Mash, Random, Release Hit = Success stored inverted so clear is On) in bits
-# 0-13 and Up-B Sweetspot (Line Guides On, Tipper, Normal) in bits 16-18.
+# 0-13 and Up-B Sweetspot (Line Guides On, Tipper, Normal) in bits 16-18. Its
+# B0XX Angles (T10, Off) is word 72's bit 28, with no version bump.
 GRAB_PUNISH = 42  # TM_SETTING_GRAB_PUNISH
 UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
 # Its menu rows, with Teammate Percent in byte 50's top bits, then your team in
@@ -63,8 +64,9 @@ LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET
 PASSING = 48  # TM_SETTING_PASSING
 PASSING_COUNTS, PASSING_DEFAULTS = (5, 21, 2, 5, 3), (2, 4, 0, 2, 0)
 PASSING_FIELDS = ((14, 3), (17, 5), (22, 1), (23, 3), (26, 2))  # (shift, width) in word 72.
-UPB_COUNTS, UPB_DEFAULTS = (2, 3, 2), (1, 0, 0)
-UPB_MARTH, MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 1, 0, 1, 2
+UPB_COUNTS, UPB_DEFAULTS = (2, 2, 3, 2), (1, 0, 0, 0)
+UPB_B0XX, UPB_MARTH, UPB_CAMERA = 1, 2, 3  # TMUpBSweetspotPreference, in menu order.
+MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 0, 1, 2
 EVENT_MENU_BYTES = bytes.fromhex('c0020100')
 # Bytes 24..75 appended by versions 15 to 21: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
@@ -361,7 +363,7 @@ class ExtensionTests(unittest.TestCase):
         m = self.m
         m.call('Settings_Set', GRAB_PUNISH, GP_PERCENT, 7); m.call('Settings_Set', GRAB_PUNISH, GP_MASH, 5)
         m.call('Settings_Set', GRAB_PUNISH, GP_RELEASE_HITS, 0); m.call('Settings_Set', GRAB_PUNISH, GP_YOUR_TEAM, 2)
-        m.call('Settings_Set', UPB_SWEETSPOT, 2, 1); m.call('Settings_Set', EDGEGUARD, EG_FOX_SIDEB, 5)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1); m.call('Settings_Set', EDGEGUARD, EG_FOX_SIDEB, 5)
         m.call('Settings_Set', COSTUME, 1, 2)
         old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
         old[4:6] = bytes((20, 64))
@@ -377,7 +379,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM)),
                          (7, 5, 0, 2))
-        self.assertEqual((m.call('Settings_Get', UPB_SWEETSPOT, 2), m.call('Settings_Get', EDGEGUARD, EG_FOX_SIDEB),
+        self.assertEqual((m.call('Settings_Get', UPB_SWEETSPOT, UPB_CAMERA), m.call('Settings_Get', EDGEGUARD, EG_FOX_SIDEB),
                           m.call('Settings_Get', COSTUME, 1)), (1, 5, 2))
 
     def test_version_20_records_read_their_settings_and_no_team_characters_without_writing(self):
@@ -389,7 +391,7 @@ class ExtensionTests(unittest.TestCase):
             read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
             self.assertEqual((read(GRAB_PUNISH, GP_P3_CHARACTER), read(GRAB_PUNISH, GP_P4_CHARACTER)), (0, 0))
             self.assertEqual((read(GRAB_PUNISH, GP_PERCENT), read(GRAB_PUNISH, GP_MASH), read(GRAB_PUNISH, GP_RELEASE_HITS),
-                              read(GRAB_PUNISH, GP_YOUR_TEAM), read(UPB_SWEETSPOT, 2), read(EDGEGUARD, EG_FOX_SIDEB),
+                              read(GRAB_PUNISH, GP_YOUR_TEAM), read(UPB_SWEETSPOT, UPB_CAMERA), read(EDGEGUARD, EG_FOX_SIDEB),
                               read(COSTUME, 1)), (7, 5, 0, 2, 1, 5, 2))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
@@ -405,6 +407,34 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT + 72, (31 | 21 << 5).to_bytes(4, 'little'))  # A damaged P3 is none yet.
         self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_P3_CHARACTER, GP_P4_CHARACTER)), (0, 21))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little'), 21 << 5)
+
+    def test_up_b_b0xx_angles_use_only_word_72_bit_28(self):
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's other rows,
+        m.call('Settings_Set', PASSING, 1, 12)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)  # and its row neighbors in word 68.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, value)
+            self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            word, old = (int.from_bytes(record[72:76], 'little') for record in (after, before))
+            self.assertEqual((word >> 28 & 1, word & ~(1 << 28)), (value, old))
+            self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
+        self.assertEqual(tuple(m.call('Settings_Get', UPB_SWEETSPOT, i) for i in (0, UPB_MARTH, UPB_CAMERA)), (1, 0, 1))
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_P3_CHARACTER), m.call('Settings_Get', PASSING, 1)),
+                         (26, 12))
+
+    def test_version_20_records_read_b0xx_angles_off_without_writing(self):
+        m = self.m
+        old = self.version_20_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 20 never owned word 72.
+            old[72:76] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_B0XX), 0)
+            self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_CAMERA), 1)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
     def passing(self, machine=None):
         machine = machine or self.m
@@ -490,7 +520,7 @@ class ExtensionTests(unittest.TestCase):
     def test_spacie_side_b_masks_use_only_word_68_bits_19_to_28(self):
         m = self.m
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
-        m.call('Settings_Set', GRAB_PUNISH, 4, 2); m.call('Settings_Set', UPB_SWEETSPOT, 2, 1)  # Word 68's neighbors.
+        m.call('Settings_Set', GRAB_PUNISH, 4, 2); m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)  # Word 68's neighbors.
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         for fox, falco in ((31, 0), (0, 31), (21, 10)):
             m.call('Settings_Set', EDGEGUARD, EG_FOX_SIDEB, fox); m.call('Settings_Set', EDGEGUARD, EG_FALCO_SIDEB, falco)
@@ -501,7 +531,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual((word >> 19 & 31, word >> 24 & 31), (fox, falco))
             self.assertEqual(after[:68] + after[72:], before[:68] + before[72:])
             self.assertEqual(word & ~(0x3FF << 19), int.from_bytes(before[68:72], 'little'))
-        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, 4), m.call('Settings_Get', UPB_SWEETSPOT, 2)), (2, 1))
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, 4), m.call('Settings_Get', UPB_SWEETSPOT, UPB_CAMERA)), (2, 1))
         self.assertEqual(m.call('Settings_Get', EDGEGUARD, 8), 1)  # Fox's first mask is its own field.
 
     def test_up_b_marth_keeps_a_saved_off_and_stores_down_tilt_in_its_top_bit(self):
@@ -569,7 +599,7 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (15, with its top bit), CPU Mashing (7, with
         # its) and Teammate Facing (3) repair to their defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 9 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2, 26, 26), (1, 2, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2, 26, 26), (1, 1, 2, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'),
                          word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 1 << 9)
         self.assertEqual((m.cpu.mem_read(EXT + 34, 1)[0] >> 6, m.cpu.mem_read(EXT + 35, 1)[0] >> 7), (2, 0))

@@ -6,6 +6,7 @@ native functions the codes call are stubbed and the GX FIFO writes are
 recorded, so this checks what the codes ask the GPU to draw, not the picture.
 """
 import importlib.util
+import math
 from pathlib import Path
 import struct
 import sys
@@ -22,7 +23,7 @@ numbers = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(numbers)
 
 FOLDER = numbers.FOLDER
-CHARACTERS = {c[0]: c for c in numbers.CHARACTERS}
+CODES = {c.key: c for c in numbers.CODES}
 STOP, R13, FIFO, SCRATCH = 0x80004000, 0x804DB6A0, 0xCC008000, 0x80F00000
 GX = {'GX_LINES': 0xA8, 'GX_LINESTRIP': 0xB0, 'GX_POINTS': 0xB8}
 # External stage ID: (left line, right line), live ledges (x, y) from
@@ -77,7 +78,7 @@ def replaced(words):
 def shapes(slug):
     """(GX shape, width, count, color, points) from the code's .asm."""
     found = []
-    for line in numbers.asm_path(CHARACTERS[slug]).read_text().splitlines():
+    for line in numbers.asm_path(CODES[slug]).read_text().splitlines():
         line = line.split('#')[0].strip()
         if line.startswith('shape '):
             kind, width, count, color = (part.strip() for part in line[6:].split(','))
@@ -98,7 +99,7 @@ def expected(slug, left, right):
 
 
 class Machine:
-    def __init__(self, slugs=tuple(CHARACTERS)):
+    def __init__(self, slugs=tuple(CODES)):
         self.cpu = Uc(UC_ARCH_PPC, UC_MODE_32 | UC_MODE_BIG_ENDIAN)
         self.cpu.mem_map(0x80000000, 0x1800000)
         self.cpu.mem_map(0xCC000000, 0x10000)
@@ -108,7 +109,7 @@ class Machine:
         self.allocations, self.gobjs, self.originals = {}, {}, {}
         for i, slug in enumerate(slugs):
             hook, words = code(slug)
-            assert hook == CHARACTERS[slug][4]
+            assert hook == CODES[slug].hook
             self.originals[slug] = replaced(words)
             # Install like the code handler: branch in, and the final word back out.
             allocation = 0x81700000 + i * 0x1000
@@ -191,7 +192,7 @@ class Machine:
         wanted = self.registers()
         self.created = self.gobjs[slug] if self.created != 0 else 0
         self.prime()
-        hook = CHARACTERS[slug][4]
+        hook = CODES[slug].hook
         self.calls = []
         self.cpu.emu_start(hook, hook + 4)
         links = self.named('GObj_AddGXLink')
@@ -230,7 +231,7 @@ class Machine:
 
 class HookTests(unittest.TestCase):
     def test_hooks_are_distinct_and_outside_the_other_codes(self):
-        hooks = [c[4] for c in numbers.CHARACTERS]
+        hooks = [c.hook for c in numbers.CODES]
         self.assertEqual(len(hooks), len(set(hooks)))
         taken = {0x8016E748, 0x8016E74C, 0x8016E904, 0x8016E8C0, 0x8016E8C8, 0x8016E8E0, 0x8016E8E8}
         self.assertFalse(taken & set(hooks))
@@ -238,7 +239,7 @@ class HookTests(unittest.TestCase):
 
     def test_each_code_creates_its_overlay_then_acts_like_the_replaced_instruction(self):
         m = Machine()
-        for slug, character in CHARACTERS.items():
+        for slug, character in CODES.items():
             with self.subTest(slug=slug):
                 wanted = m.start_match(slug)
                 self.assertEqual([args[:3] for args in m.named('GObj_Create')], [(0, 7, 0)])
@@ -246,12 +247,12 @@ class HookTests(unittest.TestCase):
                 self.assertEqual((gobj, link, priority), (m.gobjs[slug], 5, 0))
                 self.assertTrue(m.allocations[slug] <= callback < m.allocations[slug] + 0x1000)
                 got = m.registers()
-                if character[5].split()[0] not in SETS_CR0:
+                if character.original.split()[0] not in SETS_CR0:
                     # Only cr0 may differ: nothing reads it across these hooks.
                     got['cr'] &= 0x0FFFFFFF
                     wanted['cr'] &= 0x0FFFFFFF
                 self.assertEqual(got, wanted)
-        self.assertEqual(len(set(m.callbacks.values())), len(CHARACTERS))
+        self.assertEqual(len(set(m.callbacks.values())), len(CODES))
 
     def test_compares_still_set_cr0_for_the_native_branch(self):
         m = Machine(('sheik', 'ganondorf'))
@@ -261,12 +262,12 @@ class HookTests(unittest.TestCase):
                 m.prime()
                 m.cpu.reg_write(gpr(register), value)
                 m.created = m.gobjs[slug]
-                hook = CHARACTERS[slug][4]
+                hook = CODES[slug].hook
                 m.cpu.emu_start(hook, hook + 4)
                 self.assertEqual(m.cpu.reg_read(reg.UC_PPC_REG_CR) >> 28 & 0b1110, flags)
 
     def test_failed_gobj_creation_skips_the_draw_link(self):
-        for slug in CHARACTERS:
+        for slug in CODES:
             with self.subTest(slug=slug):
                 m = Machine((slug,))
                 m.created = 0
@@ -279,7 +280,7 @@ class DrawTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.m = Machine()
-        for slug in CHARACTERS:
+        for slug in CODES:
             cls.m.start_match(slug)
 
     def setUp(self):
@@ -295,9 +296,9 @@ class DrawTests(unittest.TestCase):
 
     def test_every_legal_stage_draws_the_shapes_at_both_ledges(self):
         m = self.m
-        for slug, character in CHARACTERS.items():
+        for slug, character in CODES.items():
             m.players = {}
-            m.add_player(1, character[2])
+            m.add_player(1, character.kind)
             for stage, ((left_line, right_line), (x, y)) in STAGES.items():
                 with self.subTest(slug=slug, stage=stage):
                     m.stage, m.ledges = stage, ((-x, y), (x, y))
@@ -310,42 +311,68 @@ class DrawTests(unittest.TestCase):
 
     def test_shapes_follow_each_ledge_separately(self):
         m = self.m
-        m.add_player(0, CHARACTERS['zelda'][2])
+        m.add_player(0, CODES['zelda'].kind)
         m.stage, m.ledges = 8, ((-70.5, 2.25), (81.25, -3.5))
         m.draw('zelda')
         self.assertDrawn(m.drawn(), expected('zelda', *m.ledges))
 
     def test_fox_on_final_destination_by_hand(self):
-        # Target: (2 ECB + 11 snap) / 2 = 6.5 out, 13 down. Ring: 81.5.
+        # Target: (2 ECB + 11 snap) / 2 = 6.5 out, 13 down. Ring: 81.5, but for
+        # the 16.84 degrees either side of straight the stick can't aim: the
+        # least tilted axis, 23/80, with the most the circle allows, 76/80.
         m = self.m
-        m.add_player(3, CHARACTERS['fox'][2])
+        m.add_player(3, CODES['fox'].kind)
         m.stage, m.ledges = 32, ((-85.5657, 0.0), (85.5657, 0.0))
         m.draw('fox')
         batches = m.drawn()
         self.assertEqual([batch[:3] for batch in batches],
-                         [(0xB0, 10, 61), (0xA8, 12, 2), (0xA8, 12, 4)] * 2)
-        left_ring, left_tick, left_x, right_ring, right_tick, right_x = (batch[3] for batch in batches)
+                         [(0xB0, 10, 16), (0xB0, 10, 16), (0xB0, 10, 12), (0xA8, 12, 6), (0xA8, 12, 4)] * 2)
         rounded = lambda v: (round(v[0], 2), round(v[1], 2), v[3])
-        # 2/3 of the way round, every 60 degrees: above, out and up, out and down,
-        # below, and in under the stage, stopping 30 degrees short of level.
-        self.assertEqual([rounded(v) for v in right_ring[::15]],
-                         [(92.07, 68.5, 0x30C8FFFF), (162.65, 27.75, 0x30C8FFFF), (162.65, -53.75, 0x30C8FFFF),
-                          (92.07, -94.5, 0x30C8FFFF), (21.48, -53.75, 0x30C8FFFF)])
-        self.assertEqual([rounded(v) for v in left_ring[::15]],
-                         [(-92.07, 68.5, 0x30C8FFFF), (-162.65, 27.75, 0x30C8FFFF), (-162.65, -53.75, 0x30C8FFFF),
-                          (-92.07, -94.5, 0x30C8FFFF), (-21.48, -53.75, 0x30C8FFFF)])
-        # The tick across the ring, level with the X: 6 each side of 81.5 out.
-        self.assertEqual([rounded(v) for v in right_tick], [(167.57, -13.0, 0xFFFFFFFF), (179.57, -13.0, 0xFFFFFFFF)])
-        self.assertEqual([rounded(v) for v in left_tick], [(-167.57, -13.0, 0xFFFFFFFF), (-179.57, -13.0, 0xFFFFFFFF)])
-        self.assertEqual([rounded(v) for v in right_x],
+        right, left = batches[5:], batches[:5]
+        gap = math.degrees(math.atan2(23, 76))
+        ring = lambda degrees: (round(92.0657 + 81.5 * math.cos(math.radians(degrees)), 2),
+                                round(-13 + 81.5 * math.sin(math.radians(degrees)), 2), 0x30C8FFFF)
+        # Out and up, out and down, and in under the stage to 30 degrees short of level.
+        self.assertEqual([rounded(right[i][3][j]) for i in range(3) for j in (0, -1)],
+                         [ring(a) for a in (90 - gap, gap, -gap, gap - 90, -90 - gap, -150)])
+        self.assertEqual(rounded(right[0][3][0]), (115.67, 65.01, 0x30C8FFFF))
+        self.assertEqual(rounded(right[2][3][-1]), (21.48, -53.75, 0x30C8FFFF))
+        self.assertEqual(rounded(left[0][3][0]), (-115.67, 65.01, 0x30C8FFFF))
+        # A tick across the ring above, level with and below the X: 6 each side of 81.5.
+        self.assertEqual([rounded(v)[:2] for v in right[3][3]],
+                         [(92.07, 62.5), (92.07, 74.5), (167.57, -13.0), (179.57, -13.0), (92.07, -88.5), (92.07, -100.5)])
+        self.assertEqual([rounded(v)[:2] for v in left[3][3]][2:4], [(-167.57, -13.0), (-179.57, -13.0)])
+        self.assertEqual([rounded(v) for v in right[4][3]],
                          [(89.57, -15.5, 0xFFFFFFFF), (94.57, -10.5, 0xFFFFFFFF),
                           (89.57, -10.5, 0xFFFFFFFF), (94.57, -15.5, 0xFFFFFFFF)])
-        self.assertEqual(rounded(left_x[0]), (-89.57, -15.5, 0xFFFFFFFF))
+        self.assertEqual(rounded(left[4][3][0]), (-89.57, -15.5, 0xFFFFFFFF))
+
+    def test_fox_b0xx_on_final_destination_by_hand(self):
+        # A dot 81.5 from the X (92.07, -13) for each of the B0XX's angles.
+        m = self.m
+        m.add_player(3, CODES['fox-b0xx'].kind)
+        m.stage, m.ledges = 32, ((-85.5657, 0.0), (85.5657, 0.0))
+        m.draw('fox-b0xx')
+        batches = m.drawn()
+        self.assertEqual([batch[:3] for batch in batches], [(0xB8, 30, 28), (0xB8, 30, 6), (0xA8, 12, 4)] * 2)
+        rounded = lambda v: (round(v[0], 2), round(v[1], 2), v[3])
+        blue, white = batches[3][3], batches[4][3]
+        # Mod X with B up toward the stage, (73, 31): 23 degrees, so from below and out.
+        self.assertEqual(rounded(blue[0]), (167.08, -44.86, 0x30C8FFFF))
+        # No modifier: straight across, then up and down, then the diagonals, the
+        # one up and away from the stage from in under it.
+        self.assertEqual([rounded(v)[:2] for v in white],
+                         [(173.57, -13.0), (92.07, -94.5), (92.07, 68.5), (149.69, -70.63), (149.69, 44.63),
+                          (34.44, -70.63)])
+        self.assertEqual(rounded(batches[1][3][0])[:2], (-173.57, -13.0))
+        # Every dot is on the ring.
+        for x, y, _, _ in blue + white:
+            self.assertAlmostEqual(math.hypot(x - 92.0657, y + 13), 81.5, places=3)
 
     def test_mario_dots_by_hand(self):
         # Target 7.08 out, 15 down; Super Jump Punch peaks 40.4 up and 17.6 forward.
         m = self.m
-        m.add_player(0, CHARACTERS['mario'][2])
+        m.add_player(0, CODES['mario'].kind)
         m.stage, m.ledges = 31, ((-68.4, 0.0), (68.4, 0.0))
         m.draw('mario')
         batches = m.drawn()
@@ -363,19 +390,19 @@ class DrawTests(unittest.TestCase):
         self.assertEqual(m.fifo, [])
         self.assertEqual([args[0] for args in m.named('Player_GetEntity')], list(range(6)))
         self.assertEqual(m.named('Stage_GetExternalID'), [])
-        m.add_player(0, CHARACTERS['fox'][2])
-        m.add_player(2, CHARACTERS['falco'][2], userdata=False)  # still being set up
+        m.add_player(0, CODES['fox'].kind)
+        m.add_player(2, CODES['falco'].kind, userdata=False)  # still being set up
         m.draw('falco')
         self.assertEqual(m.fifo, [])
-        m.add_player(5, CHARACTERS['falco'][2])
+        m.add_player(5, CODES['falco'].kind)
         m.draw('falco')
         self.assertDrawn(m.drawn(), expected('falco', *m.ledges))
 
     def test_other_stages_and_render_passes_draw_nothing(self):
         m = self.m
-        for slug, character in CHARACTERS.items():
+        for slug, character in CODES.items():
             m.players = {}
-            m.add_player(0, character[2])
+            m.add_player(0, character.kind)
             for stage in (0, 1, 4, 22, 24, 33, 255):
                 with self.subTest(slug=slug, stage=stage):
                     m.stage = stage
@@ -400,11 +427,18 @@ class IsoTests(unittest.TestCase):
         cls.iso.close()
 
     def test_the_asm_files_match_the_iso(self):
-        for character in numbers.CHARACTERS:
-            slug, _, _, dat, _, _, ecb = character
-            with self.subTest(slug=slug):
-                n = numbers.numbers(slug, numbers.read_file(self.iso, dat), ecb)
-                self.assertEqual(numbers.asm_path(character).read_text(), numbers.asm(character, n))
+        stick = numbers.stick(*numbers.deadzones(self.iso))
+        for code in numbers.CODES:
+            with self.subTest(code=code.key):
+                n = numbers.code_numbers(self.iso, code, stick)
+                self.assertEqual(numbers.asm_path(code).read_text(), numbers.asm(code, n))
+
+    def test_the_stick_is_vanillas(self):
+        # PlCo.dat's 0.28 deadzones: an axis reads at least 23/80 once it isn't 0.
+        self.assertEqual(numbers.deadzones(self.iso), (f32(.28), f32(.28)))
+        stick = numbers.stick(*numbers.deadzones(self.iso))
+        self.assertEqual(stick['least'], (23, 23))
+        self.assertAlmostEqual(stick['gaps'][0], 16.837, places=3)
 
     def test_each_hook_replaces_the_vanilla_instruction(self):
         self.iso.seek(0x420)
@@ -413,7 +447,7 @@ class IsoTests(unittest.TestCase):
         header = self.iso.read(0x100)
         sections = list(zip(struct.unpack_from('>18I', header, 0), struct.unpack_from('>18I', header, 0x48),
                             struct.unpack_from('>18I', header, 0x90)))
-        for slug in CHARACTERS:
+        for slug in CODES:
             hook, words = code(slug)
             offset, address, _ = next(s for s in sections if s[1] <= hook < s[1] + s[2])
             self.iso.seek(dol_at + offset + hook - address)

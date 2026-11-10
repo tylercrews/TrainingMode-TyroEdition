@@ -134,8 +134,10 @@ static unsigned top_bit(unsigned field,unsigned index) {
 /* Marth was Tipper / Off, one bit. The menu is now Forward Smash, Down Tilt,
  * Off, so a saved Off keeps its 1 and Down Tilt takes the top bit. */
 #define UPB_MARTH_STORED(value) ((value)?3-(value):0)
+/* B0XX Angles (T10) takes word 72's spare bit 28 with no version bump: every
+ * migration to 21 zeroed it, and its default, Off, is 0. */
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
-    {16,1,2,1}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
+    {16,1,2,1}, {28,1,2,0}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
 };
 /* Passing Practice's menu takes word 72's spare bits 14..27 with no version
  * bump: every migration to 21 zeroed them. Each row is stored as its distance
@@ -289,7 +291,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_GRAB_PUNISH)
         return index>=TM_GP_P3_CHARACTER?TEAM_CHARACTERS_OFFSET:
             index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
-    if(field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
+    if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_PASSING) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
@@ -533,7 +535,7 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return value<p->count?value:p->initial;
     }
     if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) {
-        int team_word=field==TM_SETTING_GRAB_PUNISH && index>=TM_GP_P3_CHARACTER;
+        int team_word=field==TM_SETTING_GRAB_PUNISH?index>=TM_GP_P3_CHARACTER:index==TM_UPB_B0XX;
         unsigned value=supported(r)||(v20 && !team_word)?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }

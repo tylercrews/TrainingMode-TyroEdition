@@ -12,48 +12,60 @@
     .macro character_data
     # Target: the ledge mid-grab-box, 6.65 out (ECB front 2.30 + snap
     # 11, halved) and 13 down.
-    shape GX_LINESTRIP, 10, 41, 0x30C8FFFF    # ring at the full travel, 60.10
-    point 6.6500, 47.1000
-    point 11.3654, 46.9147
-    point 16.0517, 46.3600
-    point 20.6801, 45.4394
-    point 25.2219, 44.1585
-    point 29.6493, 42.5251
-    point 33.9348, 40.5495
-    point 38.0522, 38.2437
-    point 41.9759, 35.6219
-    point 45.6818, 32.7004
-    point 49.1471, 29.4971
-    point 52.3504, 26.0318
-    point 55.2719, 22.3259
-    point 57.8937, 18.4022
-    point 60.1995, 14.2848
-    point 62.1751, 9.9993
-    point 63.8085, 5.5719
-    point 65.0894, 1.0301
-    point 66.0100, -3.5983
-    point 66.5647, -8.2846
-    point 66.7500, -13.0000
-    point 66.5647, -17.7154
-    point 66.0100, -22.4017
-    point 65.0894, -27.0301
-    point 63.8085, -31.5719
-    point 62.1751, -35.9993
-    point 60.1995, -40.2848
-    point 57.8937, -44.4022
-    point 55.2719, -48.3259
-    point 52.3504, -52.0318
-    point 49.1471, -55.4971
-    point 45.6818, -58.7004
-    point 41.9759, -61.6219
-    point 38.0522, -64.2437
-    point 33.9348, -66.5495
-    point 29.6493, -68.5251
-    point 25.2219, -70.1585
-    point 20.6801, -71.4394
-    point 16.0517, -72.3600
-    point 11.3654, -72.9147
-    point 6.6500, -73.1000
+    shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 60.10, 73.16 to 16.84 degrees
+    point 24.0584, 44.5235
+    point 27.7883, 43.2599
+    point 31.4274, 41.7548
+    point 34.9601, 40.0146
+    point 38.3713, 38.0467
+    point 41.6462, 35.8597
+    point 44.7709, 33.4629
+    point 47.7320, 30.8666
+    point 50.5166, 28.0820
+    point 53.1129, 25.1209
+    point 55.5097, 21.9962
+    point 57.6967, 18.7213
+    point 59.6646, 15.3101
+    point 61.4048, 11.7774
+    point 62.9099, 8.1383
+    point 64.1735, 4.4084
+    shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 60.10, -16.84 to -73.16 degrees
+    point 64.1735, -30.4084
+    point 62.9099, -34.1383
+    point 61.4048, -37.7774
+    point 59.6646, -41.3101
+    point 57.6967, -44.7213
+    point 55.5097, -47.9962
+    point 53.1129, -51.1209
+    point 50.5166, -54.0820
+    point 47.7320, -56.8666
+    point 44.7709, -59.4629
+    point 41.6462, -61.8597
+    point 38.3713, -64.0467
+    point 34.9601, -66.0146
+    point 31.4274, -67.7548
+    point 27.7883, -69.2599
+    point 24.0584, -70.5235
+    shape GX_LINESTRIP, 10, 12, 0x30C8FFFF    # ring at the full travel 60.10, -106.84 to -150.00 degrees
+    point -10.7584, -70.5235
+    point -14.6540, -69.1974
+    point -18.4497, -67.6078
+    point -22.1277, -65.7622
+    point -25.6708, -63.6692
+    point -29.0624, -61.3387
+    point -32.2865, -58.7816
+    point -35.3281, -56.0098
+    point -38.1729, -53.0364
+    point -40.8076, -49.8753
+    point -43.2198, -46.5412
+    point -45.3981, -43.0500
+    shape GX_LINES, 12, 6, 0xFFFFFFFF    # straight across, up and down: hold straight here
+    point 6.6500, 41.1000
+    point 6.6500, 53.1000
+    point 60.7500, -13.0000
+    point 72.7500, -13.0000
+    point 6.6500, -67.1000
+    point 6.6500, -79.1000
     shape GX_LINES, 12, 4, 0xFFFFFFFF    # the target X
     point 4.1500, -15.5000
     point 9.1500, -10.5000

@@ -133,7 +133,7 @@ enum TMSettingsField {
     TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
     TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
     TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu and team colors; see TMGrabPunishPreference. */
-    TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18. */
+    TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18 and word 72 bit 28. */
     TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
     TM_SETTING_EGGS_SPAWN, /* Free Practice's egg spots, TYEX byte 49 bits 6-7. */
     TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
@@ -267,8 +267,9 @@ enum TMPassingPreference {
 #define TM_PASS_DEFAULT_DISTANCE 2 /* Medium */
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
  * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
- * word 68 (version 20). */
-enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
+ * word 68 (version 20), and B0XX Angles (default Off, T10) in word 72 bit 28.
+ * The order is the menu's; each row's bits are its own, wherever it sits. */
+enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_B0XX, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
 enum TMUpBMarth { TM_UPB_MARTH_FSMASH, TM_UPB_MARTH_DTILT, TM_UPB_MARTH_OFF, TM_UPB_MARTH_COUNT };
 /* Edgeguard Side choices: which ledge each attempt uses. */
 enum { TM_EG_SIDE_RANDOM, TM_EG_SIDE_LEFT, TM_EG_SIDE_RIGHT, TM_EG_SIDE_COUNT };

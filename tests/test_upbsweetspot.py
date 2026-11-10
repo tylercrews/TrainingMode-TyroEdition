@@ -1,4 +1,5 @@
 """Execute the production Up-B Sweetspot event's Marth and up-B line, frame by frame."""
+import importlib.util
 import math
 from pathlib import Path
 import struct
@@ -9,6 +10,10 @@ import test_settings as fixtures
 from test_lowlaser import load_probe
 
 ROOT = Path(__file__).resolve().parents[1]
+# The Gecko codes' generator, whose shapes the event's guides must match.
+_spec = importlib.util.spec_from_file_location('upb_overlay_numbers', ROOT / 'scripts/upb_overlay_numbers.py')
+numbers = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(numbers)
 DPAD_LEFT = 1
 FSMASH_FRAME, DTILT_FRAME = 13, 7  # MARTH_FSMASH_FRAME, MARTH_DTILT_FRAME
 FSMASH, DTILT, OFF = 0, 1, 2  # TMUpBMarth
@@ -277,34 +282,113 @@ class UpBLineTests(unittest.TestCase):
 
     def on_top(self): return self.m.call('TestUpBOnTopVertices')
 
-    def test_fox_and_falco_get_2_3_of_a_ring_and_a_level_tick_over_the_stage(self):
+    # The probe's aimed fixtures (TestUpBAimed): the X at (-85, 0) on the left
+    # ledge, Firefox's 81.6 for any stick past 0.5 of |x| + |y|, and Sheik's
+    # 20 * (tilt + 1) past a 0.5 tilt, with PlCo.dat's 0.28 deadzones.
+    FIXTURES = {FTKIND_FOX: ('fox', lambda tilt: 81.6), FTKIND_FALCO: ('falco', lambda tilt: 81.6),
+                FTKIND_SHEIK: ('sheik', lambda tilt: 20 * (tilt + 1))}
+
+    def generated(self, kind, b0xx):
+        """What the Gecko generator draws for the fixture: points by color, in order."""
+        slug, distance = self.FIXTURES[kind]
+        n = {'target': (0, 0), 'distance': distance, 'threshold': .5, 'stick': numbers.stick(.28, .28)}
+        drawn = {}
+        for _, _, color, points, _ in numbers.aimed_shapes(slug, n, b0xx):
+            drawn.setdefault(tuple(color.to_bytes(4, 'big')), []).extend((-85 - x, y) for x, y in points)
+        return drawn
+
+    def assert_dot(self, vertices, point):
+        self.assertLess(min(math.hypot(x - point[0], y - point[1]) for x, y in vertices), .05)
+
+    def at_angle(self, degrees, radius):
+        """A point on a ring around the X, by ring angle: 90 above it, 0 out past the ledge."""
+        a = math.radians(degrees)
+        return (-85 - math.cos(a) * radius, math.sin(a) * radius)
+
+    def test_fox_and_falcos_ring_leaves_out_what_the_stick_cant_aim(self):
+        gap = math.degrees(math.atan2(23, 76))  # The least tilted axis, with the most the circle allows.
         for kind in FTKIND_FOX, FTKIND_FALCO:
             with self.subTest(kind=kind):
                 self.m.call('TestUpBAimed', kind)
                 ring = self.drawn(BLUE)
-                # 81.6 around the X at (-85, 0), every 60 degrees: above, out and up, out
-                # and down, below, and in under the stage, 30 degrees short of level.
-                self.assertEqual(len(ring), 61)
-                self.assert_at(ring[::15], [(-85, 81.6), (-155.67, 40.8), (-155.67, -40.8),
-                                            (-85, -81.6), (-14.33, -40.8)])
-                self.assertEqual(self.on_top(), 61 + 2)
-                # After the ledge lines: the tick, 6 each side of the ring's outermost point, level with the X.
-                self.assert_at(self.drawn(WHITE)[4:6], [(-172.6, 0), (-160.6, 0)])
+                # Three stretches of 81.6 around the X: out and up, out and down, and in under
+                # the stage to 30 degrees short of level, each ending 16.84 short of straight.
+                self.assertEqual(len(ring), 16 + 16 + 12)
+                self.assert_at([ring[0], ring[15], ring[16], ring[31], ring[32], ring[43]],
+                               [self.at_angle(a, 81.6) for a in (90 - gap, gap, -gap, gap - 90, -90 - gap, -150)])
+                self.assert_at(ring, self.generated(kind, False)[BLUE])
+                # After the ledge lines: a tick across the ring above, level with and below the X.
+                ticks = self.drawn(WHITE)[4:10]
+                self.assert_at(ticks, [(-85, 75.6), (-85, 87.6), (-160.6, 0), (-172.6, 0), (-85, -75.6), (-85, -87.6)])
+                self.assert_at(ticks, self.generated(kind, False)[WHITE])
                 self.assertEqual(self.drawn(DIM_BLUE), [])
+                self.assertEqual(self.on_top(), 44 + 6)
 
     def test_fox_aim_lines_also_draw_over_the_stage(self):
         self.m.call('TestUpBAimed', FTKIND_FOX)
         self.step()  # Up-B state 354 is his charge.
         self.drawn(BLUE)
-        self.assertEqual(self.on_top(), 61 + 2 + 2 + 2 + 1)  # The ring, tick, both lines and the dot.
+        self.assertEqual(self.on_top(), 44 + 6 + 2 + 2 + 1)  # The ring, ticks, both lines and the dot.
 
-    def test_sheik_keeps_the_offstage_half_behind_the_stage(self):
+    def test_sheiks_band_follows_the_least_tilt_that_aims_and_stays_behind_the_stage(self):
         self.m.call('TestUpBAimed', FTKIND_SHEIK)
-        full, least = self.drawn(BLUE), self.drawn(DIM_BLUE)
-        self.assertEqual((len(full), len(least)), (41, 41))
-        self.assert_at(full[::20], [(-85, 40), (-125, 0), (-85, -40)])
-        self.assert_at(least[::20], [(-85, 30), (-115, 0), (-85, -30)])
+        full, least, generated = self.drawn(BLUE), self.drawn(DIM_BLUE), self.generated(FTKIND_SHEIK, False)
+        self.assertEqual((len(full), len(least)), (16 + 16, 31 + 31))
+        self.assert_at(full, generated[BLUE])
+        self.assert_at(least, generated[DIM_BLUE])
+        # The least-tilt edge starts at the ring, 23/80 across needing nearly a full
+        # tilt so close to straight, and is the 0.5 threshold's 30 halfway round.
+        self.assert_at([least[0], least[15], least[30]],
+                       [self.at_angle(73.16, 20 * (1 + .2875 / math.cos(math.radians(73.16)))),
+                        self.at_angle(45, 30), self.at_angle(16.84, 20 * (1 + .2875 / math.sin(math.radians(16.84))))])
+        # Straight up, down and across, any tilt past the threshold works: from 30 out to 40.
+        marks = self.drawn(WHITE)[4:10]
+        self.assert_at(marks, [(-85, 30), (-85, 40), (-115, 0), (-125, 0), (-85, -30), (-85, -40)])
+        self.assert_at(marks, generated[WHITE])
         self.assertEqual(self.on_top(), 0)
+
+    def test_b0xx_angles_draw_a_dot_for_each_of_foxs_instead_of_the_ring(self):
+        self.m.call('TestUpBAimed', FTKIND_FOX)
+        self.m.call('TestUpBB0XX', 1)
+        dots, generated = self.drawn(BLUE), self.generated(FTKIND_FOX, True)
+        # Mod X and Mod Y, with C-buttons or not, up and down toward the stage and up
+        # away from it under the stage, as far as its 30 degrees short of level.
+        self.assertEqual(len(dots), 10 + 10 + 8)
+        self.assert_at(dots, generated[BLUE])
+        # Mod X up and toward the stage, with B: (73, 31), 23 degrees, from below and out.
+        self.assert_dot(dots, (-85 - 81.6 * 73 / math.hypot(73, 31), -81.6 * 31 / math.hypot(73, 31)))
+        # No modifier: straight up, down and across, and the diagonals.
+        self.assert_at(self.drawn(WHITE)[4:10], generated[WHITE])
+        self.assertEqual(len(generated[WHITE]), 6)
+        self.assertEqual(self.drawn(DIM_BLUE), [])  # B moves Fox's under half a degree.
+        self.assertEqual(self.on_top(), 28 + 6)
+
+    def test_b0xx_angles_for_sheik_also_show_the_shorter_spots_without_b(self):
+        self.m.call('TestUpBAimed', FTKIND_SHEIK)
+        self.m.call('TestUpBB0XX', 1)
+        generated = self.generated(FTKIND_SHEIK, True)
+        blue, dim, white = self.drawn(BLUE), self.drawn(DIM_BLUE), self.drawn(WHITE)[4:-4]
+        self.assertEqual((len(blue), len(dim), len(white)), (25, 16, 5))
+        self.assert_at(blue, generated[BLUE])
+        self.assert_at(dim, generated[DIM_BLUE])
+        self.assert_at(white, generated[WHITE])
+        # Mod X up toward the stage: 59, 25 without B is 0.80 of a tilt, so 36 away.
+        tilt = math.hypot(59, 25) / 80
+        self.assert_dot(dim, (-85 - 20 * (tilt + 1) * 59 / math.hypot(59, 25), -20 * (tilt + 1) * 25 / math.hypot(59, 25)))
+        self.assertEqual(self.on_top(), 0)
+
+    def test_b0xx_angles_keep_the_live_lines(self):
+        self.m.call('TestUpBAimed', FTKIND_FOX)
+        self.m.call('TestUpBB0XX', 1)
+        self.step()
+        self.drawn(BLUE)
+        self.assertEqual(self.on_top(), 28 + 6 + 2 + 2 + 1)
+
+    def test_b0xx_angles_leave_the_paths_alone(self):
+        self.m.call('TestUpBGameAndWatch')
+        before = self.drawn(BLUE)
+        self.m.call('TestUpBB0XX', 1)
+        self.assertEqual(self.drawn(BLUE), before)
 
     def test_paths_still_draw_behind_the_stage(self):
         self.move(-100, -5)

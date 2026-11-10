@@ -1,4 +1,5 @@
-"""Build the Up-B Overlay Gecko codes, one per character.
+"""Build the Up-B Overlay Gecko codes, one per character, plus a B0XX one for
+each aimed up-B.
 
 Assembles slippi-gecko-codes/up-b-overlay with bin/hgecko (which needs
 devkitPPC and DEVKITPPC set), then writes one paste-able text file per code.
@@ -22,11 +23,15 @@ _spec.loader.exec_module(numbers)
 NOTE = 'Legal stages, while this character is in the match. Visual only.'
 
 
-def description(slug):
-    if slug in numbers.SPACIES:
-        return 'Up-B from the blue ring and aim at the white X to grab the ledge.'
-    if slug in numbers.TRAVEL:
-        return 'Up-B between the rings (blue: full tilt, dim: least) and aim at the white X.'
+def description(code):
+    if code.b0xx and code.slug in numbers.SPACIES:
+        return 'Up-B from a dot with its B0XX angle (white: no modifier, blue: Mod X or Y).'
+    if code.b0xx:
+        return 'Up-B from a dot with its B0XX angle (white: no modifier, blue: Mod X or Y + B, dim: no B).'
+    if code.slug in numbers.SPACIES:
+        return 'Up-B from the blue ring and aim at the white X; in a gap, only straight (the tick) aims.'
+    if code.slug in numbers.TRAVEL:
+        return 'Up-B between the blue ring and the dim edge and aim at the white X; in a gap, only straight.'
     return 'Up-B at the blue dot for the fastest ledge grab; the white X is the grab spot.'
 
 
@@ -36,21 +41,23 @@ def main():
     subprocess.run([str(ROOT / 'bin' / tool), '-q', str(FOLDER), str(GCT)], check=True)
     data = GCT.read_bytes()
     assert data[:8] == bytes.fromhex('00D0C0DE00D0C0DE') and data[-8:] == bytes.fromhex('F000000000000000')
-    by_hook = {c[4]: c for c in numbers.CHARACTERS}
+    by_hook = {c.hook: c for c in numbers.CODES}
     at, built = 8, set()
     while at < len(data) - 8:
         first, count = struct.unpack_from('>II', data, at)
         assert first >> 24 == 0xC2, f'unexpected code type {first:08X}'
         address, end = 0x80000000 | (first & 0x1FFFFFF), at + 8 + count * 8
-        slug, name = by_hook[address][:2]
-        filename = f'{slug}-up-b-overlay.txt'
-        lines = [f'${name} Up-B Overlay (Slippi NTSC 1.02)', '*' + description(slug), '*' + NOTE]
+        code = by_hook[address]
+        filename = f'{code.key}-up-b-overlay.txt'
+        title = f'{code.name} Up-B Overlay' + (' B0XX' if code.b0xx else '')
+        lines = [f'${title} (Slippi NTSC 1.02)', '*' + description(code), '*' + NOTE]
         lines += [f'{data[i:i + 4].hex().upper()} {data[i + 4:i + 8].hex().upper()}' for i in range(at, end, 8)]
-        (FOLDER / filename).write_text('\n'.join(lines) + '\n', newline='\n')
+        with open(FOLDER / filename, 'wb') as f:
+            f.write(('\n'.join(lines) + '\n').encode('utf-8'))
         print(f'wrote {filename} ({count} lines at {address:08X})')
         built.add(address)
         at = end
-    assert built == set(by_hook), 'expected one code per character'
+    assert built == set(by_hook), 'expected one code per character and B0XX code'
 
 
 if __name__ == '__main__':

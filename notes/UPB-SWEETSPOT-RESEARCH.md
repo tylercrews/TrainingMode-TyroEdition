@@ -204,6 +204,45 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 - **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card. The success rate is session-only, carried through Change Stage with `carry_store`.
 - **Stages:** the first-frame guard from [Stages](#stages), option 1.
 
+## The stick's dead zones and B0XX angles (T10)
+
+**How the game reads the stick.** Every aimed up-B takes its angle as `atan2(lstick.y, lstick.x * facing)` from `input.lstick`: Fox and Falco in `ftFx_SpecialAirHi_Enter`, Sheik in `ftSk_SpecialHi_80113A30`, and Zelda's, Mewtwo's and Pikachu's air launches the same way. That stick is:
+
+- **In 80ths, inside a circle.** `HSD_PadClamp` (`controller.c`) runs with `gmmain.c`'s settings: a circle clamp of radius 80, no inner dead zone, scaled by 80. A stick past the circle is scaled back onto it, each axis rounded toward 0.
+- **Zeroed near each axis.** `Fighter_procInput` (`fighter.c`) sets an axis to 0 when it's at or under `horizontal_stick_deadzone` or `vertical_stick_deadzone` (PlCo.dat `ftLoadCommonData` 0x0 and 0x4, both **0.28**). So an axis reads 0 or at least 23/80 (0.2875). Hold the stick straight left and move it up or down a little, and it still reads exactly left until the other axis passes 22/80, about 16 degrees of stick at full tilt.
+
+So the shallowest angle off a straight direction is `atan2(23, 76)`, **16.84 degrees**: 23 is the least the other axis can read, and 76 the most the first can then read inside the circle (77² + 23² is past 80²). It's the same limit as the Wavedash OSD's shallowest angle. Nothing strictly between straight and 16.84 degrees off it can be aimed, either side of straight across, up and down. That's the game, not the controller: notches only make the angles it does read easier to hit.
+
+**What the guides draw.**
+
+- Each quarter of the ring between straight directions runs from 16.84 degrees past one to 16.84 short of the next. A white tick across the ring on each straight direction marks where holding straight sweetspots (Fox's level tick was the first).
+- The teleports and Quick Attack go farther with more tilt. At φ degrees off the nearest straight direction, the off-axis part of a tilt t is t·sin φ, so the least tilt that aims there is max(0.5, 0.2875 / sin φ). The dim edge follows it: it meets the ring at 16.84 degrees, where only a near-full tilt reads off-axis, and is the 0.5 threshold from asin(0.2875 / 0.5) = 35.1 degrees on. Straight works at any tilt past 0.5, so their white marks run from the dim edge to the ring.
+- The event reads the deadzones live from `*stc_ftcommon`; the Gecko codes take them from the ISO.
+
+**The B0XX.** HayBox's Melee mode ([`src/modes/Melee20Button.cpp`](https://github.com/JonnyHaystack/HayBox/blob/master/src/modes/Melee20Button.cpp)) is, by its README, "up to date with B0XX V3 specifications", so its coordinates are the ones used. Its comments give the B0XX's design angles: 22.96 to 67.04 degrees, 4.41 apart, with 45 in the middle. In 80ths, toward the stage and up, for one quadrant (the other three mirror it):
+
+| Input | Without B | Degrees | With B | Degrees |
+| --- | --- | --- | --- | --- |
+| Straight across, straight up, diagonal | 80, 0 / 0, 80 / 56, 56 | 0 / 90 / 45 | the same | |
+| Mod X across, up | 53, 0 / 0, 43 | 0 / 90 | the same | |
+| Mod Y across, up | 27, 0 / 0, 59 | (too little: straight up) / 90 | 80, 0 / 0, 59 | 0 / 90 |
+| Mod X diagonal | 59, 25 | 22.96 | 73, 31 | 23.01 |
+| Mod X diagonal + C-Down | 56, 29 | 27.38 | 70, 36 | 27.22 |
+| Mod X diagonal + C-Left | 63, 39 | 31.76 | 68, 42 | 31.70 |
+| Mod X diagonal + C-Up | 56, 41 | 36.21 | 59, 43 | 36.09 |
+| Mod X diagonal + C-Right | 49, 42 | 40.60 | 51, 43 | 40.13 |
+| Mod Y diagonal | 25, 59 | 67.04 | 31, 73 | 66.99 |
+| Mod Y diagonal + C-Down | 29, 56 | 62.62 | 36, 70 | 62.78 |
+| Mod Y diagonal + C-Left | 39, 63 | 58.24 | 42, 68 | 58.30 |
+| Mod Y diagonal + C-Up | 41, 56 | 53.79 | 47, 64 | 53.71 |
+| Mod Y diagonal + C-Right | 51, 61 | 50.10 | 47, 57 | 50.50 |
+
+- Every axis there is past the deadzone, so the game reads them as sent. Mod Y across (27/80) is under Fox's and Falco's 0.5 of \|x\| + \|y\| and the teleports' 0.5 tilt, so it goes straight up. With B, Mod Y across is a full tilt (HayBox's "turnaround neutral B nerf").
+- B0XX firmware has changed: the v1.00 manual's Mod X diagonal is 0.7375, 0.2875 (21.3 degrees), and its longer angles were on L, not B.
+- Fox and Falco go the same distance at any tilt, so B moves their angles under half a degree (0.67 units on Fox's ring, less than a dot): they get one dot per angle. The teleports and Quick Attack get both: with B nearly at the full travel, without B closer in. Sheik's Mod X diagonal is 36.0 away without B (0.80 of a tilt) and 39.8 with it. Mod Y + C-Right is the exception: without B it's the longer one.
+- Each dot is where up-B with that stick has to start to end at the X: the stick's direction reversed, at the distance its tilt travels. Under the stage, Fox's and Falco's are from aiming up and away from it, from 31.7 degrees (Mod X + C-Left) up: 23 and 27 would start past the ring's end, 30 degrees short of level.
+- Spots under a unit apart are one dot: white first, then blue, then dim.
+
 ## Air up-Bs and the animation numbers
 
 `UpB_Info`'s rise and forward are the animation's whole root motion, and the air versions don't all follow it. Mario, Dr. Mario, Luigi, Marth, Roy and Peach only apply root motion once `cmd_var0` sets. Before that they fall (Mario, Dr. Mario and Peach at 0.5 a frame) and the root motion is lost, and after it the speed is scaled (0.95, or 1.1 for Marth and Roy). Falcon, Ganondorf and Game & Watch apply it from frame 1, unscaled, so their numbers are right.
@@ -229,7 +268,7 @@ An event's reset keeps you in the form you're in: `Savestate_KeepForms` calls `F
 
 ## Slippi Gecko codes
 
-[slippi-gecko-codes/up-b-overlay](../slippi-gecko-codes/up-b-overlay/README.md) has one code per character with a guide. They draw the blue guides and white X with fixed numbers that [scripts/upb_overlay_numbers.py](../scripts/upb_overlay_numbers.py) reads from the ISO. The only number the ISO can't give directly is the ECB's front, which the event reads live on the platform:
+[slippi-gecko-codes/up-b-overlay](../slippi-gecko-codes/up-b-overlay/README.md) has one code per character with a guide, and since T10 a B0XX code for each aimed up-B, which draws B0XX Angles' dots. They draw the blue guides and white X with fixed numbers that [scripts/upb_overlay_numbers.py](../scripts/upb_overlay_numbers.py) reads from the ISO. The only number the ISO can't give directly is the ECB's front, which the event reads live on the platform:
 
 - **How the game sizes it** (`mpColl_LoadECB_JObj`): the box around six joints from `ftData + 0x44`, relative to TopN. If that box is narrower than 10 (the minimum `10 × scale`), it's re-centered at half its width. Each side is then at least 2 out. (The +2 padding only applies when the ledge-grab flag is off. `mpColl_LoadECB` uses 6 and grounded collision 5, which both have it.)
 - **Measured** by posing each skeleton in Wait1 (`RebirthWait`'s motion) across its loop, with the melee-decomp-animations tools, at the model scale (common attribute 0x8C) and facing the ledge:
@@ -262,4 +301,6 @@ Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge 
 10. The [air rises](#air-up-bs-and-the-animation-numbers): up-B from Mario's blue dot and see if it reaches the X. The yellow line shows the angle you set out at.
 11. Marth's down-tilt: that it starts cleanly from Wait, freezes with its hitboxes out, and that the tipper reaches the ledge.
 12. Game & Watch's blue and dim dots.
-13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's.
+13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's. The B0XX codes' hooks (`8016E760` to `8016E7D8`) run earlier still, just after Slippi's two at `8016E748` and `8016E74C`.
+14. The ring's gaps: during Fox's charge, hold the stick a little off straight across, up or down. Held should stay at 0 or 90, and the live line straight, until the stick is about 16 degrees off.
+15. B0XX Angles with a B0XX (or a box on HayBox's Melee mode): up-B from a dot, hold its input, and the live line should end on the X and grab. Mod X with a diagonal should read 23 in Held / Need. For Sheik, check a blue dot with B held through the startup and a dim one without.

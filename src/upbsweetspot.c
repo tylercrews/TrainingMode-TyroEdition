@@ -39,14 +39,16 @@
 // is read as it ends.
 #define SPACIES_CHARGE_FRAMES 43
 
-#define ARC_STEPS 40 // In half a circle.
+#define ARC_STEP 4 // Degrees of ring per line.
 // Fox's and Falco's ring: 2/3 of a circle, ending 30 degrees short of level
 // under the stage so it doesn't stick up into the stage.
 #define UNDER_STAGE_SWEEP 240
-#define UNDER_STAGE_STEPS 60
-// Half the length of Fox's and Falco's tick where holding straight toward the
-// stage sweetspots.
+// Half the length of Fox's and Falco's ticks where holding straight sweetspots.
 #define LEVEL_TICK 6
+// B0XX Angles' dots, and how close two spots are to be one dot: holding B
+// moves Fox's and Falco's under half a degree.
+#define B0XX_DOT_SIZE 30
+#define B0XX_SAME_SPOT 1.0f
 
 // The side and the totals survive Change Stage's restart; the menu is saved.
 #define UPB_CARRY_TAG 0x55704273 /* "UpBs" */
@@ -316,6 +318,9 @@ static void Exit(GOBJ *menu);
 static void ChangeGuides(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_GUIDES, value);
 }
+static void ChangeB0XX(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_B0XX, value);
+}
 static void ChangeMarth(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH, value);
 }
@@ -326,6 +331,7 @@ static void ChangeCamera(GOBJ *menu, int value) {
 
 enum menu_options {
     OPT_GUIDES,
+    OPT_B0XX,
     OPT_MARTH,
     OPT_CAMERA,
 };
@@ -340,9 +346,18 @@ static EventOption Options_Main[] = {
         .val_prev = 1,
         .OnChange = ChangeGuides,
         .desc = {"Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu:",
-                 "up-B on the blue ring, then hold the white line.",
-                 "Mario, Luigi, Marth, Falcon and more: up-B at the",
-                 "blue dot (the dim one is the stick toward the stage)."},
+                 "up-B on the blue ring, then hold the white line. A",
+                 "gap only aims straight, at its tick. Others: up-B",
+                 "at the blue dot (the dim one: stick to the stage)."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "B0XX Angles",
+        .OnChange = ChangeB0XX,
+        .desc = {"Aimed up-Bs: dots where the B0XX's angles sweetspot",
+                 "instead of the ring. White: no modifier. Blue: Mod",
+                 "X or Mod Y, any C-button. Dim: teleports and Quick",
+                 "Attack without B held, which don't go as far."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -673,16 +688,198 @@ static void DrawCross(Vec2 at, float size, GXColor color) {
     GFX_AddVtx(at.X + size, at.Y - size, 0, color);
 }
 
-// An arc around center from straight above, out past the ledge and down,
-// sweep degrees in steps: 180 is the offstage half, to straight below. More
-// carries it on under the stage, drawn over the stage.
-static void DrawArc(Vec2 center, float radius, GXColor color, float sweep, int steps) {
-    event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10,
-                                                    .no_depth = sweep > 180 });
-    float outward = Outward();
+/* The aimed up-Bs all take their angle from the stick the game gives fighters
+ * (atan2 of input.lstick). It reads in 80ths of a full tilt, inside a circle of
+ * radius 80 (gmmain.c's pad clamp), and Fighter_procInput reads an axis at or
+ * under its deadzone as 0 (PlCo.dat: 0.28 across and up). So a tilted axis
+ * reads at least 23/80, and the shallowest angle off straight is atan(23 / 76),
+ * 16.8 degrees, 76 being the most the other axis can then read inside the
+ * circle. Nothing between can be aimed: near straight reads straight. */
+#define STICK_UNITS 80
+
+typedef struct Stick {
+    float least_x, least_y;       // The least a tilted axis reads, in 80ths.
+    float gap_level, gap_upright; // Degrees from straight across and straight
+                                  // up to the shallowest angle off them.
+} Stick;
+
+// The step past the deadzone, in 80ths.
+static float LeastAxis(float deadzone) { return (int)(deadzone * STICK_UNITS + 1); }
+
+/* Degrees from straight to the shallowest angle, when the axis across straight
+ * reads `least` and the other as much as the circle lets it. */
+static float Gap(float least) {
+    return atan2(least, (int)sqrtf(STICK_UNITS * STICK_UNITS - least * least)) / M_1DEGREE;
+}
+
+static Stick GetStick(void) {
+    ftCommonData *common = *stc_ftcommon;
+    float x = LeastAxis(common->x0), y = LeastAxis(common->x4);
+    return (Stick) { x, y, Gap(y), Gap(x) };
+}
+
+/* Ring angles are degrees around the X: 90 straight above it, 0 straight out
+ * past the ledge, -90 straight below. Up-B from there, aimed at the X, holds
+ * the stick the other way. This is the least tilt that aims along `angle`:
+ * past the up-B's threshold, with both axes reading at least their least. */
+static float LeastTilt(FighterData *ft, const Stick *stick, float angle) {
+    float a = angle * M_1DEGREE, tilt = AimedThreshold(ft);
+    float up = stick->least_y / STICK_UNITS / fabs(sin(a));
+    float across = stick->least_x / STICK_UNITS / fabs(cos(a));
+    if (up > tilt)
+        tilt = up;
+    if (across > tilt)
+        tilt = across;
+    return tilt > 1 ? 1 : tilt;
+}
+
+/* The stretch of the quarter below straight direction `top` (90, 0 or -90)
+ * the stick can aim, down to `bottom`: a gap off each end. */
+static bool Quarter(const Stick *stick, int top, float bottom, float *from, float *to) {
+    bool upright = top != 0;
+    *from = top - (upright ? stick->gap_upright : stick->gap_level);
+    *to = top - 90 + (upright ? stick->gap_level : stick->gap_upright);
+    if (*to < bottom)
+        *to = bottom;
+    return *from > *to;
+}
+
+/* A stretch of ring around center, from ring angle `from` down to `to`, at
+ * the full travel, or with `least` at the least tilt that aims each way. */
+static void DrawRingArc(FighterData *ft, const Stick *stick, Vec2 center, float from, float to,
+                        bool least, GXColor color, bool on_top) {
+    int steps = (int)((from - to) / ARC_STEP) + 1;
+    if (least)
+        steps *= 2; // It curves fastest at the ends.
+    event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10, .no_depth = on_top });
+    float outward = Outward(), full = AimedDistance(ft, 1);
     for (int i = 0; i <= steps; i++) {
-        float angle = (90 - sweep * i / steps) * M_1DEGREE;
-        GFX_AddVtx(center.X + outward * cos(angle) * radius, center.Y + sin(angle) * radius, 0, color);
+        float angle = from - (from - to) * i / steps;
+        float radius = least ? AimedDistance(ft, LeastTilt(ft, stick, angle)) : full;
+        float a = angle * M_1DEGREE;
+        GFX_AddVtx(center.X + outward * cos(a) * radius, center.Y + sin(a) * radius, 0, color);
+    }
+}
+
+/* The ring at the travel around center, sweep degrees from straight above it
+ * out past the ledge and down, less the angles the stick can't aim: a gap
+ * either side of straight across, up and down. A white mark on each straight
+ * direction is where holding straight sweetspots. The teleports and Quick
+ * Attack go farther with more tilt, so a dim edge inside follows the least
+ * tilt that aims each way, and their white marks run between the two. */
+static void DrawAimedRing(FighterData *ft, Vec2 center, float sweep, bool on_top) {
+    Stick stick = GetStick();
+    bool spacie = IsSpacie(ft);
+    float bottom = 90 - sweep, from, to;
+    for (int full = spacie; full < 2; full++)
+        for (int top = 90; top > bottom; top -= 90)
+            if (Quarter(&stick, top, bottom, &from, &to))
+                DrawRingArc(ft, &stick, center, from, to, !full, full ? Blue : DimBlue, on_top);
+    float travel = AimedDistance(ft, 1);
+    float inner = spacie ? travel - LEVEL_TICK : AimedDistance(ft, AimedThreshold(ft));
+    float outer = spacie ? travel + LEVEL_TICK : travel;
+    int marks = 0;
+    for (int straight = 90; straight >= bottom; straight -= 90)
+        marks++;
+    event_vars->GFX_Start(marks * 2, (GFX_Params) { .shape = GX_LINES, .size = 12, .no_depth = on_top });
+    float outward = Outward();
+    for (int straight = 90; straight >= bottom; straight -= 90) {
+        float a = straight * M_1DEGREE, x = outward * cos(a), y = sin(a);
+        GFX_AddVtx(center.X + x * inner, center.Y + y * inner, 0, White);
+        GFX_AddVtx(center.X + x * outer, center.Y + y * outer, 0, White);
+    }
+}
+
+/* The B0XX's sticks for the up-B angles in one quadrant, in 80ths toward the
+ * stage and up, as HayBox's Melee mode gives them, "up to date with B0XX V3
+ * specifications" (src/modes/Melee20Button.cpp). Mod X and Mod Y on a diagonal,
+ * alone or with C-Down, C-Left, C-Up or C-Right, step from 23 degrees to 67,
+ * 4.4 apart, and B held too gives the same angles longer: the extended up-B
+ * angles, for the up-Bs that go farther with more tilt. Mod Y with B across
+ * is a full tilt. scripts/upb_overlay_numbers.py has the same tables. */
+static const s8 B0XX_Plain[][2] = { {80, 0}, {0, 80}, {56, 56} };
+static const s8 B0XX_ModB[][2] = {
+    {53, 0}, {0, 43}, {73, 31}, {70, 36}, {68, 42}, {59, 43}, {51, 43}, // Mod X
+    {80, 0}, {0, 59}, {31, 73}, {36, 70}, {42, 68}, {47, 64}, {47, 57}, // Mod Y
+};
+static const s8 B0XX_Mod[][2] = {
+    {53, 0}, {0, 43}, {59, 25}, {56, 29}, {63, 39}, {56, 41}, {49, 42}, // Mod X
+    {27, 0}, {0, 59}, {25, 59}, {29, 56}, {39, 63}, {41, 56}, {51, 61}, // Mod Y
+};
+#define B0XX_SPOTS ((countof(B0XX_Plain) + countof(B0XX_ModB) + countof(B0XX_Mod)) * 4)
+
+/* Where up-B with the stick at (x, y) 80ths, toward the stage and up, has to
+ * start to end at center, by the move's own rule (as AimFromStick has it).
+ * False if that's outside the ring's sweep. */
+static bool B0XXSpot(FighterData *ft, const Stick *stick, Vec2 center, float x, float y,
+                     float sweep, Vec2 *spot) {
+    if (fabs(x) < stick->least_x)
+        x = 0;
+    if (fabs(y) < stick->least_y)
+        y = 0;
+    float length = sqrtf(x * x + y * y), tilt = length / STICK_UNITS;
+    if (tilt > 1)
+        tilt = 1;
+    bool aimed = IsSpacie(ft) ? (fabs(x) + fabs(y)) / STICK_UNITS >= AimedThreshold(ft)
+                              : tilt > AimedThreshold(ft);
+    if (!aimed) {
+        x = 0, y = 1, length = 1, tilt = 1;
+    }
+    float out = x / length, up = -y / length; // From center back to the start.
+    float angle = atan2(up, out) / M_1DEGREE;
+    if (angle > 90.5f || angle < 89.5f - sweep)
+        return false;
+    float distance = AimedDistance(ft, tilt);
+    *spot = (Vec2) { center.X + Outward() * out * distance, center.Y + up * distance };
+    return true;
+}
+
+static bool IsDrawn(Vec2 spot, const Vec2 *spots, int count) {
+    for (int i = 0; i < count; i++) {
+        float x = spot.X - spots[i].X, y = spot.Y - spots[i].Y;
+        if (x * x + y * y < B0XX_SAME_SPOT * B0XX_SAME_SPOT)
+            return true;
+    }
+    return false;
+}
+
+/* B0XX Angles: instead of the ring, a dot where each B0XX up-B angle has to
+ * start: white with no modifier, blue with Mod X or Mod Y and B, and dim
+ * without B where that's somewhere else (the teleports and Quick Attack go
+ * less far). Spots that close together are one dot. */
+static void DrawB0XXGuide(FighterData *ft, Vec2 center, float sweep, bool on_top) {
+    static const struct { const s8 (*sticks)[2]; int count; } sets[] = {
+        { B0XX_Plain, countof(B0XX_Plain) },
+        { B0XX_ModB, countof(B0XX_ModB) },
+        { B0XX_Mod, countof(B0XX_Mod) },
+    };
+    const GXColor colors[] = { White, Blue, DimBlue };
+    static Vec2 spots[B0XX_SPOTS];
+    static u8 kinds[B0XX_SPOTS];
+    Stick stick = GetStick();
+    int count = 0;
+    for (int set = 0; set < (int)countof(sets); set++)
+        for (int i = 0; i < sets[set].count; i++)
+            for (int sx = 1; sx >= -1; sx -= 2)
+                for (int sy = 1; sy >= -1; sy -= 2) {
+                    Vec2 spot;
+                    float x = sx * sets[set].sticks[i][0], y = sy * sets[set].sticks[i][1];
+                    if (!B0XXSpot(ft, &stick, center, x, y, sweep, &spot) || IsDrawn(spot, spots, count))
+                        continue;
+                    spots[count] = spot;
+                    kinds[count++] = set;
+                }
+    // Dim first, so the brighter dots draw over it.
+    for (int set = countof(sets) - 1; set >= 0; set--) {
+        int dots = 0;
+        for (int i = 0; i < count; i++)
+            dots += kinds[i] == set;
+        if (!dots)
+            continue;
+        event_vars->GFX_Start(dots, (GFX_Params) { .shape = GX_POINTS, .size = B0XX_DOT_SIZE, .no_depth = on_top });
+        for (int i = 0; i < count; i++)
+            if (kinds[i] == set)
+                GFX_AddVtx(spots[i].X, spots[i].Y, 0, colors[set]);
     }
 }
 
@@ -705,21 +902,14 @@ static GXColor AimColor(FighterData *ft, Vec2 target) {
 }
 
 static void DrawAimedGuide(FighterData *ft, Vec2 target) {
-    // Fox and Falco can recover from under the stage, so their ring carries on
-    // under it, and a white tick on the ring, level with the X, is where holding
-    // straight toward the stage sweetspots.
+    // Fox and Falco can recover from under the stage, so their marks carry on
+    // under it, drawn over the stage. The rest get the offstage half.
     bool spacie = IsSpacie(ft);
-    float distance = AimedDistance(ft, 1);
-    if (spacie)
-        DrawArc(target, distance, Blue, UNDER_STAGE_SWEEP, UNDER_STAGE_STEPS);
+    float sweep = spacie ? UNDER_STAGE_SWEEP : 180;
+    if (Options_Main[OPT_B0XX].val)
+        DrawB0XXGuide(ft, target, sweep, spacie);
     else
-        DrawArc(target, distance, Blue, 180, ARC_STEPS);
-    if (spacie) {
-        float x = target.X + Outward() * distance;
-        DrawLine((Vec2) { x - LEVEL_TICK, target.Y }, (Vec2) { x + LEVEL_TICK, target.Y }, White, 12, true);
-    }
-    if (!spacie) // Their distance grows with tilt: the inner ring is the least.
-        DrawArc(target, AimedDistance(ft, AimedThreshold(ft)), DimBlue, 180, ARC_STEPS);
+        DrawAimedRing(ft, target, sweep, spacie);
     if (!upb.aiming)
         return;
     DrawLine(upb.launch, target, White, 8, spacie);
@@ -862,6 +1052,8 @@ void Event_Init(GOBJ *gobj) {
     restarting = false;
     Options_Main[OPT_GUIDES].val = Options_Main[OPT_GUIDES].val_prev =
         TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_GUIDES);
+    Options_Main[OPT_B0XX].val = Options_Main[OPT_B0XX].val_prev =
+        TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_B0XX);
     Options_Main[OPT_MARTH].val = Options_Main[OPT_MARTH].val_prev =
         TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH);
     Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
