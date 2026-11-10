@@ -580,6 +580,7 @@ int TestPassDebug(int key) {
     case 13: return path.body[path.frames].X * 10;
     case 14: return measured.last;
     case 15: return control.aerial_at >= 0 ? control.aerial_index : -1;
+    case 16: return PassToMate(&path, &ft[HMN], &ft[MATE]); // Whether the plan is used.
     }
     return -1;
 }

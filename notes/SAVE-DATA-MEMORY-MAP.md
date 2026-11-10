@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **3 bits** in word 72 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **1 bit** in word 72 |
 | **Unallocated spare score slots** | `0x1B2C..0x1B37` | **12 bytes** | nothing | **12 bytes (96 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 3 bits in word 72 and scattered single bits. The core record is full.
+**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 1 bit in word 72 and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -136,9 +136,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
-| 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot | word 72 (table below) | bits 29-31 |
+| 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot | word 72 (table below) | bit 31 |
 
-Free bits inside the record: 1 + 6 + 3 = **10 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 1 + 6 + 1 = **8 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -302,7 +302,9 @@ Every migration to version 21 zeroes this word, so its spare bits are zero in ev
 | 23-25 | Passing Practice: Distance (Very Close / Close / Medium / Far / Very Far, default Medium) |
 | 26-27 | Passing Practice: Your Side (Left / Right / Random, default Left) |
 | 28 | Up-B Sweetspot (T10): B0XX Angles, default Off. No version bump. Its other rows are in word 68; the menu lists it second, and `TMUpBSweetspotPreference` follows the menu |
-| 29-31 | Spare |
+| 29 | Passing Practice (T10): Reset If Hitstun Ends (Off / On, default Off). It's fourth in the menu, and `TMPassingPreference` follows the menu |
+| 30 | Passing Practice (T10): Your Facing (Toward / Away from your teammate, default Toward), last in the menu |
+| 31 | Spare |
 
 Passing Practice stores each row as its distance from its default, `(value + count - default) % count`, so the zeros every record has there read as the defaults. A stored value past the row's choices reads as invalid and is repaired to the default. Version 20 and older records read the defaults. Its Session Best and Previous counts are RAM-only (below).
 
