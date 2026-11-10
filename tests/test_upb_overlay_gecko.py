@@ -326,9 +326,13 @@ class DrawTests(unittest.TestCase):
         m.draw('fox')
         batches = m.drawn()
         self.assertEqual([batch[:3] for batch in batches],
-                         [(0xB0, 10, 16), (0xB0, 10, 16), (0xB0, 10, 12), (0xA8, 12, 6), (0xA8, 12, 4)] * 2)
+                         [(0xB0, 10, 16), (0xB0, 10, 16), (0xB0, 10, 12)] + [(0xB0, 10, 4)] * 3 +
+                         [(0xA8, 12, 6), (0xA8, 12, 4)] * 1 +
+                         [(0xB0, 10, 16), (0xB0, 10, 16), (0xB0, 10, 12)] + [(0xB0, 10, 4)] * 3 +
+                         [(0xA8, 12, 6), (0xA8, 12, 4)])
         rounded = lambda v: (round(v[0], 2), round(v[1], 2), v[3])
-        right, left = batches[5:], batches[:5]
+        left, right = batches[:8], batches[8:]
+        right = right[:3] + right[6:]  # The ring's stretches, ticks and X; the bits are below.
         gap = math.degrees(math.atan2(23, 76))
         ring = lambda degrees: (round(92.0657 + 81.5 * math.cos(math.radians(degrees)), 2),
                                 round(-13 + 81.5 * math.sin(math.radians(degrees)), 2), 0x30C8FFFF)
@@ -341,11 +345,16 @@ class DrawTests(unittest.TestCase):
         # A tick across the ring above, level with and below the X: 6 each side of 81.5.
         self.assertEqual([rounded(v)[:2] for v in right[3][3]],
                          [(92.07, 62.5), (92.07, 74.5), (167.57, -13.0), (179.57, -13.0), (92.07, -88.5), (92.07, -100.5)])
-        self.assertEqual([rounded(v)[:2] for v in left[3][3]][2:4], [(-167.57, -13.0), (-179.57, -13.0)])
+        self.assertEqual([rounded(v)[:2] for v in left[6][3]][2:4], [(-167.57, -13.0), (-179.57, -13.0)])
         self.assertEqual([rounded(v) for v in right[4][3]],
                          [(89.57, -15.5, 0xFFFFFFFF), (94.57, -10.5, 0xFFFFFFFF),
                           (89.57, -10.5, 0xFFFFFFFF), (94.57, -15.5, 0xFFFFFFFF)])
-        self.assertEqual(rounded(left[4][3][0]), (-89.57, -15.5, 0xFFFFFFFF))
+        self.assertEqual(rounded(left[7][3][0]), (-89.57, -15.5, 0xFFFFFFFF))
+        # A bit of ring through each tick, 4 degrees either side, at 81.5.
+        bits = batches[11:14]
+        self.assertEqual([(rounded(bit[3][0]), rounded(bit[3][-1])) for bit in bits],
+                         [(ring(straight + 4), ring(straight - 4)) for straight in (90, 0, -90)])
+        self.assertEqual(rounded(bits[1][3][0]), (173.37, -7.31, 0x30C8FFFF))
 
     def test_fox_b0xx_on_final_destination_by_hand(self):
         # A dot 81.5 from the X (92.07, -13) for each of the B0XX's angles.

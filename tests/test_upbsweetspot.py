@@ -313,27 +313,33 @@ class UpBLineTests(unittest.TestCase):
                 ring = self.drawn(BLUE)
                 # Three stretches of 81.6 around the X: out and up, out and down, and in under
                 # the stage to 30 degrees short of level, each ending 16.84 short of straight.
-                self.assertEqual(len(ring), 16 + 16 + 12)
+                self.assertEqual(len(ring), 16 + 16 + 12 + 3 * 4)
                 self.assert_at([ring[0], ring[15], ring[16], ring[31], ring[32], ring[43]],
                                [self.at_angle(a, 81.6) for a in (90 - gap, gap, -gap, gap - 90, -90 - gap, -150)])
+                # Then a bit of ring through each straight mark: 4 degrees either side.
+                self.assert_at(ring[44:], [self.at_angle(straight + 4 - 8 * i / 3, 81.6)
+                                           for straight in (90, 0, -90) for i in range(4)])
                 self.assert_at(ring, self.generated(kind, False)[BLUE])
                 # After the ledge lines: a tick across the ring above, level with and below the X.
                 ticks = self.drawn(WHITE)[4:10]
                 self.assert_at(ticks, [(-85, 75.6), (-85, 87.6), (-160.6, 0), (-172.6, 0), (-85, -75.6), (-85, -87.6)])
                 self.assert_at(ticks, self.generated(kind, False)[WHITE])
                 self.assertEqual(self.drawn(DIM_BLUE), [])
-                self.assertEqual(self.on_top(), 44 + 6)
+                self.assertEqual(self.on_top(), 56 + 6)
 
     def test_fox_aim_lines_also_draw_over_the_stage(self):
         self.m.call('TestUpBAimed', FTKIND_FOX)
         self.step()  # Up-B state 354 is his charge.
         self.drawn(BLUE)
-        self.assertEqual(self.on_top(), 44 + 6 + 2 + 2 + 1)  # The ring, ticks, both lines and the dot.
+        self.assertEqual(self.on_top(), 56 + 6 + 2 + 2 + 1)  # The ring, ticks, both lines and the dot.
 
     def test_sheiks_band_follows_the_least_tilt_that_aims_and_stays_behind_the_stage(self):
         self.m.call('TestUpBAimed', FTKIND_SHEIK)
         full, least, generated = self.drawn(BLUE), self.drawn(DIM_BLUE), self.generated(FTKIND_SHEIK, False)
-        self.assertEqual((len(full), len(least)), (16 + 16, 31 + 31))
+        self.assertEqual((len(full), len(least)), (16 + 16 + 3 * 4, 31 + 31 + 3 * 4))
+        # A bit of each through the ends of the straight marks: the blue at 40, the dim at 30.
+        self.assert_at(full[32:36], [self.at_angle(94 - 8 * i / 3, 40) for i in range(4)])
+        self.assert_at(least[62:66], [self.at_angle(94 - 8 * i / 3, 30) for i in range(4)])
         self.assert_at(full, generated[BLUE])
         self.assert_at(least, generated[DIM_BLUE])
         # The least-tilt edge starts at the ring, 23/80 across needing nearly a full

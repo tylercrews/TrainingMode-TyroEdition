@@ -138,7 +138,7 @@ enum TMSettingsField {
     TM_SETTING_EGGS_SPAWN, /* Free Practice's egg spots, TYEX byte 49 bits 6-7. */
     TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
     TM_SETTING_DOOR_ZELDA, /* Index: CSS door. 1 if its Zelda icon means Zelda, not Sheik. Runtime-only. */
-    TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27; see TMPassingPreference. */
+    TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 /* Event Select pages: Minigames, General Tech, Character-specific Tech and
@@ -251,17 +251,21 @@ enum TMGrabPunishPreference {
 #define TM_GP_DEFAULT_PERCENT 3 /* 60% */
 #define TM_GP_DEFAULT_MASH 1 /* Light Mash */
 /* Passing Practice: its menu rows in row order (Teammate Aerial, Enemy Percent,
- * Percent Mode, Distance, Your Side), in word 72's spare bits 14-27 (version 21,
- * no bump). Each is stored as its distance from its default, so a record that
- * never wrote them, with those bits zero, reads the defaults. */
+ * Percent Mode, Reset If Hitstun Ends, Distance, Your Side, Your Facing), in
+ * word 72's spare bits 14-27, 29 and 30 (version 21, no bump). Each is stored
+ * as its distance from its default, so a record that never wrote them, with
+ * those bits zero, reads the defaults. */
 enum TMPassingPreference {
-    TM_PASS_AERIAL, TM_PASS_PERCENT, TM_PASS_MODE, TM_PASS_DISTANCE, TM_PASS_SIDE, TM_PASS_PREF_COUNT
+    TM_PASS_AERIAL, TM_PASS_PERCENT, TM_PASS_MODE, TM_PASS_HITSTUN, TM_PASS_DISTANCE, TM_PASS_SIDE, TM_PASS_FACING,
+    TM_PASS_PREF_COUNT
 };
 #define TM_PASS_AERIAL_COUNT 5 /* Neutral, Forward, Back, Up and Down Air. */
 #define TM_PASS_PERCENT_COUNT 21 /* 0% to 200% in steps of 10. */
 #define TM_PASS_MODE_COUNT 2 /* Frozen %, Rising %. */
+#define TM_PASS_HITSTUN_COUNT 2 /* Off, On (T10). */
 #define TM_PASS_DISTANCE_COUNT 5 /* Very Close to Very Far. */
 #define TM_PASS_SIDE_COUNT 3 /* Left, Right, Random. */
+#define TM_PASS_FACING_COUNT 2 /* Toward, Away from your teammate (T10). */
 #define TM_PASS_DEFAULT_AERIAL 2 /* Back Air */
 #define TM_PASS_DEFAULT_PERCENT 4 /* 40% */
 #define TM_PASS_DEFAULT_DISTANCE 2 /* Medium */

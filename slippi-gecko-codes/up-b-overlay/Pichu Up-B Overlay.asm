@@ -76,6 +76,21 @@
     point 16.7502, -35.9427
     point 16.2071, -37.6057
     point 15.6580, -39.5655
+    shape GX_LINESTRIP, 10, 4, 0x1C6C94FF    # least tilt through the 90 degree mark
+    point 3.6584, 20.3357
+    point 4.8857, 20.3929
+    point 6.1143, 20.3929
+    point 7.3416, 20.3357
+    shape GX_LINESTRIP, 10, 4, 0x1C6C94FF    # least tilt through the 0 degree mark
+    point 31.8357, -4.1584
+    point 31.8929, -5.3857
+    point 31.8929, -6.6143
+    point 31.8357, -7.8416
+    shape GX_LINESTRIP, 10, 4, 0x1C6C94FF    # least tilt through the -90 degree mark
+    point 7.3416, -32.3357
+    point 6.1143, -32.3929
+    point 4.8857, -32.3929
+    point 3.6584, -32.3357
     shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 35.20, 73.16 to 16.84 degrees
     point 15.6960, 27.6910
     point 17.8805, 26.9509
@@ -110,6 +125,21 @@
     point 20.0119, -38.0694
     point 17.8805, -38.9509
     point 15.6960, -39.6910
+    shape GX_LINESTRIP, 10, 4, 0x30C8FFFF    # ring through the 90 degree mark
+    point 3.0446, 29.1143
+    point 4.6809, 29.1905
+    point 6.3191, 29.1905
+    point 7.9554, 29.1143
+    shape GX_LINESTRIP, 10, 4, 0x30C8FFFF    # ring through the 0 degree mark
+    point 40.6143, -3.5446
+    point 40.6905, -5.1809
+    point 40.6905, -6.8191
+    point 40.6143, -8.4554
+    shape GX_LINESTRIP, 10, 4, 0x30C8FFFF    # ring through the -90 degree mark
+    point 7.9554, -41.1143
+    point 6.3191, -41.1905
+    point 4.6809, -41.1905
+    point 3.0446, -41.1143
     shape GX_LINES, 12, 6, 0xFFFFFFFF    # straight across, up and down: hold straight here
     point 5.5000, 20.4000
     point 5.5000, 29.2000

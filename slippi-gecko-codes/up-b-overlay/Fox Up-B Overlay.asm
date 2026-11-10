@@ -59,6 +59,21 @@
     point -57.8560, -63.0056
     point -61.1271, -58.4844
     point -64.0811, -53.7500
+    shape GX_LINESTRIP, 10, 4, 0x30C8FFFF    # ring through the 90 degree mark
+    point 0.8148, 68.3015
+    point 4.6036, 68.4780
+    point 8.3964, 68.4780
+    point 12.1852, 68.3015
+    shape GX_LINESTRIP, 10, 4, 0x30C8FFFF    # ring through the 0 degree mark
+    point 87.8015, -7.3148
+    point 87.9780, -11.1036
+    point 87.9780, -14.8964
+    point 87.8015, -18.6852
+    shape GX_LINESTRIP, 10, 4, 0x30C8FFFF    # ring through the -90 degree mark
+    point 12.1852, -94.3015
+    point 8.3964, -94.4780
+    point 4.6036, -94.4780
+    point 0.8148, -94.3015
     shape GX_LINES, 12, 6, 0xFFFFFFFF    # straight across, up and down: hold straight here
     point 6.5000, 62.5000
     point 6.5000, 74.5000

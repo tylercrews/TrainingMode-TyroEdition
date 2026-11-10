@@ -45,6 +45,9 @@
 #define UNDER_STAGE_SWEEP 240
 // Half the length of Fox's and Falco's ticks where holding straight sweetspots.
 #define LEVEL_TICK 6
+// Degrees either side of each straight mark that a bit of ring runs through
+// it, at the mark's distance.
+#define STRAIGHT_ARC 4
 // B0XX Angles' dots, and how close two spots are to be one dot: holding B
 // moves Fox's and Falco's under half a degree.
 #define B0XX_DOT_SIZE 30
@@ -745,17 +748,18 @@ static bool Quarter(const Stick *stick, int top, float bottom, float *from, floa
 }
 
 /* A stretch of ring around center, from ring angle `from` down to `to`, at
- * the full travel, or with `least` at the least tilt that aims each way. */
+ * radius, or with `least` at the least tilt that aims each way. */
 static void DrawRingArc(FighterData *ft, const Stick *stick, Vec2 center, float from, float to,
-                        bool least, GXColor color, bool on_top) {
+                        float radius, bool least, GXColor color, bool on_top) {
     int steps = (int)((from - to) / ARC_STEP) + 1;
     if (least)
         steps *= 2; // It curves fastest at the ends.
     event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10, .no_depth = on_top });
-    float outward = Outward(), full = AimedDistance(ft, 1);
+    float outward = Outward();
     for (int i = 0; i <= steps; i++) {
         float angle = from - (from - to) * i / steps;
-        float radius = least ? AimedDistance(ft, LeastTilt(ft, stick, angle)) : full;
+        if (least)
+            radius = AimedDistance(ft, LeastTilt(ft, stick, angle));
         float a = angle * M_1DEGREE;
         GFX_AddVtx(center.X + outward * cos(a) * radius, center.Y + sin(a) * radius, 0, color);
     }
@@ -764,19 +768,25 @@ static void DrawRingArc(FighterData *ft, const Stick *stick, Vec2 center, float 
 /* The ring at the travel around center, sweep degrees from straight above it
  * out past the ledge and down, less the angles the stick can't aim: a gap
  * either side of straight across, up and down. A white mark on each straight
- * direction is where holding straight sweetspots. The teleports and Quick
- * Attack go farther with more tilt, so a dim edge inside follows the least
- * tilt that aims each way, and their white marks run between the two. */
+ * direction is where holding straight sweetspots, with a bit of ring through
+ * it at its distance. The teleports and Quick Attack go farther with more
+ * tilt, so a dim edge inside follows the least tilt that aims each way, and
+ * their white marks run between the two, with a bit of each at its ends. */
 static void DrawAimedRing(FighterData *ft, Vec2 center, float sweep, bool on_top) {
     Stick stick = GetStick();
     bool spacie = IsSpacie(ft);
     float bottom = 90 - sweep, from, to;
-    for (int full = spacie; full < 2; full++)
+    float travel = AimedDistance(ft, 1), least = spacie ? travel : AimedDistance(ft, AimedThreshold(ft));
+    for (int full = spacie; full < 2; full++) {
+        GXColor color = full ? Blue : DimBlue;
         for (int top = 90; top > bottom; top -= 90)
             if (Quarter(&stick, top, bottom, &from, &to))
-                DrawRingArc(ft, &stick, center, from, to, !full, full ? Blue : DimBlue, on_top);
-    float travel = AimedDistance(ft, 1);
-    float inner = spacie ? travel - LEVEL_TICK : AimedDistance(ft, AimedThreshold(ft));
+                DrawRingArc(ft, &stick, center, from, to, travel, !full, color, on_top);
+        for (int straight = 90; straight >= bottom; straight -= 90)
+            DrawRingArc(ft, &stick, center, straight + STRAIGHT_ARC, straight - STRAIGHT_ARC,
+                        full ? travel : least, false, color, on_top);
+    }
+    float inner = spacie ? travel - LEVEL_TICK : least;
     float outer = spacie ? travel + LEVEL_TICK : travel;
     int marks = 0;
     for (int straight = 90; straight >= bottom; straight -= 90)

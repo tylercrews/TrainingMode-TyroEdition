@@ -139,13 +139,16 @@ static unsigned top_bit(unsigned field,unsigned index) {
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
     {16,1,2,1}, {28,1,2,0}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
 };
-/* Passing Practice's menu takes word 72's spare bits 14..27 with no version
- * bump: every migration to 21 zeroed them. Each row is stored as its distance
- * from its default, so those zeros read as the defaults; a stored value past
- * the row's choices reads as invalid (count) and is repaired. */
+/* Passing Practice's menu takes word 72's spare bits 14..27, then 29 and 30
+ * for Reset If Hitstun Ends and Your Facing (bit 28 is Up-B Sweetspot's), with
+ * no version bump: every migration to 21 zeroed them. Each row is stored as its
+ * distance from its default, so those zeros read as the defaults; a stored
+ * value past the row's choices reads as invalid (count) and is repaired. */
 static const ExtensionPreference passing_preferences[TM_PASS_PREF_COUNT] = {
     {14,3,TM_PASS_AERIAL_COUNT,TM_PASS_DEFAULT_AERIAL}, {17,5,TM_PASS_PERCENT_COUNT,TM_PASS_DEFAULT_PERCENT},
-    {22,1,TM_PASS_MODE_COUNT,0}, {23,3,TM_PASS_DISTANCE_COUNT,TM_PASS_DEFAULT_DISTANCE}, {26,2,TM_PASS_SIDE_COUNT,0},
+    {22,1,TM_PASS_MODE_COUNT,0}, {29,1,TM_PASS_HITSTUN_COUNT,0},
+    {23,3,TM_PASS_DISTANCE_COUNT,TM_PASS_DEFAULT_DISTANCE}, {26,2,TM_PASS_SIDE_COUNT,0},
+    {30,1,TM_PASS_FACING_COUNT,0},
 };
 #define PASS_STORED(p,value) (((value)+(p)->count-(p)->initial)%(p)->count)
 #define PASS_READ(p,stored) ((stored)<(p)->count?((stored)+(p)->initial)%(p)->count:(p)->count)

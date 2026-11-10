@@ -16,9 +16,10 @@ does:
   characters, who can up-B from under the stage: theirs carries on under it
   to 2/3 of a circle. The ring leaves out the angles the stick can't aim, a
   gap either side of straight across, up and down (see STICK_UNITS), with a
-  white tick at each straight one. The teleports and Quick Attack go farther
-  the more you tilt the stick, so they also get a dim edge at the least tilt
-  that aims at each angle, and their white marks run between the two.
+  white tick at each straight one and a bit of ring through it. The teleports
+  and Quick Attack go farther the more you tilt the stick, so they also get a
+  dim edge at the least tilt that aims at each angle, and their white marks
+  run between the two, with a bit of each through their ends.
 - B0XX codes, for the same seven: the white X, and a dot where each of the
   B0XX's up-B angles (B0XX_PLAIN, B0XX_MOD_B, B0XX_MOD) sweetspots.
 - Path up-Bs (Mario, Dr. Mario, Luigi, Marth, Roy, Falcon, Ganondorf, Peach,
@@ -112,6 +113,7 @@ SPACIES = ('fox', 'falco')
 UNDER_STAGE = ('fox', 'falco')
 UNDER_STAGE_SWEEP = 240   # as in the event
 LEVEL_TICK = 6      # LEVEL_TICK in the event: half a tick's length
+STRAIGHT_ARC = 4    # STRAIGHT_ARC in the event: degrees of ring either side of a straight mark
 # The stick the aimed up-Bs read (input.lstick): 80ths of full tilt inside a
 # circle of radius 80 (gmmain.c's pad clamp), with an axis at or under its
 # deadzone (PlCo.dat ftLoadCommonData 0x0 across, 0x4 up, both 0.28) read as
@@ -312,16 +314,24 @@ def aimed_shapes(slug, n, b0xx):
         return drawn
     full = distance(1)
     arcs = ring_arcs(sweep, n['stick']['gaps'])
+    bit_steps = int(2 * STRAIGHT_ARC / ARC_STEP) + 1   # as the event steps any stretch of ring
     if not spacie:
         for start, end in arcs:
             steps = 2 * (int((start - end) / ARC_STEP) + 1)
             points = arc_points(target, lambda angle: distance(least_tilt(angle, least, threshold)), start, end, steps)
             drawn.append(('GX_LINESTRIP', ARC_WIDTH, DIM_BLUE, points,
                           f'least tilt that aims, {start:.2f} to {end:.2f} degrees'))
+        for angle in straights(sweep):
+            points = arc_points(target, lambda _: distance(threshold), angle + STRAIGHT_ARC, angle - STRAIGHT_ARC,
+                                bit_steps)
+            drawn.append(('GX_LINESTRIP', ARC_WIDTH, DIM_BLUE, points, f'least tilt through the {angle} degree mark'))
     for start, end in arcs:
         points = arc_points(target, lambda angle: full, start, end, int((start - end) / ARC_STEP) + 1)
         drawn.append(('GX_LINESTRIP', ARC_WIDTH, BLUE, points,
                       f'ring at the full travel {full:.2f}, {start:.2f} to {end:.2f} degrees'))
+    for angle in straights(sweep):
+        points = arc_points(target, lambda _: full, angle + STRAIGHT_ARC, angle - STRAIGHT_ARC, bit_steps)
+        drawn.append(('GX_LINESTRIP', ARC_WIDTH, BLUE, points, f'ring through the {angle} degree mark'))
     inner, outer = (full - LEVEL_TICK, full + LEVEL_TICK) if spacie else (distance(threshold), full)
     points = []
     for angle in straights(sweep):
