@@ -154,7 +154,7 @@ void TMSettings_Init(uint8_t r[TM_SETTINGS_SIZE]) {
 
 static void validate_prefix(uint8_t *r) {
     if (r[4] >= 4) r[4] = 1;
-    if ((r[5] & 3) >= 3) r[5] = 1;
+    if ((r[5] & 3) >= TM_EVENT_PAGES) r[5] = 1;
     /* Old writers only produce 0/1 here. 10 in the top bits identifies the
      * character extension, so old palette padding cannot initialize it.
      * Codes 1..26 are playable external IDs + 1; 0 is unset. */
@@ -212,7 +212,7 @@ int TMSettings_Prepare(uint8_t r[TM_SETTINGS_SIZE], int owns_save) {
     }
     /* Older layouts only own the page, never an event selection. */
     if (!signed_format || old_version < TM_SETTINGS_VERSION) {
-        if (r[5] >= 3) r[5] = 1;
+        if (r[5] >= TM_EVENT_PAGES) r[5] = 1;
     }
     validate_prefix(r);
     preference_validate(r);
@@ -365,7 +365,7 @@ int TMSettings_Write(uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsigned index
     unsigned byte, shift = 0, width = 8, count;
     switch (field) {
     case TM_SETTING_OSD_POSITION: byte = 4; count = 4; break;
-    case TM_SETTING_EVENT_PAGE: byte = 5; width = 2; count = 3; break;
+    case TM_SETTING_EVENT_PAGE: byte = 5; width = 2; count = TM_EVENT_PAGES; break;
     case TM_SETTING_EVENT_SELECTION: byte = 5; width = 6; shift = 2; count = 64; break;
     case TM_SETTING_RECOMMENDED: byte = 6; width = 1; count = 2; break;
     case TM_SETTING_ADVANCE: byte = 7; width = 4; count = 5; break;

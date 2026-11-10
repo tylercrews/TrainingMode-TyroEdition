@@ -21,6 +21,8 @@ esac
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/grabpunish-test.dat -i src/grabpunish.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/passing-test.dat -i src/passing.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgechase-test.dat -i src/ledgechase.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgedash-trails-test.dat -i src/ledgedash.c src/ledgedash_logic.c
@@ -56,6 +58,7 @@ python tests/test_ledgegrab.py -v
 python tests/test_eggs.py -v
 python tests/test_edgeguard.py -v
 python tests/test_grabpunish.py -v
+python tests/test_passing.py -v
 python tests/test_upbsweetspot.py -v
 python tests/test_savestate.py -v
 python tests/test_stage_swap.py -v

@@ -1,6 +1,7 @@
 #include "events.h"
 
-/* Character select for 2v1 Grab Punish Practice: the VS select, always in
+/* Character select for the Doubles events, Grab Punish Practice and Passing
+ * Practice, which share this file and its saved teams: the VS select, always in
  * Teams mode, with exactly one CPU on your team (your teammate) and every
  * other CPU (the enemy) on another team. It opens with you and two CPUs in,
  * on their last characters (Settings_OpenTeamSelect, before the CSS loads).
@@ -10,7 +11,7 @@
  * - Another CPU onto your color: it becomes your teammate, and the old
  *   teammate moves to another team.
  * The select opens on the teams of the last match (saved in EventInit's
- * GrabPunish_PrepareMatch), apart from the normal saved costume.
+ * TwoVsOne_PrepareMatch), apart from the normal saved costume.
  * A team change does what the native team button does (80261B6C): set the
  * door's team and its match player's team, then redraw the portrait. The
  * door's color follows its team every frame. */

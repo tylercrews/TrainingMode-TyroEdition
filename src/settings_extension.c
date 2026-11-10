@@ -137,6 +137,16 @@ static unsigned top_bit(unsigned field,unsigned index) {
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
     {16,1,2,1}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
 };
+/* Passing Practice's menu takes word 72's spare bits 14..27 with no version
+ * bump: every migration to 21 zeroed them. Each row is stored as its distance
+ * from its default, so those zeros read as the defaults; a stored value past
+ * the row's choices reads as invalid (count) and is repaired. */
+static const ExtensionPreference passing_preferences[TM_PASS_PREF_COUNT] = {
+    {14,3,TM_PASS_AERIAL_COUNT,TM_PASS_DEFAULT_AERIAL}, {17,5,TM_PASS_PERCENT_COUNT,TM_PASS_DEFAULT_PERCENT},
+    {22,1,TM_PASS_MODE_COUNT,0}, {23,3,TM_PASS_DISTANCE_COUNT,TM_PASS_DEFAULT_DISTANCE}, {26,2,TM_PASS_SIDE_COUNT,0},
+};
+#define PASS_STORED(p,value) (((value)+(p)->count-(p)->initial)%(p)->count)
+#define PASS_READ(p,stored) ((stored)<(p)->count?((stored)+(p)->initial)%(p)->count:(p)->count)
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 /* Reset Speed is stored the same way, so a clear field reads as its default. */
@@ -253,7 +263,8 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_UPB_SWEETSPOT ? TM_UPB_PREF_COUNT :
         field==TM_SETTING_EGGS_COUNTER ? 1 :
         field==TM_SETTING_EGGS_SPAWN ? TM_EGGS_SPAWN_PREF_COUNT :
-        field==TM_SETTING_LEDGEGRAB_RESET ? 1 : 0;
+        field==TM_SETTING_LEDGEGRAB_RESET ? 1 :
+        field==TM_SETTING_PASSING ? TM_PASS_PREF_COUNT : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -271,6 +282,7 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_EGGS_COUNTER && index==0) return &eggs_counter_preference;
     if(field==TM_SETTING_EGGS_SPAWN && index<TM_EGGS_SPAWN_PREF_COUNT) return &eggs_spawn_preferences[index];
     if(field==TM_SETTING_LEDGEGRAB_RESET && index==0) return &ledgegrab_reset_preference;
+    if(field==TM_SETTING_PASSING && index<TM_PASS_PREF_COUNT) return &passing_preferences[index];
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
@@ -278,6 +290,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
         return index>=TM_GP_P3_CHARACTER?TEAM_CHARACTERS_OFFSET:
             index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
+    if(field==TM_SETTING_PASSING) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
@@ -307,6 +320,7 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_READ(value);
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_READ(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
+    if(field==TM_SETTING_PASSING) value=PASS_READ(p,value);
     unsigned top=top_bit(field,index);
     if(top) value|=((r[top/8]>>(top%8))&1)<<p->width;
     if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
@@ -318,6 +332,7 @@ static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned val
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_STORED(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
     if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
+    if(field==TM_SETTING_PASSING) value=PASS_STORED(p,value);
     unsigned offset=preference_offset(field,index), mask=((1u<<p->width)-1)<<p->shift;
     unsigned bits=(read_bits(r,offset)&~mask)|((value<<p->shift)&mask);
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) bits=(bits&~(1u<<20))|((value>>4)<<20);
@@ -346,6 +361,8 @@ static void init_event_menu_preferences(uint8_t *r) {
         if(i!=TM_GP_ENEMY_TEAM) set_preference(r,TM_SETTING_GRAB_PUNISH,i,grab_punish_preferences[i].initial);
     for(unsigned i=0;i<TM_UPB_PREF_COUNT;++i)
         set_preference(r,TM_SETTING_UPB_SWEETSPOT,i,upb_sweetspot_preferences[i].initial);
+    for(unsigned i=0;i<TM_PASS_PREF_COUNT;++i)
+        set_preference(r,TM_SETTING_PASSING,i,passing_preferences[i].initial);
 }
 void TMExtension_Init(uint8_t *r) {
     memset(r,0,TM_EXTENSION_SIZE);
@@ -449,7 +466,7 @@ int TMExtension_Prepare(uint8_t *r) {
         if((r[COSTUME_OFFSET+player]&COSTUME_MASK)>=TM_EXTENSION_COSTUMES) { r[COSTUME_OFFSET+player]&=~COSTUME_MASK; changed=1; }
     static const uint8_t fields[]={TM_SETTING_TECHCHASE,TM_SETTING_LEDGECHASE,TM_SETTING_UNDERFIRE,
         TM_SETTING_LOW_LASER,TM_SETTING_POWERSHIELD,TM_SETTING_REVERSAL,TM_SETTING_ATTACK_SHIELD,TM_SETTING_EDGEGUARD,
-        TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER};
+        TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER,TM_SETTING_PASSING};
     for(unsigned f=0;f<sizeof(fields);++f) {
         unsigned field=fields[f], count=preference_count(field);
         for(unsigned i=0;i<count;++i) {
@@ -510,6 +527,11 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return supported(r)||v15||v16||v17||v18||v19||v20?preference_value(r,field,index):p->initial;
     /* Version 20 is the first to own the event menus' word, and version 21 the
      * team select's. */
+    /* Only version 21 records own word 72. */
+    if(field==TM_SETTING_PASSING) {
+        unsigned value=supported(r)?preference_value(r,field,index):p->initial;
+        return value<p->count?value:p->initial;
+    }
     if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) {
         int team_word=field==TM_SETTING_GRAB_PUNISH && index>=TM_GP_P3_CHARACTER;
         unsigned value=supported(r)||(v20 && !team_word)?preference_value(r,field,index):p->initial;

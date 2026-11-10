@@ -216,7 +216,7 @@ EventDesc LedgeChase = {
     .matchData = &LedgeChase_MatchData,
 };
 
-// 2v1 Grab Punish Practice
+// Grab Punish Practice (Doubles)
 static EventMatchData GrabPunish_MatchData = {
     .timer = MATCH_TIMER_COUNTUP,
     .matchType = MATCH_MATCHTYPE_TIME,
@@ -233,10 +233,10 @@ static EventMatchData GrabPunish_MatchData = {
 };
 /* The VS select picks you, a teammate CPU and an enemy CPU and their team
  * colors; TM/grabpunishCSS.dat keeps exactly one CPU on your team there, and
- * GrabPunish_PrepareMatch makes the match the same way. */
+ * TwoVsOne_PrepareMatch makes the match the same way. */
 EventDesc GrabPunish = {
     .tyro_edited = true,
-    .eventName = "2v1 Grab Punish Practice\n",
+    .eventName = "Grab Punish Practice\n",
     .eventDescription = "Your teammate grabs the enemy. Punish them\nbefore they mash out, without hitting your teammate!",
     .eventFile = "grabpunish",
     .jumpTableIndex = -1,
@@ -251,6 +251,42 @@ EventDesc GrabPunish = {
     .scoreType = SCORETYPE_KO,
     .callbackPriority = 3,
     .matchData = &GrabPunish_MatchData,
+};
+
+// Passing Practice (Doubles)
+static EventMatchData Passing_MatchData = {
+    .timer = MATCH_TIMER_COUNTUP,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = true,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+/* The same 2v1 team select as Grab Punish Practice, sharing its saved teams
+ * and characters. */
+EventDesc Passing = {
+    .tyro_edited = true,
+    .eventName = "Passing Practice\n",
+    .eventDescription = "Your teammate passes the enemy to you. Hit it\nback and see how long you can keep it up!",
+    .eventFile = "passing",
+    .jumpTableIndex = -1,
+    .eventCSSFile = "TM/grabpunishCSS.dat",
+    .CSSType = SLCHRKIND_VS,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = -1,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &Passing_MatchData,
 };
 
 // Float Cancel Training
@@ -876,7 +912,6 @@ static EventDesc *General_Events[] = {
     &SlideOff,
     &GrabMash,
     &LedgeChase,
-    &GrabPunish,
 };
 static EventPage General_Page = {
     .name = "General Tech",
@@ -902,22 +937,38 @@ static EventPage CharacterSpecific_Page = {
     .events = CharacterSpecific_Events,
 };
 
+// Page 4 Events: you, a CPU teammate and a CPU enemy, from the VS team select.
+static EventDesc *Doubles_Events[] = {
+    &GrabPunish,
+    &Passing,
+};
+static EventPage Doubles_Page = {
+    .name = "Doubles",
+    .eventNum = countof(Doubles_Events),
+    .events = Doubles_Events,
+};
+
 EventPage *EventPages[] = {
     &Minigames_Page,
     &General_Page,
     &CharacterSpecific_Page,
+    &Doubles_Page,
 };
+typedef char event_pages_fit_the_save[(countof(EventPages) == TM_EVENT_PAGES) ? 1 : -1];
 /* Persisted score identities do not follow menu insertion order. The original
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
 typedef char event_score_map_matches[(countof(Minigames_Events) == 6 &&
-    countof(General_Events) == 18 && countof(CharacterSpecific_Events) == 9) ? 1 : -1];
+    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 9 &&
+    countof(Doubles_Events) == 2) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
     if (page == 0) /* Ledgegrab Speedrun (5) only keeps session bests, in RAM. */
         return event < 5 ? event : UINT32_MAX;
-    if (page == 1) /* 2v1 Grab Punish (17) is unscored free practice. */
+    if (page == 1) /* Grab Punish was 17 here, unscored, until it moved to Doubles in T10. */
         return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;
+    if (page == 3) /* Both Doubles events are unscored free practice. */
+        return UINT32_MAX;
     /* Up-B Sweetspot (3) and Low Laser (8) are unscored free practice; the
      * events after Up-B Sweetspot keep their original slots. */
     return event == 3 || event > 7 ? UINT32_MAX : 21 + event - (event > 3);
@@ -2021,11 +2072,12 @@ static int TeamCostume(int c_kind, int team) {
     return CSS_GetCostumeRed(c_kind);
 }
 
-/* 2v1 Grab Punish Practice is always a team match of you, a teammate CPU and
- * an enemy CPU. The CPU on your team is the teammate (its CSS keeps that to
- * one), or else the first CPU; the next CPU is the enemy, on another team.
- * Anyone else sits out. Everyone wears their team's costume. */
-static void GrabPunish_PrepareMatch(MatchInit *match) {
+/* The Doubles events, Grab Punish Practice and Passing Practice, are always a
+ * team match of you, a teammate CPU and an enemy CPU. The CPU on your team is
+ * the teammate (their CSS keeps that to one), or else the first CPU; the next
+ * CPU is the enemy, on another team. Anyone else sits out. Everyone wears
+ * their team's costume. Both events share the saved teams. */
+static void TwoVsOne_PrepareMatch(MatchInit *match) {
     PlayerData *players = match->playerData;
     int hmn = -1, mate = -1, enemy = -1;
     for (int i = 0; i < 4; i++)
@@ -2202,8 +2254,8 @@ void EventInit(int page, int eventID, MatchInit *matchData)
         matchData->hudPos = hudPos;
     }
 
-    if (event == &GrabPunish)
-        GrabPunish_PrepareMatch(matchData);
+    if (event == &GrabPunish || event == &Passing)
+        TwoVsOne_PrepareMatch(matchData);
 
     // set to enter fall on match start
     for (int i = 0; i < 6; i++)

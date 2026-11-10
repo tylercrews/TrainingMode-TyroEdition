@@ -1,10 +1,10 @@
 #include "events.h"
 
-/* 2v1 Grab Punish Practice: your teammate CPU grabs the enemy CPU, and you
+/* Grab Punish Practice (Doubles page): your teammate CPU grabs the enemy CPU, and you
  * punish the enemy (say with a JC up-smash) before they mash out, without
  * hitting your teammate. The VS character select picks all three fighters
  * and the team colors. grabpunish_css.c keeps exactly one CPU on your team
- * there, and EventInit (GrabPunish_PrepareMatch in events.c) makes the match
+ * there, and EventInit (TwoVsOne_PrepareMatch in events.c) makes the match
  * the same way, so the CPU on your team is your teammate and the other is
  * the enemy. The teams are saved for this event alone, and nothing picked
  * there changes your normal character or costume.
@@ -234,7 +234,7 @@ static EventOption Options_Main[] = {
 
 static EventMenu Menu_Main = {
     .on_exit = Exit,
-    .name = "2v1 Grab Punish",
+    .name = "Grab Punish",
     .option_num = countof(Options_Main),
     .options = Options_Main,
 };

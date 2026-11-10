@@ -116,11 +116,12 @@ class ScoreStorageAudit(unittest.TestCase):
     def test_catalogue_retains_28_legacy_scores_and_reserves_slot_50_for_ledgechase(self):
         source = (ROOT / "src/events.c").read_text()
         counts = []
-        for array in ("Minigames_Events", "General_Events", "CharacterSpecific_Events"):
+        for array in ("Minigames_Events", "General_Events", "CharacterSpecific_Events", "Doubles_Events"):
             body = re.search(r"static EventDesc \*" + array + r"\[\] = \{(.*?)\};",
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
-        self.assertEqual(counts, [6, 18, 9])
+        # Grab Punish moved from General Tech's end to the Doubles page in T10.
+        self.assertEqual(counts, [6, 17, 9, 2])
         self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
         self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)
@@ -227,14 +228,16 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],34,4,1)
         machine.cpu.mem_write(BASE + SPARE_START + 76,bytes((index*13+3)&255 for index in range(SPARE_SIZE-76)))  # After the 76-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
-        # Scored events per page and their slots. 2v1 Grab Punish (page 1, 17),
-        # Up-B Sweetspot (page 2, 3) and Low Laser (page 2, 8) are unscored, and
-        # the events after Up-B Sweetspot keep their original slots.
+        # Scored events per page and their slots. Up-B Sweetspot (page 2, 3),
+        # Low Laser (page 2, 8) and both Doubles events (page 3) are unscored,
+        # and the events after Up-B Sweetspot keep their original slots. Index
+        # 17 on page 1, where Grab Punish was until T10, is past its end now.
         scored = {0: {event: event for event in range(5)},
                   1: {**{event: 5 + event for event in range(16)}, 16: 50},
-                  2: {event: 21 + event - (event > 3) for event in (0, 1, 2, 4, 5, 6, 7)}}
-        unscored = {0: (5, 6), 1: (17, 18), 2: (3, 8, 9)}
-        for page in range(3):
+                  2: {event: 21 + event - (event > 3) for event in (0, 1, 2, 4, 5, 6, 7)},
+                  3: {}}
+        unscored = {0: (5, 6), 1: (17, 18), 2: (3, 8, 9), 3: (0, 1, 2)}
+        for page in range(4):
             machine.call(functions[28], 2, 0, page)
             for event, slot in scored[page].items():
                 value = 0xAABB0000 | slot

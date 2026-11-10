@@ -61,9 +61,9 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - add the 2/3 ring and level tick to the rest of the up-b overlay gecko codes. Only Fox's has them so far. Falco's event already has them so his code should match, and Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `UNDER_STAGE` in scripts/upb_overlay_numbers.py
 - add rolling as an option in the techchase event
 - punish roll event?
-- passing teams event, But you can build it INTO the 2v1 event!! Select between them in game, reuses memory. 
+- ~~passing teams event, But you can build it INTO the 2v1 event!! Select between them in game, reuses memory. 
 Another 2v1 Doubles event where you pick a teammate and an opponent, and choose a percent and a move. The opponent will be at that percent, get hit by a cpu. If you hit it towards the cpu They will try to jump up and hit it back. There's a counter and you see how many hits you can get up to.
-Frozen % and rising percent. The rising % doesn't reset the menu so you can go in and click a to reset, or click down on the d pad to reset. left and right swap sides.
+Frozen % and rising percent. The rising % doesn't reset the menu so you can go in and click a to reset, or click down on the d pad to reset. left and right swap sides.~~ (**T10:** new Passing Practice event, on the new Doubles page with Grab Punish Practice. It shares Grab Punish's team select and saved teams)
 - MORE DOUBLES!! WHAT CAN I DO TO PRACTICE DOUBLES
 - a doubles event where you try to shoot or get hit by a falco laser to recover
 - teams shield pressure practice event?
@@ -86,6 +86,22 @@ Frozen % and rising percent. The rising % doesn't reset the menu so you can go i
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T10 (V1.4.1T10) - 2026-11-08
+
+- **New events**
+    - **Passing Practice** (Doubles): your CPU teammate passes the enemy CPU to you with an aerial, you hit the enemy back, and your teammate jumps up and passes it back with the same aerial. It's for keeping a pass going back and forth with a teammate in doubles.
+        - Uses the same VS team select as Grab Punish Practice, and shares its saved teams and characters.
+        - **Hits** counts your hits in a row, under the match timer. When the enemy lands, the volley is over: the count stays up for a moment (cyan for a new best, red if not) and a new volley starts. **Session Best Frozen %** (or **Session Best Rising %**) and **Previous** are kept for each mode, for the session only.
+        - **Teammate Aerial** (Neutral, Forward, Back (the default), Up or Down Air), **Enemy Percent** (0-200% in tens, default 40%), **Percent Mode**: **Frozen %** puts the enemy back at its percent after every hit, **Rising %** lets it climb. **Distance** (Very Close 20 to Very Far 70, default Medium 42) and **Your Side** (Left, Right or Random). The settings are saved. D-pad left/right picks your side and restarts, and D-pad down restarts without counting the volley.
+        - Your teammate measures its own aerial on its first serve, then plans every return from where the enemy will fly: when to jump, short or full hop, when to press the aerial and which way to drift. It fast-falls and L-cancels to be ready sooner, and walks back to its spot after each pass. It hasn't been tested in Dolphin yet.
+- **Event changes**
+    - New **Doubles** page of events, after Character-specific Tech, so the 2v1 events don't sit at the end of General Tech. **Grab Punish Practice** (was 2v1 Grab Punish Practice) moved there. The page costs no save space: the saved page always had room for four.
+- **Program changes**
+    - The save record is still version 21: Passing Practice's menu uses 14 of word 72's 18 spare bits.
+    - New [tests/test_passing.py](tests/test_passing.py) runs the event against a small engine of jumps, drift, aerial hitboxes, knockback and hitlag ([tests/passing_probe.c](tests/passing_probe.c)), and [tests/passing_trace.py](tests/passing_trace.py) prints one return frame by frame.
+
+For T10 I'm working with Claude Opus 5.5 Max
 
 ### T9 (V1.4.1T9) - 2026-11-02
 

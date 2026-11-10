@@ -638,7 +638,7 @@ class EventSelectionTests(unittest.TestCase):
     def test_page_and_selection_round_trip_without_changing_neighbors(self):
         m = Machine(); m.init()
         original = m.record()
-        for page in range(3):
+        for page in range(4):  # Minigames, General Tech, Character-specific Tech, Doubles.
             for event in range(64):
                 m.write(2, 0, page); m.write(26, 0, event)
                 self.assertEqual((m.read(2), m.read(26)), (page, event))
@@ -888,7 +888,9 @@ class SettingsTests(unittest.TestCase):
         r[40:44] = b"KEEP"
         m.put(r)
         self.assertEqual(m.call("TMSettings_Prepare", RECORD, 1), 2)
-        self.assertEqual(m.record()[4:6], b"\1\1")
+        # Byte 5's page is two bits, and since T10's Doubles page all four values
+        # are pages. The Event Select Screen clamps the selection to its page.
+        self.assertEqual(m.record()[4:6], b"\1\xFF")
         self.assertEqual(m.record()[7:10], b"\0\0\0")
         self.assertEqual(m.record()[12:30], b"\0" * 18)
         self.assertEqual(m.record()[37] & 0xFE, 0xFE)
@@ -3418,6 +3420,7 @@ class EventMenuSaveTests:
     natives = ('Match_SetNormalCamera', 'Match_CorrectCamera', 'Stage_GetExternalID',
                'Stage_GetLeftOfLineCoordinates', 'Stage_GetRightOfLineCoordinates', 'Stage_GetBlastzoneBottom',
                'CameraSubject_Alloc', 'GObj_Create', 'GObj_AddGXLink', 'GObj_AddUserData')
+    returns_null = ()  # Natives that return a pointer the event checks, like Text_CreateText.
 
     def setUp(self):
         from unicorn import UC_HOOK_CODE
@@ -3439,6 +3442,7 @@ class EventMenuSaveTests:
             if not name: return
             if name == 'Stage_GetExternalID': cpu.reg_write(gpr(3), 32)
             elif name in ('GObj_Create', 'CameraSubject_Alloc'): cpu.reg_write(gpr(3), 0x8040D000)
+            elif name in self.returns_null: cpu.reg_write(gpr(3), 0)
             cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
         self.hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
 
@@ -3485,6 +3489,16 @@ class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
     field = 42  # TM_SETTING_GRAB_PUNISH
     saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 11, 3), ('Teammate Percent', 11, 0),
              ('CPU Mashing', 6, 1), ('Teammate Facing', 3, 0), ('Release Hit = Success', 2, 1))
+
+
+class PassingSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/passing-test.dat'
+    field = 48  # TM_SETTING_PASSING
+    saved = (('Teammate Aerial', 5, 2), ('Enemy Percent', 21, 4), ('Percent Mode', 2, 0), ('Distance', 5, 2),
+             ('Your Side', 3, 0))
+    natives = EventMenuSaveTests.natives + ('Text_CreateCanvas', 'Text_CreateText', 'Text_AddSubtext',
+                                            'Text_SetColor', 'Text_SetScale', 'GObj_AddProc', 'memset')
+    returns_null = ('Text_CreateText',)  # No HUD, as before a match has its text canvases.
 
 
 class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):

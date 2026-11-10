@@ -1,6 +1,6 @@
 # Save data memory map
 
-What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T9 (core settings format 3, `TYEX` extension version 21).
+What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T10 (core settings format 3, `TYEX` extension version 21).
 
 Everything here is inside Melee's existing main save entry, so it uses the game's own save, checksum and encryption. Tyro never adds a new file or grows the save. Offsets are from the start of the game-data object (`stc_memcard`), not raw GCI offsets.
 
@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **18 bits** in word 72 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **4 bits** in word 72 |
 | **Unallocated spare score slots** | `0x1B2C..0x1B37` | **12 bytes** | nothing | **12 bytes (96 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 18 bits in word 72 and scattered single bits. The core record is full.
+**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 4 bits in word 72 and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -44,7 +44,7 @@ The original Training Mode settings bytes, repacked by Tyro (format 3). Code: [s
 | --- | --- | --- |
 | 0..3 | 32 | OSD on/off mask, one bit per native OSD ID (big-endian). Bits 27 and 30 are kept in sync for older builds, but the real values live in `TYEX`. |
 | 4 | 8 | OSD position (HUD / Sides / Top Left / Top Right) |
-| 5 | 0-1 | Event menu page |
+| 5 | 0-1 | Event menu page: Minigames, General Tech, Character-specific Tech, Doubles. Since T10 all four values are pages, so nothing here is ever invalid; the Event Select Screen resets a selection past the page's last event |
 | 5 | 2-7 | Selected event on that page |
 | 6 | 0 | "Recommended OSDs" flag (legacy) |
 | 6 | 1-5 | Saved **Player character** (ID + 1, 0 = none) |
@@ -136,7 +136,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
-| 72..75 | 2v1 Grab Punish's team select, Edgeguard's newer recovery rows | word 72 (table below) | bits 14-31 |
+| 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice | word 72 (table below) | bits 28-31 |
 
 Free bits inside the record: 1 + 6 + 4 = **11 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
@@ -285,7 +285,7 @@ Migrating to version 20 zeroes this word and then writes the defaults, so the sp
 | 24-28 | Edgeguard: Falco's side-B rows 8-12, the same way |
 | 29-31 | Edgeguard: Knockback Distance plus 1: 1 Random, 2 Close, 3 Near, 4 Medium, 5 Far. 0 means no choice saved yet, so word 60 bits 0-2 still hold Hit Strength |
 
-**Word 72: 2v1 Grab Punish's team select and Edgeguard's newer recovery rows** (T9, version 21)
+**Word 72: Grab Punish's team select, Edgeguard's newer recovery rows and Passing Practice** (T9, version 21)
 
 Every migration to version 21 zeroes this word, so its spare bits are zero in every record that owns it, and any event can grow into them with no version bump if the new setting's default is 0. Version 20 and older records read no character saved.
 
@@ -296,6 +296,14 @@ Every migration to version 21 zeroes this word, so its spare bits are zero in ev
 | 10 | Edgeguard: Firefox To Ledge, default off. No version bump |
 | 11 | Edgeguard: Firebird To Ledge, the same way |
 | 12-13 | Edgeguard: Luigi's Up B Sweetspot and Backflip Jump Sweetspot, default off, the same way |
+| 14-16 | Passing Practice (T10): Teammate Aerial (Neutral / Forward / Back / Up / Down Air, default Back Air). No version bump |
+| 17-21 | Passing Practice: Enemy Percent (0% to 200% in steps of 10, default 40%) |
+| 22 | Passing Practice: Percent Mode (Frozen % / Rising %, default Frozen %) |
+| 23-25 | Passing Practice: Distance (Very Close / Close / Medium / Far / Very Far, default Medium) |
+| 26-27 | Passing Practice: Your Side (Left / Right / Random, default Left) |
+| 28-31 | Spare |
+
+Passing Practice stores each row as its distance from its default, `(value + count - default) % count`, so the zeros every record has there read as the defaults. A stored value past the row's choices reads as invalid and is repaired to the default. Version 20 and older records read the defaults. Its Session Best and Previous counts are RAM-only (below).
 
 P1 and P2 use the normal saved characters (core bytes 6 and 37), which already tell Zelda and Sheik apart.
 
@@ -306,6 +314,7 @@ These live in RAM only and reset when the game closes:
 - The game's character-select backup (`stc_memcard + 0xD10`, 3344). Tyro restores it at boot from the saved character (core bytes 6/37) and costume (`TYEX` bytes 50/51).
 - Which form each character select door has on the Zelda icon (`TM_SETTING_DOOR_ZELDA`). It comes from the saved characters each time the select opens.
 - The Global Settings page, the manual OSD page, Techchase/Ledgechase manual chances, and custom camera coordinates.
+- Passing Practice's Session Best and Previous counts for each Percent Mode, and what it has measured of the teammate's aerial and jumps. The event's `.dat` reloads with every match, which clears them.
 - All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 16 left.
 
 ## Adding something new
