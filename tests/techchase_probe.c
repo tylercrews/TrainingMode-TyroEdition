@@ -23,8 +23,12 @@ static GOBJ test_cpu;
 static FighterData test_cpu_data;
 static Figatree test_animation;
 static int native_calls;
+static float test_roll;
+static int test_coin, randi_calls, randf_calls;
 
 int GrColl_CheckIfLineEnabled(int line) { return test_enabled[line]; }
+int HSD_Randi(int max) { ++randi_calls; return test_coin % max; }
+float HSD_Randf(void) { ++randf_calls; return test_roll; }
 int Stage_GetExternalID(void) { return test_stage_id; }
 GOBJ *Fighter_GetGObj(int player) { return &test_cpu; }
 __attribute__((noinline)) int TestTCNativeWaitIASA(GOBJ *cpu) {
@@ -102,12 +106,35 @@ int TestTCChangePlacement(int height, int distance) {
     ApplyStartingLocation();
     return writes;
 }
+int TestTCChangeSide(int side) {
+    Options_Main[OPT_SIDE].val = side;
+    Options_Main[OPT_SIDE].OnChange((GOBJ *)1, side);
+    ApplyStartingLocation();
+    return writes;
+}
+// Choose the side without the menu callback or a save, as a loaded setting.
+int TestTCSetSide(int side) { Options_Main[OPT_SIDE].val = side; return side; }
 int TestTCReloadPlacement(void) {
     Options_Main[OPT_HEIGHT].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT);
     Options_Main[OPT_DISTANCE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE);
+    Options_Main[OPT_SIDE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SIDE);
     ApplyStartingLocation();
     return automatic_position;
 }
+// The next HSD_Randf (roll / 1000000) and HSD_Randi (coin % max) results.
+int TestTCRandom(int roll, int coin) {
+    test_roll = roll / 1000000.f; test_coin = coin; randi_calls = randf_calls = 0;
+    return 1;
+}
+int TestTCRandomCalls(int floats) { return floats ? randf_calls : randi_calls; }
+int TestTCApply(void) { ApplyStartingLocation(); return Options_Main[OPT_LOCATION].val; }
+int TestTCDPad(int down) { ReadDPad(down); return Options_Main[OPT_SIDE].val; }
+int TestTCSideRow(void) { return Options_Main[OPT_SIDE].val | Options_Main[OPT_SIDE].val_prev << 8; }
+int TestTCAutomatic(int set) { if (set >= 0) automatic_position = set; return automatic_position; }
+int TestTCRowCount(int distance) { return Options_Main[distance ? OPT_DISTANCE : OPT_SIDE].value_num; }
+unsigned TestTCRowValue(int distance, int i) { return (unsigned)(distance ? Options_Distance : Options_Side)[i]; }
+unsigned TestTCRowName(int distance) { return (unsigned)Options_Main[distance ? OPT_DISTANCE : OPT_SIDE].name; }
+int TestTCRowIndex(int distance) { return distance ? OPT_DISTANCE : OPT_SIDE; }
 int TestTCPlacementSaved(int index) { return saved_preferences[index]; }
 unsigned TestTCResetAddress(void) { return (unsigned)Reset; }
 int TestTCLocationAvailable(int location) { return location_available[location]; }

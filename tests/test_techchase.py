@@ -8,6 +8,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "build/test-deps"))
+LEDGE_MARGIN = 5  # TC_LEDGE_MARGIN
+SIDES = ((0, -1), (1, 1))  # Player Side Left / Right, and the direction from the CPU to HMN.
+DISTANCES = (10, 20, 30, 45)  # Right Next To, Close, Medium, Past Tech Roll; Random is 4.
+DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP, BUTTON_A = 1, 2, 4, 8, 0x100
+SETTING_TECHCHASE, DISTANCE_INDEX, SIDE_INDEX = 27, 10, 11  # TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE/_SIDE
 from unicorn import Uc, UC_ARCH_PPC, UC_MODE_32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
 from unicorn import ppc_const as reg
 
@@ -47,6 +52,7 @@ class Machine:
                 for at in range(0, size, entry):
                     name, value, *_ = struct.unpack_from(">IIIBBH", elf, offset + at)
                     self.symbols[names[name:].split(b"\0", 1)[0].decode()] = value
+        self.lines = []
         self.call("TestTCInit")
 
     def call(self, name, *args):
@@ -58,8 +64,32 @@ class Machine:
         value = self.cpu.reg_read(reg.UC_PPC_REG_3)
         return value if value < 0x80000000 else value - 0x100000000
 
+    def stage(self, stage_id):
+        self.lines = []
+        return self.call("TestTCStage", stage_id)
+
     def line(self, ax, ay, bx, by, flags=0, enabled=1):
+        self.lines.append((ax, ay, bx, by, flags, enabled))
         return self.call("TestTCAddLine", *[round(v * 1000) for v in (ax, ay, bx, by)], flags, enabled)
+
+    def player_x(self, cpu_x, direction, spacing):
+        """Where HMN should stand: spacing to its side of the CPU, but at least
+        LEDGE_MARGIN in from the ends of the enabled solid floors."""
+        solid = [(min(ax, bx), max(ax, bx)) for ax, _, bx, _, flags, enabled in self.lines
+                 if enabled and not flags & 0x100]
+        left, right = min(l for l, _ in solid), max(r for _, r in solid)
+        return min(max(cpu_x + direction * spacing, left + LEDGE_MARGIN), right - LEDGE_MARGIN)
+
+    def hook_reset(self, test):
+        """Return at Reset's entry: the savestate/engine work needs a real match."""
+        reset = self.call("TestTCResetAddress")
+        calls = []
+        def body(cpu, address, size, user):
+            calls.append(True)
+            cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
+        hook = self.cpu.hook_add(UC_HOOK_CODE, body, begin=reset, end=reset)
+        test.addCleanup(self.cpu.hook_del, hook)
+        return calls
 
     def position(self, actor):
         return tuple(self.call("TestTCPosition", actor, i) / 1000 for i in (0, 1))
@@ -183,25 +213,44 @@ class TechchaseTests(unittest.TestCase):
             ("GrPs.dat", 3, {34, 35, 36, 51, 52, 53, 54}),
             ("GrNLa.dat", 32, None)
         ]:
-            with self.subTest(stage=filename):
-                self.m.call("TestTCStage", stage_id)
-                for index, ax, ay, bx, by, flags in native_floors(filename):
-                    self.m.line(ax, ay, bx, by, flags, normal_lines is None or index in normal_lines)
-                self.m.call("TestTCChooseLocation", 0)
-                self.assertEqual(self.m.position(0)[0], -5)
-                self.assertEqual(self.m.position(1)[0], 5)
-                for location in (1, 2, 3):
-                    actual = self.m.call("TestTCChooseLocation", location)
-                    expected = 0 if filename == "GrNLa.dat" or filename == "GrPs.dat" and location == 3 else location
-                    self.assertEqual(actual, expected)
-                    hmn, cpu = self.m.position(0), self.m.position(1)
-                    self.assertAlmostEqual(abs(cpu[0] - hmn[0]), 10, places=3)
-                    self.assertLess(hmn[1], 1)
-                    if actual:
-                        self.assertGreater(cpu[1], 40)
-                    self.assertEqual(self.m.call("TestTCFacing", 0), 1 if cpu[0] > hmn[0] else -1)
-                self.assertEqual(self.m.call("TestTCLocationDisabled"), filename == "GrNLa.dat")
-                self.assertEqual(self.m.call("TestTCWriteCount"), 0)  # No save writes for per-stage fallback.
+            for side, direction in SIDES:
+                with self.subTest(stage=filename, side=side):
+                    self.m.stage(stage_id)
+                    for index, ax, ay, bx, by, flags in native_floors(filename):
+                        self.m.line(ax, ay, bx, by, flags, normal_lines is None or index in normal_lines)
+                    self.m.call("TestTCSetSide", side)
+                    self.m.call("TestTCChooseLocation", 0)
+                    # Left keeps the original x=-5/x=5 spots; Right mirrors them.
+                    self.assertEqual(self.m.position(0)[0], 5 * direction)
+                    self.assertEqual(self.m.position(1)[0], -5 * direction)
+                    for location in (1, 2, 3):
+                        actual = self.m.call("TestTCChooseLocation", location)
+                        expected = 0 if filename == "GrNLa.dat" or filename == "GrPs.dat" and location == 3 else location
+                        self.assertEqual(actual, expected)
+                        hmn, cpu = self.m.position(0), self.m.position(1)
+                        self.assertAlmostEqual(hmn[0], self.m.player_x(cpu[0], direction, 10), places=3)
+                        self.assertGreater((hmn[0] - cpu[0]) * direction, 0)  # HMN is on its side.
+                        self.assertLess(hmn[1], 1)
+                        if actual:
+                            self.assertGreater(cpu[1], 40)
+                        if actual in (0, 3):
+                            self.assertAlmostEqual(cpu[0], -5 * direction, places=3)
+                        self.assertEqual(self.m.call("TestTCFacing", 0), -direction)
+                        self.assertEqual(self.m.call("TestTCFacing", 1), direction)
+                    self.assertEqual(self.m.call("TestTCLocationDisabled"), filename == "GrNLa.dat")
+                    self.assertEqual(self.m.call("TestTCWriteCount"), 0)  # No save writes for per-stage fallback.
+        # Yoshi's side platforms overhang its ledges (x = +-56), so left of the
+        # left platform's middle (-43.75) HMN stops 5 in from the ledge.
+        self.m.stage(8)
+        for index, ax, ay, bx, by, flags in native_floors("GrSt.dat"):
+            self.m.line(ax, ay, bx, by, flags, index in {2, 3, 4, 5, 6, 1})
+        self.m.call("TestTCSetSide", 0)
+        self.assertEqual(self.m.call("TestTCChooseLocation", 1), 1)
+        self.assertAlmostEqual(self.m.position(1)[0], -43.75, places=3)
+        self.assertAlmostEqual(self.m.position(0)[0], -51, places=3)
+        self.m.call("TestTCSetSide", 1)  # The old layout: toward stage center.
+        self.assertEqual(self.m.call("TestTCChooseLocation", 1), 1)
+        self.assertAlmostEqual(self.m.position(0)[0], -33.75, places=3)
 
     def test_dynamic_fountain_geometry_and_missing_platforms(self):
         # These are live transformed positions, including changing heights.
@@ -228,47 +277,130 @@ class TechchaseTests(unittest.TestCase):
         self.m.line(-49, 20, -21, 20, 0x400)
         self.assertEqual(self.m.call("TestTCChooseLocation", 1), 0)
 
-    def test_saved_height_and_distance_on_every_available_legal_stage_target(self):
+    def test_saved_height_distance_and_side_on_every_available_legal_stage_target(self):
         m=self.m
         # Bound savestate/engine reset work; execute the real menu callbacks,
         # settings API writes and production live-geometry placement.
-        reset=m.call('TestTCResetAddress')
-        reset_calls=[]
-        def reset_body(cpu,address,size,user):
-            reset_calls.append(True)
-            cpu.reg_write(reg.UC_PPC_REG_PC,cpu.reg_read(reg.UC_PPC_REG_LR))
-        hook=m.cpu.hook_add(UC_HOOK_CODE,reset_body,begin=reset,end=reset)
-        try:
-            for filename,stage,normal in [('GrSt.dat',8,{1,2,3,4,5,6}),('GrNBa.dat',31,None),
-                                        ('GrOp.dat',28,None),('GrPs.dat',3,{34,35,36,51,52,53,54}),
-                                        ('GrNLa.dat',32,None),('GrIz.dat',2,None)]:
-                m.call('TestTCStage',stage)
-                if filename=='GrIz.dat':
-                    m.line(-65,0,65,0)
-                    for ax,ay,bx,by in [(-49,11,-21,11),(21,35,49,35),(-14,43,14,43)]:m.line(ax,ay,bx,by,0x100)
-                else:
-                    for index,ax,ay,bx,by,flags in native_floors(filename):
-                        m.line(ax,ay,bx,by,flags,normal is None or index in normal)
+        reset_calls=m.hook_reset(self)
+        m.call('TestTCRandom',250000,0)  # Random spacing is 15 here.
+        for filename,stage,normal in [('GrSt.dat',8,{1,2,3,4,5,6}),('GrNBa.dat',31,None),
+                                    ('GrOp.dat',28,None),('GrPs.dat',3,{34,35,36,51,52,53,54}),
+                                    ('GrNLa.dat',32,None),('GrIz.dat',2,None)]:
+            m.stage(stage)
+            if filename=='GrIz.dat':
+                m.line(-65,0,65,0)
+                for ax,ay,bx,by in [(-49,11,-21,11),(21,35,49,35),(-14,43,14,43)]:m.line(ax,ay,bx,by,0x100)
+            else:
+                for index,ax,ay,bx,by,flags in native_floors(filename):
+                    m.line(ax,ay,bx,by,flags,normal is None or index in normal)
+            for side,direction in SIDES:
+                m.call('TestTCChangeSide',side)
+                self.assertEqual(m.call('TestTCPlacementSaved',SIDE_INDEX),side)
+                self.assertEqual(m.call('TestTCLastWriteIndex'),SIDE_INDEX)
                 for location in range(4):
                     m.call('TestTCChangePlacement',0,0)
                     selected=m.call('TestTCChooseLocation',location)
                     base=m.position(1)
                     for height,units in enumerate((27,15,40,54)):
-                        for distance,spacing in enumerate((10,20,30,45)):
-                            m.call('TestTCChangePlacement',height,distance)
-                            cpu,hmn=m.position(1),m.position(0)
-                            self.assertEqual(m.call('TestTCPlacementSaved',9),height)
-                            self.assertEqual(m.call('TestTCPlacementSaved',10),distance)
-                            self.assertEqual(m.call('TestTCLastWriteField'),27)
-                            self.assertEqual(m.call('TestTCLastWriteIndex'),10)
-                            self.assertAlmostEqual(cpu[1]-base[1],units-27,delta=.002)
-                            self.assertAlmostEqual(abs(cpu[0]-hmn[0]),spacing,delta=.002)
-                            self.assertLess(hmn[1],1)
-                            before=(cpu,hmn)
-                            self.assertEqual(m.call('TestTCReloadPlacement'),1)
-                            self.assertEqual((m.position(1),m.position(0)),before)
-            self.assertGreater(len(reset_calls),0)
-        finally:m.cpu.hook_del(hook)
+                        for distance,spacing in enumerate(DISTANCES+(15,)):
+                            with self.subTest(stage=filename,side=side,location=location,height=height,distance=distance):
+                                m.call('TestTCChangePlacement',height,distance)
+                                cpu,hmn=m.position(1),m.position(0)
+                                self.assertEqual(m.call('TestTCPlacementSaved',9),height)
+                                self.assertEqual(m.call('TestTCPlacementSaved',DISTANCE_INDEX),distance)
+                                self.assertEqual(m.call('TestTCPlacementSaved',SIDE_INDEX),side)
+                                self.assertEqual(m.call('TestTCLastWriteField'),SETTING_TECHCHASE)
+                                self.assertEqual(m.call('TestTCLastWriteIndex'),DISTANCE_INDEX)
+                                self.assertEqual(m.call('TestTCLocationAvailable',selected),1)
+                                self.assertAlmostEqual(cpu[1]-base[1],units-27,delta=.002)
+                                self.assertAlmostEqual(hmn[0],m.player_x(cpu[0],direction,spacing),delta=.002)
+                                self.assertGreater((hmn[0]-cpu[0])*direction,0)
+                                self.assertLess(hmn[1],1)
+                                before=(cpu,hmn)
+                                self.assertEqual(m.call('TestTCReloadPlacement'),1)
+                                self.assertEqual((m.position(1),m.position(0)),before)
+        self.assertGreater(len(reset_calls),0)
+
+    def test_random_distance_rolls_each_reset_from_right_next_to_through_medium(self):
+        m = self.m
+        m.hook_reset(self)
+        m.stage(32)
+        m.line(-85.5657, 0, 85.5657, 0)
+        self.assertEqual(m.call('TestTCRowCount', 1), 5)
+        names = [bytes(m.cpu.mem_read(m.call('TestTCRowValue', 1, i), 16)).split(b'\0', 1)[0] for i in range(5)]
+        self.assertEqual(names, [b'Right Next To', b'Close', b'Medium', b'Past Tech Roll', b'Random'])
+        for distance, spacing in enumerate(DISTANCES):  # The fixed spacings never roll.
+            m.call('TestTCRandom', 500000, 0)
+            m.call('TestTCChangePlacement', 0, distance)
+            self.assertEqual(m.call('TestTCRandomCalls', 1), 0)
+            self.assertAlmostEqual(m.position(1)[0] - m.position(0)[0], spacing, delta=.002)
+        # Each attempt rolls once, anywhere from Right Next To (10) to Medium (30).
+        m.call('TestTCChangePlacement', 0, 4)
+        for roll in (0, 250000, 500000, 731000, 999999):
+            m.call('TestTCRandom', roll, 0)
+            m.call('TestTCApply')
+            self.assertEqual(m.call('TestTCRandomCalls', 1), 1)
+            self.assertEqual(m.position(1)[0], 5)
+            self.assertAlmostEqual(m.position(1)[0] - m.position(0)[0], 10 + 20 * roll / 1e6, delta=.002)
+        self.assertEqual(m.call('TestTCPlacementSaved', DISTANCE_INDEX), 4)
+        m.call('TestTCRandom', 500000, 0)
+        self.assertEqual(m.call('TestTCReloadPlacement'), 1)  # The saved Random still rolls.
+        self.assertAlmostEqual(m.position(1)[0] - m.position(0)[0], 20, delta=.002)
+        self.assertEqual(m.call('TestTCRandomCalls', 1), 1)
+
+    def test_player_side_menu_random_side_and_saving(self):
+        m = self.m
+        m.hook_reset(self)
+        m.stage(32)
+        m.line(-85.5657, 0, 85.5657, 0)
+        name = lambda address: bytes(m.cpu.mem_read(address, 16)).split(b'\0', 1)[0]
+        self.assertEqual(name(m.call('TestTCRowName', 0)), b'Player Side')
+        self.assertEqual(m.call('TestTCRowIndex', 0), m.call('TestTCRowIndex', 1) + 1)  # Just after Player Distance.
+        self.assertEqual(m.call('TestTCRowCount', 0), 3)
+        self.assertEqual([name(m.call('TestTCRowValue', 0, i)) for i in range(3)], [b'Left', b'Right', b'Random'])
+        for side, direction in SIDES:  # A fixed side never rolls.
+            m.call('TestTCRandom', 0, 1 - side)
+            m.call('TestTCChangeSide', side)
+            self.assertEqual(m.call('TestTCRandomCalls', 0), 0)
+            self.assertEqual(m.position(0)[0], 5 * direction)
+        for coin, direction in ((0, -1), (1, 1), (0, -1)):  # Random flips again each reset.
+            m.call('TestTCRandom', 0, coin)
+            m.call('TestTCChangeSide', 2)
+            self.assertEqual(m.call('TestTCRandomCalls', 0), 1)
+            self.assertEqual((m.position(0)[0], m.position(1)[0]), (5 * direction, -5 * direction))
+            self.assertEqual(m.call('TestTCFacing', 0), -direction)
+            self.assertEqual(m.call('TestTCPlacementSaved', SIDE_INDEX), 2)
+            self.assertEqual(m.call('TestTCLastWriteField'), SETTING_TECHCHASE)
+            self.assertEqual(m.call('TestTCLastWriteIndex'), SIDE_INDEX)
+        m.call('TestTCAutomatic', 0)  # Choosing a side restores automatic placement.
+        m.call('TestTCChangeSide', 0)
+        self.assertEqual(m.call('TestTCAutomatic', -1), 1)
+
+    def test_dpad_left_and_right_pick_the_side_and_restart(self):
+        m = self.m
+        resets = m.hook_reset(self)
+        m.call('TestTCSetSide', 0)
+        m.call('TestTCAutomatic', 0)  # Manually moved fighters.
+        writes = m.call('TestTCWriteCount')
+        for buttons in (0, DPAD_UP, DPAD_DOWN, BUTTON_A, DPAD_UP | DPAD_DOWN):  # Other buttons do nothing.
+            self.assertEqual(m.call('TestTCDPad', buttons), 0)
+        self.assertEqual(len(resets), 0)
+        # D-Pad left on Left only restarts, as it always has, keeping the fighters.
+        self.assertEqual(m.call('TestTCDPad', DPAD_LEFT), 0)
+        self.assertEqual((len(resets), m.call('TestTCWriteCount'), m.call('TestTCAutomatic', -1)), (1, writes, 0))
+        # A new side is chosen, saved and laid out automatically, like the menu row.
+        self.assertEqual(m.call('TestTCDPad', DPAD_RIGHT), 1)
+        self.assertEqual(m.call('TestTCSideRow'), 1 | 1 << 8)
+        self.assertEqual((len(resets), m.call('TestTCAutomatic', -1)), (2, 1))
+        self.assertEqual((m.call('TestTCPlacementSaved', SIDE_INDEX), m.call('TestTCLastWriteIndex')), (1, SIDE_INDEX))
+        self.assertEqual(m.call('TestTCDPad', DPAD_RIGHT), 1)
+        self.assertEqual((len(resets), m.call('TestTCWriteCount')), (3, writes + 1))
+        self.assertEqual(m.call('TestTCDPad', DPAD_LEFT), 0)
+        self.assertEqual((len(resets), m.call('TestTCPlacementSaved', SIDE_INDEX)), (4, 0))
+        m.call('TestTCSetSide', 2)  # From Random, the D-Pad picks a fixed side.
+        self.assertEqual(m.call('TestTCDPad', DPAD_LEFT), 0)
+        self.assertEqual(m.call('TestTCSideRow'), 0)
+        self.assertEqual(m.call('TestTCDPad', DPAD_LEFT | DPAD_RIGHT), 0)  # Both at once: left wins.
 
     def test_spotdodge_first_wait_frame_and_reset_only_after_completion(self):
         self.m.call("TestTCDodgeReset")

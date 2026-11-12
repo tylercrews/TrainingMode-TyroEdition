@@ -6,10 +6,15 @@
 #include <string.h>
 
 typedef struct ExtensionPreference { uint8_t shift, width; uint16_t count, initial; } ExtensionPreference;
+/* Player Distance's Random (T10) needs a third bit: word 9's spare bit 15 is
+ * its top bit (see top_bit). No version bump: no record ever wrote that bit,
+ * so saved distances keep their meaning, and v1 migration clears it. Player
+ * Side (T10) takes byte 50 bits 3..4 (word 48 bits 19..20), see
+ * preference_offset. */
 static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
     {0,4,9,0}, {4,1,2,0}, {5,1,2,1}, {6,2,3,0},
     {8,2,3,0}, {10,2,3,0}, {12,2,4,0}, {14,1,2,0}, {16,3,8,7},
-    {19,2,4,0}, {21,2,4,0},
+    {19,2,4,0}, {21,2,TM_TECHCHASE_DISTANCE_COUNT,0}, {19,2,TM_TECHCHASE_SIDE_COUNT,0},
 };
 /* The Lava Overlay bit is word 20's former padding: every record that owns
  * word 20 (version 11 on) zeroed it, so no version bump is needed. Remove
@@ -126,6 +131,7 @@ static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
 typedef char TMExtension_GrabPunishTopBits[(TM_GP_PERCENT_COUNT<=16 && TM_GP_MASH_COUNT<=8) ? 1 : -1];
 typedef char TMExtension_UpBMarthTopBit[(TM_UPB_MARTH_COUNT<=4) ? 1 : -1];
 static unsigned top_bit(unsigned field,unsigned index) {
+    if(field==TM_SETTING_TECHCHASE) return index==TM_TECHCHASE_DISTANCE?RECORD_BIT(9,15):0;
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_MARTH?RECORD_BIT(56,31):0;
     if(field!=TM_SETTING_GRAB_PUNISH) return 0;
     return index==TM_GP_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,22):index==TM_GP_MATE_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,23):
@@ -212,9 +218,13 @@ static void set_color_extra(uint8_t *r,unsigned slot,unsigned value) {
 #define GRID_BITS 5
 #define GRID_END (GRID_OFFSET+(TM_OSD_GRID_SLOTS*GRID_BITS+7)/8)
 /* Version 17 appends bytes 50..51: the human and CPU costume (0..5) of the
- * saved character. Every migration to 17 zeroes them (Default costume). */
+ * saved character. Every migration to 17 zeroes them (Default costume). A
+ * costume is read and repaired through bits 0..2 only. It used to be bits
+ * 0..4, but every write stored 0..5 there and every repair cleared them, so
+ * bits 3..4 are clear in every record that owns the byte. Techchase's Player
+ * Side (T10) takes byte 50's, with no version bump; byte 51's stay spare. */
 #define COSTUME_OFFSET 50
-#define COSTUME_MASK 0x1Fu
+#define COSTUME_MASK 0x07u
 /* Egg Counter Position takes the top bits of the CPU costume's byte, word 48
  * bits 29..31. A costume is at most 5 and a higher byte always repaired to 0, so
  * every record that owns that byte has them clear: zero is Top Left, the
@@ -296,7 +306,8 @@ static unsigned preference_offset(unsigned field, unsigned index) {
             index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_PASSING) return TEAM_CHARACTERS_OFFSET;
-    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
+    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
+        (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
         return index>=TM_EG_RECOVERY_FOX_UPB?TEAM_CHARACTERS_OFFSET:
@@ -396,8 +407,10 @@ int TMExtension_Prepare(uint8_t *r) {
         TMExtension_Init(r);
         /* Existing palette/Tech fields and still-unclaimed padding retain
          * their bits. Initialize CPU color to Lavender and the two new selectors
-         * to zero in byte 11, preserving its remaining high padding bit. */
+         * to zero in byte 11, preserving its remaining high padding bit.
+         * Byte 10's top padding bit is now Player Distance's top bit. */
         memcpy(r+8,old+8,3);
+        r[10]&=0x7F;
         r[11]=(old[11]&0x80)|(r[11]&7);
     } else if(version11(r)) {
         /* Keep every previous preference/padding bit except the newly claimed
@@ -523,7 +536,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return value<p->count?value:p->initial;
     }
     /* Version 17 is the first to own the costume bytes. */
-    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) {
+    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
+        (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) {
         unsigned value=supported(r)||v17||v18||v19||v20?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }

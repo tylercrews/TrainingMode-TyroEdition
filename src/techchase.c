@@ -20,6 +20,7 @@ static void ChangePreset(GOBJ *menu_gobj, int value);
 static void ChangeLocation(GOBJ *menu_gobj, int value);
 static void ChangeHeight(GOBJ *menu_gobj, int value);
 static void ChangeDistance(GOBJ *menu_gobj, int value);
+static void ChangeSide(GOBJ *menu_gobj, int value);
 static void ChangeReactionOSD(GOBJ *menu_gobj, int value);
 static void ChangeTimingOSD(GOBJ *menu_gobj, int value);
 static void ChangeReset(GOBJ *menu_gobj, int value);
@@ -103,9 +104,13 @@ static const char *Options_Preset[] = {
 };
 static const char *Options_Location[] = {"Center Stage", "Left Plat", "Right Plat", "Top Plat"};
 static const char *Options_Height[] = {"Normal", "Short", "Tall", "Double"};
-static const char *Options_Distance[] = {"Right Next To", "Close", "Medium", "Past Tech Roll"};
+static const char *Options_Distance[] = {"Right Next To", "Close", "Medium", "Past Tech Roll", "Random"};
+static const char *Options_Side[] = {"Left", "Right", "Random"};
 static const char *Options_LocationDisplay[TC_LOCATION_COUNT];
 static const char *Options_CPUColor[] = {TM_CPU_INVINCIBILITY_NAMES};
+typedef char TCMenuMatchesSave[(countof(Options_Distance) == TC_DISTANCE_COUNT &&
+    TC_DISTANCE_COUNT == TM_TECHCHASE_DISTANCE_COUNT && countof(Options_Side) == TC_SIDE_COUNT &&
+    TC_SIDE_COUNT == TM_TECHCHASE_SIDE_COUNT) ? 1 : -1];
 
 enum {
     OPT_CHANCE_MENU,
@@ -116,6 +121,7 @@ enum {
     OPT_LOCATION,
     OPT_HEIGHT,
     OPT_DISTANCE,
+    OPT_SIDE,
     OPT_SPOTDODGE,
     OPT_CPU_COLOR,
     OPT_SPEED,
@@ -183,10 +189,23 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_STRING,
         .name = "Player Distance",
-        .desc = {"Choose horizontal spacing from the CPU.", "HMN stays on the ground, facing the target.", "This setting is saved."},
+        .desc = {"Choose horizontal spacing from the CPU.",
+                 "Random picks a new spacing each reset, anywhere",
+                 "from Right Next To through Medium.",
+                 "HMN stays on the ground. This setting is saved."},
         .values = Options_Distance,
         .value_num = TC_DISTANCE_COUNT,
         .OnChange = ChangeDistance,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Player Side",
+        .desc = {"Which side of the CPU HMN starts on.",
+                 "Random picks again each reset. This is saved.",
+                 "D-Pad left/right also picks a side and restarts."},
+        .values = Options_Side,
+        .value_num = TC_SIDE_COUNT,
+        .OnChange = ChangeSide,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -433,6 +452,9 @@ static float hmn_facing_direction = 1;
 static bool automatic_position = true;
 static int location_available[TC_LOCATION_COUNT];
 static int previous_location = TC_CENTER;
+// This attempt's side and spacing; Random rolls them again on every reset.
+static int player_direction = -1;
+static float player_distance = 10;
 
 static int IsPlatformLine(const CollLineDesc *line) {
     /* Native MapLine.lo_flags LINE_FLAG_PLATFORM is 0x0100. The SDK's
@@ -462,9 +484,41 @@ static int FindSolidGround(float x, Vec3 *position, int *index) {
     return found;
 }
 
+// The leftmost and rightmost ends of the enabled solid floors.
+static int SolidGroundEdges(float *left, float *right) {
+    CollDataStage *stage = *stc_colldata;
+    CollLine *lines = *stc_collline;
+    CollVert *verts = *stc_collvert;
+    if (!stage || !lines || !verts) return 0;
+    int found = 0;
+    for (int i = 0; i < stage->line_num; ++i) {
+        CollLineDesc *line = lines[i].desc;
+        if (!line || !line->is_floor || IsPlatformLine(line) || line->disabled || !GrColl_CheckIfLineEnabled(i) ||
+            line->vert_prev < 0 || line->vert_next < 0 ||
+            line->vert_prev >= stage->vert_num || line->vert_next >= stage->vert_num) continue;
+        Vec2 a = verts[line->vert_prev].pos_curr, b = verts[line->vert_next].pos_curr;
+        float lo = a.X < b.X ? a.X : b.X, hi = a.X > b.X ? a.X : b.X;
+        if (!found || lo < *left) *left = lo;
+        if (!found || hi > *right) *right = hi;
+        found = 1;
+    }
+    return found;
+}
+
+// HMN's ground spot for a CPU above cpu_x, on this attempt's side.
+static int FindPlayerGround(float cpu_x, Vec3 *ground) {
+    float left, right;
+    int line_index;
+    float x = cpu_x + player_direction * player_distance;
+    if (SolidGroundEdges(&left, &right)) x = TC_PlayerX(cpu_x, player_direction, player_distance, left, right);
+    if (FindSolidGround(x, ground, &line_index)) return 1;
+    *ground = (Vec3){x, 0, 0};
+    return 0;
+}
+
 static int FindLocationSurface(int location, Vec3 *position) {
     int line_index;
-    if (location == TC_CENTER) return FindSolidGround(5, position, &line_index);
+    if (location == TC_CENTER) return FindSolidGround(-5.f * player_direction, position, &line_index);
     int stage_id = Stage_GetExternalID();
     if (stage_id != GRKINDEXT_STORY && stage_id != GRKINDEXT_IZUMI &&
         stage_id != GRKINDEXT_FD && stage_id != GRKINDEXT_PSTAD &&
@@ -482,11 +536,9 @@ static int FindLocationSurface(int location, Vec3 *position) {
             line->vert_prev >= stage->vert_num || line->vert_next >= stage->vert_num) continue;
         Vec2 a = verts[line->vert_prev].pos_curr, b = verts[line->vert_next].pos_curr;
         float x, y;
-        if (!TC_SurfaceTarget(a.X, a.Y, b.X, b.Y, IsPlatformLine(line), location, &x, &y)) continue;
-        float distance = TC_PlayerDistance(Options_Main[OPT_DISTANCE].val);
-        float hmn_x = x < 0 ? x + distance : x - distance;
+        if (!TC_SurfaceTarget(a.X, a.Y, b.X, b.Y, IsPlatformLine(line), location, player_direction, &x, &y)) continue;
         Vec3 ground;
-        if (!FindSolidGround(hmn_x, &ground, &line_index) || y <= ground.Y + 4) continue;
+        if (!FindPlayerGround(x, &ground) || y <= ground.Y + 4) continue;
         float score = location == TC_TOP_PLATFORM ? y : -fabs(x);
         if (!found || score > best) { *position = (Vec3){x, y, 0}; best = score; found = 1; }
     }
@@ -506,24 +558,31 @@ static void RefreshLocationChoices(void) {
         !location_available[TC_RIGHT_PLATFORM] && !location_available[TC_TOP_PLATFORM];
 }
 
+// Settle this attempt's side and spacing, rolling whichever is Random.
+static void RollPlacement(void) {
+    int side = Options_Main[OPT_SIDE].val;
+    player_direction = TC_PlayerDirection(side, side == TC_SIDE_RANDOM ? HSD_Randi(2) : 0);
+    int distance = Options_Main[OPT_DISTANCE].val;
+    player_distance = TC_PlayerDistance(distance, distance == TC_DISTANCE_RANDOM ? HSD_Randf() : 0);
+}
+
 static void ApplyStartingLocation(void) {
+    RollPlacement();
     RefreshLocationChoices();
     int location = Options_Main[OPT_LOCATION].val;
     Vec3 surface, ground;
-    int line_index;
     if (!location_available[location] || !FindLocationSurface(location, &surface)) {
         location = TC_CENTER;
         Options_Main[OPT_LOCATION].val = location;
-        if (!FindLocationSurface(location, &surface)) surface = (Vec3){5, 0, 0};
+        if (!FindLocationSurface(location, &surface)) surface = (Vec3){-5.f * player_direction, 0, 0};
     }
     previous_location = location;
-    float distance = TC_PlayerDistance(Options_Main[OPT_DISTANCE].val);
-    float hmn_x = surface.X < 0 ? surface.X + distance : surface.X - distance;
-    if (!FindSolidGround(hmn_x, &ground, &line_index)) ground = (Vec3){hmn_x, 0, 0};
+    FindPlayerGround(surface.X, &ground);
     hmn_pos = ground;
     cpu_pos = (Vec3){surface.X, surface.Y + TC_DropHeight(Options_Main[OPT_HEIGHT].val), 0};
-    hmn_facing_direction = surface.X > hmn_x ? 1 : -1;
-    cpu_facing_direction = -hmn_facing_direction;
+    // Face each other, even where the ledge squeezes HMN in under the CPU.
+    hmn_facing_direction = -player_direction;
+    cpu_facing_direction = player_direction;
 }
 
 static void Reset(void) {
@@ -660,6 +719,20 @@ void MoveFighter(GOBJ *ft, Vec3 *pos, float *facing_direction) {
     pos->Y += y * 1.5f;
     ft_data->phys.pos = *pos;
     UpdatePosition(ft);
+}
+
+/* D-Pad left/right picks HMN's side and restarts, like the Player Side row.
+ * Pressing the side already chosen only restarts, as D-Pad left always has,
+ * so manually moved fighters stay where they were put. */
+static void ReadDPad(int down) {
+    int side = down & HSD_BUTTON_DPAD_LEFT ? TC_SIDE_LEFT : down & HSD_BUTTON_DPAD_RIGHT ? TC_SIDE_RIGHT : -1;
+    if (side < 0) return;
+    if (side == Options_Main[OPT_SIDE].val) {
+        Reset();
+        return;
+    }
+    Options_Main[OPT_SIDE].val = Options_Main[OPT_SIDE].val_prev = side;
+    ChangeSide(0, side);
 }
 
 void Event_Think(GOBJ *menu) {
@@ -863,8 +936,7 @@ void Event_Think(GOBJ *menu) {
         }
     }
 
-    if (pad->down & HSD_BUTTON_DPAD_LEFT)
-        Reset();
+    ReadDPad(pad->down);
 
     if (reset_timer >= 0 && reset_timer-- == 0) {
         const float deadzone = 0.2750f;
@@ -932,6 +1004,7 @@ void Event_Init(GOBJ *gobj) {
     Options_Main[OPT_LOCATION].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_LOCATION);
     Options_Main[OPT_HEIGHT].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT);
     Options_Main[OPT_DISTANCE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE);
+    Options_Main[OPT_SIDE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SIDE);
     Options_Main[OPT_SPOTDODGE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE);
     Options_Main[OPT_CPU_COLOR].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR);
     event_vars->set_cpu_invincibility_overlay(&Options_Main[OPT_CPU_COLOR].val);
@@ -965,6 +1038,11 @@ static void ChangeHeight(GOBJ *menu, int value) {
 }
 static void ChangeDistance(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE, value);
+    automatic_position = true;
+    Reset();
+}
+static void ChangeSide(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SIDE, value);
     automatic_position = true;
     Reset();
 }

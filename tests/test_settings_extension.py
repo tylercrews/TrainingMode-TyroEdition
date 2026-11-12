@@ -6,8 +6,11 @@ import test_settings as fixtures
 from test_settings import Machine, RECORD, ROOT
 
 EXT = 0x8045A6C0 + 0x1AE0
-COUNTS = (9, 2, 2, 3, 3, 3, 4, 2, 8, 4, 4)
-DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0)
+# Techchase. Player Distance (index 10) gained Random (T10), its top bit in word
+# 9's spare bit 15; Player Side (index 11, T10) is byte 50 bits 3-4.
+COUNTS = (9, 2, 2, 3, 3, 3, 4, 2, 8, 4, 5, 3)
+DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0, 0)
+TECH_DISTANCE, TECH_SIDE = 10, 11
 LEDGE_COUNTS = (4, 2, 7, 15, 5, 8, 33, 12, 3, 3)
 LEDGE_DEFAULTS = (0, 0, 0, 0, 1, 7, 0, 0, 2, 0)
 PS_COUNTS = (4,61,61,5,2,4,2,2,2,2)
@@ -748,9 +751,9 @@ class ExtensionTests(unittest.TestCase):
         for index, value in ((0, 6), (1, 0xFFFFFFFF), (2, 1)):
             m.call('Settings_Set', COSTUME, index, value)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
-        m.cpu.mem_write(EXT + 51, b'\x09')  # A damaged byte repairs to Default.
+        m.cpu.mem_write(EXT + 51, b'\x0E')  # A damaged costume (6) repairs to Default,
         self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (5, 0))
-        self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0)
+        self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0x08)  # leaving the spare bits 3-4 alone.
 
     def test_teammate_percent_shares_the_human_costume_byte_without_disturbing_it(self):
         m = self.m
@@ -1112,8 +1115,12 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Get', 27, 0)
         after = bytes(m.cpu.mem_read(EXT, OWNED_SIZE))
         self.assertEqual(after[:9], before[:9])
-        self.assertEqual(after[10] & 0x80, 0x80)
-        self.assertEqual(after[11], 0xA5)
+        # Byte 10 bit 7 is Player Distance's top bit, so the damaged distance
+        # (5, with low bits 1) repairs to Right Next To; color, height and
+        # Under Fire's pillar bit keep their bits.
+        self.assertEqual(after[10] & 0x80, 0)
+        self.assertEqual(after[11], 0x85)
+        self.assertEqual(m.call('Settings_Get', 27, TECH_DISTANCE), 0)
         self.assertEqual(after[14]&0xF8, 0xB8)
         self.assertEqual(after[15], 0x80)
         self.assertEqual(m.call('Settings_Get', 27, 0), 0)
@@ -1132,10 +1139,11 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(0x80432A68, struct.pack('>2I', 0x80409000, 0x8040A000))
         self.assertEqual(m.call('Settings_Get', 14, 30), 5)
         self.assertEqual(tuple(m.call('Settings_Get', 27, i) for i in range(len(COUNTS))),
-                         (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0))
+                         (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0, 0))
         self.assertEqual(tuple(m.call('Settings_Get', 28, i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
+        # Byte 10's padding bit 7 becomes Player Distance's top bit, so it is cleared.
         self.assertEqual(bytes(m.cpu.mem_read(EXT, OWNED_SIZE)),
-                         HEADER + b'\x85\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES + COLOR_BYTES)
+                         HEADER + b'\x85\x98\x7A\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES + COLOR_BYTES)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, REGION_SIZE - OWNED_SIZE)),
                          b'\xE5' * (REGION_SIZE - OWNED_SIZE))
         self.assertEqual(m.record(), core)
@@ -1172,7 +1180,8 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(after[24:OWNED_SIZE], COLOR_BYTES)
             self.assertEqual(after[6:8], legacy[6:8])
             self.assertEqual(after[8], legacy[8] & ~NEW_BITS)  # Newly owned bits are cleared.
-            self.assertEqual(after[9:11], legacy[9:11])
+            self.assertEqual(after[9], legacy[9])
+            self.assertEqual(after[10], legacy[10] & 0x7F)  # Bit 15 is Player Distance's top bit; v2 had no distance.
             self.assertEqual(after[11], legacy[11] & 0x87)
             mask = ~((15 << 18) | (3 << 22)) & 0xFFFFFF
             self.assertEqual(int.from_bytes(after[12:15], 'little') & mask, int.from_bytes(legacy[12:15], 'little') & mask)
@@ -1204,7 +1213,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(tuple(m.call('Settings_Get',27,i) for i in (9,10)),(0,0))
             self.assertEqual(m.call('Settings_Get',29,0),0)
             after=bytes(m.cpu.mem_read(EXT,REGION_SIZE))
-            expected=bytearray(legacy);expected[4]=7;expected[11]&=0x87;expected[14]=(expected[14]&0xC3)|0x10;expected[15]=(expected[15]&0xC0)|(0,1,13,31,11)[action]
+            expected=bytearray(legacy);expected[4]=7;expected[10]&=0x7F;expected[11]&=0x87;expected[14]=(expected[14]&0xC3)|0x10;expected[15]=(expected[15]&0xC0)|(0,1,13,31,11)[action]
             self.assertEqual(after,upgraded(expected)+b'\xE5'*(REGION_SIZE-OWNED_SIZE))
 
     def test_v4_migration_preserves_particle_height_distance_and_clears_score_marker(self):
@@ -1240,7 +1249,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field >= 30: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                             tuple(5 if field == 28 and i == 3 else 11 if field == 28 and i == 6 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else count - 1
+                             tuple(0 if field == 27 and i == TECH_SIDE else 5 if field == 28 and i == 3 else 11 if field == 28 and i == 6 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else count - 1
                                    for i, count in enumerate(counts)))
 
     def test_v6_migration_preserves_all_other_preferences_and_spare_bits(self):
@@ -1276,7 +1285,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field == 31: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                tuple(6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
+                tuple(0 if field == 27 and i == TECH_SIDE else 6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
         self.assertEqual(m.record(),core)
 
     def test_opaque_future_extension_cannot_be_claimed_by_powershield(self):
@@ -1362,7 +1371,7 @@ class ExtensionTests(unittest.TestCase):
         expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD));expected[20:24]=SHIELD_DEFAULT_BYTES;expected[24:OWNED_SIZE]=COLOR_BYTES; expected[8] &= ~NEW_BITS
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
         for field, counts, _ in FIELDS:
-            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15
+            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if (field == 30 and i >= 2) or (field == 27 and i == TECH_SIDE) else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15, byte 50 in 17
         for field, counts, defaults in SHIELD_FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),defaults)
 
@@ -1381,6 +1390,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
             self.assertEqual(m.call('Settings_Get',34,0),action if action<10 else 0)
             expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD)); expected[8] &= ~NEW_BITS; expected[35]=0  # Version 15 claims byte 35
+            expected[50]&=~0x18  # and version 17 byte 50, Techchase's Player Side.
             expected[20]=(expected[20]&0xF0) # Version-11 invalid attack padding repairs to choice zero.
             word=int.from_bytes(expected[20:24],'little')&~((1<<19)|(1<<20))
             if action>=10:word&=~(15<<9)
@@ -1465,6 +1475,53 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual([m.call('Settings_Get',27,i) for i in range(11)], tech)
         m.call('Settings_Set',29,3,0)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_techchase_random_distance_and_player_side_take_spare_bits_without_a_version_bump(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 5)  # Create the record. Side shares the human costume's byte
+        m.call('Settings_Set', GRAB_PUNISH, GP_MATE_PERCENT, 7)  # with Teammate Percent's low bits.
+        core = m.record()
+        self.assertEqual((m.call('Settings_Get', 27, TECH_DISTANCE), m.call('Settings_Get', 27, TECH_SIDE)), (0, 0))
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[50] & 0x18, 0)
+        self.assertEqual(before[10] & 0x80, 0)
+        def unchanged_neighbors():
+            self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', GRAB_PUNISH, GP_MATE_PERCENT)), (5, 7))
+            self.assertEqual(tuple(m.call('Settings_Get', 27, i) for i in range(TECH_DISTANCE)), DEFAULTS[:TECH_DISTANCE])
+        for side in range(3):  # Left, Right, Random in byte 50 bits 3-4.
+            m.call('Settings_Set', 27, TECH_SIDE, side)
+            expected = bytearray(before); expected[50] = (expected[50] & ~0x18) | side << 3
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+            self.assertEqual(m.call('Settings_Get', 27, TECH_SIDE), side)
+            unchanged_neighbors()
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', 27, TECH_SIDE, 3)  # Out of range is ignored.
+        m.call('Settings_Set', 27, TECH_SIDE + 1, 1)  # So is another index.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        m.call('Settings_Set', COSTUME, 0, 2)  # A costume change keeps the side.
+        self.assertEqual((m.call('Settings_Get', 27, TECH_SIDE), m.call('Settings_Get', COSTUME, 0)), (2, 2))
+        m.call('Settings_Set', COSTUME, 0, 5)
+        # Random (4) is the top bit, word 9 bit 15 (byte 10 bit 7), over clear low bits 21-22.
+        for distance in range(5):
+            m.call('Settings_Set', 27, TECH_DISTANCE, distance)
+            record = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((record[10] >> 7, record[11] >> 5 & 3), (distance >> 2, distance & 3))
+            self.assertEqual(m.call('Settings_Get', 27, TECH_DISTANCE), distance)
+            unchanged_neighbors()
+        self.assertEqual(m.call('Settings_Get', 27, TECH_SIDE), 2)
+        self.assertEqual(m.record(), core)  # The full core record is untouched.
+        # A damaged side (3) or distance (5..7) repairs to its default alone.
+        damaged = bytearray(m.cpu.mem_read(EXT, REGION_SIZE)); damaged[50] |= 0x18; damaged[10] |= 0x80; damaged[11] |= 0x60
+        m.cpu.mem_write(EXT, bytes(damaged))
+        self.assertEqual((m.call('Settings_Get', 27, TECH_DISTANCE), m.call('Settings_Get', 27, TECH_SIDE)), (0, 0))
+        unchanged_neighbors()
+        # Version 17 is the first record to own byte 50; older ones read Left.
+        m.call('Settings_Set', 27, TECH_SIDE, 2)
+        current = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for (version, payload), side in (((20, 64), 2), ((17, 44), 2), ((16, 42), 0), ((15, 28), 0), ((11, 16), 0)):
+            old = bytearray(current); old[4:6] = bytes((version, payload))
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, 27, TECH_SIDE), side, version)
 
     def test_older_records_read_the_pillars_bit_as_off_and_migrating_keeps_it_off(self):
         for version, payload in ((19,60), (18,56), (11,16), (6,8)):
@@ -1674,7 +1731,7 @@ class RelocatedExtensionTests(unittest.TestCase):
         core = m.record()
         self.assertEqual(m.call('DAT_Get',14,30), 6)
         self.assertEqual(tuple(m.call('DAT_Get',27,i) for i in range(len(COUNTS))),
-                         (8,1,0,2,2,2,3,1,7,0,0))
+                         (8,1,0,2,2,2,3,1,7,0,0,0))
         self.assertEqual(tuple(m.call('DAT_Get',28,i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), HEADER)
         self.assertEqual(bytes(m.cpu.mem_read(EXT+OWNED_SIZE,REGION_SIZE-OWNED_SIZE)),

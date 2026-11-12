@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **12 loose bits**, plus **1 bit** in word 72 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **9 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
 | **Unallocated spare score slots** | `0x1B2C..0x1B37` | **12 bytes** | nothing | **12 bytes (96 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -124,21 +124,21 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | --- | --- | --- | --- |
 | 0..7 | Header | `TYEX`, version (21), payload size (68), marker `A5 5A` | — |
 | 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
-| 9..11 | Techchase, Under Fire | word 9 bits 0-14 and 16-23 (table below) | bit 15 (byte 10 bit 7) |
+| 9..11 | Techchase, Under Fire | word 9 bits 0-23, fully used (table below). Bit 15 (byte 10 bit 7) is Player Distance's top bit since T10 | — |
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
 | 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish | word 20, fully used | — |
 | 24..34 | Global OSD colors, Ledgegrab Speedrun, 2v1 Grab Punish | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender. Byte 34 bits 4-5 are Ledgegrab Speedrun's Reset Speed (T9), stored as an offset from the default: 0 Short, 1 Linger, 2 Instant, and an invalid 3 reads as Short. Byte 34 bits 6-7 are the top bits of Grab Punish's Enemy Percent and Teammate Percent (T9). No version bump: every migration to version 15 zeroed this nibble and the color code keeps it. Read only from version 15 on, and Grab Punish's only from version 20 on | — |
 | 35 | Low Laser Puff Practice, 2v1 Grab Punish | bits 0-3 Puff position, bits 4-6 Puff height, bit 7 the top bit of Grab Punish's CPU Mashing (T9, no version bump: nothing else ever wrote it) | — |
 | 36..49 | Fixed Grid OSD positions, Eggs-ercise | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell. Byte 49 bits 6-7 are Eggs Under Platforms and Eggs In The Air (T9), Off by default. No version bump: every migration to version 16 zeroed them and the grid cells keep them. Read only from version 17 on, like the Egg Counter Position | — |
-| 50 | Character select, 2v1 Grab Punish | bits 0-2 **Player costume** (0..5), bits 5-7 the low bits of Teammate Percent (T9): 0% to 200% in steps of 20, default 0%, with its top bit in byte 34 bit 7. No version bump, for the same reason as the Egg Counter Position below. The costume is read and repaired through the low 5 bits | bits 3-4 |
-| 51 | Character select, Eggs-ercise | bits 0-2 **CPU costume** (0..5), bits 5-7 Eggs-ercise Egg Counter Position (T9): 0 Top Left (default), 1 Top Right, 2 Bottom Left, 3 Bottom Right, 4 Under Timer. No version bump: a costume is at most 5 and a higher byte always repaired to 0, so these bits are clear in every record that owns the byte. Read only from records that do (version 17 on). The costume is read and repaired through the low 5 bits, so a damaged byte still repairs to Default and keeps the position | bits 3-4 |
+| 50 | Character select, 2v1 Grab Punish | bits 0-2 **Player costume** (0..5), bits 5-7 the low bits of Teammate Percent (T9): 0% to 200% in steps of 20, default 0%, with its top bit in byte 34 bit 7. No version bump, for the same reason as the Egg Counter Position below. Bits 3-4 are Techchase's **Player Side** (T10): 0 Left (default), 1 Right, 2 Random, and an invalid 3 repairs to Left. No version bump: every costume write stored 0..5 and every repair cleared the low 5 bits, so they're clear in every record that owns the byte. Read only from version 17 on. Since T10 the costume is read and repaired through the low 3 bits (5 before) | — |
+| 51 | Character select, Eggs-ercise | bits 0-2 **CPU costume** (0..5), bits 5-7 Eggs-ercise Egg Counter Position (T9): 0 Top Left (default), 1 Top Right, 2 Bottom Left, 3 Bottom Right, 4 Under Timer. No version bump: a costume is at most 5 and a higher byte always repaired to 0, so these bits are clear in every record that owns the byte. Read only from records that do (version 17 on). The costume is read and repaired through the low 3 bits (5 before T10), so a damaged costume still repairs to Default and keeps the position and bits 3-4 | bits 3-4 |
 | 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot | word 72 (table below) | bit 31 |
 
-Free bits inside the record: 1 + 6 + 1 = **8 bits**. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: 6 + 2 + 1 = **9 bits**: word 12's six retired bits, byte 51 bits 3-4 and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -154,10 +154,10 @@ Free bits inside the record: 1 + 6 + 1 = **8 bits**. The 6 "retired" bits in wor
 | 10-11 | Camera |
 | 12-13 | Location |
 | 14 | Spotdodge |
-| 15 | *free* |
+| 15 | Distance's top bit (T10), so Random is 4. No version bump: no version ever wrote this bit, so saved distances keep their meaning; migrating a version 1 record clears it |
 | 16-18 | CPU invincibility color |
 | 19-20 | Height |
-| 21-22 | Distance |
+| 21-22 | Distance, low bits: 0 Right Next To, 1 Close, 2 Medium, 3 Past Tech Roll, 4 Random (T10, with bit 15). A stored 5-7 repairs to Right Next To |
 | 23 | Under Fire: Remove Fleshy Pillars (T9). No version bump: every record started with it zero and migrations only keep it |
 
 **Word 12: Ledgechase, Under Fire, Low Laser**

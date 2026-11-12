@@ -44,7 +44,7 @@ static void Exit(GOBJ *menu) {
 static EventOption rev_options[] = {
     {.kind=OPTKIND_STRING, .name="CPU Attack", .values=attacks, .value_num=countof(attacks),
      .OnChange=Change, .desc={"Choose the CPU attack to punish.", "Run Up JC Grab tracks your current position.", "Spotdodge Shine is intended for Fox/Falco.", "Your selection is saved."}},
-    {.kind=OPTKIND_STRING, .name="Player Distance", .values=distances, .value_num=TC_DISTANCE_COUNT,
+    {.kind=OPTKIND_STRING, .name="Player Distance", .values=distances, .value_num=TC_FIXED_DISTANCE_COUNT,
      .OnChange=Change, .desc={"Starting separation: 10, 20, 30 or 45 units.", "D-pad Left/Right fine-tunes the current spacing."}},
     {.kind=OPTKIND_STRING, .name="Player Facing", .values=facings, .value_num=2,
      .OnChange=Change, .desc={"Face towards or away from the CPU."}},
@@ -61,7 +61,7 @@ static EventOption aos_options[] = {
      .format="%d", .OnChange=Change, .desc={"React after blocking this many hits (1-5).", "Counts each shield hit, including multihits."}},
     {.kind=OPTKIND_TOGGLE, .name="Infinite Shields", .val=1, .OnChange=Change,
      .desc={"Keep both fighters' shields full while On.", "Overrides global Infinite Shields, including Off."}},
-    {.kind=OPTKIND_STRING, .name="Player Distance", .values=distances, .value_num=TC_DISTANCE_COUNT,
+    {.kind=OPTKIND_STRING, .name="Player Distance", .values=distances, .value_num=TC_FIXED_DISTANCE_COUNT,
      .OnChange=Change, .desc={"Starting separation: 10, 20, 30 or 45 units."}},
     {.kind=OPTKIND_STRING, .name="Shield DI", .values=shield_di, .value_num=countof(shield_di),
      .OnChange=Change, .desc={"Hold in toward the player, or out away from them,", "during shieldstun and shield hitlag.", "Direction follows positions, including swapped sides."}},
@@ -345,7 +345,7 @@ void *ShieldTraining_Control(int command, void *native_data) {
          * Only the two participating fighters are positioned by this event. */
         FighterData **saved=native_data;
         if(!saved || !saved[0] || !saved[2]) return 0;
-        float distance=TC_PlayerDistance(reversal?rev_options[TM_REV_DISTANCE].val:aos_options[TM_AOS_DISTANCE].val);
+        float distance=TC_FixedDistance(reversal?rev_options[TM_REV_DISTANCE].val:aos_options[TM_AOS_DISTANCE].val);
         float center=reversal?(saved[0]->phys.pos.X+saved[2]->phys.pos.X)*0.5f:0;
         float side=saved[0]->phys.pos.X<saved[2]->phys.pos.X?-1:1;
         for(int ply=0;ply<2;++ply) {
