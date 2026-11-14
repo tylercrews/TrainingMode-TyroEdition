@@ -78,7 +78,7 @@ typedef char grabercise_rows[(SAME_ORDER(OPT_RUN, TM_GRABS_RUN, MOVE_RUN) &&
 
 static void Retry(GOBJ *menu);
 static void Exit(GOBJ *menu);
-static void StartFreePractice(GOBJ *menu);
+static void ChangeFreePractice(GOBJ *menu, int value);
 static void ChangeWalk(GOBJ *menu, int value);
 static void ChangeRun(GOBJ *menu, int value);
 static void ChangeDash(GOBJ *menu, int value);
@@ -124,12 +124,13 @@ static EventOption Options_Main[OPT_COUNT] = {
         .menu = &Menu_Characters,
     },
     {
-        .kind = OPTKIND_FUNC,
-        .name = "Enable Free Practice",
-        .desc = {"Practice with no time limit, and choose how the",
-                 "CPU moves. Timed runs mix all four movements.",
-                 "Reset Event Settings goes back to timed runs."},
-        .OnSelect = StartFreePractice,
+        .kind = OPTKIND_TOGGLE,
+        .name = "Free Practice",
+        .desc = {"On: no time limit, and you choose how the CPU",
+                 "moves. Off: the timed minute, which mixes every",
+                 "movement and saves your best.",
+                 "Saved. Changing it restarts the match."},
+        .OnChange = ChangeFreePractice,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -279,6 +280,8 @@ static void LoadSettings(void) {
     for (int i = 0; i < TM_GRABS_MOVES; ++i) on += Options_Main[OPT_WALK + i].val;
     if (!on)
         for (int i = 0; i < TM_GRABS_MOVES; ++i) Options_Main[OPT_WALK + i].val = Options_Main[OPT_WALK + i].val_prev = 1;
+    Options_Main[OPT_FREEPRACTICE].val = Options_Main[OPT_FREEPRACTICE].val_prev =
+        TM_GetSetting(TM_SETTING_GRABERCISE, TM_GRABS_FREE_PRACTICE);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
     best = TM_GetSetting(TM_SETTING_GRABERCISE, TM_GRABS_BEST);
 }
@@ -350,15 +353,15 @@ static void Exit(GOBJ *menu) {
 static void StageSwap_BeforeRestart(void) { }
 static void FighterSwap_BeforeRestart(void) { }
 
-static void StartFreePractice(GOBJ *menu) {
-    TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_FREE_PRACTICE, 1);
-    // A timed run restarts, so the clock drops its countdown.
-    if (menu) {
-        Retry(menu);
-        return;
-    }
+/* The saved choice is the mode: Event_Init enters it as every match starts,
+ * so a change restarts the match. That also gives a timed run its countdown
+ * back, or takes it away. */
+static void ChangeFreePractice(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_FREE_PRACTICE, value);
+    Retry(menu);
+}
+static void EnterFreePractice(void) {
     reset_clock = true;
-    Options_Main[OPT_FREEPRACTICE].disable = 1;
     for (unsigned i = 0; i < countof(saved_rows); ++i) Options_Main[saved_rows[i]].disable = 0;
     stc_match->match.timer = MATCH_TIMER_COUNTUP;
     ShowCollision(Options_Main[OPT_COLLISION].val);
@@ -787,9 +790,8 @@ static void UpdateHUD(void) {
 void Event_Init(GOBJ *gobj) {
     LoadSettings();
     // A retry may reuse the module: rebuild the gating from the saved mode.
-    Options_Main[OPT_FREEPRACTICE].disable = 0;
     for (unsigned i = 0; i < countof(saved_rows); ++i) Options_Main[saved_rows[i]].disable = 1;
-    if (TM_GetSetting(TM_SETTING_GRABERCISE, TM_GRABS_FREE_PRACTICE)) StartFreePractice(0);
+    if (Options_Main[OPT_FREEPRACTICE].val) EnterFreePractice();
     else ShowCollision(0);
     StageSwap_Init();
     FighterSwap_Init();

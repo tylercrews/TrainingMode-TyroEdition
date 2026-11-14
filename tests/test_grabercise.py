@@ -98,23 +98,32 @@ class GrabSettingsTests(unittest.TestCase):
     def test_the_menu_has_the_stage_and_character_selects(self):
         p = Probe()
         names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(14)]
-        self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Enable Free Practice',
+        self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice',
                                  'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
                                  'Full Dash Dance', 'Half Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
 
     def test_timed_runs_grey_out_the_movement_rows_and_free_practice_opens_them(self):
+        # The Free Practice row itself is never greyed out, and shows the saved mode.
         p = Probe()
         self.assertEqual([p.row(row, 1) for row in MOVE_ROWS + (OPT_COLLISION,)], [1] * 7)
-        self.assertEqual((p.row(OPT_FREEPRACTICE, 1), p.info(12)), (0, 0))
+        self.assertEqual((p.row(OPT_FREEPRACTICE), p.row(OPT_FREEPRACTICE, 1), p.info(12)), (0, 0, 0))
         p = Probe(prefs={FREE_PRACTICE: 1})
         self.assertEqual([p.row(row, 1) for row in MOVE_ROWS + (OPT_COLLISION,)], [0] * 7)
-        self.assertEqual((p.row(OPT_FREEPRACTICE, 1), p.info(12)), (1, 1))
+        self.assertEqual((p.row(OPT_FREEPRACTICE), p.row(OPT_FREEPRACTICE, 1), p.info(12)), (1, 0, 1))
 
-    def test_enable_free_practice_saves_it_and_restarts(self):
+    def test_the_free_practice_toggle_is_saved_and_restarts_either_way(self):
         p = Probe()
-        p.select(OPT_FREEPRACTICE)
+        self.assertEqual(p.row(OPT_FREEPRACTICE, 2), 5)  # OPTKIND_TOGGLE
+        p.menu(OPT_FREEPRACTICE, 1)
         self.assertEqual((p.pref(FREE_PRACTICE), p.info(4)), (1, 1))
+        # The next match starts from the saved choice: Free Practice.
+        p = Probe(prefs={FREE_PRACTICE: p.pref(FREE_PRACTICE)})
+        self.assertEqual((p.row(OPT_FREEPRACTICE), p.info(12)), (1, 1))
+        p.menu(OPT_FREEPRACTICE, 0)
+        self.assertEqual((p.pref(FREE_PRACTICE), p.info(4)), (0, 1))
+        p = Probe(prefs={FREE_PRACTICE: p.pref(FREE_PRACTICE)})
+        self.assertEqual((p.row(OPT_FREEPRACTICE), p.info(12)), (0, 0))
 
     def test_the_movement_rows_are_saved_and_the_last_one_stays_on(self):
         p = Probe(prefs={FREE_PRACTICE: 1})
@@ -154,6 +163,7 @@ class GrabSettingsTests(unittest.TestCase):
         p.select(OPT_DEFAULTS)
         self.assertEqual([p.pref(i) for i in range(9)], [17, 0, 1, 1, 1, 1, 1, 1, 0])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
+        self.assertEqual(p.row(OPT_FREEPRACTICE), 0)
 
 
 class GrabSpawnTests(unittest.TestCase):
