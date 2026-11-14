@@ -97,7 +97,7 @@ class GrabSettingsTests(unittest.TestCase):
         p = Probe()
         names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(12)]
         self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Enable Free Practice',
-                                 'Full Speed Walk', 'Full Speed Run', 'Full Speed Dash', 'Rolling',
+                                 'Full Speed Walk', 'Full Speed Run', 'Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
 
     def test_timed_runs_grey_out_the_movement_rows_and_free_practice_opens_them(self):
@@ -267,17 +267,20 @@ class GrabMovementTests(unittest.TestCase):
                 self.assert_stays_on(p, MAIN_LEFT)
                 self.assert_crosses(p, 15)
 
-    def test_dashing_foxtrots_without_running_and_dashes_back_at_each_end(self):
+    def test_dash_dancing_cuts_each_dash_off_with_a_quick_dash_back(self):
         for character, signed_timer in self.cases():
             with self.subTest(character=character, signed_timer=signed_timer):
                 p = self.moving(DASH, character, signed_timer)
                 self.assertEqual(p.stat(2), 0, 'ran')
-                # Game & Watch's dash ends before frame 20, so it dashes
-                # again from Wait; the rest dash again from the dash.
-                self.assertGreaterEqual(p.stat(17), 15)
-                if character != GAME_AND_WATCH:
-                    self.assertGreaterEqual(p.stat(3), 8)
-                self.assertGreaterEqual(p.stat(4), 2)
+                # Each dash the way it's heading lasts until the frame its
+                # script would make it a run, and no longer.
+                self.assertLessEqual(p.stat(22), p.m.call('TestGrabsChar', 3) + 1)
+                self.assertGreaterEqual(p.stat(18), 20)
+                # Then a dash back of a frame or two, against that dash, that
+                # really moves the CPU back, before the next dash forward.
+                self.assertGreaterEqual(p.stat(19), 15)
+                self.assertEqual(p.stat(20), p.stat(19))
+                self.assertEqual(p.stat(21), p.stat(20))
                 self.assertGreaterEqual(p.speed(12), p.char(2) * .99)
                 self.assert_stays_on(p, MAIN_LEFT)
                 self.assert_crosses(p, 20)

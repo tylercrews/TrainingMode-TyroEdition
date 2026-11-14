@@ -326,7 +326,7 @@ Every migration to version 22 zeroes this word, and each row is stored as its di
 | 11-15 | Escape IC Grab: Your Percent (0% to 200% in steps of 10, default 0%) |
 | 16-22 | Grab-ercise (T10): timed best, 0 (none yet) to 127. No version bump, like the rest of Grab-ercise's bits: every migration to 22 zeroed them. Saved here rather than in a score slot, so Reset Records doesn't clear it |
 | 23 | Grab-ercise: Free Practice (Off / On, default Off, so timed runs) |
-| 24-27 | Grab-ercise: Full Speed Walk, Full Speed Run, Full Speed Dash, Rolling (default On, stored inverted as each row's distance from its default). The event turns them all back on if a save has every one off |
+| 24-27 | Grab-ercise: Full Speed Walk, Full Speed Run, Dash Dance (was Full Speed Dash), Rolling (default On, stored inverted as each row's distance from its default). The event turns them all back on if a save has every one off |
 | 28 | Grab-ercise: Fighter Collision (default Off) |
 | 29-31 | Spare |
 

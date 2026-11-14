@@ -10,6 +10,7 @@
 #include <stdarg.h>
 
 enum { HMN_FT, CPU_FT };
+#define REDASH_FRAME 20.f // PlCo 0x4C: past this dash frame, any fresh smash turns or dashes again.
 static EventVars vars;
 static GOBJ event, fighters[2], nana_gobj;
 static FighterData ft[2], nana;
@@ -125,9 +126,14 @@ static struct engine {
     int smash_turn, turned, just_turned, turn_after;
     int turnrun_from, paused, unpaused;
     int roll_dir, signed_timer;
+    float pending;   // A new dash's push, applied by its first physics (xE8).
+    int dash_entered;
 } eng;
 static struct stats {
     int frames, fell, runs, redashes, dash_starts, dash_turns, run_turns, rolls, walk_dashes;
+    // Dash legs: frames in each dash, long (6+) or short (3 or fewer), and
+    // the short ones that went back against the last long one and moved back.
+    int long_legs, short_legs, short_back, moved_back, longest_leg;
     int dir_changes, last_dir, inputs;
     float top_walk, top_run, top_dash, min_x, max_x, min_y, max_y;
 } st;
@@ -186,6 +192,8 @@ void Text_SetText(Text *text, int row, const char *fmt, ...) { }
 
 static float Sign(float v) { return v < 0 ? -1 : 1; }
 static float Brake(float v, float by) { return fabs(v) <= by ? 0 : v - Sign(v) * by; }
+/* ftCo_Dash_Enter: the initial dash speed, added to what's left of the speed
+ * the other way, or topping up the speed this way. */
 static void DashEnter(int arg) {
     FighterData *f = &ft[CPU_FT];
     if (f->state_id == ASID_DASH) st.redashes++;
@@ -193,7 +201,9 @@ static void DashEnter(int arg) {
     Enter(ASID_DASH, eng.c->dash_len);
     f->ftcmd_var.flag0 = 0;
     eng.dash_arg = arg;
-    f->phys.self_vel_ground.X = f->facing_direction * eng.c->dash_init;
+    float init = f->facing_direction * eng.c->dash_init, v = f->phys.self_vel_ground.X;
+    eng.pending = v * f->facing_direction < 0 ? init : init - v;
+    eng.dash_entered = 1;
 }
 static void TurnEnter(int smash) {
     Enter(ASID_TURN, 11);
@@ -300,11 +310,14 @@ static void Interrupt(void) {
             eng.just_turned = 0;
             break;
         case ASID_DASH: {
+            /* A turn or a new dash out of a dash brakes the old one to a
+             * quarter (PlCo 0x54, 0.75 off), after the new dash's push is set. */
             float frame = f->state.frame;
             if (eng.dash_arg && frame <= 4) break; // Specials, items and attacks only.
-            if (frame <= REDASH_FRAME) {
-                if (toward < 0 && DashCheck()) break;
-            } else if (DashCheck()) break;
+            if (frame <= REDASH_FRAME ? toward < 0 && DashCheck() : DashCheck()) {
+                f->phys.self_vel_ground.X *= .25f;
+                break;
+            }
             if (shield) { Enter(ASID_GUARDON, 8); break; }
             if (f->ftcmd_var.flag0 && toward >= .625f) RunEnter();
             break;
@@ -391,9 +404,13 @@ static void Physics(void) {
             if (fabs(v) > st.top_walk) st.top_walk = fabs(v);
             break;
         }
-        case ASID_DASH:
-            if (frame > 1) v = DashRun(v, x);
+        case ASID_DASH: // The entry frame takes the push instead of accelerating.
+            if (frame > 0) v = DashRun(v, x);
+            else { v += eng.pending; eng.pending = 0; }
             if (fabs(v) > st.top_dash) st.top_dash = fabs(v);
+            break;
+        case ASID_TURN: // Friction, doubled above walk speed (ft_80084F3C).
+            v = Brake(v, fabs(v) > c->walk_max ? c->friction * 2 : c->friction);
             break;
         case ASID_RUN:
             v = DashRun(v, x);
@@ -439,9 +456,34 @@ static void Physics(void) {
     }
 }
 
+static int leg_dir, leg_len, last_long;
+static float leg_x;
+static void FinishLeg(void) {
+    if (leg_len >= 6) {
+        st.long_legs++;
+        last_long = leg_dir;
+        if (leg_len > st.longest_leg) st.longest_leg = leg_len;
+    } else if (leg_len <= 3) {
+        st.short_legs++;
+        if (last_long && leg_dir == -last_long) {
+            st.short_back++;
+            if ((ft[CPU_FT].phys.pos.X - leg_x) * last_long < 0) st.moved_back++;
+        }
+    }
+    leg_len = 0;
+}
 static void Observe(void) {
     FighterData *f = &ft[CPU_FT];
     st.frames++;
+    if (f->state_id == ASID_DASH) {
+        if (eng.dash_entered) {
+            if (leg_len) FinishLeg();
+            leg_dir = f->facing_direction;
+            leg_x = f->phys.pos.X - f->phys.self_vel_ground.X;
+            eng.dash_entered = 0;
+        }
+        leg_len++;
+    } else if (leg_len) FinishLeg();
     if (f->phys.pos.X < st.min_x) st.min_x = f->phys.pos.X;
     if (f->phys.pos.X > st.max_x) st.max_x = f->phys.pos.X;
     if (f->phys.pos.Y < st.min_y) st.min_y = f->phys.pos.Y;
@@ -451,6 +493,7 @@ static void Observe(void) {
 static void ResetStats(void) {
     FighterData *f = &ft[CPU_FT];
     st = (struct stats){0};
+    leg_len = last_long = 0;
     st.min_x = st.max_x = f->phys.pos.X;
     st.min_y = st.max_y = f->phys.pos.Y;
     st.last_dir = target.dir;
@@ -565,6 +608,7 @@ int TestGrabsSpot(int key) {
         case 4: return target.dir;
         case 5: return f->facing_direction;
         case 6: return f->state_id;
+        case 7: return f->phys.self_vel_ground.X * 1000;
     }
     return -1;
 }
@@ -613,6 +657,11 @@ int TestGrabsStat(int key) {
         case 15: return st.min_y * 1000;
         case 16: return st.max_y * 1000;
         case 17: return st.dash_starts;
+        case 18: return st.long_legs;
+        case 19: return st.short_legs;
+        case 20: return st.short_back;
+        case 21: return st.moved_back;
+        case 22: return st.longest_leg;
     }
     return -1;
 }
@@ -621,6 +670,7 @@ int TestGrabsChar(int key) {
         case 0: return eng.c->walk_max * 1000;
         case 1: return eng.c->terminal * 1000;
         case 2: return eng.c->dash_init * 1000;
+        case 3: return eng.c->dash_flag;
     }
     return -1;
 }

@@ -7,7 +7,8 @@
  * break. The CPU you picked appears somewhere on the stage you picked: on a
  * platform, on the ground under one, or anywhere along the ground. Half the
  * time it stands still; otherwise it walks, runs, dashes or rolls at full
- * speed, back and forth across the floor it's on. Grab it, throw it, and it
+ * speed, or dash dances, back and forth across the floor it's on. Grab it,
+ * throw it, and it
  * disappears and comes back somewhere else. A timed minute counts grabs, with
  * the best saved; Free Practice has no clock and lets you pick the movements.
  *
@@ -24,9 +25,11 @@
  *   can't be under 2.
  * - The dash script sets cmd_vars[0] (ftcmd_var.flag0) partway through (frame
  *   8-19 by character), and from then a stick 0x58 (0.625) forward turns the
- *   dash into Run (fn_800CA5F0). Past dash frame 0x4C (20) a fresh smash dashes
- *   again (the foxtrot), and before that, past 0x44 (4), a reversed fresh
- *   smash turns (Turn_Enter_Smash, then Dash on the next frame).
+ *   dash into Run (fn_800CA5F0). A reversed fresh smash turns a dash around
+ *   (Turn_Enter_Smash, then Dash on the next frame if the stick is still out),
+ *   from its fifth frame (0x44) or at once if the dash came from a turn. The
+ *   turn brakes the dash to a quarter of its speed (0x54, 0.75 off), and the
+ *   new dash adds its initial speed the other way (ftCo_Dash_Enter).
  * - From Run, a stick 0x38 (-0.375) back turns around (TurnRun), which brakes
  *   at the dash acceleration until the velocity reverses, then runs.
  * - From GuardOn or Guard, a stick 0x31C (0.7) out with the timer under 0x320
@@ -38,11 +41,9 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_ROLL };
 
 // PlCo values the inputs below rely on (see the comment above).
 #define TILT .25f          // 0x8: the tilt timers' crossing.
-#define REDASH_FRAME 20.f  // 0x4C: a smash past this dash frame dashes again.
 // CPU stick values (value / 127 in the game).
 #define STICK_FULL 127
 #define STICK_WALK 64      // .50: a walk, not a dash.
-#define STICK_DASH_HOLD 78 // .61: keeps a dash going without becoming a run (.625).
 #define SAFE_TILT_FRAMES 2 // A walk goes to full tilt once the timer reads this.
 
 /* A moving CPU turns back once it would otherwise stop closer than this to
@@ -147,10 +148,11 @@ static EventOption Options_Main[OPT_COUNT] = {
     },
     {
         .kind = OPTKIND_TOGGLE,
-        .name = "Full Speed Dash",
+        .name = "Dash Dance",
         .val = 1,
-        .desc = {"Moving CPUs can dash over and over at full speed",
-                 "(foxtrot), and dash back at each end.",
+        .desc = {"Moving CPUs can dash dance across: a full dash, a",
+                 "quick dash back for a frame or two, then the next",
+                 "dash, and the same the other way at each end.",
                  "One movement always stays on. Free Practice only."},
         .disable = 1,
         .OnChange = ChangeDash,
@@ -221,6 +223,9 @@ static struct target {
     bool placed;       // It has spawned this match.
     int move;          // MOVE_*
     int dir;           // Its heading, -1 or 1.
+    int leg;           // Dash Dance: the way this dash, or the next, goes.
+    int last_state;    // Last frame's state, and whether this dash came from a
+    bool turn_dash;    // turn, which can turn back at once (dash.x4 is 0).
     bool grabbed;      // Counted: waiting for the grab or throw to end.
     int air_frames;    // Airborne, not held.
     Vec3 spot;         // Where it last appeared.
@@ -468,7 +473,7 @@ static void Respawn(void) {
     SetPercent(ft, 0);
     GroundAt(cpu, spot, line);
     target.move = ChooseMove();
-    target.dir = HSD_Randi(2) ? 1 : -1;
+    target.dir = target.leg = HSD_Randi(2) ? 1 : -1;
     ft->facing_direction = ft->facing_direction_prev = target.dir;
     Fighter_EnterWait(cpu);
     ft->hurt.kind_game = ft->hurt.kind_script = 0;
@@ -477,6 +482,7 @@ static void Respawn(void) {
     ft->cpu.ai = 15;
     Fighter_UpdateCameraBox(cpu);
     target.placed = true;
+    target.last_state = ASID_WAIT;
     target.grabbed = false;
     target.air_frames = 0;
     target.spot = spot;
@@ -530,12 +536,14 @@ static float TurnRoom(FighterData *ft) {
             // Fall through.
         case MOVE_DASH: {
             /* A dash turns back almost at once (Turn_Enter_Smash, then a dash
-             * the other way), but only from its fifth frame (PlCo 0x44), after
-             * a neutral frame. A new dash, or the next foxtrot, commits to
-             * those first frames again. */
+             * the other way), after a neutral frame. A dash out of a turn can
+             * from its first frame, but one from standing only from its fifth
+             * (PlCo 0x44). */
             float frame = ft->state.frame, frames = 8;
-            if (ft->state_id == ASID_DASH && frame < REDASH_FRAME - 1)
-                frames = frame > 4 ? 3 : 8 - frame;
+            if (state == ASID_DASH)
+                frames = target.turn_dash || frame > 4 ? 3 : 8 - frame;
+            else if (state == ASID_TURN)
+                frames = 4;
             return speed * frames + EDGE_ROOM;
         }
         default:
@@ -552,7 +560,7 @@ static void Steer(FighterData *ft) {
     float x = ft->phys.pos.X;
     float ahead = target.dir > 0 ? target.right - x : x - target.left;
     float behind = target.dir > 0 ? x - target.left : target.right - x;
-    if (ahead < TurnRoom(ft) && behind > ahead) target.dir = -target.dir;
+    if (ahead < TurnRoom(ft) && behind > ahead) target.dir = target.leg = -target.dir;
 }
 
 // Last frame's stick: whether a full one now would be a fresh smash.
@@ -580,17 +588,26 @@ static int RunStick(FighterData *ft, int dir) {
             return Smash(ft, dir);
     }
 }
-static int DashStick(GOBJ *cpu, FighterData *ft, int dir) {
+/* A dash dance that travels: a full dash the way the CPU is heading, cut off
+ * where it would become a run (its script's flag) by a quick dash back, then
+ * as soon as that one can turn, the next dash forward. Each turn is a fresh
+ * smash (a neutral frame, then full), and the stick stays out through the
+ * Turn so it dashes. The dash back lasts two frames before turning again. */
+static int DashStick(FighterData *ft, int dir) {
     int state = ft->state_id;
-    if (state == ASID_TURN) return dir * STICK_FULL;
-    if (state != ASID_DASH || !Facing(ft, dir)) return Smash(ft, dir);
-    if (!ft->ftcmd_var.flag0) return dir * STICK_FULL;
-    // Neutral on the frame before the dash can go again (or ends), then smash.
-    float frame = ft->state.frame, last = Fighter_GetCurrentAnimLength(cpu) - 1;
-    float neutral = last < REDASH_FRAME ? last : REDASH_FRAME;
-    if (frame > REDASH_FRAME) return Smash(ft, dir);
-    if (frame >= neutral) return 0;
-    return dir * STICK_DASH_HOLD;
+    if (state == ASID_TURN) return target.leg * STICK_FULL;
+    if (state != ASID_DASH) {
+        target.leg = dir;
+        return Smash(ft, dir);
+    }
+    if (!Facing(ft, target.leg)) return Smash(ft, target.leg);
+    if (target.leg == dir) {
+        if (!ft->ftcmd_var.flag0) return dir * STICK_FULL;
+        target.leg = -dir; // The end of the dash: the quick dash back.
+    } else {
+        target.leg = dir;  // The dash back is under way: forward again.
+    }
+    return Smash(ft, target.leg);
 }
 static int RollStick(FighterData *ft, int dir) {
     int state = ft->state_id;
@@ -598,13 +615,16 @@ static int RollStick(FighterData *ft, int dir) {
 }
 
 static void Move(GOBJ *cpu, FighterData *ft) {
+    int state = ft->state_id;
+    if (state == ASID_DASH && target.last_state != ASID_DASH) target.turn_dash = target.last_state == ASID_TURN;
+    target.last_state = state;
     if (target.move == MOVE_STAND || ft->phys.air_state != 0) return;
     Steer(ft);
     int dir = target.dir;
     switch (target.move) {
         case MOVE_WALK: ft->cpu.lstickX = WalkStick(ft, dir); break;
         case MOVE_RUN: ft->cpu.lstickX = RunStick(ft, dir); break;
-        case MOVE_DASH: ft->cpu.lstickX = DashStick(cpu, ft, dir); break;
+        case MOVE_DASH: ft->cpu.lstickX = DashStick(ft, dir); break;
         case MOVE_ROLL:
             // Shield held throughout, so each roll ends back in shield. The
             // shield stays full, as Infinite Shields keeps it.
