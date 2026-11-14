@@ -17,9 +17,11 @@
  * Mashing. CapturePulled's and CaptureWait's animation callbacks (800DB8A4,
  * 800DB908) take PlCo 0x3A4 (1) off the timer a frame, and
  * Fighter_CheckGrabBreakout (8007DC08) takes PlCo 0x3A8 (6) more for a fresh
- * A, B, X or Y, and 6 more when the stick crosses into a new direction (past
- * PlCo 0x308 on either axis; the grab starts each axis at neither), at most one
- * of each a frame: 13 a frame at most. CaptureWait lets go at 0. A pummel's
+ * press in input.down & 0x80000F00 (A, B, X, Y, and the shield bit that the
+ * input build at 8006B070 sets for L, R or Z; Z also sets A), and 6 more when
+ * the control stick crosses into a new direction (past PlCo 0x308 on either
+ * axis; the grab starts each axis at neither), at most one of each a frame: 13
+ * a frame at most. It never reads the C-stick or D-pad. CaptureWait lets go at 0. A pummel's
  * flinch, CaptureDamage, runs neither, which is why wobbling's hits kept a
  * victim from mashing. So the timer drops by 1 + 6 x the frame's inputs, and the
  * counter reads that drop. It reads after the frame's hits (s_link 15), so it
@@ -110,10 +112,10 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_INFO,
         .name = "Mashing Info",
-        .desc = {"Each fresh A, B, X or Y and each new stick",
-                 "direction takes 6 frames off the grab, on top",
-                 "of 1 a frame: 13 a frame at most. The counter",
-                 "shows the inputs the game took."},
+        .desc = {"Each fresh A, B, X, Y, Z, L or R and each new",
+                 "control stick direction takes 6 frames off,",
+                 "on top of 1 a frame: 13 a frame at most. The",
+                 "C-stick and D-pad don't count in Melee."},
     },
     {
         .kind = OPTKIND_INFO,

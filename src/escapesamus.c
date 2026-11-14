@@ -126,6 +126,14 @@ static EventOption Options_Main[] = {
     },
     {
         .kind = OPTKIND_INFO,
+        .name = "SDI Info",
+        .desc = {"Flick the control stick to its rim (70%+) in",
+                 "hitlag: each flick moves you up to 6 units.",
+                 "The C-stick can't SDI in Melee. It only ASDIs:",
+                 "3 units as each hit's hitlag ends."},
+    },
+    {
+        .kind = OPTKIND_INFO,
         .name = "Help",
         .desc = {"Samus up-Bs as each attempt starts. Smash DI",
                  "away to fall out before her last hit launches",
