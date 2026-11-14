@@ -23,6 +23,10 @@ esac
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/passing-test.dat -i src/passing.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/escapesamus-test.dat -i src/escapesamus.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/escapeic-test.dat -i src/escapeic.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgechase-test.dat -i src/ledgechase.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgedash-trails-test.dat -i src/ledgedash.c src/ledgedash_logic.c
@@ -59,6 +63,8 @@ python tests/test_eggs.py -v
 python tests/test_edgeguard.py -v
 python tests/test_grabpunish.py -v
 python tests/test_passing.py -v
+python tests/test_escapesamus.py -v
+python tests/test_escapeic.py -v
 python tests/test_upbsweetspot.py -v
 python tests/test_savestate.py -v
 python tests/test_stage_swap.py -v

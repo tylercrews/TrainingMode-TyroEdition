@@ -399,6 +399,57 @@ EventDesc LowLaser = {
     .matchData = &LowLaser_MatchData,
 };
 
+/* Escape Samus Up-B and Escape IC Grab: snapshot escapes against a fixed CPU,
+ * with a count-up timer and the percent HUD, like Grab Punish Practice. */
+static EventMatchData Escape_MatchData = {
+    .timer = MATCH_TIMER_COUNTUP,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = true,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+EventDesc EscapeSamus = {
+    .tyro_edited = true,
+    .eventName = "Escape Samus Up-B\n",
+    .eventDescription = "Smash DI out of Samus's Screw Attack\nbefore its last hit launches you!",
+    .eventFile = "escapesamus",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = CKIND_SAMUS,
+    .stage = GRKINDEXT_BATTLE,
+    .disable_hazards = true,
+    .force_sopo = true, // Only one climber to SDI.
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3, // Before the fighters' physics, which runs SDI.
+    .matchData = &Escape_MatchData,
+};
+EventDesc EscapeIC = {
+    .tyro_edited = true,
+    .eventName = "Escape IC Grab (Beta)\n",
+    .eventDescription = "Mash out of the Ice Climbers' grab as fast as\nyou can! Beta: no handoffs yet.",
+    .eventFile = "escapeic",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = CKIND_ICECLIMBERS,
+    .stage = GRKINDEXT_FD,
+    .disable_hazards = true,
+    .force_sopo = true, // Only you get grabbed: no Nana of yours to free.
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &Escape_MatchData,
+};
+
 // Laser land training
 static EventMatchData LaserLand_MatchData = {
     .timer = MATCH_TIMER_HIDE,
@@ -930,6 +981,8 @@ static EventDesc *CharacterSpecific_Events[] = {
     &EscapeDThrowKnee,
     &FloatCancel,
     &LowLaser,
+    &EscapeSamus,
+    &EscapeIC,
 };
 static EventPage CharacterSpecific_Page = {
     .name = "Character-specific Tech",
@@ -959,7 +1012,7 @@ typedef char event_pages_fit_the_save[(countof(EventPages) == TM_EVENT_PAGES) ? 
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
 typedef char event_score_map_matches[(countof(Minigames_Events) == 6 &&
-    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 9 &&
+    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 11 &&
     countof(Doubles_Events) == 2) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
@@ -969,8 +1022,9 @@ unsigned Events_ScoreIndex(unsigned page, unsigned event) {
         return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;
     if (page == 3) /* Both Doubles events are unscored free practice. */
         return UINT32_MAX;
-    /* Up-B Sweetspot (3) and Low Laser (8) are unscored free practice; the
-     * events after Up-B Sweetspot keep their original slots. */
+    /* Up-B Sweetspot (3), Low Laser (8), Escape Samus Up-B (9) and Escape IC
+     * Grab (10) are unscored free practice; the events after Up-B Sweetspot
+     * keep their original slots. */
     return event == 3 || event > 7 ? UINT32_MAX : 21 + event - (event > 3);
 }
 

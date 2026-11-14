@@ -3477,7 +3477,7 @@ class EventMenuSaveTests:
                 chosen[index] = value
                 self.assertEqual(self.saved_values(), chosen, name)
         self.assertEqual(m.record(), core)  # Both events live in TYEX,
-        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x15\x44')  # on the card itself.
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x16\x48')  # on the card itself.
         for row, (_, _, default) in zip(self.rows, self.saved):
             m.cpu.mem_write(row+6, struct.pack('>2h', default, default))
         m.call('DAT_EventInit', 0)
@@ -3499,6 +3499,20 @@ class PassingSaveTests(EventMenuSaveTests, unittest.TestCase):
     natives = EventMenuSaveTests.natives + ('Text_CreateCanvas', 'Text_CreateText', 'Text_AddSubtext',
                                             'Text_SetColor', 'Text_SetScale', 'GObj_AddProc', 'memset')
     returns_null = ('Text_CreateText',)  # No HUD, as before a match has its text canvases.
+
+
+class EscapeSamusSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/escapesamus-test.dat'
+    field = 49  # TM_SETTING_ESCAPE_SAMUS
+    saved = (('Your Position', 3, 0), ('Distance', 4, 1), ('Samus Side', 3, 0), ('Your Percent', 21, 0))
+    natives = EventMenuSaveTests.natives + ('GObj_AddProc',)
+
+
+class EscapeICSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/escapeic-test.dat'
+    field = 50  # TM_SETTING_ESCAPE_IC
+    saved = (('Your Percent', 21, 0),)
+    natives = EventMenuSaveTests.natives + ('GObj_AddProc',)
 
 
 class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):

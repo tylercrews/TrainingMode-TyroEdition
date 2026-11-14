@@ -18,8 +18,8 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 21, 68  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x15\x44\xA5\x5A'
+CURRENT, PAYLOAD = 22, 72  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x16\x48\xA5\x5A'
 # Bytes 52..63 appended by version 18: Edgeguard's three words at their defaults
 # (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
 # CPU's default recovery toggles).
@@ -75,11 +75,20 @@ UPB_COUNTS, UPB_DEFAULTS = (2, 2, 3, 2), (1, 0, 0, 0)
 UPB_B0XX, UPB_MARTH, UPB_CAMERA = 1, 2, 3  # TMUpBSweetspotPreference, in menu order.
 MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 0, 1, 2
 EVENT_MENU_BYTES = bytes.fromhex('c0020100')
-# Bytes 24..75 appended by versions 15 to 21: one color nibble per OSD (all
+# Word 76, appended by version 22 (T10): Escape Samus Up-B (Your Position,
+# Distance, Samus Side, Your Percent) in bits 0-10 and Escape IC Grab (Your
+# Percent) in bits 11-15, each stored as its distance from its default, so the
+# defaults (Ground, Side, Random, 0%; 0%) are all zeros.
+ESCAPE_SAMUS, ESCAPE_IC = 49, 50  # TM_SETTING_ESCAPE_SAMUS, TM_SETTING_ESCAPE_IC
+ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS = (3, 4, 3, 21), (0, 1, 0, 0)
+ESCAPE_SAMUS_FIELDS = ((0, 2), (2, 2), (4, 2), (6, 5))  # (shift, width) in word 76, in menu order.
+ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS = (21,), (0,), ((11, 5),)
+ESCAPE_MASK = 0xFFFF
+# Bytes 24..79 appended by versions 15 to 22: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
-# human/CPU costumes (Default), the Edgeguard defaults, the event menus and the
-# team select's characters (none yet).
-COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES + bytes(4)
+# human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
+# team select's characters (none yet) and the escape events' menus.
+COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES + bytes(4) + bytes(4)
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -90,7 +99,7 @@ def upgraded(raw):
     value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
-    value[24:76] = COLOR_BYTES
+    value[24:OWNED_SIZE] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
     value[14] = (value[14] & 0x3F) | 0x80
@@ -99,7 +108,7 @@ def upgraded(raw):
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 76
+REGION_SIZE, OWNED_SIZE = 88, 80
 # Under Fire's Lava Overlay (index 2) and Remove Fleshy Pillars (index 3) live outside
 # FIELDS' tables: word 20 and word 9.
 PREF_COUNTS = {29: 4}
@@ -506,6 +515,97 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT + 72, (word | 31 << 17).to_bytes(4, 'little'))  # Percent 21..31 isn't one either.
         self.assertEqual(self.passing()[1], PASSING_DEFAULTS[1])
 
+    # Version 22 (T10): word 76, the escape events' menus.
+    def version_21_record(self):
+        """A version 21 record, with settings in word 72 and the words before it."""
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_PERCENT, 7); m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)
+        m.call('Settings_Set', PASSING, 1, 12); m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)
+        m.call('Settings_Set', EDGEGUARD, EG_LUIGI2, 3); m.call('Settings_Set', COSTUME, 1, 2)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((21, 68))
+        return old
+
+    def word_72_settings(self, read):
+        return (read(GRAB_PUNISH, GP_PERCENT), read(GRAB_PUNISH, GP_P3_CHARACTER), read(PASSING, 1),
+                read(UPB_SWEETSPOT, UPB_B0XX), read(EDGEGUARD, EG_LUIGI2), read(COSTUME, 1))
+
+    def escape(self, field, count):
+        return tuple(self.m.call('Settings_Get', field, i) for i in range(count))
+
+    def test_version_21_migration_keeps_every_byte_and_claims_only_word_76(self):
+        m = self.m
+        old = self.version_21_record()
+        old[76:80] = b'\xFF' * 4  # Version 21 never owned word 76.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(self.escape(ESCAPE_SAMUS, 4), ESCAPE_SAMUS_DEFAULTS)
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[76:80] = bytes(4)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(self.word_72_settings(lambda f, i: m.call('Settings_Get', f, i)), (7, 26, 12, 1, 3, 2))
+
+    def test_version_21_records_read_word_72_and_the_escape_defaults_without_writing(self):
+        m = self.m
+        old = self.version_21_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Spare score bytes are not menus.
+            old[76:80] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual(tuple(read(ESCAPE_SAMUS, i) for i in range(4)), ESCAPE_SAMUS_DEFAULTS)
+            self.assertEqual(read(ESCAPE_IC, 0), ESCAPE_IC_DEFAULTS[0])
+            self.assertEqual(self.word_72_settings(read), (7, 26, 12, 1, 3, 2))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_escape_menus_read_their_defaults_without_a_record_and_from_word_76s_zeros(self):
+        m = self.m
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), 0)
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', ESCAPE_SAMUS, 4, 1)  # Not rows.
+        m.call('Settings_Set', ESCAPE_IC, 1, 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+
+    def test_escape_menus_round_trip_in_word_76_bits_0_to_15_alone(self):
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's rows.
+        m.call('Settings_Set', PASSING, 1, 12)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for field, counts, defaults, fields in ((ESCAPE_SAMUS, ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS, ESCAPE_SAMUS_FIELDS),
+                                                (ESCAPE_IC, ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS)):
+            values = list(defaults)
+            for index, count in enumerate(counts):
+                for value in list(range(count)) + [defaults[index]]:
+                    m.call('Settings_Set', field, index, value)
+                    values[index] = value
+                    self.assertEqual(self.escape(field, len(counts)), tuple(values))
+                    after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                    self.assertEqual(after[:76] + after[80:], before[:76] + before[80:])
+                    word = int.from_bytes(after[76:80], 'little')
+                    shift, width = fields[index]
+                    self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - defaults[index]) % count)
+                    self.assertEqual(word & ~ESCAPE_MASK, 0)  # Bits 16-31 stay spare.
+                snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
+                    m.call('Settings_Set', field, index, value)
+                    self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 20)
+        m.call('Settings_Set', ESCAPE_IC, 0, 13)  # Neither event's rows move the other's.
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20), (13,)))
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_P3_CHARACTER), m.call('Settings_Get', PASSING, 1)), (26, 12))
+
+    def test_escape_menus_repair_stored_values_past_their_choices_to_their_defaults(self):
+        m = self.m
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 15)  # 150%: a real choice to keep.
+        m.call('Settings_Set', ESCAPE_IC, 0, 9)
+        word = int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little')
+        # Position 3 and Samus Side 3 aren't choices; all four distances are.
+        m.cpu.mem_write(EXT + 76, (word | 3 << 0 | 3 << 4).to_bytes(4, 'little'))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 15), (9,)))
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), word)
+        m.cpu.mem_write(EXT + 76, (word | 31 << 6 | 31 << 11).to_bytes(4, 'little'))  # Nor are percents 21..31.
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 4)[3], self.escape(ESCAPE_IC, 1)[0]), (0, 0))
+
     def test_version_20_records_read_the_passing_defaults_without_writing(self):
         m = self.m
         old = self.version_20_record()
@@ -849,7 +949,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.record(), core)
 
     def test_records_that_own_the_grid_bytes_read_egg_spawn_options_as_off(self):
-        for version, payload in ((17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)
@@ -883,7 +983,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 0), RESET_SHORT)
 
     def test_records_that_own_byte_34_read_its_clear_bits_as_short(self):
-        for version, payload in ((15, 28), (16, 42), (17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+        for version, payload in ((15, 28), (16, 42), (17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)  # Create the record.
@@ -932,7 +1032,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 2)
 
     def test_records_that_own_the_costume_bytes_read_their_clear_top_bits_as_top_left(self):
-        for version, payload in ((17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)

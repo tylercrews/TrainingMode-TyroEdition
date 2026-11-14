@@ -1,6 +1,6 @@
 # Save data memory map
 
-What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T10 (core settings format 3, `TYEX` extension version 21).
+What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T10 (core settings format 3, `TYEX` extension version 22).
 
 Everything here is inside Melee's existing main save entry, so it uses the game's own save, checksum and encryption. Tyro never adds a new file or grows the save. Offsets are from the start of the game-data object (`stc_memcard`), not raw GCI offsets.
 
@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2b) | `0x1AE0..0x1B2B` | 76 bytes | 76 bytes | **9 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
-| **Unallocated spare score slots** | `0x1B2C..0x1B37` | **12 bytes** | nothing | **12 bytes (96 bits)** |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **16 bits** in word 76, plus **9 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
+| **Unallocated spare score slots** | `0x1B30..0x1B37` | **8 bytes** | nothing | **8 bytes (64 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 12 whole bytes are free, all in one block at `0x1B2C..0x1B37`, plus 1 bit in word 72 and scattered single bits. The core record is full.
+**Bottom line:** 8 whole bytes are free, all in one block at `0x1B30..0x1B37`, plus word 76's top 16 bits, 1 bit in word 72 and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -35,6 +35,7 @@ The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37
 | 19 | T6 | 68 bytes | Recovery options of the CPUs added to Edgeguard (Yoshi to Samus) |
 | 20 | T9 | 72 bytes | 2v1 Grab Punish and Up-B Sweetspot settings |
 | 21 | T9 | 76 bytes | 2v1 Grab Punish's P3 and P4 characters |
+| 22 | T10 | 80 bytes | Escape Samus Up-B and Escape IC Grab settings |
 
 ## Core settings record (`0x1F24..0x1F4F`)
 
@@ -109,12 +110,12 @@ Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't foll
 | 25 | `0x1AD4` | Escape Sheik Techchase |
 | 26 | `0x1AD8` | Escape DThrow Knee |
 | 27 | `0x1ADC` | Float Cancel Training |
-| 28..46 | `0x1AE0..0x1B2B` | `TYEX` record (next section) |
-| 46..49 | `0x1B2C..0x1B37` | **Free (12 bytes)** |
+| 28..47 | `0x1AE0..0x1B2F` | `TYEX` record (next section) |
+| 48..49 | `0x1B30..0x1B37` | **Free (8 bytes)** |
 | 50 | `0x1B38` | Ledgechase Training |
 | — | — | Low Laser Puff Practice is free practice and has no score |
 
-## `TYEX` extension record (`0x1AE0..0x1B2B`)
+## `TYEX` extension record (`0x1AE0..0x1B2F`)
 
 Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_extension.c). Byte numbers are relative to `0x1AE0`. Multi-byte words are little-endian, and "word N" means the 4 bytes starting at byte N.
 
@@ -122,7 +123,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 
 | Bytes | Owner | Contents | Free inside |
 | --- | --- | --- | --- |
-| 0..7 | Header | `TYEX`, version (21), payload size (68), marker `A5 5A` | — |
+| 0..7 | Header | `TYEX`, version (22), payload size (72), marker `A5 5A` | — |
 | 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
 | 9..11 | Techchase, Under Fire | word 9 bits 0-23, fully used (table below). Bit 15 (byte 10 bit 7) is Player Distance's top bit since T10 | — |
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
@@ -137,8 +138,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot | word 72 (table below) | bit 31 |
+| 76..79 | Escape Samus Up-B, Escape IC Grab | word 76 (table below) | bits 16-31 |
 
-Free bits inside the record: 6 + 2 + 1 = **9 bits**: word 12's six retired bits, byte 51 bits 3-4 and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: word 76's bits 16-31, which take a setting whose default is stored as 0 with no version bump, and 6 + 2 + 1 = **9 loose bits**: word 12's six retired bits, byte 51 bits 3-4 and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -310,6 +312,21 @@ Passing Practice stores each row as its distance from its default, `(value + cou
 
 P1 and P2 use the normal saved characters (core bytes 6 and 37), which already tell Zelda and Sheik apart.
 
+**Word 76: Escape Samus Up-B and Escape IC Grab** (T10, version 22)
+
+Every migration to version 22 zeroes this word, and each row is stored as its distance from its default, `(value + count - default) % count`, the way Passing Practice's are, so those zeros read as the defaults. A stored value past a row's choices reads as invalid and is repaired to the default. Version 21 and older records read the defaults.
+
+| Bits | Setting |
+| --- | --- |
+| 0-1 | Escape Samus Up-B: Your Position (Ground / Air / Random, default Ground) |
+| 2-3 | Escape Samus Up-B: Distance (On Top Of / Side / Far Side / Random, default Side) |
+| 4-5 | Escape Samus Up-B: Samus Side (Random / Left / Right, default Random) |
+| 6-10 | Escape Samus Up-B: Your Percent (0% to 200% in steps of 10, default 0%) |
+| 11-15 | Escape IC Grab: Your Percent (0% to 200% in steps of 10, default 0%) |
+| 16-31 | Spare |
+
+Escape IC Grab's Handoff row is disabled and not saved. Both events' totals and session bests are RAM-only (below).
+
 ## Not saved
 
 These live in RAM only and reset when the game closes:
@@ -318,10 +335,11 @@ These live in RAM only and reset when the game closes:
 - Which form each character select door has on the Zelda icon (`TM_SETTING_DOOR_ZELDA`). It comes from the saved characters each time the select opens.
 - The Global Settings page, the manual OSD page, Techchase/Ledgechase manual chances, and custom camera coordinates.
 - Passing Practice's Session Best and Previous counts for each Percent Mode, and what it has measured of the teammate's aerial and jumps. The event's `.dat` reloads with every match, which clears them.
-- All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 16 left.
+- Escape Samus Up-B's escape and SDI totals, and Escape IC Grab's fastest escape at each percent (its Session Bests). Both events' `.dat`s reload with every match, which clears them.
+- All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 8 left.
 
 ## Adding something new
 
 1. **A few bits:** use one of the free bits above, if the setting is small and fits next to related settings. Old records must already have 0 there, or the migration must clear it.
-2. **Whole bytes:** append to `TYEX`, taking bytes from the free 12-byte block in order. Bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version, and zero the new bytes in `TMExtension_Prepare` when migrating. The static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if the record outgrows the 88-byte region.
-3. **More than 12 bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.
+2. **Whole bytes:** append to `TYEX`, taking bytes from the free 8-byte block in order. Bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version, and zero the new bytes in `TMExtension_Prepare` when migrating. The static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if the record outgrows the 88-byte region.
+3. **More than 8 bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.

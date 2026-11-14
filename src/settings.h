@@ -139,6 +139,8 @@ enum TMSettingsField {
     TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
     TM_SETTING_DOOR_ZELDA, /* Index: CSS door. 1 if its Zelda icon means Zelda, not Sheik. Runtime-only. */
     TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
+    TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 (v22); see TMEscapeSamusPreference. */
+    TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 /* Event Select pages: Minigames, General Tech, Character-specific Tech and
@@ -271,6 +273,20 @@ enum TMPassingPreference {
 #define TM_PASS_DEFAULT_AERIAL 2 /* Back Air */
 #define TM_PASS_DEFAULT_PERCENT 4 /* 40% */
 #define TM_PASS_DEFAULT_DISTANCE 2 /* Medium */
+/* Escape Samus Up-B and Escape IC Grab (T10): their saved menu rows, in row
+ * order, in word 76, which version 22 appends. Each is stored as its distance
+ * from its default, as Passing Practice's are, so the word's zeros read as the
+ * defaults and its spare bits 16-31 can take a later setting with no bump. */
+enum TMEscapeSamusPreference {
+    TM_ESC_SAMUS_POSITION, TM_ESC_SAMUS_DISTANCE, TM_ESC_SAMUS_SIDE, TM_ESC_SAMUS_PERCENT,
+    TM_ESC_SAMUS_PREF_COUNT
+};
+enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
+#define TM_ESC_POSITION_COUNT 3 /* Ground, Air, Random. */
+#define TM_ESC_DISTANCE_COUNT 4 /* On Top Of, Side, Far Side, Random. */
+#define TM_ESC_SIDE_COUNT 3 /* Random, Left, Right: where Samus is from you. */
+#define TM_ESC_PERCENT_COUNT 21 /* 0% to 200% in steps of 10. */
+#define TM_ESC_DEFAULT_DISTANCE 1 /* Side */
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
  * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
  * word 68 (version 20), and B0XX Angles (default Off, T10) in word 72 bit 28.

@@ -17,7 +17,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
 
     def test_general_seventeenth_entry_preserves_existing_order(self):
         pages = self.functions[0]
-        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(4)], [6, 17, 9, 2])
+        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(4)], [6, 17, 11, 2])
         general = self.word(pages + 4)
         events = self.word(general + 8)
         expected = ['Training Lab', 'L-Cancel Training', 'Ledgedash Training',
@@ -62,6 +62,21 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         self.assertEqual(names, ['Side-B Sweetspot', 'Up-B Sweetspot'])
         self.assertEqual(self.text(self.word(self.word(character + 3 * 4) + 8)), 'upbsweetspot')
         self.assertEqual(self.m.call(self.functions[11], 2, 3), 1)  # stage select
+
+    def test_the_escape_events_end_the_character_page_with_their_cpu_and_stage(self):
+        character = self.word(self.functions[0] + 2 * 4)
+        self.assertEqual(self.word(character + 4), 11)
+        events = self.word(character + 8)
+        for index, name, file, cpu, stage in ((9, 'Escape Samus Up-B', 'escapesamus', 16, 31),  # CKIND_SAMUS, Battlefield
+                                              (10, 'Escape IC Grab (Beta)', 'escapeic', 14, 32)):  # CKIND_ICECLIMBERS, FD
+            with self.subTest(event=name):
+                descriptor = self.word(events + index * 4)
+                self.assertEqual(self.text(self.word(descriptor)).strip(), name)
+                self.assertEqual(self.text(self.word(descriptor + 8)), file)
+                self.assertEqual(self.m.call(self.functions[10], 2, index), 14)  # SLCHRKIND_EVENT
+                self.assertEqual(self.m.call(self.functions[11], 2, index), 0)  # no stage select
+                self.assertEqual(self.m.call(self.functions[12], 2, index), cpu)
+                self.assertEqual(self.m.call(self.functions[13], 2, index), stage)
 
     def test_ledgegrab_speedrun_ends_the_minigames_page_with_no_cpu_or_score_slot(self):
         functions, machine = self.functions, self.m
@@ -112,6 +127,13 @@ class LedgechaseCatalogueTests(unittest.TestCase):
             self.assertEqual(bytes(machine.cpu.mem_read(scroll-4,4)),b'\xA5'*4)
             self.assertEqual(bytes(machine.cpu.mem_read(scroll+0x7C,4)),b'\xA5'*4)
         self.assertEqual(machine.call(functions[27],26,0),16)
+        # Character-specific Tech's 11 events (T10) scroll two at most: the
+        # two escape events are its last two rows.
+        machine.call(functions[28],2,0,2)
+        for event, row in ((9, 7), (10, 8)):
+            machine.cpu.mem_write(scroll-4,b'\xA5'*0x84)
+            machine.call(0x8024E420,scroll,event)
+            self.assertEqual((bytes(machine.cpu.mem_read(scroll,1)), self.word(scroll+4)), (bytes((row,)), 2))
         # The Doubles page's two events never scroll.
         machine.call(functions[28],2,0,3)
         for event in (0, 1):
