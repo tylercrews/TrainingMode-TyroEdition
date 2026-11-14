@@ -534,7 +534,7 @@ int TMExtension_Prepare(uint8_t *r) {
         TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER,TM_SETTING_PASSING,
         TM_SETTING_ESCAPE_SAMUS,TM_SETTING_ESCAPE_IC};
     /* Grab-ercise is left out: every value of each of its rows is valid (see
-     * TMExtension_GrabsBits), and the OSD editor reads through this often. */
+     * TMExtension_GrabsBits), so checking them would only cost time. */
     for(unsigned f=0;f<sizeof(fields);++f) {
         unsigned field=fields[f], count=preference_count(field);
         for(unsigned i=0;i<count;++i) {

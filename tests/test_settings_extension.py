@@ -655,6 +655,43 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(self.grabs(), (127, 0, 1, 1, 0, 1, 0))
         self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20), (13,)))
 
+    def cost(self, name, *args):
+        """The instructions a settings call takes, and what it returns. Unicorn's
+        translated blocks don't call a hook added after they were made, so they
+        are flushed first, or code that already ran isn't counted."""
+        from unicorn import UC_HOOK_CODE
+        count = [0]
+        hook = self.m.cpu.hook_add(UC_HOOK_CODE, lambda cpu, address, size, user: count.__setitem__(0, count[0] + 1))
+        self.m.cpu.ctl_flush_tb()
+        try:
+            value = self.m.call(name, *args)
+        finally:
+            self.m.cpu.hook_del(hook)
+        return count[0], value
+
+    def test_extension_reads_validate_the_record_only_after_its_bytes_change(self):
+        # A full validation checks every row of every event, about 10,000
+        # instructions, and the Blast Zone and Randall overlays read the
+        # extension every frame. A read that finds the bytes unchanged is
+        # about 1,400.
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        m.call('Settings_Get', GRABS, 2)
+        steady, value = self.cost('Settings_Get', GRABS, 2)
+        self.assertLess(steady, 3000)
+        self.assertEqual(value, 1)
+        blast_zones, _ = self.cost('Settings_Get', 11, 11)  # TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES
+        self.assertLess(blast_zones, 3000)
+        # Bytes changed behind the service's back are still validated and repaired.
+        word = int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little')
+        m.cpu.mem_write(EXT + 76, (word | 3).to_bytes(4, 'little'))  # Your Position 3 isn't a choice.
+        changed, value = self.cost('Settings_Get', ESCAPE_SAMUS, 0)
+        self.assertGreater(changed, 6000)
+        self.assertEqual(value, ESCAPE_SAMUS_DEFAULTS[0])
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), word)
+        again, _ = self.cost('Settings_Get', ESCAPE_SAMUS, 0)
+        self.assertLess(again, 3000)
+
     def test_version_21_records_read_the_grabercise_defaults_without_writing(self):
         m = self.m
         old = self.version_21_record()

@@ -66,11 +66,36 @@ static const u8 legacy_color[TM_COLOR_COUNT-TM_COLOR_LEGACY_COUNT] = {
     TM_COLOR_YELLOW, TM_COLOR_MAGENTA, TM_COLOR_MAGENTA, TM_COLOR_CYAN,
     TM_COLOR_GREEN, TM_COLOR_YELLOW, TM_COLOR_BLUE, TM_COLOR_MAGENTA,
 };
+/* The extension's last validated bytes and what validating them found, as
+ * settings_view keeps for the core record. TMExtension_Prepare checks every
+ * row of every event (about 10,000 instructions), and the extension is read
+ * every frame (the Blast Zone and Randall overlays, enabled OSDs' colors), so
+ * it runs again only when the bytes change: a write, a card load or anything
+ * else that touches them. A read that finds them unchanged is about 1,400. */
+static u32 last_extension[TM_EXTENSION_SIZE / 4];
+static int extension_seen, last_extension_status;
+typedef char TMSettings_ExtensionWords[(TM_EXTENSION_SIZE % 4 == 0 && TM_EXTENSION_OFFSET % 4 == 0) ? 1 : -1];
+/* Word compare, non-inlined for the same relocation reason as same_bytes. */
+__attribute__((noinline)) static int same_words(const u32 *a, const u32 *b, unsigned count) {
+    for (unsigned i = 0; i < count; ++i)
+        if (a[i] != b[i]) return 0;
+    return 1;
+}
+static int extension_prepare(u8 *extension) {
+    if (extension_seen && same_words((const u32 *)extension, last_extension, countof(last_extension)))
+        return last_extension_status;
+    int status=TMExtension_Prepare(extension);
+    memcpy(last_extension, extension, TM_EXTENSION_SIZE);
+    extension_seen=1;
+    /* A migration or repair is reported once; the bytes it left are ready. */
+    last_extension_status=status==TM_EXTENSION_MIGRATED || status==TM_EXTENSION_REPAIRED ? TM_EXTENSION_READY : status;
+    return status;
+}
 static u8 *extension_view(void) {
     u8 *core=settings_view();
     u8 *extension=(u8 *)stc_memcard+TM_EXTENSION_OFFSET;
     int mode=core==fallback?1:0;
-    int ext_status=mode?TM_EXTENSION_UNSUPPORTED:TMExtension_Prepare(extension);
+    int ext_status=mode?TM_EXTENSION_UNSUPPORTED:extension_prepare(extension);
     if(!mode && ext_status==TM_EXTENSION_UNSUPPORTED) mode=2;
     if(mode) {
         if(extension_private_mode!=mode) TMExtension_Init(extension_fallback);
