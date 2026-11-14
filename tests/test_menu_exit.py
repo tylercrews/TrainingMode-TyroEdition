@@ -222,7 +222,7 @@ class MenuExitTests(unittest.TestCase):
     def test_every_production_event_reuses_its_exit_option_callback(self):
         names = ('lab', 'lcancel', 'ledgedash', 'wavedash', 'powershield', 'dthrowknee',
                  'edgeguard', 'fc', 'sweetspot', 'upbsweetspot', 'lowlaser', 'laserland', 'eggs',
-                 'techchase', 'ledgechase', 'slalom', 'grabpunish', 'passing', 'ledgegrab', 'escapesamus', 'escapeic',
+                 'techchase', 'ledgechase', 'slalom', 'grabpunish', 'passing', 'ledgegrab', 'escapesamus', 'escapeic', 'grabercise',
                  'eventMenu')
         for name in names:
             with self.subTest(event=name):

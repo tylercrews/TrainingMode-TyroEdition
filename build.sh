@@ -129,6 +129,7 @@ queue_mex_build "evFunction" "build/passing.dat" "src/passing.c"
 queue_mex_build "evFunction" "build/ledgegrab.dat" "src/ledgegrab.c"
 queue_mex_build "evFunction" "build/escapesamus.dat" "src/escapesamus.c"
 queue_mex_build "evFunction" "build/escapeic.dat" "src/escapeic.c"
+queue_mex_build "evFunction" "build/grabercise.dat" "src/grabercise.c"
 queue_mex_build "cssFunction" "build/grabpunishCSS.dat" "src/grabpunish_css.c"
 
 # wait for compilation to finish
@@ -181,6 +182,7 @@ ${gc_fst} fs "${tyro_output_iso}" \
     insert TM/passing.dat build/passing.dat \
     insert TM/escapesamus.dat build/escapesamus.dat \
     insert TM/escapeic.dat build/escapeic.dat \
+    insert TM/grabercise.dat build/grabercise.dat \
     insert TM/grabpunishCSS.dat build/grabpunishCSS.dat     insert TM/ledgegrab.dat build/ledgegrab.dat \
     insert codes.gct build/codes.gct \
     insert Start.dol build/Start.dol \

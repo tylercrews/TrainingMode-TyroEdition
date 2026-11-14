@@ -120,8 +120,9 @@ class ScoreStorageAudit(unittest.TestCase):
             body = re.search(r"static EventDesc \*" + array + r"\[\] = \{(.*?)\};",
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
-        # Grab Punish moved from General Tech's end to the Doubles page in T10.
-        self.assertEqual(counts, [6, 17, 11, 2])
+        # Grab Punish moved from General Tech's end to the Doubles page in T10,
+        # and Grab-ercise joined the end of Minigames.
+        self.assertEqual(counts, [7, 17, 11, 2])
         self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
         self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)
@@ -228,7 +229,8 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],34,4,1)
         machine.cpu.mem_write(BASE + SPARE_START + 80,bytes((index*13+3)&255 for index in range(SPARE_SIZE-80)))  # After the 80-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
-        # Scored events per page and their slots. Up-B Sweetspot (page 2, 3),
+        # Scored events per page and their slots. Ledgegrab Speedrun and
+        # Grab-ercise (page 0, 5 and 6, whose best is in TYEX), Up-B Sweetspot (page 2, 3),
         # Low Laser (page 2, 8), Escape Samus Up-B and Escape IC Grab (page 2,
         # 9 and 10) and both Doubles events (page 3) are unscored, and the
         # events after Up-B Sweetspot keep their original slots. Index 17 on
@@ -237,7 +239,7 @@ class ScoreStorageAudit(unittest.TestCase):
                   1: {**{event: 5 + event for event in range(16)}, 16: 50},
                   2: {event: 21 + event - (event > 3) for event in (0, 1, 2, 4, 5, 6, 7)},
                   3: {}}
-        unscored = {0: (5, 6), 1: (17, 18), 2: (3, 8, 9, 10, 11), 3: (0, 1, 2)}
+        unscored = {0: (5, 6, 7), 1: (17, 18), 2: (3, 8, 9, 10, 11), 3: (0, 1, 2)}
         for page in range(4):
             machine.call(functions[28], 2, 0, page)
             for event, slot in scored[page].items():

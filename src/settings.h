@@ -141,6 +141,7 @@ enum TMSettingsField {
     TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
     TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 (v22); see TMEscapeSamusPreference. */
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
+    TM_SETTING_GRABERCISE, /* Grab-ercise's timed best and menu, TYEX word 76 bits 16-28 (T10); see TMGrabercisePreference. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 /* Event Select pages: Minigames, General Tech, Character-specific Tech and
@@ -287,6 +288,18 @@ enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
 #define TM_ESC_SIDE_COUNT 3 /* Random, Left, Right: where Samus is from you. */
 #define TM_ESC_PERCENT_COUNT 21 /* 0% to 200% in steps of 10. */
 #define TM_ESC_DEFAULT_DISTANCE 1 /* Side */
+/* Grab-ercise (T10): its timed best, then its saved menu rows, in word 76's
+ * spare bits 16..28 with no version bump. Every row is stored as its distance
+ * from its default, as the escape events' are, so the zeros every version 22
+ * record has there read as the defaults: no best yet, timed mode, all four
+ * movements on, Fighter Collision off. */
+enum TMGrabercisePreference {
+    TM_GRABS_BEST, TM_GRABS_FREE_PRACTICE,
+    TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_ROLL, /* The movements, in menu order. */
+    TM_GRABS_COLLISION, TM_GRABS_PREF_COUNT
+};
+#define TM_GRABS_MOVES 4 /* Walk, Run, Dash and Roll, from TM_GRABS_WALK. */
+#define TM_GRABS_BEST_MAX 127 /* The best is 7 bits; a timed minute won't get near it. */
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
  * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
  * word 68 (version 20), and B0XX Angles (default Off, T10) in word 72 bit 28.

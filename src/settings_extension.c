@@ -171,7 +171,14 @@ static const ExtensionPreference escape_samus_preferences[TM_ESC_SAMUS_PREF_COUN
     {4,2,TM_ESC_SIDE_COUNT,0}, {6,5,TM_ESC_PERCENT_COUNT,0},
 };
 static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {{11,5,TM_ESC_PERCENT_COUNT,0}};
-#define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC)
+/* Grab-ercise (T10) takes bits 16..28 with no version bump: its timed best
+ * (7 bits), Free Practice, the four movements (default On, so stored 0) and
+ * Fighter Collision. Bits 29..31 stay spare. */
+static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
+    {16,7,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0},
+    {24,1,2,1}, {25,1,2,1}, {26,1,2,1}, {27,1,2,1}, {28,1,2,0},
+};
+#define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 /* Reset Speed is stored the same way, so a clear field reads as its default. */
@@ -263,6 +270,8 @@ typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIO
     TEAM_CHARACTERS_OFFSET+TEAM_CHARACTERS_SIZE<=ESCAPES_OFFSET &&
     ESCAPES_OFFSET+ESCAPES_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
 /* Escape Samus Up-B's rows fill bits 0..10 and Escape IC Grab's 11..15. */
+/* Each Grab-ercise row fills its bits exactly, so none needs repairing. */
+typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<7 && TM_GRABS_PREF_COUNT==7) ? 1 : -1];
 typedef char TMExtension_EscapeBits[(TM_ESC_POSITION_COUNT<=4 && TM_ESC_DISTANCE_COUNT<=4 &&
     TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32) ? 1 : -1];
 static unsigned grid_cell(const uint8_t *r,unsigned slot) {
@@ -300,7 +309,8 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_LEDGEGRAB_RESET ? 1 :
         field==TM_SETTING_PASSING ? TM_PASS_PREF_COUNT :
         field==TM_SETTING_ESCAPE_SAMUS ? TM_ESC_SAMUS_PREF_COUNT :
-        field==TM_SETTING_ESCAPE_IC ? TM_ESC_IC_PREF_COUNT : 0;
+        field==TM_SETTING_ESCAPE_IC ? TM_ESC_IC_PREF_COUNT :
+        field==TM_SETTING_GRABERCISE ? TM_GRABS_PREF_COUNT : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -321,6 +331,7 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_PASSING && index<TM_PASS_PREF_COUNT) return &passing_preferences[index];
     if(field==TM_SETTING_ESCAPE_SAMUS && index<TM_ESC_SAMUS_PREF_COUNT) return &escape_samus_preferences[index];
     if(field==TM_SETTING_ESCAPE_IC && index<TM_ESC_IC_PREF_COUNT) return &escape_ic_preferences[index];
+    if(field==TM_SETTING_GRABERCISE && index<TM_GRABS_PREF_COUNT) return &grabercise_preferences[index];
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
@@ -410,6 +421,8 @@ static void init_escape_preferences(uint8_t *r) {
         set_preference(r,TM_SETTING_ESCAPE_SAMUS,i,escape_samus_preferences[i].initial);
     for(unsigned i=0;i<TM_ESC_IC_PREF_COUNT;++i)
         set_preference(r,TM_SETTING_ESCAPE_IC,i,escape_ic_preferences[i].initial);
+    for(unsigned i=0;i<TM_GRABS_PREF_COUNT;++i)
+        set_preference(r,TM_SETTING_GRABERCISE,i,grabercise_preferences[i].initial);
 }
 void TMExtension_Init(uint8_t *r) {
     memset(r,0,TM_EXTENSION_SIZE);
@@ -520,6 +533,8 @@ int TMExtension_Prepare(uint8_t *r) {
         TM_SETTING_LOW_LASER,TM_SETTING_POWERSHIELD,TM_SETTING_REVERSAL,TM_SETTING_ATTACK_SHIELD,TM_SETTING_EDGEGUARD,
         TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER,TM_SETTING_PASSING,
         TM_SETTING_ESCAPE_SAMUS,TM_SETTING_ESCAPE_IC};
+    /* Grab-ercise is left out: every value of each of its rows is valid (see
+     * TMExtension_GrabsBits), and the OSD editor reads through this often. */
     for(unsigned f=0;f<sizeof(fields);++f) {
         unsigned field=fields[f], count=preference_count(field);
         for(unsigned i=0;i<count;++i) {

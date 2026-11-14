@@ -825,6 +825,26 @@ EventDesc Eggs = {
     .matchData = &Eggs_MatchData,
 };
 
+/* Grab-ercise (T10): Eggs-ercise's timed minute and Free Practice, with a CPU
+ * from the training character select to grab instead of eggs. Its best is in
+ * TYEX word 76, not a score slot, so Events_ScoreIndex gives it none. */
+EventDesc Grabercise = {
+    .tyro_edited = true,
+    .eventName = "Grab-ercise\n",
+    .eventDescription = "Grab the CPU as it walks, runs, dashes\nand rolls around! Start = more options.",
+    .eventFile = "grabercise",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_TRAINING,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .cpuKind = -1,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3, // Before the fighters' input, which reads the CPU's.
+    .matchData = &Eggs_MatchData,
+};
+
 static EventMatchData Slalom_MatchData = {
     .timer = MATCH_TIMER_COUNTDOWN,
     .matchType = MATCH_MATCHTYPE_TIME,
@@ -937,6 +957,7 @@ static EventDesc *Minigames_Events[] = {
     &Reaction,
     &Ledgestall,
     &LedgegrabSpeedrun,
+    &Grabercise,
 };
 static EventPage Minigames_Page = {
     .name = "Minigames",
@@ -1011,12 +1032,14 @@ typedef char event_pages_fit_the_save[(countof(EventPages) == TM_EVENT_PAGES) ? 
 /* Persisted score identities do not follow menu insertion order. The original
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
-typedef char event_score_map_matches[(countof(Minigames_Events) == 6 &&
+typedef char event_score_map_matches[(countof(Minigames_Events) == 7 &&
     countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 11 &&
     countof(Doubles_Events) == 2) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
-    if (page == 0) /* Ledgegrab Speedrun (5) only keeps session bests, in RAM. */
+    /* Ledgegrab Speedrun (5) only keeps session bests, in RAM, and Grab-ercise
+     * (6, T10) keeps its best in the TYEX extension. */
+    if (page == 0)
         return event < 5 ? event : UINT32_MAX;
     if (page == 1) /* Grab Punish was 17 here, unscored, until it moved to Doubles in T10. */
         return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;

@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **16 bits** in word 76, plus **9 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **3 bits** in word 76, plus **9 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
 | **Unallocated spare score slots** | `0x1B30..0x1B37` | **8 bytes** | nothing | **8 bytes (64 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 8 whole bytes are free, all in one block at `0x1B30..0x1B37`, plus word 76's top 16 bits, 1 bit in word 72 and scattered single bits. The core record is full.
+**Bottom line:** 8 whole bytes are free, all in one block at `0x1B30..0x1B37`, plus word 76's top 3 bits, 1 bit in word 72 and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -114,6 +114,7 @@ Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't foll
 | 48..49 | `0x1B30..0x1B37` | **Free (8 bytes)** |
 | 50 | `0x1B38` | Ledgechase Training |
 | — | — | Low Laser Puff Practice is free practice and has no score |
+| — | — | Grab-ercise (T10) keeps its timed best in `TYEX` word 76 bits 16-22, not a score slot |
 
 ## `TYEX` extension record (`0x1AE0..0x1B2F`)
 
@@ -138,9 +139,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot | word 72 (table below) | bit 31 |
-| 76..79 | Escape Samus Up-B, Escape IC Grab | word 76 (table below) | bits 16-31 |
+| 76..79 | Escape Samus Up-B, Escape IC Grab, Grab-ercise | word 76 (table below) | bits 29-31 |
 
-Free bits inside the record: word 76's bits 16-31, which take a setting whose default is stored as 0 with no version bump, and 6 + 2 + 1 = **9 loose bits**: word 12's six retired bits, byte 51 bits 3-4 and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: word 76's bits 29-31 (Grab-ercise took 16-28 in T10), which take a setting whose default is stored as 0 with no version bump, and 6 + 2 + 1 = **9 loose bits**: word 12's six retired bits, byte 51 bits 3-4 and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -312,7 +313,7 @@ Passing Practice stores each row as its distance from its default, `(value + cou
 
 P1 and P2 use the normal saved characters (core bytes 6 and 37), which already tell Zelda and Sheik apart.
 
-**Word 76: Escape Samus Up-B and Escape IC Grab** (T10, version 22)
+**Word 76: Escape Samus Up-B, Escape IC Grab and Grab-ercise** (T10, version 22)
 
 Every migration to version 22 zeroes this word, and each row is stored as its distance from its default, `(value + count - default) % count`, the way Passing Practice's are, so those zeros read as the defaults. A stored value past a row's choices reads as invalid and is repaired to the default. Version 21 and older records read the defaults.
 
@@ -323,7 +324,11 @@ Every migration to version 22 zeroes this word, and each row is stored as its di
 | 4-5 | Escape Samus Up-B: Samus Side (Random / Left / Right, default Random) |
 | 6-10 | Escape Samus Up-B: Your Percent (0% to 200% in steps of 10, default 0%) |
 | 11-15 | Escape IC Grab: Your Percent (0% to 200% in steps of 10, default 0%) |
-| 16-31 | Spare |
+| 16-22 | Grab-ercise (T10): timed best, 0 (none yet) to 127. No version bump, like the rest of Grab-ercise's bits: every migration to 22 zeroed them. Saved here rather than in a score slot, so Reset Records doesn't clear it |
+| 23 | Grab-ercise: Free Practice (Off / On, default Off, so timed runs) |
+| 24-27 | Grab-ercise: Full Speed Walk, Full Speed Run, Full Speed Dash, Rolling (default On, stored inverted as each row's distance from its default). The event turns them all back on if a save has every one off |
+| 28 | Grab-ercise: Fighter Collision (default Off) |
+| 29-31 | Spare |
 
 Escape IC Grab's Handoff row is disabled and not saved. Both events' totals and session bests are RAM-only (below).
 

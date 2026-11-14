@@ -84,6 +84,14 @@ ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS = (3, 4, 3, 21), (0, 1, 0, 0)
 ESCAPE_SAMUS_FIELDS = ((0, 2), (2, 2), (4, 2), (6, 5))  # (shift, width) in word 76, in menu order.
 ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS = (21,), (0,), ((11, 5),)
 ESCAPE_MASK = 0xFFFF
+# Grab-ercise (T10) in word 76's spare bits 16-28, no version bump: its timed
+# best (7 bits), Free Practice, the four movements and Fighter Collision, each
+# stored as its distance from its default, so word 76's zeros read as no best,
+# timed runs, every movement on and collision off.
+GRABS = 51  # TM_SETTING_GRABERCISE
+GRABS_COUNTS, GRABS_DEFAULTS = (128, 2, 2, 2, 2, 2, 2), (0, 0, 1, 1, 1, 1, 0)
+GRABS_FIELDS = ((16, 7), (23, 1), (24, 1), (25, 1), (26, 1), (27, 1), (28, 1))
+GRABS_MASK = 0x1FFF << 16
 # Bytes 24..79 appended by versions 15 to 22: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
@@ -605,6 +613,57 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), word)
         m.cpu.mem_write(EXT + 76, (word | 31 << 6 | 31 << 11).to_bytes(4, 'little'))  # Nor are percents 21..31.
         self.assertEqual((self.escape(ESCAPE_SAMUS, 4)[3], self.escape(ESCAPE_IC, 1)[0]), (0, 0))
+
+    def grabs(self):
+        return tuple(self.m.call('Settings_Get', GRABS, i) for i in range(len(GRABS_COUNTS)))
+
+    def test_grabercise_reads_its_defaults_without_a_record_and_from_word_76s_zeros(self):
+        m = self.m
+        self.assertEqual(self.grabs(), GRABS_DEFAULTS)
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), 0)
+        self.assertEqual(self.grabs(), GRABS_DEFAULTS)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', GRABS, len(GRABS_COUNTS), 1)  # Not a row.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+
+    def test_grabercise_round_trips_in_word_76_bits_16_to_28_alone(self):
+        m = self.m
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 20)  # The escape events' rows below it.
+        m.call('Settings_Set', ESCAPE_IC, 0, 13)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        low = int.from_bytes(before[76:80], 'little') & ESCAPE_MASK
+        values = list(GRABS_DEFAULTS)
+        for index, count in enumerate(GRABS_COUNTS):
+            for value in sorted({0, 1, count - 1, count // 2, GRABS_DEFAULTS[index]}) + [GRABS_DEFAULTS[index]]:
+                m.call('Settings_Set', GRABS, index, value)
+                values[index] = value
+                self.assertEqual(self.grabs(), tuple(values))
+                after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                self.assertEqual(after[:76] + after[80:], before[:76] + before[80:])
+                word = int.from_bytes(after[76:80], 'little')
+                shift, width = GRABS_FIELDS[index]
+                self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - GRABS_DEFAULTS[index]) % count)
+                self.assertEqual(word & ESCAPE_MASK, low)  # The escape events keep theirs.
+                self.assertEqual(word & ~(GRABS_MASK | ESCAPE_MASK), 0)  # Bits 29-31 stay spare.
+            snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
+                m.call('Settings_Set', GRABS, index, value)
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        m.call('Settings_Set', GRABS, 0, 127)
+        m.call('Settings_Set', GRABS, 4, 0)
+        self.assertEqual(self.grabs(), (127, 0, 1, 1, 0, 1, 0))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20), (13,)))
+
+    def test_version_21_records_read_the_grabercise_defaults_without_writing(self):
+        m = self.m
+        old = self.version_21_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 21 never owned word 76.
+            old[76:80] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda index: m.call('TMExtension_Read', EXT, GRABS, index)
+            self.assertEqual(tuple(read(i) for i in range(len(GRABS_COUNTS))), GRABS_DEFAULTS)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
     def test_version_20_records_read_the_passing_defaults_without_writing(self):
         m = self.m
