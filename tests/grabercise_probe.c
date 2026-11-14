@@ -110,15 +110,16 @@ int GrColl_RaycastGround(Vec3 *pos, int *line, int *kind, Vec3 *slope, int a, in
 typedef struct Char {
     float walk_max, walk_acc, friction, dash_init, acc_a, acc_b, terminal;
     int dash_len, dash_flag, turnrun_len, turnrun_flag, roll_len;
-    float roll_speed;
+    float roll_speed, walk_init;
+    int turn_len;
 } Char;
 /* Fox, Marth, Game & Watch (the shortest dash, 18 frames) and Luigi (the
  * least traction), from their PlXx.dat attributes and scripts. */
 static const Char chars[] = {
-    {1.6f, .1f, .08f, 1.9f, .1f, .02f, 2.2f, 22, 12, 20, 9, 32, 1.4f},
-    {1.6f, .05f, .06f, 1.5f, .06f, 0, 1.8f, 28, 16, 30, 9, 36, 1.2f},
-    {1.1f, .1f, .06f, 1.5f, .06f, .02f, 1.5f, 18, 9, 18, 9, 36, 1.0f},
-    {1.1f, .1f, .025f, 1.3f, .06f, .02f, 1.34f, 22, 11, 22, 18, 32, 1.2f},
+    {1.6f, .1f, .08f, 1.9f, .1f, .02f, 2.2f, 22, 12, 20, 9, 32, 1.4f, .2f, 12},
+    {1.6f, 0, .06f, 1.5f, .06f, 0, 1.8f, 28, 16, 30, 9, 36, 1.2f, .15f, 12},
+    {1.1f, .1f, .06f, 1.5f, .06f, .02f, 1.5f, 18, 9, 18, 9, 36, 1.0f, .1f, 10},
+    {1.1f, .1f, .025f, 1.3f, .06f, .02f, 1.34f, 22, 11, 22, 18, 32, 1.2f, .1f, 12},
 };
 static struct engine {
     const Char *c;
@@ -131,6 +132,9 @@ static struct engine {
 } eng;
 static struct stats {
     int frames, fell, runs, redashes, dash_starts, dash_turns, run_turns, rolls, walk_dashes;
+    // Run mode's crouch turnaround: crouches, dashes out of a crouch, and
+    // drops through a platform (which it mustn't).
+    int crouches, squat_dashes, passes;
     // Dash legs: frames in each dash, long (6+) or short (3 or fewer), and
     // the short ones that went back against the last long one and moved back.
     int long_legs, short_legs, short_back, moved_back, longest_leg;
@@ -211,7 +215,7 @@ static void DashEnter(int arg) {
     eng.dash_entered = 1;
 }
 static void TurnEnter(int smash) {
-    Enter(ASID_TURN, 11);
+    Enter(ASID_TURN, eng.c->turn_len);
     eng.smash_turn = smash;
     eng.turned = eng.just_turned = 0;
     eng.turn_after = -ft[CPU_FT].facing_direction;
@@ -272,6 +276,9 @@ static void Animate(void) {
         case ASID_RUNBRAKE:
             if (f->phys.self_vel_ground.X == 0 || frame >= 20) Enter(ASID_WAIT, 60);
             break;
+        case ASID_SQUAT: // Every character's Squat is 8 frames, then SquatWait.
+            if (frame >= 8) Enter(ASID_SQUATWAIT, 100);
+            break;
     }
 }
 
@@ -289,6 +296,15 @@ static void Interrupt(void) {
     else timer = 254;
     f->input.timer_lstick_tilt_x = timer;
     f->input.lstick.X = x;
+    // The stick's y and its tilt timer, the same way (PlCo 0xC is 0.25 too).
+    float y = f->cpu.lstickY / 127.f, prev_y = f->input.lstick.Y;
+    if (y < -1) y = -1;
+    u8 timer_y = f->input.timer_lstick_tilt_y;
+    if (fabs(y) >= TILT && fabs(prev_y) < TILT) timer_y = 0;
+    else if (fabs(y) >= TILT) timer_y = timer_y < 254 ? timer_y + 1 : 254;
+    else timer_y = 254;
+    f->input.timer_lstick_tilt_y = timer_y;
+    f->input.lstick.Y = y;
     f->input.held = f->cpu.held;
     if (f->cpu.lstickX || f->cpu.held) st.inputs++;
     if (Frozen(f)) return;
@@ -306,9 +322,31 @@ static void Interrupt(void) {
         case ASID_WALKFAST:
             if (shield) { Enter(ASID_GUARDON, 8); break; }
             if (DashCheck()) { st.walk_dashes++; break; }
-            if (toward <= -.25f) { TurnEnter(0); break; }
-            if (fabs(x) < .25f) Enter(ASID_WAIT, 60);
+            // ft_8008A244: a stick back or let go drops to Wait (which turns).
+            if (toward < 0 || fabs(x) < .25f) Enter(ASID_WAIT, 60);
             break;
+        case ASID_RUNBRAKE: // RunBrake takes a crouch (ftCo_800D5FB0).
+            if (y < -.6875f) { Enter(ASID_SQUAT, 8); st.crouches++; }
+            break;
+        case ASID_SQUAT:
+        case ASID_SQUATWAIT: {
+            // ftCo_80099F1C: a fresh down on a platform drops through it.
+            int line = f->coll_data.ground_index;
+            if (y <= -.66f && timer_y < 6 && line >= 0 && IsPlatformLine(lines[line].desc)) {
+                st.passes++;
+                f->phys.air_state = 1;
+                f->phys.pos.Y -= 1;
+                f->phys.self_vel = (Vec3){f->phys.self_vel_ground.X, 0, 0};
+                Enter(ASID_FALL, 60);
+                break;
+            }
+            // SquatWait takes a dash (forward, or a smash turn back), then stands up.
+            if (f->state_id == ASID_SQUATWAIT) {
+                if (DashCheck()) { st.squat_dashes++; break; }
+                if (y > -.6875f) Enter(ASID_WAIT, 60);
+            }
+            break;
+        }
         case ASID_TURN:
             if (shield) { Enter(ASID_GUARDON, 8); break; }
             if (eng.just_turned && eng.smash_turn && x * eng.turn_after >= .8f) { DashEnter(0); st.dash_turns++; }
@@ -400,9 +438,12 @@ static void Physics(void) {
         case ASID_WALKSLOW:
         case ASID_WALKMIDDLE:
         case ASID_WALKFAST: {
-            float target = x * c->walk_max;
+            /* ftWalkCommon_800E0060: the stick times the walk acceleration,
+             * plus the initial walk speed, toward the stick's share of the
+             * top walk speed. */
+            float target = x * c->walk_max, accel = fabs(x) * c->walk_acc + c->walk_init;
             if ((target - v) * Sign(target) > 0) {
-                v += Sign(target) * c->walk_acc;
+                v += Sign(target) * accel;
                 if ((v - target) * Sign(target) > 0) v = target;
             } else v = Brake(v - target, c->friction) + target;
             f->state_id = fabs(v) > .8f * c->walk_max ? ASID_WALKFAST : fabs(v) > .4f * c->walk_max ? ASID_WALKMIDDLE : ASID_WALKSLOW;
@@ -414,8 +455,8 @@ static void Physics(void) {
             else { v += eng.pending; eng.pending = 0; }
             if (fabs(v) > st.top_dash) st.top_dash = fabs(v);
             break;
-        case ASID_TURN: // Friction, doubled above walk speed (ft_80084F3C).
-            v = Brake(v, fabs(v) > c->walk_max ? c->friction * 2 : c->friction);
+        case ASID_RUNBRAKE: // Ground friction (PlCo 0x60 is 1).
+            v = Brake(v, c->friction);
             break;
         case ASID_RUN:
             v = DashRun(v, x);
@@ -434,8 +475,8 @@ static void Physics(void) {
         case ASID_ESCAPEB:
             v = frame >= 4 && frame <= 24 ? eng.roll_dir * c->roll_speed : 0;
             break;
-        default:
-            v = Brake(v, c->friction);
+        default: // Wait, Turn, Squat: friction, doubled above walk speed (ft_80084F3C).
+            v = Brake(v, fabs(v) > c->walk_max ? c->friction * 2 : c->friction);
             break;
     }
     f->phys.self_vel_ground.X = v;
@@ -543,6 +584,10 @@ void TestGrabsInit(int stage_id, int character, int signed_timer) {
     eng.anim_len = 60;
     eng.signed_timer = signed_timer;
     ft[CPU_FT].attr.ground_friction = eng.c->friction;
+    ft[CPU_FT].attr.walk_maximum_velocity = eng.c->walk_max;
+    ft[CPU_FT].attr.walk_initial_velocity = eng.c->walk_init;
+    ft[CPU_FT].attr.walk_acceleration = eng.c->walk_acc;
+    ft[CPU_FT].attr.dashrun_terminal_velocity = eng.c->terminal;
     ft[CPU_FT].attr.dash_initial_velocity = eng.c->dash_init;
     ft[CPU_FT].attr.dashrun_acceleration_a = eng.c->acc_a;
     ft[CPU_FT].attr.dashrun_acceleration_b = eng.c->acc_b;
@@ -575,6 +620,9 @@ void TestGrabsPlace(int x1000, int line, int move, int dir) {
     f->facing_direction = dir;
     f->input.lstick.X = 0;
     f->input.timer_lstick_tilt_x = 254;
+    f->input.lstick.Y = 0;
+    f->input.timer_lstick_tilt_y = 254;
+    target.run_phase = 0;
     Enter(ASID_WAIT, 60);
     target.move = move;
     target.dir = dir;
@@ -684,6 +732,9 @@ int TestGrabsStat(int key) {
         case 26: return st.shortest_after_first;
         case 27: return st.farthest_after_first * 1000;
         case 28: return st.nearest_after_first * 1000;
+        case 29: return st.crouches;
+        case 30: return st.squat_dashes;
+        case 31: return st.passes;
     }
     return -1;
 }

@@ -32,10 +32,13 @@
  *   turn brakes the dash to a quarter of its speed (0x54, 0.75 off), and the
  *   new dash adds its initial speed the other way (ftCo_Dash_Enter).
  * - From Run, a stick 0x38 (-0.375) back turns around (TurnRun), which brakes
- *   at the dash acceleration until the velocity reverses, then runs.
+ *   at the dash acceleration until the velocity reverses, then runs. Grab-ercise
+ *   turns a run around by crouching instead (RunStick).
  * - From GuardOn or Guard, a stick 0x31C (0.7) out with the timer under 0x320
  *   (4) rolls. Rolls and run turnarounds stop at the edge of a floor; walks,
- *   dashes and runs go off it. */
+ *   dashes, runs and crouches go off it.
+ * - Wait, Turn, Squat and SquatWait brake with ground friction, doubled above
+ *   walk speed (ft_80084F3C, 0x6C). */
 
 // The movement rows, in menu order, as the saved preferences number them.
 enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DASH_HALF, MOVE_ROLL };
@@ -45,12 +48,20 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 // CPU stick values (value / 127 in the game).
 #define STICK_FULL 127
 #define STICK_WALK 64      // .50: a walk, not a dash.
+#define STICK_DASH_HOLD 78 // .61: keeps a dash going without it becoming a run (.625).
 #define SAFE_TILT_FRAMES 2 // A walk goes to full tilt once the timer reads this.
 
-/* A moving CPU turns back once it would otherwise stop closer than this to
- * the end of its floor, and only toward the side with more room. */
-#define EDGE_ROOM 6.f
-#define ROLL_ROOM 20.f     // Under a roll: the last one runs out of floor and stops at the edge.
+/* A moving CPU turns back on the last frame it can and still stop at least
+ * this far from the end of its floor (its feet: its body reaches past them),
+ * and only toward the side with more room. */
+#define TOUCH 1.5f
+#define ROLL_ROOM 4.f      // Rolls stop at the end, so a CPU rolls until it's there.
+// Run mode's crouch turnaround (RunStick).
+#define SQUAT_FRAMES 8     // Every character's Squat, the crouch's start, which can't dash.
+#define PASS_FRAMES 6      // PlCo 0x468: a down tilt this old can't drop through a platform.
+#define STICK_HALF_DOWN -64 // -.50: past 0.25, so the down tilt ages, short of a crouch (0.6875).
+#define CROUCH_EXTRA 3.f   // Frames of dash the crouch leaves beyond the least, to reach the end.
+#define LONGEST_TURN 16    // Mewtwo's Turn; most are 12. Assumed until a Turn shows the CPU's.
 
 // Spawns: this far in from a floor's ends, from you, and from the last spot.
 #define SPAWN_INSET 8.f
@@ -147,8 +158,9 @@ static EventOption Options_Main[OPT_COUNT] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Full Speed Run",
         .val = 1,
-        .desc = {"Moving CPUs can dash into a full speed run, and",
-                 "run-turnaround at each end of their floor.",
+        .desc = {"Moving CPUs can dash into a full speed run. At",
+                 "each end they crouch, dash forward out of the",
+                 "crouch right to the edge, then dash back and run.",
                  "One movement always stays on. Free Practice only."},
         .disable = 1,
         .OnChange = ChangeRun,
@@ -256,6 +268,7 @@ static struct target {
     int last_state;    // Last frame's state, and whether this dash came from a
     bool turn_dash;    // turn, which can turn back at once (dash.x4 is 0).
     bool last_flag;    // Last frame's dash had its run flag set.
+    int run_phase;     // Run mode: running, crouching, or dashing out of the crouch.
     bool grabbed;      // Counted: waiting for the grab or throw to end.
     int air_frames;    // Airborne, not held.
     Vec3 spot;         // Where it last appeared.
@@ -519,6 +532,7 @@ static void Respawn(void) {
     target.placed = true;
     target.last_state = ASID_WAIT;
     target.last_flag = false;
+    target.run_phase = 0;
     target.grabbed = false;
     target.air_frames = 0;
     target.spot = spot;
@@ -540,6 +554,7 @@ static bool Held(int state) {
 static bool Moving(int state) {
     return (state >= ASID_WAIT && state <= ASID_RUNBRAKE) || state == ASID_FALL ||
         state == ASID_LANDING || state == ASID_LANDINGFALLSPECIAL ||
+        (state >= ASID_SQUAT && state <= ASID_SQUATRV) ||
         state == ASID_OTTOTTO || state == ASID_OTTOTTOWAIT ||
         (state >= ASID_GUARDON && state <= ASID_GUARDREFLECT) ||
         state == ASID_ESCAPEF || state == ASID_ESCAPEB;
@@ -548,41 +563,86 @@ static bool Frozen(FighterData *ft) {
     return ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames > 0;
 }
 
-/* How close to the end of its floor the CPU can get before it turns back:
- * about where its turn would stop it, and a little more. */
-static float TurnRoom(FighterData *ft) {
-    float speed = fabs(ft->phys.self_vel_ground.X);
-    float friction = ft->attr.ground_friction > .01f ? ft->attr.ground_friction : .01f;
-    // A dash commits to its first frames at dash speed, even from standing.
-    if (target.move >= MOVE_RUN && target.move <= MOVE_DASH_HALF && speed < ft->attr.dash_initial_velocity)
-        speed = ft->attr.dash_initial_velocity;
+/* How far ground friction carries a fighter from speed v, frame by frame, for
+ * up to `frames` frames: ft_80084F3C's friction, doubled above walk speed.
+ * After `frames`, if `after` is more than 0, it brakes at that instead until
+ * it stops. */
+static float Slide(FighterData *ft, float v, int frames, float after) {
+    float friction = ft->attr.ground_friction > .01f ? ft->attr.ground_friction : .01f, distance = 0;
+    for (int i = 0; i < 400 && v > 0 && (i < frames || after > 0); ++i) {
+        float brake = v > ft->attr.walk_maximum_velocity ? friction * 2 : friction;
+        if (i >= frames && after > brake) brake = after;
+        v -= brake;
+        if (v > 0) distance += v;
+    }
+    return distance;
+}
+static float BrakeDistance(FighterData *ft, float v, int frames) { return Slide(ft, v, frames, 0); }
+/* The CPU's Turn length, from the first Turn it shows this match (the .dat
+ * reloads with each match, and the CPU's character with it). */
+static int turn_frames;
+/* The floor a dash needs to turn back: frames of travel before a smash back
+ * can turn it (a dash from standing can't for its first five, PlCo 0x44), then
+ * the turn's frame at a quarter of the speed (0x54). A dash that can't turn
+ * yet is still speeding up, so it's counted at full dash speed. */
+static float DashRoom(FighterData *ft, float speed, float frames) {
+    float top = ft->attr.dashrun_terminal_velocity;
+    if (frames > 1 && speed < top) speed = top;
+    if (speed < ft->attr.dash_initial_velocity && frames > 1) speed = ft->attr.dash_initial_velocity;
+    return speed * (frames + .25f);
+}
+/* The floor the CPU needs ahead of it, going `dir`, for its turnaround to stop
+ * it no closer than TOUCH to that end. It's checked once a frame, so it counts
+ * the frame it would travel before the next check, at the speed it will have
+ * then: a walk or dash toward that end is still speeding up. Only speed
+ * toward that end counts; just after a turn it's still sliding the other way. */
+static float TurnRoom(FighterData *ft, int dir) {
+    float speed = ft->phys.self_vel_ground.X * dir;
+    if (speed < 0) speed = 0;
     int state = ft->state_id;
+    bool toward = ft->facing_direction * dir > 0;
     switch (target.move) {
-        case MOVE_WALK: // Turn brakes with ground friction.
-            return speed * speed / (2 * friction) + speed * 3 + EDGE_ROOM;
+        case MOVE_WALK: {
+            /* A walk with the stick back drops to Wait (ft_8008A244), then
+             * turns and waits a frame more, all braking with ground friction.
+             * Then it walks the other way, which brakes at the walk's
+             * acceleration from the half tilt it starts with (ftWalkCommon_
+             * 800E0060: the initial walk speed, plus the stick times the
+             * acceleration), much harder than a slippery floor's friction. */
+            if (state >= ASID_WALKSLOW && state <= ASID_WALKFAST && toward) {
+                speed += ft->attr.walk_initial_velocity + ft->attr.walk_acceleration;
+                if (speed > ft->attr.walk_maximum_velocity) speed = ft->attr.walk_maximum_velocity;
+            }
+            int frames = 2 + (turn_frames ? turn_frames : LONGEST_TURN);
+            float back = ft->attr.walk_initial_velocity + ft->attr.walk_acceleration * STICK_WALK / 127.f;
+            return speed + Slide(ft, speed, frames, back) + TOUCH;
+        }
         case MOVE_RUN:
-            /* TurnRun brakes at the dash acceleration. Until the run starts,
-             * the CPU is in its dash, which turns as a dash does, so a short
-             * platform still gets a run. */
+            /* A run that couldn't crouch in time turns around in TurnRun, which
+             * brakes at the dash acceleration. Before the run starts, the CPU
+             * is in its dash, which turns as a dash does. */
             if (state == ASID_RUN || state == ASID_RUNDIRECT || state == ASID_TURNRUN || state == ASID_RUNBRAKE) {
                 float brake = ft->attr.dashrun_acceleration_a + ft->attr.dashrun_acceleration_b;
                 if (brake < .01f) brake = .01f;
-                return speed * speed / (2 * brake) + speed * 2 + EDGE_ROOM;
+                return speed + speed * speed / (2 * brake) + TOUCH;
             }
             // Fall through.
         case MOVE_DASH:
         case MOVE_DASH_FULL:
         case MOVE_DASH_HALF: {
-            /* A dash turns back almost at once (Turn_Enter_Smash, then a dash
-             * the other way), after a neutral frame. A dash out of a turn can
-             * from its first frame, but one from standing only from its fifth
-             * (PlCo 0x44). */
-            float frame = ft->state.frame, frames = 8;
+            /* A dash turns back after a neutral frame and a smash: at once if it
+             * came out of a turn or is past its fourth frame, else on its fifth.
+             * A Turn dashes the next frame; anything else would start a dash. */
+            float frame = ft->state.frame, frames = 5;
             if (state == ASID_DASH)
-                frames = target.turn_dash || frame > 4 ? 3 : 8 - frame;
+                frames = target.turn_dash || frame > 4 ? 1 : 5 - frame;
             else if (state == ASID_TURN)
-                frames = 4;
-            return speed * frames + EDGE_ROOM;
+                frames = 2;
+            if (state == ASID_DASH && toward) {
+                speed += ft->attr.dashrun_acceleration_a + ft->attr.dashrun_acceleration_b;
+                if (speed > ft->attr.dashrun_terminal_velocity) speed = ft->attr.dashrun_terminal_velocity;
+            }
+            return speed + DashRoom(ft, speed, frames) + TOUCH;
         }
         default:
             return ROLL_ROOM;
@@ -601,10 +661,16 @@ static float RoomAhead(FighterData *ft, int dir) {
     float x = ft->phys.pos.X;
     return dir > 0 ? target.right - x : x - target.left;
 }
+// Standing on a one-way platform, which a fresh down can drop through.
+static bool OnPlatform(FighterData *ft) {
+    Vec2 a, b;
+    int platform;
+    return FloorLine(ft->coll_data.ground_index, &a, &b, &platform) && platform;
+}
 static void Steer(FighterData *ft) {
     UpdateEnds(ft);
     float ahead = RoomAhead(ft, target.dir), behind = RoomAhead(ft, -target.dir);
-    if (ahead < TurnRoom(ft) && behind > ahead) target.dir = target.leg = -target.dir;
+    if (ahead < TurnRoom(ft, target.dir) && behind > ahead) target.dir = target.leg = -target.dir;
 }
 
 // Last frame's stick: whether a full one now would be a fresh smash.
@@ -631,6 +697,109 @@ static int RunStick(FighterData *ft, int dir) {
         default:
             return Smash(ft, dir);
     }
+}
+enum run_phase { RUN_GO, RUN_CROUCH, RUN_DASH_OUT };
+/* How far the CPU goes from the frame it lets go of a run until the dash out
+ * of its crouch can start: a frame of RunBrake (ground friction; PlCo 0x60 is
+ * 1), then the crouch's Squat frames, which brake with ft_80084F3C. */
+static float CrouchSlide(FighterData *ft) {
+    float v = fabs(ft->phys.self_vel_ground.X), distance = 0;
+    int brake_frames = 1;
+    if (OnPlatform(ft) && (u8)ft->input.timer_lstick_tilt_y + 1 < PASS_FRAMES)
+        brake_frames = PASS_FRAMES - (u8)ft->input.timer_lstick_tilt_y;
+    for (int i = 0; i < brake_frames && v > 0; ++i) {
+        v -= ft->attr.ground_friction;
+        if (v > 0) distance += v;
+    }
+    if (v < 0) v = 0;
+    return distance + BrakeDistance(ft, v, SQUAT_FRAMES);
+}
+// The floor a dash out of a crouch needs: it's a dash from standing.
+static float DashOutRoom(FighterData *ft) { return DashRoom(ft, 0, 5) + TOUCH; }
+/* All the way down crouches. Only a platform can be dropped through, so there
+ * it waits until the down tilt is old enough. */
+static int CrouchStickY(FighterData *ft) {
+    if (OnPlatform(ft) && (u8)ft->input.timer_lstick_tilt_y + 1 < PASS_FRAMES) return STICK_HALF_DOWN;
+    return -STICK_FULL;
+}
+/* Run mode turns a run around the way players do, without a run turnaround:
+ * near the end it lets go into RunBrake and crouches (RunBrake takes a crouch,
+ * ftCo_800D5FB0; Run doesn't), dashes forward out of the crouch (SquatWait
+ * takes a dash; Squat, the crouch's first 8 frames, doesn't) right up to the
+ * end, then dashes back and runs the other way. The crouch comes early enough
+ * to leave that dash a few frames beyond the five it can't turn in. If the
+ * crouch still ends too near the end, it dashes straight back out of it (a
+ * reversed smash from SquatWait turns, then dashes). Running, the stick is
+ * held half down, so by the crouch the down tilt is too old to drop through a
+ * platform (ftCo_80099F1C: down past 0.66 within 6 frames of crossing 0.25; a
+ * crouch needs 0.6875). A run that starts too near the end to crouch at all
+ * turns around in TurnRun, which stops at the end. */
+static void RunInputs(FighterData *ft) {
+    int state = ft->state_id, dir = target.dir;
+    ft->cpu.lstickY = 0;
+    if (target.run_phase == RUN_CROUCH) {
+        if (state == ASID_SQUATWAIT) {
+            if (RoomAhead(ft, dir) >= DashOutRoom(ft)) {
+                target.run_phase = RUN_DASH_OUT;
+            } else {
+                target.dir = target.leg = dir = -dir;
+                target.run_phase = RUN_GO;
+            }
+            ft->cpu.lstickX = Smash(ft, dir); // The stick was neutral through the crouch.
+            return;
+        }
+        if (state == ASID_RUN || state == ASID_RUNBRAKE || state == ASID_SQUAT) {
+            ft->cpu.lstickX = 0;
+            ft->cpu.lstickY = CrouchStickY(ft);
+            return;
+        }
+        target.run_phase = RUN_GO;
+    }
+    if (target.run_phase == RUN_DASH_OUT) {
+        if (state == ASID_DASH && Facing(ft, dir)) {
+            if (!ft->ftcmd_var.flag0 && RoomAhead(ft, dir) >= TurnRoom(ft, dir)) {
+                ft->cpu.lstickX = dir * STICK_FULL;
+                return;
+            }
+            // At the end (or about to run): dash back the other way.
+            target.dir = target.leg = dir = -dir;
+            target.run_phase = RUN_GO;
+            ft->cpu.lstickX = Smash(ft, dir);
+            return;
+        }
+        if (state == ASID_SQUATWAIT) {
+            ft->cpu.lstickX = Smash(ft, dir);
+            return;
+        }
+        target.run_phase = RUN_GO;
+    }
+    if (state == ASID_RUN && Facing(ft, dir)) {
+        float room = RoomAhead(ft, dir), slide = CrouchSlide(ft);
+        float top = ft->attr.dashrun_terminal_velocity;
+        if (room - slide < DashOutRoom(ft) + CROUCH_EXTRA * top) {
+            if (room - slide >= TOUCH) {
+                target.run_phase = RUN_CROUCH;
+                ft->cpu.lstickX = 0;
+                ft->cpu.lstickY = CrouchStickY(ft);
+                return;
+            }
+            target.dir = target.leg = dir = -dir; // Too near to crouch: TurnRun.
+        } else {
+            ft->cpu.lstickY = STICK_HALF_DOWN;
+        }
+        ft->cpu.lstickX = dir * STICK_FULL;
+        return;
+    }
+    Steer(ft);
+    ft->cpu.lstickX = RunStick(ft, target.dir);
+    /* A dash that would become a run (its script's flag is set) too near the
+     * end to crouch in time stays a dash, with the stick short of a run, and
+     * turns back as a dash does. */
+    if (state == ASID_DASH && Facing(ft, target.dir) && ft->ftcmd_var.flag0 &&
+        RoomAhead(ft, target.dir) - CrouchSlide(ft) < TOUCH + fabs(ft->phys.self_vel_ground.X))
+        ft->cpu.lstickX = target.dir * STICK_DASH_HOLD;
+    // The down tilt starts aging in the dash, for a crouch on a platform.
+    if (state == ASID_DASH && Facing(ft, target.dir)) ft->cpu.lstickY = STICK_HALF_DOWN;
 }
 /* A dash dance that travels: a full dash the way the CPU is heading, cut off
  * where it would become a run (its script's flag) by a quick dash back, then
@@ -669,11 +838,11 @@ static int DanceStick(FighterData *ft) {
     if (state != ASID_DASH) {
         // A dash from standing can't turn for its first frames: start it away
         // from an end that's too close.
-        if (RoomAhead(ft, leg) < TurnRoom(ft) && RoomAhead(ft, -leg) > RoomAhead(ft, leg)) target.leg = leg = -leg;
+        if (RoomAhead(ft, leg) < TurnRoom(ft, leg) && RoomAhead(ft, -leg) > RoomAhead(ft, leg)) target.leg = leg = -leg;
         return Smash(ft, leg);
     }
     if (!Facing(ft, leg)) return Smash(ft, leg);
-    bool done = ft->ftcmd_var.flag0 || RoomAhead(ft, leg) < TurnRoom(ft);
+    bool done = ft->ftcmd_var.flag0 || RoomAhead(ft, leg) < TurnRoom(ft, leg);
     if (target.move == MOVE_DASH_HALF && run_frame && ft->state.frame >= run_frame / 2) done = true;
     if (!done) return leg * STICK_FULL;
     target.leg = -leg;
@@ -690,6 +859,7 @@ static void Move(GOBJ *cpu, FighterData *ft) {
     bool flag = state == ASID_DASH && ft->ftcmd_var.flag0;
     if (flag && !target.last_flag && target.last_state == ASID_DASH && !run_frame) run_frame = ft->state.frame;
     target.last_flag = flag;
+    if (state == ASID_TURN && !turn_frames) turn_frames = Fighter_GetCurrentAnimLength(cpu);
     target.last_state = state;
     if (target.move == MOVE_STAND || ft->phys.air_state != 0) return;
     if (target.move == MOVE_DASH_FULL || target.move == MOVE_DASH_HALF) {
@@ -697,11 +867,15 @@ static void Move(GOBJ *cpu, FighterData *ft) {
         ft->cpu.lstickX = DanceStick(ft);
         return;
     }
+    if (target.move == MOVE_RUN) {
+        UpdateEnds(ft);
+        RunInputs(ft);
+        return;
+    }
     Steer(ft);
     int dir = target.dir;
     switch (target.move) {
         case MOVE_WALK: ft->cpu.lstickX = WalkStick(ft, dir); break;
-        case MOVE_RUN: ft->cpu.lstickX = RunStick(ft, dir); break;
         case MOVE_DASH: ft->cpu.lstickX = DashStick(ft, dir); break;
         case MOVE_ROLL:
             // Shield held throughout, so each roll ends back in shield. The

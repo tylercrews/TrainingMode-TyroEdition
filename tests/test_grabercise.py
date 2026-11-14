@@ -25,6 +25,7 @@ FLOORS = {
 }
 FD_EDGE = 85.6
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
+NEAR_END = 4  # A moving CPU's feet get this close to each end of its floor before it turns.
 # Menu rows and saved preferences.
 (OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL,
  OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(14)
@@ -247,10 +248,11 @@ class GrabMovementTests(unittest.TestCase):
             for signed_timer in (0, 1):
                 yield character, signed_timer
 
-    def assert_crosses(self, p, reach):
-        """Back and forth across Battlefield's ground, to within reach of each end."""
-        self.assertLessEqual(p.stat(13) / 1000, -68.4 + reach)
-        self.assertGreaterEqual(p.stat(14) / 1000, 68.4 - reach)
+    def assert_crosses(self, p, reach=NEAR_END, line=MAIN_LEFT):
+        """Back and forth across a floor, right up to each end: within reach."""
+        left, right, _ = FLOORS[line]
+        self.assertLessEqual(p.stat(13) / 1000, left + reach)
+        self.assertGreaterEqual(p.stat(14) / 1000, right - reach)
 
     def assert_stays_on(self, p, line):
         left, right, height = FLOORS[line]
@@ -268,17 +270,21 @@ class GrabMovementTests(unittest.TestCase):
                 self.assertEqual((p.stat(7), p.stat(2), p.stat(3)), (0, 0, 0))
                 self.assertGreaterEqual(p.stat(8), 3)
                 self.assert_stays_on(p, MAIN_LEFT)
-                self.assert_crosses(p, 25)
+                self.assert_crosses(p)
 
-    def test_running_reaches_full_speed_and_run_turns_at_each_end(self):
+    def test_running_turns_around_by_crouching_and_dashing_out(self):
         for character, signed_timer in self.cases():
             with self.subTest(character=character, signed_timer=signed_timer):
                 p = self.moving(RUN, character, signed_timer)
-                self.assertGreaterEqual(p.stat(2), 1)
+                self.assertGreaterEqual(p.stat(2), 3)
                 self.assertGreaterEqual(p.speed(11), p.char(1) * .98)
-                self.assertGreaterEqual(p.stat(5), 3)
+                # Every end: a crouch, then a dash out of it, and never a run
+                # turnaround or a drop through a floor.
+                self.assertGreaterEqual(p.stat(29), 3)
+                self.assertGreaterEqual(p.stat(30), p.stat(29) - 1)
+                self.assertEqual((p.stat(5), p.stat(31)), (0, 0))
                 self.assert_stays_on(p, MAIN_LEFT)
-                self.assert_crosses(p, 15)
+                self.assert_crosses(p)
 
     def test_dash_dancing_cuts_each_dash_off_with_a_quick_dash_back(self):
         for character, signed_timer in self.cases():
@@ -296,7 +302,7 @@ class GrabMovementTests(unittest.TestCase):
                 self.assertEqual(p.stat(21), p.stat(20))
                 self.assertGreaterEqual(p.speed(12), p.char(2) * .99)
                 self.assert_stays_on(p, MAIN_LEFT)
-                self.assert_crosses(p, 20)
+                self.assert_crosses(p)
 
     def test_full_dash_dance_dashes_full_dashes_back_and_forth_in_place(self):
         for character, signed_timer in self.cases():
@@ -347,22 +353,32 @@ class GrabMovementTests(unittest.TestCase):
                 self.assertGreaterEqual(p.stat(8), 2)
                 self.assertEqual(p.stat(2), 0)
                 self.assert_stays_on(p, MAIN_LEFT)
-                self.assert_crosses(p, 20)
+                self.assert_crosses(p)
                 self.assertTrue(p.info(10) & PAD_TRIGGER_R)
                 self.assertEqual(p.info(15), 60)  # The shield stays full.
 
-    def test_every_movement_stays_on_a_platform(self):
+    def test_every_movement_goes_right_up_to_each_end_of_a_platform(self):
         for move in (WALK, RUN, DASH, ROLL):
             for line in (LEFT_PLATFORM, TOP_PLATFORM):
-                for character in (FOX, LUIGI):
+                for character in (FOX, MARTH, GAME_AND_WATCH, LUIGI):
                     for direction in (1, -1):
                         with self.subTest(move=move, line=line, character=character, direction=direction):
                             left, right, _ = FLOORS[line]
-                            p = self.moving(move, character, 0, line=line, x=(left + right) / 2, direction=direction, frames=400)
+                            p = self.moving(move, character, 0, line=line, x=(left + right) / 2, direction=direction, frames=600)
                             self.assert_stays_on(p, line)
                             self.assertGreaterEqual(p.stat(8), 2)
-                            # Most of the platform, not a dither in the middle.
-                            self.assertGreaterEqual((p.stat(14) - p.stat(13)) / 1000, .55 * (right - left))
+                            self.assert_crosses(p, line=line)
+                            self.assertEqual(p.stat(31), 0)  # A crouch never drops through.
+
+    def test_a_crouch_on_a_platform_waits_for_an_old_down_tilt(self):
+        # Game & Watch and Luigi get to run on Battlefield's platforms, so they
+        # crouch there: never dropping through, and still dashing out.
+        for character in (GAME_AND_WATCH, LUIGI):
+            with self.subTest(character=character):
+                p = self.moving(RUN, character, 0, line=LEFT_PLATFORM, x=-38.8, frames=600)
+                self.assertGreaterEqual(p.stat(29), 10)
+                self.assertGreaterEqual(p.stat(30), p.stat(29) - 1)
+                self.assertEqual((p.stat(31), p.stat(1), p.stat(5)), (0, 0, 0))
 
     def test_a_cpu_spawned_facing_the_edge_heads_back_first(self):
         for move in (WALK, RUN, DASH, ROLL):
