@@ -89,9 +89,11 @@ ESCAPE_MASK = 0xFFFF
 # stored as its distance from its default, so word 76's zeros read as no best,
 # timed runs, every movement on and collision off.
 GRABS = 51  # TM_SETTING_GRABERCISE
-GRABS_COUNTS, GRABS_DEFAULTS = (128, 2, 2, 2, 2, 2, 2), (0, 0, 1, 1, 1, 1, 0)
-GRABS_FIELDS = ((16, 7), (23, 1), (24, 1), (25, 1), (26, 1), (27, 1), (28, 1))
-GRABS_MASK = 0x1FFF << 16
+# In menu order: best, Free Practice, Walk, Run, Traveling, Full and Half Dash
+# Dance, Rolling, Fighter Collision. The in-place dances came later: bits 29-30.
+GRABS_COUNTS, GRABS_DEFAULTS = (128, 2, 2, 2, 2, 2, 2, 2, 2), (0, 0, 1, 1, 1, 1, 1, 1, 0)
+GRABS_FIELDS = ((16, 7), (23, 1), (24, 1), (25, 1), (26, 1), (29, 1), (30, 1), (27, 1), (28, 1))
+GRABS_MASK = 0x7FFF << 16
 # Bytes 24..79 appended by versions 15 to 22: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
@@ -645,14 +647,15 @@ class ExtensionTests(unittest.TestCase):
                 shift, width = GRABS_FIELDS[index]
                 self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - GRABS_DEFAULTS[index]) % count)
                 self.assertEqual(word & ESCAPE_MASK, low)  # The escape events keep theirs.
-                self.assertEqual(word & ~(GRABS_MASK | ESCAPE_MASK), 0)  # Bits 29-31 stay spare.
+                self.assertEqual(word & ~(GRABS_MASK | ESCAPE_MASK), 0)  # Bit 31 stays spare.
             snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
             for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
                 m.call('Settings_Set', GRABS, index, value)
                 self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         m.call('Settings_Set', GRABS, 0, 127)
         m.call('Settings_Set', GRABS, 4, 0)
-        self.assertEqual(self.grabs(), (127, 0, 1, 1, 0, 1, 0))
+        m.call('Settings_Set', GRABS, 6, 0)
+        self.assertEqual(self.grabs(), (127, 0, 1, 1, 0, 1, 0, 1, 0))
         self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20), (13,)))
 
     def cost(self, name, *args):

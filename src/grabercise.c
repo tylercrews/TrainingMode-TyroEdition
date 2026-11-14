@@ -6,8 +6,9 @@
 /* Grab-ercise (Minigames): Eggs-ercise with a CPU to grab instead of eggs to
  * break. The CPU you picked appears somewhere on the stage you picked: on a
  * platform, on the ground under one, or anywhere along the ground. Half the
- * time it stands still; otherwise it walks, runs, dashes or rolls at full
- * speed, or dash dances, back and forth across the floor it's on. Grab it,
+ * time it stands still; otherwise it walks, runs or rolls at full speed, or
+ * dash dances, back and forth across the floor it's on, or dash dances in
+ * place, with full or half dashes. Grab it,
  * throw it, and it
  * disappears and comes back somewhere else. A timed minute counts grabs, with
  * the best saved; Free Practice has no clock and lets you pick the movements.
@@ -37,7 +38,7 @@
  *   dashes and runs go off it. */
 
 // The movement rows, in menu order, as the saved preferences number them.
-enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_ROLL };
+enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DASH_HALF, MOVE_ROLL };
 
 // PlCo values the inputs below rely on (see the comment above).
 #define TILT .25f          // 0x8: the tilt timers' crossing.
@@ -64,13 +65,16 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_ROLL };
 
 enum options_main {
     OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE,
-    OPT_WALK, OPT_RUN, OPT_DASH, OPT_ROLL, OPT_COLLISION,
+    OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
 // The movement rows' order is the saved preferences' and the moves'.
-typedef char grabercise_rows[(OPT_RUN - OPT_WALK == TM_GRABS_RUN - TM_GRABS_WALK &&
-    OPT_DASH - OPT_WALK == TM_GRABS_DASH - TM_GRABS_WALK && OPT_ROLL - OPT_WALK == TM_GRABS_ROLL - TM_GRABS_WALK &&
-    OPT_ROLL - OPT_WALK + 1 == TM_GRABS_MOVES && MOVE_ROLL - MOVE_WALK + 1 == TM_GRABS_MOVES) ? 1 : -1];
+#define SAME_ORDER(opt, pref, move) ((opt) - OPT_WALK == (pref) - TM_GRABS_WALK && (move) - MOVE_WALK == (opt) - OPT_WALK)
+typedef char grabercise_rows[(SAME_ORDER(OPT_RUN, TM_GRABS_RUN, MOVE_RUN) &&
+    SAME_ORDER(OPT_DASH, TM_GRABS_DASH, MOVE_DASH) && SAME_ORDER(OPT_DASH_FULL, TM_GRABS_DASH_FULL, MOVE_DASH_FULL) &&
+    SAME_ORDER(OPT_DASH_HALF, TM_GRABS_DASH_HALF, MOVE_DASH_HALF) && SAME_ORDER(OPT_ROLL, TM_GRABS_ROLL, MOVE_ROLL) &&
+    OPT_ROLL - OPT_WALK + 1 == TM_GRABS_MOVES) ? 1 : -1];
+#undef SAME_ORDER
 
 static void Retry(GOBJ *menu);
 static void Exit(GOBJ *menu);
@@ -78,6 +82,8 @@ static void StartFreePractice(GOBJ *menu);
 static void ChangeWalk(GOBJ *menu, int value);
 static void ChangeRun(GOBJ *menu, int value);
 static void ChangeDash(GOBJ *menu, int value);
+static void ChangeDashFull(GOBJ *menu, int value);
+static void ChangeDashHalf(GOBJ *menu, int value);
 static void ChangeRoll(GOBJ *menu, int value);
 static void ChangeCollision(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
@@ -148,7 +154,7 @@ static EventOption Options_Main[OPT_COUNT] = {
     },
     {
         .kind = OPTKIND_TOGGLE,
-        .name = "Dash Dance",
+        .name = "Traveling Dash Dance",
         .val = 1,
         .desc = {"Moving CPUs can dash dance across: a full dash, a",
                  "quick dash back for a frame or two, then the next",
@@ -156,6 +162,28 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "One movement always stays on. Free Practice only."},
         .disable = 1,
         .OnChange = ChangeDash,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Full Dash Dance",
+        .val = 1,
+        .desc = {"Moving CPUs can dash dance in place: a full dash",
+                 "one way, then a full dash back, over and over. A",
+                 "full dash goes until it would turn into a run.",
+                 "One movement always stays on. Free Practice only."},
+        .disable = 1,
+        .OnChange = ChangeDashFull,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Half Dash Dance",
+        .val = 1,
+        .desc = {"Moving CPUs can dash dance in place with dashes",
+                 "half as long: half a dash one way, then half back.",
+                 "The first dash of a match is a full one.",
+                 "One movement always stays on. Free Practice only."},
+        .disable = 1,
+        .OnChange = ChangeDashHalf,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -226,6 +254,7 @@ static struct target {
     int leg;           // Dash Dance: the way this dash, or the next, goes.
     int last_state;    // Last frame's state, and whether this dash came from a
     bool turn_dash;    // turn, which can turn back at once (dash.x4 is 0).
+    bool last_flag;    // Last frame's dash had its run flag set.
     bool grabbed;      // Counted: waiting for the grab or throw to end.
     int air_frames;    // Airborne, not held.
     Vec3 spot;         // Where it last appeared.
@@ -237,8 +266,9 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_WALK, OPT_RUN, OPT_DASH, OPT_ROLL, OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_ROLL, TM_GRABS_COLLISION};
+static const u8 saved_rows[] = {OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF,
+    TM_GRABS_ROLL, TM_GRABS_COLLISION};
 static void LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_rows); ++i) {
         EventOption *option = &Options_Main[saved_rows[i]];
@@ -267,7 +297,9 @@ static void ChangeMove(int move, int value) {
 static void ChangeWalk(GOBJ *menu, int value) { ChangeMove(0, value); }
 static void ChangeRun(GOBJ *menu, int value) { ChangeMove(1, value); }
 static void ChangeDash(GOBJ *menu, int value) { ChangeMove(2, value); }
-static void ChangeRoll(GOBJ *menu, int value) { ChangeMove(3, value); }
+static void ChangeDashFull(GOBJ *menu, int value) { ChangeMove(3, value); }
+static void ChangeDashHalf(GOBJ *menu, int value) { ChangeMove(4, value); }
+static void ChangeRoll(GOBJ *menu, int value) { ChangeMove(5, value); }
 
 static void ShowCollision(int value) {
     for (int ply = 0; ply < 2; ++ply)
@@ -483,6 +515,7 @@ static void Respawn(void) {
     Fighter_UpdateCameraBox(cpu);
     target.placed = true;
     target.last_state = ASID_WAIT;
+    target.last_flag = false;
     target.grabbed = false;
     target.air_frames = 0;
     target.spot = spot;
@@ -518,7 +551,7 @@ static float TurnRoom(FighterData *ft) {
     float speed = fabs(ft->phys.self_vel_ground.X);
     float friction = ft->attr.ground_friction > .01f ? ft->attr.ground_friction : .01f;
     // A dash commits to its first frames at dash speed, even from standing.
-    if ((target.move == MOVE_RUN || target.move == MOVE_DASH) && speed < ft->attr.dash_initial_velocity)
+    if (target.move >= MOVE_RUN && target.move <= MOVE_DASH_HALF && speed < ft->attr.dash_initial_velocity)
         speed = ft->attr.dash_initial_velocity;
     int state = ft->state_id;
     switch (target.move) {
@@ -534,7 +567,9 @@ static float TurnRoom(FighterData *ft) {
                 return speed * speed / (2 * brake) + speed * 2 + EDGE_ROOM;
             }
             // Fall through.
-        case MOVE_DASH: {
+        case MOVE_DASH:
+        case MOVE_DASH_FULL:
+        case MOVE_DASH_HALF: {
             /* A dash turns back almost at once (Turn_Enter_Smash, then a dash
              * the other way), after a neutral frame. A dash out of a turn can
              * from its first frame, but one from standing only from its fifth
@@ -550,16 +585,22 @@ static float TurnRoom(FighterData *ft) {
             return ROLL_ROOM;
     }
 }
-static void Steer(FighterData *ft) {
+// The ends of the floor the CPU stands on, measured again when it changes.
+static void UpdateEnds(FighterData *ft) {
     int line = ft->coll_data.ground_index;
-    if (line != target.ends_line) {
-        target.ends_line = line;
-        if (!FloorEnds(line, &target.left, &target.right)) target.ends_line = -1;
-    }
-    if (target.ends_line < 0) return;
+    if (line == target.ends_line) return;
+    target.ends_line = line;
+    if (!FloorEnds(line, &target.left, &target.right)) target.ends_line = -1;
+}
+// The floor left in a direction; plenty if the floor isn't known.
+static float RoomAhead(FighterData *ft, int dir) {
+    if (target.ends_line < 0) return 999.f;
     float x = ft->phys.pos.X;
-    float ahead = target.dir > 0 ? target.right - x : x - target.left;
-    float behind = target.dir > 0 ? x - target.left : target.right - x;
+    return dir > 0 ? target.right - x : x - target.left;
+}
+static void Steer(FighterData *ft) {
+    UpdateEnds(ft);
+    float ahead = RoomAhead(ft, target.dir), behind = RoomAhead(ft, -target.dir);
     if (ahead < TurnRoom(ft) && behind > ahead) target.dir = target.leg = -target.dir;
 }
 
@@ -609,6 +650,32 @@ static int DashStick(FighterData *ft, int dir) {
     }
     return Smash(ft, target.leg);
 }
+/* The dash frame a dash would become a run on (cmd_vars[0] set by its
+ * script), learned from the first dash seen this match. The .dat reloads with
+ * every match, and the CPU's character only changes with a new match. */
+static int run_frame;
+/* A dash dance in place: dash one way, then back, over and over, each dash
+ * cut off where it would become a run (Full) or at half that many frames
+ * (Half; until a dash has shown where that is, a full one). A dash that would
+ * run out of floor turns early, so a dance near an end drifts away from it.
+ * Turns are as in the traveling dance: a neutral frame, a fresh smash, and
+ * the stick held out through the Turn. */
+static int DanceStick(FighterData *ft) {
+    int state = ft->state_id, leg = target.leg;
+    if (state == ASID_TURN) return leg * STICK_FULL;
+    if (state != ASID_DASH) {
+        // A dash from standing can't turn for its first frames: start it away
+        // from an end that's too close.
+        if (RoomAhead(ft, leg) < TurnRoom(ft) && RoomAhead(ft, -leg) > RoomAhead(ft, leg)) target.leg = leg = -leg;
+        return Smash(ft, leg);
+    }
+    if (!Facing(ft, leg)) return Smash(ft, leg);
+    bool done = ft->ftcmd_var.flag0 || RoomAhead(ft, leg) < TurnRoom(ft);
+    if (target.move == MOVE_DASH_HALF && run_frame && ft->state.frame >= run_frame / 2) done = true;
+    if (!done) return leg * STICK_FULL;
+    target.leg = -leg;
+    return Smash(ft, -leg);
+}
 static int RollStick(FighterData *ft, int dir) {
     int state = ft->state_id;
     return state == ASID_GUARDON || state == ASID_GUARD ? Smash(ft, dir) : 0;
@@ -617,8 +684,16 @@ static int RollStick(FighterData *ft, int dir) {
 static void Move(GOBJ *cpu, FighterData *ft) {
     int state = ft->state_id;
     if (state == ASID_DASH && target.last_state != ASID_DASH) target.turn_dash = target.last_state == ASID_TURN;
+    bool flag = state == ASID_DASH && ft->ftcmd_var.flag0;
+    if (flag && !target.last_flag && target.last_state == ASID_DASH && !run_frame) run_frame = ft->state.frame;
+    target.last_flag = flag;
     target.last_state = state;
     if (target.move == MOVE_STAND || ft->phys.air_state != 0) return;
+    if (target.move == MOVE_DASH_FULL || target.move == MOVE_DASH_HALF) {
+        UpdateEnds(ft);
+        ft->cpu.lstickX = DanceStick(ft);
+        return;
+    }
     Steer(ft);
     int dir = target.dir;
     switch (target.move) {

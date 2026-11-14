@@ -134,6 +134,11 @@ static struct stats {
     // Dash legs: frames in each dash, long (6+) or short (3 or fewer), and
     // the short ones that went back against the last long one and moved back.
     int long_legs, short_legs, short_back, moved_back, longest_leg;
+    // Every dash leg: how many, how many went the other way from the one
+    // before, and after the first, the longest and shortest in frames and
+    // distance (the first is from standing).
+    int legs, alternations, longest_after_first, shortest_after_first;
+    float farthest_after_first, nearest_after_first;
     int dir_changes, last_dir, inputs;
     float top_walk, top_run, top_dash, min_x, max_x, min_y, max_y;
 } st;
@@ -456,9 +461,19 @@ static void Physics(void) {
     }
 }
 
-static int leg_dir, leg_len, last_long;
+static int leg_dir, leg_len, last_long, prev_leg_dir;
 static float leg_x;
 static void FinishLeg(void) {
+    float distance = fabs(ft[CPU_FT].phys.pos.X - leg_x);
+    st.legs++;
+    if (prev_leg_dir && leg_dir == -prev_leg_dir) st.alternations++;
+    prev_leg_dir = leg_dir;
+    if (st.legs > 1) {
+        if (leg_len > st.longest_after_first) st.longest_after_first = leg_len;
+        if (!st.shortest_after_first || leg_len < st.shortest_after_first) st.shortest_after_first = leg_len;
+        if (distance > st.farthest_after_first) st.farthest_after_first = distance;
+        if (!st.nearest_after_first || distance < st.nearest_after_first) st.nearest_after_first = distance;
+    }
     if (leg_len >= 6) {
         st.long_legs++;
         last_long = leg_dir;
@@ -493,7 +508,7 @@ static void Observe(void) {
 static void ResetStats(void) {
     FighterData *f = &ft[CPU_FT];
     st = (struct stats){0};
-    leg_len = last_long = 0;
+    leg_len = last_long = prev_leg_dir = 0;
     st.min_x = st.max_x = f->phys.pos.X;
     st.min_y = st.max_y = f->phys.pos.Y;
     st.last_dir = target.dir;
@@ -633,6 +648,7 @@ int TestGrabsInfo(int key) {
         case 15: return f->shield.health;
         case 16: return f->show_hit;
         case 17: return counter_pref;
+        case 18: return run_frame;
     }
     return -1;
 }
@@ -662,6 +678,12 @@ int TestGrabsStat(int key) {
         case 20: return st.short_back;
         case 21: return st.moved_back;
         case 22: return st.longest_leg;
+        case 23: return st.legs;
+        case 24: return st.alternations;
+        case 25: return st.longest_after_first;
+        case 26: return st.shortest_after_first;
+        case 27: return st.farthest_after_first * 1000;
+        case 28: return st.nearest_after_first * 1000;
     }
     return -1;
 }

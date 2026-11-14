@@ -14,7 +14,7 @@ from test_lowlaser import load_probe
 ROOT = Path(__file__).resolve().parents[1]
 BATTLEFIELD, FINAL_DESTINATION = 0, 1
 FOX, MARTH, GAME_AND_WATCH, LUIGI = range(4)
-STAND, WALK, RUN, DASH, ROLL = range(5)
+STAND, WALK, RUN, DASH, DASH_FULL, DASH_HALF, ROLL = range(7)
 # Battlefield's lines in the probe: the ground's halves, a wall, then the
 # left, right and top platforms.
 MAIN_LEFT, MAIN_RIGHT, WALL, LEFT_PLATFORM, RIGHT_PLATFORM, TOP_PLATFORM = range(6)
@@ -26,10 +26,12 @@ FLOORS = {
 FD_EDGE = 85.6
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 # Menu rows and saved preferences.
-(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_WALK, OPT_RUN, OPT_DASH, OPT_ROLL,
- OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(12)
-BEST, FREE_PRACTICE, PREF_WALK, PREF_RUN, PREF_DASH, PREF_ROLL, COLLISION = range(7)
-MOVE_ROWS = (OPT_WALK, OPT_RUN, OPT_DASH, OPT_ROLL)
+(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL,
+ OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(14)
+(BEST, FREE_PRACTICE, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PREF_ROLL,
+ COLLISION) = range(9)
+MOVE_ROWS = (OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL)
+MOVE_PREFS = (PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PREF_ROLL)
 # States, from the MexTK enum.
 ASID_WAIT, ASID_FALL = 14, 29
 ASID_CAPTUREPULLEDHI, ASID_CAPTUREWAITHI, ASID_THROWNF = 223, 224, 239
@@ -54,7 +56,7 @@ class Probe:
     def __init__(self, stage=BATTLEFIELD, character=FOX, signed_timer=0, prefs=None, follower=False):
         self.m = fixtures.Machine()
         load_probe(self.m, 'grabercise-probe.elf', 'TestGrabsLoaded')
-        defaults = {BEST: 0, FREE_PRACTICE: 0, PREF_WALK: 1, PREF_RUN: 1, PREF_DASH: 1, PREF_ROLL: 1, COLLISION: 0}
+        defaults = {BEST: 0, FREE_PRACTICE: 0, COLLISION: 0, **{pref: 1 for pref in MOVE_PREFS}}
         defaults.update(prefs or {})
         for index, value in defaults.items():
             self.m.call('TestGrabsPref', index, value)
@@ -95,17 +97,18 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_the_menu_has_the_stage_and_character_selects(self):
         p = Probe()
-        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(12)]
+        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(14)]
         self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Enable Free Practice',
-                                 'Full Speed Walk', 'Full Speed Run', 'Dash Dance', 'Rolling',
+                                 'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
+                                 'Full Dash Dance', 'Half Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
 
     def test_timed_runs_grey_out_the_movement_rows_and_free_practice_opens_them(self):
         p = Probe()
-        self.assertEqual([p.row(row, 1) for row in MOVE_ROWS + (OPT_COLLISION,)], [1] * 5)
+        self.assertEqual([p.row(row, 1) for row in MOVE_ROWS + (OPT_COLLISION,)], [1] * 7)
         self.assertEqual((p.row(OPT_FREEPRACTICE, 1), p.info(12)), (0, 0))
         p = Probe(prefs={FREE_PRACTICE: 1})
-        self.assertEqual([p.row(row, 1) for row in MOVE_ROWS + (OPT_COLLISION,)], [0] * 5)
+        self.assertEqual([p.row(row, 1) for row in MOVE_ROWS + (OPT_COLLISION,)], [0] * 7)
         self.assertEqual((p.row(OPT_FREEPRACTICE, 1), p.info(12)), (1, 1))
 
     def test_enable_free_practice_saves_it_and_restarts(self):
@@ -115,7 +118,7 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_the_movement_rows_are_saved_and_the_last_one_stays_on(self):
         p = Probe(prefs={FREE_PRACTICE: 1})
-        for row, pref in ((OPT_WALK, PREF_WALK), (OPT_RUN, PREF_RUN), (OPT_DASH, PREF_DASH)):
+        for row, pref in zip(MOVE_ROWS[:-1], MOVE_PREFS[:-1]):
             p.menu(row, 0)
             self.assertEqual((p.row(row), p.pref(pref)), (0, 0))
         p.menu(OPT_ROLL, 0)
@@ -125,17 +128,17 @@ class GrabSettingsTests(unittest.TestCase):
         self.assertEqual((p.row(OPT_ROLL), p.pref(PREF_ROLL), p.info(8)), (0, 0, 1))
 
     def test_a_save_with_every_movement_off_reads_as_all_on(self):
-        p = Probe(prefs={FREE_PRACTICE: 1, PREF_WALK: 0, PREF_RUN: 0, PREF_DASH: 0, PREF_ROLL: 0})
-        self.assertEqual([p.row(row) for row in MOVE_ROWS], [1, 1, 1, 1])
+        p = Probe(prefs={FREE_PRACTICE: 1, **{pref: 0 for pref in MOVE_PREFS}})
+        self.assertEqual([p.row(row) for row in MOVE_ROWS], [1] * 6)
 
     def test_timed_runs_mix_every_movement_and_free_practice_only_the_ones_on(self):
-        p = Probe(prefs={PREF_WALK: 1, PREF_RUN: 0, PREF_DASH: 0, PREF_ROLL: 0})
-        moves = [p.m.call('TestGrabsChooseMove') for _ in range(400)]
-        self.assertEqual(set(moves), {STAND, WALK, RUN, DASH, ROLL})
+        p = Probe(prefs={**{pref: 0 for pref in MOVE_PREFS}, PREF_WALK: 1})
+        moves = [p.m.call('TestGrabsChooseMove') for _ in range(600)]
+        self.assertEqual(set(moves), {STAND, WALK, RUN, DASH, DASH_FULL, DASH_HALF, ROLL})
         self.assertAlmostEqual(moves.count(STAND) / len(moves), .5, delta=.08)
-        p = Probe(prefs={FREE_PRACTICE: 1, PREF_WALK: 0, PREF_RUN: 1, PREF_DASH: 0, PREF_ROLL: 1})
+        p = Probe(prefs={FREE_PRACTICE: 1, **{pref: 0 for pref in MOVE_PREFS}, PREF_RUN: 1, PREF_DASH_HALF: 1})
         moves = [p.m.call('TestGrabsChooseMove') for _ in range(400)]
-        self.assertEqual(set(moves), {STAND, RUN, ROLL})
+        self.assertEqual(set(moves), {STAND, RUN, DASH_HALF})
         self.assertAlmostEqual(moves.count(STAND) / len(moves), .5, delta=.08)
 
     def test_fighter_collision_is_saved_and_shown_in_free_practice(self):
@@ -149,7 +152,7 @@ class GrabSettingsTests(unittest.TestCase):
         p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, PREF_WALK: 0, PREF_DASH: 0, COLLISION: 1})
         p.menu(OPT_COUNTER, 3)
         p.select(OPT_DEFAULTS)
-        self.assertEqual([p.pref(i) for i in range(7)], [17, 0, 1, 1, 1, 1, 0])
+        self.assertEqual([p.pref(i) for i in range(9)], [17, 0, 1, 1, 1, 1, 1, 1, 0])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
 
 
@@ -284,6 +287,47 @@ class GrabMovementTests(unittest.TestCase):
                 self.assertGreaterEqual(p.speed(12), p.char(2) * .99)
                 self.assert_stays_on(p, MAIN_LEFT)
                 self.assert_crosses(p, 20)
+
+    def test_full_dash_dance_dashes_full_dashes_back_and_forth_in_place(self):
+        for character, signed_timer in self.cases():
+            with self.subTest(character=character, signed_timer=signed_timer):
+                p = self.moving(DASH_FULL, character, signed_timer)
+                run_frame = p.m.call('TestGrabsChar', 3)
+                self.assertEqual(p.stat(2), 0, 'ran')
+                self.assertGreaterEqual(p.stat(23), 25)
+                self.assertEqual(p.stat(24), p.stat(23) - 1)  # Each dash goes the other way.
+                # Every dash after the first (from standing) goes until it would
+                # become a run, and as far one way as the other, so it stays put.
+                self.assertEqual((p.stat(25), p.stat(26)), (run_frame + 1, run_frame + 1))
+                self.assertLess((p.stat(27) - p.stat(28)) / 1000, 1)
+                self.assertLess(p.stat(14) - p.stat(13), p.stat(27) * 1.5)
+                self.assert_stays_on(p, MAIN_LEFT)
+
+    def test_half_dash_dance_dashes_half_as_far_back_and_forth(self):
+        for character, signed_timer in self.cases():
+            with self.subTest(character=character, signed_timer=signed_timer):
+                full = self.moving(DASH_FULL, character, signed_timer)
+                p = self.moving(DASH_HALF, character, signed_timer)
+                run_frame = p.m.call('TestGrabsChar', 3)
+                self.assertEqual(p.info(18), run_frame)  # Learned from its first dash, a full one.
+                self.assertEqual(p.stat(2), 0, 'ran')
+                self.assertGreaterEqual(p.stat(23), 40)
+                self.assertEqual(p.stat(24), p.stat(23) - 1)
+                self.assertEqual((p.stat(25), p.stat(26)), (run_frame // 2 + 1, run_frame // 2 + 1))
+                self.assertLess((p.stat(27) - p.stat(28)) / 1000, 1)
+                self.assertAlmostEqual(p.stat(27) / full.stat(27), .5, delta=.1)
+                self.assert_stays_on(p, MAIN_LEFT)
+
+    def test_a_dance_in_place_near_an_end_or_on_a_platform_stays_on(self):
+        for move in (DASH_FULL, DASH_HALF):
+            for character in (FOX, LUIGI):
+                for line, x, direction in ((MAIN_RIGHT, 60, 1), (MAIN_LEFT, -60, -1), (LEFT_PLATFORM, -38.8, 1),
+                                           (LEFT_PLATFORM, -52, -1), (TOP_PLATFORM, 12, 1)):
+                    with self.subTest(move=move, character=character, line=line, x=x):
+                        p = self.moving(move, character, 0, line=line, x=x, direction=direction, frames=400)
+                        self.assert_stays_on(p, line if line != MAIN_RIGHT else MAIN_LEFT)
+                        self.assertGreaterEqual(p.stat(23), 10)
+                        self.assertEqual(p.stat(2), 0)
 
     def test_rolling_rolls_again_and_again_and_rolls_back_at_each_end(self):
         for character, signed_timer in self.cases():
