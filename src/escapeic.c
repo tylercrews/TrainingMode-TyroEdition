@@ -50,7 +50,7 @@ static const char *Values_Percent[] = {
 // Handoffs to come; see the research notes. The row stays disabled until then.
 static const char *Values_Handoff[] = { "None" };
 
-enum menu_options { OPT_PERCENT, OPT_HANDOFF, OPT_BESTS };
+enum menu_options { OPT_PERCENT, OPT_HANDOFF, OPT_BESTS, OPT_HELP };
 // Each saved row's preference ID is its row number.
 typedef char escape_ic_saved_rows[((int)OPT_PERCENT == TM_ESC_IC_PERCENT &&
     countof(Values_Percent) == TM_ESC_PERCENT_COUNT) ? 1 : -1];
@@ -78,6 +78,86 @@ static EventMenu Menu_Bests = {
     .name = "Session Bests",
     .option_num = countof(Options_Bests),
     .options = Options_Bests,
+};
+
+/* Help: how the escape works and how to mash faster. Each row is checked against
+ * the game: 8007DC08 takes a fresh press in input.down & 0x80000F00, and input.down
+ * is held & ~held_prev (8006B0E0); bit 31 is set for digital L/R, analog past PlCo
+ * 0x10 (0.3), and Z, which also sets A (8006B070..8006B0D8). The stick's sticky
+ * direction flips past PlCo 0x308 (0.5) on either axis. See the research notes. */
+#define HELP_ROW(label, line1, line2, line3, line4) \
+    { .kind = OPTKIND_INFO, .name = label, .desc = {line1, line2, line3, line4} }
+static EventOption Options_Help[] = {
+    HELP_ROW("About This Event",
+             "The Ice Climbers grab you as each attempt",
+             "starts: mash out as fast as you can. D-Pad",
+             "up/down changes your percent, left/right",
+             "restarts. Beta: no handoffs yet."),
+    HELP_ROW("How Escaping Works",
+             "A grab holds you 75 frames + 1.6 a percent.",
+             "It drops 1 a frame on its own, and 6 more for",
+             "each input the game counts. A button and a",
+             "stick input can both count in one frame."),
+    HELP_ROW("Buttons That Count",
+             "A, B, X, Y, Z, L and R. Only the press counts:",
+             "holding or letting go does nothing, so let go",
+             "and press again. A light L or R press past",
+             "30% counts too, no click needed."),
+    HELP_ROW("One Button a Frame",
+             "Only one button counts each frame, so two",
+             "pressed together count once. Roll your",
+             "fingers across them, like a drumroll, so",
+             "each press lands on its own frame."),
+    HELP_ROW("L, R and Z",
+             "L and R are one button to the game: pressing",
+             "one while holding the other doesn't count.",
+             "Z is A and a shield press at once, so with Z",
+             "held, A, L and R presses don't count."),
+    HELP_ROW("The Control Stick",
+             "Pushing past halfway the other way counts:",
+             "left, then right, then left. The game keeps",
+             "left/right and up/down apart and counts a",
+             "flip on either, one stick input a frame."),
+    HELP_ROW("Neutral Doesn't Help",
+             "The game remembers your last side even with",
+             "the stick back in the middle, so right,",
+             "middle, right counts once. Push the other",
+             "way instead of tapping the same one."),
+    HELP_ROW("Stick Patterns",
+             "Waggling side to side counts every push.",
+             "Circles count every quarter turn. Moving",
+             "between neighbors (right, up, right, up)",
+             "stops counting: neither side flips."),
+    HELP_ROW("Use Both at Once",
+             "Buttons and the stick count separately, so",
+             "mash buttons while you waggle the stick.",
+             "20 inputs a second gets you out at 100% in",
+             "79 frames instead of 235."),
+    HELP_ROW("Start Right Away",
+             "Being pulled in counts too. The grab clears",
+             "the stick's memory, so your first push",
+             "counts, even one already held. A button",
+             "held as you're grabbed needs a new press."),
+    HELP_ROW("What Doesn't Count",
+             "The C-stick, D-pad and Start. Holding or",
+             "letting go of a button. The stick under",
+             "halfway, back in the middle, or pushed the",
+             "same way again. L or R under 30%."),
+    HELP_ROW("Pummels",
+             "In a match, the grab timer stops while a",
+             "pummel makes you flinch, and mashing then",
+             "doesn't count. Not in this beta: Popo just",
+             "holds you."),
+    HELP_ROW("Reading the HUD",
+             "Mash is the inputs the game took this grab.",
+             "Held For against No-Mash Hold is what your",
+             "mashing saved. Mash Speed is inputs a",
+             "second: 120 (2 a frame) is the most."),
+};
+static EventMenu Menu_Help = {
+    .name = "Help",
+    .option_num = countof(Options_Help),
+    .options = Options_Help,
 };
 
 static EventOption Options_Main[] = {
@@ -110,20 +190,12 @@ static EventOption Options_Main[] = {
                  "kept until you leave the event."},
     },
     {
-        .kind = OPTKIND_INFO,
-        .name = "Mashing Info",
-        .desc = {"Each fresh A, B, X, Y, Z, L or R and each new",
-                 "control stick direction takes 6 frames off,",
-                 "on top of 1 a frame: 13 a frame at most. The",
-                 "C-stick and D-pad don't count in Melee."},
-    },
-    {
-        .kind = OPTKIND_INFO,
+        .kind = OPTKIND_MENU,
         .name = "Help",
-        .desc = {"The Ice Climbers grab you as each attempt",
-                 "starts. Mash out as fast as you can.",
-                 "D-Pad left/right restarts, uncounted.",
-                 "Beta: no handoffs yet."},
+        .menu = &Menu_Help,
+        .desc = {"How this event works and how to mash out",
+                 "faster: what the game counts as a mash input",
+                 "and what it doesn't."},
     },
     {
         .kind = OPTKIND_FUNC,

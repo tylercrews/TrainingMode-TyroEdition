@@ -187,6 +187,33 @@ class EscapeICTests(unittest.TestCase):
         self.assertEqual((self.info(0), self.phase()), (loads + 1, SETUP))
 
     # The menu and D-pad.
+    def help_text(self):
+        rows = {}
+        for row in range(self.info(31)):
+            lines = [self.m.call('TestICHelpLine', row, line) for line in range(4)]
+            rows[self.string(self.m.call('TestICHelpName', row))] = [self.string(at) for at in lines if at]
+        return rows
+
+    def test_help_is_its_own_menu(self):
+        names = [self.string(self.m.call('TestICMainName', i)) for i in range(self.info(33))]
+        self.assertEqual(names, ['Your Percent', 'Handoff (Coming Soon)', 'Session Bests', 'Help', 'Exit'])
+        self.assertEqual(self.info(32), 1)
+
+    def test_help_covers_what_counts_and_what_doesnt(self):
+        rows = self.help_text()
+        self.assertEqual(list(rows), [
+            'About This Event', 'How Escaping Works', 'Buttons That Count', 'One Button a Frame',
+            'L, R and Z', 'The Control Stick', "Neutral Doesn't Help", 'Stick Patterns', 'Use Both at Once',
+            'Start Right Away', "What Doesn't Count", 'Pummels', 'Reading the HUD'])
+        for name, lines in rows.items():
+            self.assertEqual(len(lines), 4, name)
+            for line in lines:
+                self.assertLessEqual(len(line), 47, (name, line))  # Within the widest event menu text.
+        counts, misses = ' '.join(rows['Buttons That Count']), ' '.join(rows["What Doesn't Count"])
+        self.assertTrue(counts.startswith('A, B, X, Y, Z, L and R.'), counts)
+        for missing in ('C-stick', 'D-pad', 'Start'):
+            self.assertIn(missing, misses)
+
     def test_the_handoff_row_is_there_but_disabled(self):
         self.assertEqual((self.info(26), self.info(27), self.text(9), self.text(10)), (1, 1, 'None', 'Handoff (Coming Soon)'))
 

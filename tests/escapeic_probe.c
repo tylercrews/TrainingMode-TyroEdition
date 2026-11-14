@@ -242,6 +242,9 @@ int TestICInfo(int key) {
     case 28: return Options_Main[OPT_PERCENT].val;
     case 29: return ft[YOU].input.held;
     case 30: return countof(Options_Bests);
+    case 31: return countof(Options_Help);
+    case 32: return Options_Main[OPT_HELP].kind == OPTKIND_MENU && Options_Main[OPT_HELP].menu == &Menu_Help;
+    case 33: return countof(Options_Main);
     }
     return -1;
 }
@@ -255,3 +258,6 @@ char *TestICText(int key) {
     return best_text[key - 11]; /* 11.. the Session Bests rows */
 }
 char *TestICBestName(int row) { return Options_Bests[row].name; }
+char *TestICMainName(int row) { return Options_Main[row].name; }
+char *TestICHelpName(int row) { return Options_Help[row].name; }
+char *TestICHelpLine(int row, int line) { return Options_Help[row].desc[line]; }
