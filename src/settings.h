@@ -23,9 +23,11 @@
 #define TM_SETTINGS_COLORS_OFFSET 30
 /* Previously unused capacity: byte 6 bits 1-5 human ID+1, bits 6-7 marker 10;
  * byte 37 bits 1-5 CPU ID+1. Palette occupies byte 37 bit 0 only.
- * Byte 37 bit 6 extends Ledgedash's criterion; bit 7 remains unused.
+ * Byte 37 bit 6 extends Ledgedash's criterion; bit 7 is Escape IC Grab's
+ * Actionable Flash (T10), inverted so an unset bit is On.
  * Byte 43 bit 7 stores Side-B Sweetspot's zoomed-out camera. */
 #define TM_SETTINGS_CRITERION_HIGH_MASK 0x40 /* Byte 37: criterion bit 2. */
+#define TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK 0x80 /* Byte 37 bit 7: inverted; unset defaults On. */
 #define TM_SETTINGS_SIGNATURE_OFFSET 38
 #define TM_SETTINGS_RESERVED_OFFSET 40
 #define TM_SETTINGS_EXTRA_FLAGS_OFFSET 40 /* Bits 0/1/2: TurnRun/protection/CPU OSD override. */
@@ -142,6 +144,7 @@ enum TMSettingsField {
     TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 and 31 (v22); see TMEscapeSamusPreference. */
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
     TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30 and byte 51 bits 3-4 (T10); see TMGrabercisePreference. */
+    TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 /* Event Select pages: Minigames, General Tech, Character-specific Tech and

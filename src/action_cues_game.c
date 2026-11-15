@@ -233,7 +233,14 @@ int ActionCues_Remaining(GOBJ *gobj) {
     if (state == ASID_CLIFFJUMPSLOW1 || state == ASID_CLIFFJUMPQUICK1) return 3;
     int ledge = (state >= ASID_CLIFFCLIMBSLOW && state <= ASID_CLIFFESCAPEQUICK) ||
         state == ASID_CLIFFJUMPSLOW2 || state == ASID_CLIFFJUMPQUICK2;
-    if ((!landing && !attack && !thrown && !ledge) || state == ASID_ATTACK100START ||
+    /* Grab releases, such as after mashing out. The ground release, CaptureCut,
+     * has no interrupt and ends in Wait (or Fall) at its animation end
+     * (800DC7F0). The air release, CaptureJump, falls at its end (800DC110),
+     * but takes aerial actions (800DC160) once its frame count, state_var1,
+     * reaches PlCo 0x3B8 (30). Its animation callback counts that frame before
+     * the interrupt check, the way TMCue_Remaining counts frames. */
+    int release = state == ASID_CAPTURECUT || state == ASID_CAPTUREJUMP;
+    if ((!landing && !attack && !thrown && !ledge && !release) || state == ASID_ATTACK100START ||
         state == ASID_ATTACK100LOOP || data->action_flags.loop_anim || !(data->state.rate > 0))
         return -1;
     float end = Fighter_GetCurrentAnimLength(gobj);
@@ -243,7 +250,13 @@ int ActionCues_Remaining(GOBJ *gobj) {
         data->state_var.state_var1 && data->attr.normal_landing_lag < boundary)
         boundary = data->attr.normal_landing_lag;
     int remaining = TMCue_Remaining(data->state.frame, data->state.rate, boundary);
-    if (attack && !(data->kind == FTKIND_KIRBY && data->state_id == 352)) {
+    if (state == ASID_CAPTUREJUMP) {
+        float held; /* A float, whatever MexTK's int says. */
+        memcpy(&held, &data->state_var.state_var1, sizeof(held));
+        int air = TMCue_Remaining(held, 1, (**stc_ftcommon).x3b8);
+        if (air >= 0 && air < remaining) remaining = air;
+    }
+    if (attack &&!(data->kind == FTKIND_KIRBY && data->state_id == 352)) {
         if (data->flags.past_iasa) return 0; /* These attack entries clear the bit themselves. */
         TMCueScript script;
         memcpy(&script, &data->script, sizeof(script));
@@ -355,7 +368,7 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
      * otherwise slot 1. Disabling slot 0's color flag does not select slot 1. */
     unsigned selected = data->color[0].colanim ? 0 : 1;
     for (unsigned i = 0; i < 3; ++i) data->color[i].color_enable = 0;
-    static const GXColor colors[] = {{0,0,0,0}, {255,240,0,220}, {80,255,90,220}, TM_CUE_RED_COLOR};
+    static const GXColor colors[] = {{0,0,0,0}, TM_CUE_YELLOW_COLOR, TM_CUE_GREEN_COLOR, TM_CUE_RED_COLOR};
     GXColor color = colors[cue];
     if (!cue && !protected && local) color = entry->local_color;
     if (cue == TM_CUE_RED) color.a = TMCue_RedAlpha(entry->cue.red);

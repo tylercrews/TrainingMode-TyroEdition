@@ -418,6 +418,7 @@ void TestCueInit(void) {
     memset(shield_draw_count, 0, sizeof(shield_draw_count));
     *stc_ftcommon = &cue_common;
     cue_common.lcancel_input_window = 7; cue_common.x260 = 60;
+    cue_common.x3b8 = 30; /* CaptureJump's first actionable frame count. */
     for (unsigned slot = 0; slot < 12; ++slot) {
         cue_objects[slot].userdata = &cue_data[slot];
         cue_objects[slot].gx_cb = TestCueNativeDraw;
@@ -467,6 +468,11 @@ void TestCueState(unsigned slot, int state, int frame, int end, int rate100) {
 void TestCueLanding(unsigned slot, int lag, int allow_interrupt) {
     cue_data[slot].attr.normal_landing_lag = lag;
     cue_data[slot].state_var.state_var1 = allow_interrupt;
+}
+/* A state's frame count in state_var1, a float there (CaptureJump's). */
+void TestCueHeld(unsigned slot, int frames) {
+    float held = frames;
+    memcpy(&cue_data[slot].state_var.state_var1, &held, sizeof(held));
 }
 void TestCueFrozen(unsigned slot, int frozen) { cue_data[slot].flags.hitlag = frozen; cue_data[slot].flags.freeze = frozen; }
 void TestCueIASA(unsigned slot, int ready) { cue_data[slot].flags.past_iasa = ready; }

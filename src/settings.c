@@ -190,6 +190,7 @@ int TMSettings_Prepare(uint8_t r[TM_SETTINGS_SIZE], int owns_save) {
          * initialize it only on the first explicit event preference write. */
         r[40] &= ~TM_SETTINGS_EVENT_INITIALIZED;
         r[40] &= ~TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK; /* Older formats default guides On. */
+        r[37] &= ~TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK; /* And the flash On: their padding isn't owned. */
         r[43] &= ~(TM_SETTINGS_LAYOUT_MASK | TM_SETTINGS_SWEETSPOT_CAMERA_MASK);
     }
     if (!signed_format) {
@@ -245,6 +246,8 @@ uint32_t TMSettings_Read(const uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsi
         return index == 0 ? !(r[40] & TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK) : 0;
     case TM_SETTING_SWEETSPOT_CAMERA:
         return index == 0 ? !!(r[43] & TM_SETTINGS_SWEETSPOT_CAMERA_MASK) : 0;
+    case TM_SETTING_ESCAPE_IC_FLASH:
+        return index == 0 ? !(r[37] & TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK) : 0;
     case TM_SETTING_CHARACTER: {
         if (index > 1 || (r[6] & 0xC0) != 0x80) return UINT32_MAX;
         unsigned code = (r[index ? 37 : 6] >> 1) & 31;
@@ -297,6 +300,13 @@ int TMSettings_Write(uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsigned index
         r[43] = (r[43] & ~TM_SETTINGS_SWEETSPOT_CAMERA_MASK) |
             (value ? TM_SETTINGS_SWEETSPOT_CAMERA_MASK : 0);
         return r[43] != old;
+    }
+    if (field == TM_SETTING_ESCAPE_IC_FLASH) {
+        if (index != 0 || value > 1) return 0;
+        uint8_t old = r[37];
+        r[37] = (r[37] & ~TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK) |
+            (value ? 0 : TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK);
+        return r[37] != old;
     }
     if (field == TM_SETTING_SWEETSPOT_LINES) {
         if (index != 0 || value > 1) return 0;

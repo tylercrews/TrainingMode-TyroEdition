@@ -8,7 +8,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 
 | Area | Offsets | Size | Used | Free |
 | --- | --- | --- | --- | --- |
-| [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
+| [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
 | [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **6 loose bits**, all retired, in word 12 |
@@ -60,7 +60,7 @@ The original Training Mode settings bytes, repacked by Tyro (format 3). Code: [s
 | 30..37 | 57 (to byte 37 bit 0) | Title colors of the 19 core OSDs, 3 bits each |
 | 37 | 1-5 | Saved **CPU character** (ID + 1, 0 = none) |
 | 37 | 6 | Ledgedash success criterion, high bit |
-| 37 | **7** | **Free** |
+| 37 | 7 | Escape IC Grab: Actionable Flash Off (T10), inverted so an unset bit is On. No format change: migrating formats 1 and 2 clears it, and nothing else ever wrote it (the CPU character, Ledgedash's criterion and the last OSD color keep it) |
 | 38..39 | 16 | Signature `TY` |
 | 40 | 0-2 | Flags: Run Turnaround, Invincibility Overlay, Override CPU OSDs Off |
 | 40 | 3 | Event preferences initialized |

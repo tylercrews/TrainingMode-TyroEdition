@@ -81,10 +81,11 @@ These are PlCo `0x354` (30), `0x358` (8), `0x35C` (9), `0x360` (15), `0x364` (4)
 
 ### Mashing
 
-- **The capture tick.** CapturePulled's and CaptureWait's animation callbacks (`800DB8A4`, `800DB908`, in the state table at `803C440C`) take PlCo `0x3A4` (1) off the timer each frame. Then they call `Fighter_CheckGrabBreakout` (`8007DC08`) with PlCo `0x3A8` (6). Only CaptureWait lets go, when the timer reaches 0 or less, through `800DA698`. Both callbacks also store whether you mashed that frame (`fp + 0x2348`).
+- **The capture tick.** CaptureWait's animation callback (`800DB908`, in the state table at `803C440C`; CaptureWaitLw's `800DBD10` calls it) takes PlCo `0x3A4` (1) off the timer each frame and adds 1 to its frame count (`state_var1`, zeroed when the grab connects at `800DA9E8`). Then it calls `Fighter_CheckGrabBreakout` (`8007DC08`) with PlCo `0x3A8` (6). It lets go when the timer reaches 0 or less, through `800DA698`. CaptureDamage's callbacks (`800DC2E4`, `800DC468`) run the same tick through `800DB8A4` but never let go, and go back to CaptureWait at their animation's end (20 frames). Both store whether you mashed that frame (`fp + 0x2348`). (Before T10's Actionable Flash these notes had CapturePulled running `800DB8A4`. It doesn't: the state table entries for 223 and 226 have empty callbacks.)
+- **The pull doesn't count.** CapturePulledHi and Lw (223, 226) have empty animation and interrupt callbacks (`800DAC70`, `800DB004`), so nothing ticks and no mash counts until you're in CaptureWait. The grabber's CatchPull (213) keeps playing Catch's animation and script from the connect frame (`800D9E00`, with the script-catch-up flag `0x4000`) and ends at the animation's end, or as soon as the script sets `fp + 0x2210` bit `0x10` (`800D9E80`). Its CatchWait entry moves you to CaptureWait (`800DA294` → `800DB6C8`). The `0x50` command with value 0 sets that bit (`800718A4`, opcode 20 of the table at `803C06E8`). Popo's Catch script puts his grab boxes out on frame 6 and runs `40000000 50000000` on frame 8, so the pull lasts a frame or two. Your stick memory, zeroed at the connect, is still zero on CaptureWait's first frame, so a stick already held past halfway counts then. A button pressed during the pull and still held doesn't.
 - **What counts.** `8007DC08` takes 6 for any fresh press in `input.down & 0x80000F00`: A, B, X, Y, and bit 31, the shield bit. The fighter input build (`8006B070`..`8006B0D8`) sets bit 31 for digital L or R, for an analog press past the trigger deadzone, and for Z, which also sets A. So L, R and Z count, and L and R count as one button. It takes 6 more when the control stick's direction changes: each axis keeps a sticky -1/0/+1, set past PlCo `0x308` either way, and a change on either axis counts. That's at most one button and one stick input a frame, so 13 off a frame at the most.
 - **What doesn't count.** `8007DC08` reads only `input.down` and the control stick (`fp + 0x620`, `0x624`). The input build fills those from the pad's main stick (pad `+0x20`, `+0x24`) and never mixes in the C-stick (`+0x28`, `+0x2C` go to `fp + 0x638`, `0x63C`). So the C-stick, D-pad and Start do nothing for a grab escape in Melee. Some players believe otherwise, but SmashWiki says it's Brawl where the C-stick counts double.
-- **Pummels freeze it.** CaptureDamage, the flinch when you're hit while held, runs neither callback, so the timer doesn't move and mashing does nothing. That's the mechanism behind wobbling (below).
+- **Pummels.** A pummel's hitlag freezes you: `Fighter_UpdateAnim` skips the whole animation update, callback included, while `fp + 0x2219` bit `0x04` is set (`8006AA64`). That's set entering hitlag (`8006D044`) and cleared by `Fighter_ExitHitlag` (`8006D10C`). So the timer stops and mashing does nothing during the hit's hitlag. The rest of CaptureDamage's flinch ticks and counts. But only CaptureWait lets go, so a timer that runs out in the flinch lets go once you're back in CaptureWait. That's the mechanism behind wobbling (below).
 
 Escape time in frames, by mash speed:
 
@@ -100,13 +101,33 @@ An input every 6 frames (10 a second) takes 2 a frame on average. 20 a second ta
 
 ### How the event counts
 
-Because the tick is an animation callback (s_link 1), the event measures in an s_link 15 proc. On the frame the grab connects it sees the full timer the grab set. On every frame after, it sees the timer after that frame's tick: the drop is 1 + 6 x that frame's inputs, rounded and capped at 2 inputs. The frame you get out is counted too, so not mashing at 0% reads exactly 75. Popo presses Z on the setup's second frame, as Grab Punish's teammate does. A missed grab is tried again from the next of four gaps (8, 5, 11, 14). You can't act until the grab connects (Wait's interrupt callback is cleared), so mashing early can't dodge it. Both climbers run with no AI, so Nana stands still.
+Because the tick is an animation callback (s_link 1), the event measures in an s_link 15 proc. On the frame the grab connects it sees the full timer the grab set. It counts from the first frame the timer drops, after the pull, and from then on it sees the timer after each frame's tick: the drop is 1 + 6 x that frame's inputs, rounded and capped at 2 inputs. The frame you get out is counted too, so not mashing at 0% reads exactly 75. (Before T10's Actionable Flash it counted the pull's frame or two as well.) Popo presses Z on the setup's second frame, as Grab Punish's teammate does. A missed grab is tried again from the next of four gaps (8, 5, 11, 14). You can't act until the grab connects (Wait's interrupt callback is cleared), so mashing early can't dodge it. Both climbers run with no AI, so Nana stands still.
+
+### Ground and air releases
+
+When CaptureWait lets go (`800DB974`), Popo goes to CatchCut through `800DA698`, and you get one of two releases:
+
+- **Air release, CaptureJump (230, `800DC070`),** if either:
+    - You pressed X or Y (`input.down & 0xC00`) while the frame count was under PlCo `0x3AC` (16). CaptureWait's interrupt callbacks (`800DBA4C`, `800DBD30`) call `800DC014`, which sets `fp + 0x234C` for it. The grab zeroes that flag when it connects. The count runs only in CaptureWait and CaptureDamage, so it's the first 16 frames after the pull.
+    - The control stick is up at least PlCo `0x70` (0.6625) on the frame you get out (`800DC044`). Only that frame's stick counts, so waggling up and down can give either release.
+- **Ground release, CaptureCut (229, `800DC750`),** otherwise. (Releases that aren't a mash out have callers of their own. Not checked here.)
+
+What each does:
+
+- **CaptureCut** pushes you back along the ground at PlCo `0x370` (1) with friction. It has no interrupt (`800DC82C` is a `blr`). At its animation's end `Fighter_EnterFallOrWait` (`8007D92C`) puts you in Wait, or Fall if you're airborne. It's 30 frames for every character but DK, whose is 20 (`PlXxAJ.dat`).
+- **CaptureJump** sets you moving back at PlCo `0x374` (1) and up at `0x378` (2), with gravity and aerial drift (`800DC224`). Its animation callback counts `state_var1` up from 0 (`800DC110`). From 30 (PlCo `0x3B8`) its interrupt check (`800DC160`) runs the same aerial interrupts as Fall's (`800CCAAC`: specials, items, attacks, air dodge, jump). Its animation is 50 frames for everyone, then Fall (`800CC730`). The interrupt check runs in the input proc (`8006B7F4`), after the animation proc that counted the frame, so you can act on the 30th frame after the release.
+
+### The Actionable Flash
+
+The event's **Actionable Flash** (T10, default On) is the global Actionable Yellow>Green cue, on you, for the release after you mash out. `ActionCues_Remaining` now times both releases. CaptureCut is timed to its animation's end. CaptureJump is timed to whichever comes first, its 30th counted frame or its end. The event reaches that function through `event_vars->cue_remaining`. It runs `TMCue_Update` from `action_cues.c`, compiled into the event, so its yellow and green are the global cue's. It shows them through the timing overlay, as Powershield does. It's armed when you get out. It ends once the green is over, or when you leave the release for a state the cue doesn't time: a jump's squat, an air dodge or a special. It's saved in the core record's last free bit, byte 37 bit 7, inverted so 0 is On.
 
 ### To check in Dolphin
 
 - Popo's grab connects from 8 for a range of characters (the retries cover the rest).
 - Not mashing gives exactly the No-Mash Hold (75 at 0%), and the count matches a slow, countable mash.
-- The CaptureJump release (holding up as it ends) still ends the attempt.
+- Popo's pull lasts a frame or two: a mash on the grab's first frame doesn't count, and a stick held through the pull counts once.
+- An X or Y press in the first 16 frames, or holding up as you get out, gives an air release. Neither gives a ground release. Both still end the attempt.
+- The Actionable Flash: yellow on the last two frames of either release, green on your first two actionable frames (Wait after a ground release, frame 30 of an air release), and nothing during the grab or after the green.
 - Nana doesn't follow Popo or act while he holds you.
 
 ## Ice Climbers handoffs (research for a later version)
@@ -136,7 +157,7 @@ Melee plays a throw faster or slower with the victim's weight, so its release fr
 3. **The cookhold.** SmashWiki lists it as a variation of handoffs that, like them, needs the climbers close to the ledge so Nana's throw is predictable ([SmashWiki: Ice Climbers' grab](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Grab)). I couldn't find a step-by-step description.
 4. **Down throw, Nana down air, regrab.** Nana's down air during Popo's down throw holds you on the ground and forces a stand-up that can be regrabbed. It's escapable with SDI ([SmashWiki: Ice Climbers' grab](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Grab), [SmashWiki: Chain grab](https://www.ssbwiki.com/Chaingrab)).
 5. **Down throw into Nana's smash attacks.** At kill percents, Popo down throws and Nana up-smashes, forward-smashes or down-smashes you as you land (the "down throw forward smash" idea).
-6. **Wobbling (banned).** Popo pummels while Nana forward-tilts or down-tilts in rhythm (about 200 BPM), so every hit puts you back in the grab flinch. You "cannot get out of the grab while they are in a special form of grab hitstun" ([SmashWiki: Wobbling](https://www.ssbwiki.com/Wobbling)). The DOL agrees: CaptureDamage never runs the capture tick above, so the timer stops and mashing does nothing. **Blizzobbling** does the same with Blizzard.
+6. **Wobbling (banned).** Popo pummels while Nana forward-tilts or down-tilts in rhythm (about 200 BPM), so every hit puts you back in the grab flinch. You "cannot get out of the grab while they are in a special form of grab hitstun" ([SmashWiki: Wobbling](https://www.ssbwiki.com/Wobbling)). The DOL agrees, though not because the timer stops. Each hit's hitlag does freeze it. Between hits CaptureDamage ticks and counts your mashing, but only CaptureWait lets go, and every hit starts the 20-frame flinch again before you get back to it (above). **Blizzobbling** does the same with Blizzard.
 7. **Popo's solo down throw chain grab.** Even without Nana, Popo can chain down throw Sheik, Ganondorf and Roy until about 50% ([SmashWiki: Chain grab](https://www.ssbwiki.com/Chaingrab)).
 8. **The freeze glitch.** Banned, and fixed in PAL. It freezes the opponent in place ([SmashWiki: Ice Climbers](https://www.ssbwiki.com/Ice_Climbers_(SSBM))).
 

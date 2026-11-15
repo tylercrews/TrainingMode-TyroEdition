@@ -6,15 +6,22 @@ import test_settings as fixtures
 from test_lowlaser import load_probe
 
 ROOT = Path(__file__).resolve().parents[1]
-WAIT, CATCH, CAPTURE_PULLED, CAPTURE_CUT = 14, 0xD4, 0xDF, 0xE5
+WAIT, CATCH, CAPTURE_PULLED, CAPTURE_WAIT, CAPTURE_CUT, CAPTURE_JUMP = 14, 0xD4, 0xDF, 0xE0, 0xE5, 0xE6
+JUMP_AERIAL_F, FALL, KNEE_BEND, ESCAPE_AIR = 27, 29, 24, 236
 Z = 0x10
 SETUP, GRAB, RESULT = range(3)
-PERCENT_ROW = 0
+PERCENT_ROW, FLASH_ROW = 0, 1
 SETUP_FRAMES, RESULT_FRAMES = 40, 60
-GRAB_FRAME = 7  # The probe's grab connects on Popo's seventh frame.
+GRAB_FRAME = 7  # The probe's grab connects on Popo's seventh frame,
+PULL_FRAMES = 2  # and his pull ends two frames later (his Catch script's 0x50 on frame 8).
+RELEASE_FRAMES = 30  # CaptureCut's animation; CaptureJump acts from its 30th frame.
 DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP = 1, 2, 4, 8
 NEW_BEST_SFX, ESCAPE_SFX = 303, 0xAD
 CYAN, WHITE = 0x00FFFF, 0xFFFFFF
+YELLOW, GREEN = 0xFFF000, 0x50FF5A  # The global cue's (TM_CUE_YELLOW_COLOR, TM_CUE_GREEN_COLOR).
+# The flash after a release, frame by frame from the frame you get out: two
+# yellow frames before you can act, then two green.
+FLASH = [0] * (RELEASE_FRAMES - 2) + [YELLOW, YELLOW, GREEN, GREEN, 0]
 
 
 def build():
@@ -41,8 +48,8 @@ class EscapeICTests(unittest.TestCase):
     def step(self, frames=1):
         for done in range(0, frames, 40):  # In chunks: one emulator call has an instruction budget.
             self.m.call('TestICThink', min(frames - done, 40))
-    def string(self, address):
-        return bytes(self.m.cpu.mem_read(address, 32)).split(b'\0', 1)[0].decode()
+    def string(self, address):  # Longer than any menu line, so the width checks see all of it.
+        return bytes(self.m.cpu.mem_read(address, 64)).split(b'\0', 1)[0].decode()
     def text(self, key): return self.string(self.m.call('TestICText', key))
     def labels(self): return [self.text(i) for i in range(4)]
     def shown(self): return [self.text(i) for i in range(4, 8)]
@@ -57,6 +64,10 @@ class EscapeICTests(unittest.TestCase):
         """Popo presses Z on the second frame; his grab connects on its seventh."""
         self.step(1 + GRAB_FRAME)
         self.assertEqual((self.phase(), self.info(8)), (GRAB, CAPTURE_PULLED))
+    def pull(self):
+        """Popo pulls you in: the timer runs from the next frame."""
+        self.step(PULL_FRAMES)
+        self.assertEqual(self.info(8), CAPTURE_WAIT)
     def escape(self, inputs=0):
         """Mash `inputs` a frame until you're out."""
         self.m.call('TestICMash', inputs, 10000)
@@ -64,6 +75,13 @@ class EscapeICTests(unittest.TestCase):
             if self.phase() == RESULT: return
             self.step()
         self.fail('never got out')
+    def overlays(self, frames):
+        """Your timing overlay on the frame you got out and each after it."""
+        shown = [self.info(34)]
+        for _ in range(frames):
+            self.step()
+            shown.append(self.info(34))
+        return shown
 
     # The layout.
     def test_you_in_the_middle_with_popo_facing_you_and_nana_behind_him(self):
@@ -106,8 +124,19 @@ class EscapeICTests(unittest.TestCase):
     def test_the_no_mash_hold_is_75_and_16_a_step(self):
         self.assertEqual([self.m.call('TestICHold', p) for p in range(21)], [75 + 16 * p for p in range(21)])
 
+    def test_the_pull_isn_t_counted_and_the_timer_starts_after_it(self):
+        self.grab()
+        self.step()
+        self.assertEqual((self.info(8), self.info(13), self.info(16)), (CAPTURE_PULLED, 0, 750))
+        self.step()  # Popo's pull ends after your animation: no tick yet.
+        self.assertEqual((self.info(8), self.info(13), self.info(16)), (CAPTURE_WAIT, 0, 750))
+        self.step()
+        self.assertEqual((self.info(13), self.info(14), self.info(16)), (1, 0, 740))
+        self.assertEqual(self.shown()[0], '1f')
+
     def test_each_frame_s_mash_inputs_count_from_the_timer_s_drop(self):
         self.grab()
+        self.pull()
         self.m.call('TestICMash', 1, 3)  # 7 a frame for three frames: 21.
         self.step(3)
         self.assertEqual((self.info(13), self.info(14), self.big()), (3, 3, 'Mash 3'))
@@ -196,7 +225,7 @@ class EscapeICTests(unittest.TestCase):
 
     def test_help_is_its_own_menu(self):
         names = [self.string(self.m.call('TestICMainName', i)) for i in range(self.info(33))]
-        self.assertEqual(names, ['Your Percent', 'Handoff (Coming Soon)', 'Session Bests', 'Help', 'Exit'])
+        self.assertEqual(names, ['Your Percent', 'Actionable Flash', 'Handoff (Coming Soon)', 'Session Bests', 'Help', 'Exit'])
         self.assertEqual(self.info(32), 1)
 
     def test_help_covers_what_counts_and_what_doesnt(self):
@@ -204,7 +233,8 @@ class EscapeICTests(unittest.TestCase):
         self.assertEqual(list(rows), [
             'About This Event', 'How Escaping Works', 'Buttons That Count', 'One Button a Frame',
             'L, R and Z', 'The Control Stick', "Neutral Doesn't Help", 'Stick Patterns', 'Use Both at Once',
-            'Start Right Away', "What Doesn't Count", 'Pummels', 'Reading the HUD'])
+            'Start Right Away', "What Doesn't Count", 'Ground or Air Release', 'What Pops You Up',
+            'Choosing Your Release', 'Waggling Up and Down', 'Actionable Flash', 'Pummels', 'Reading the HUD'])
         for name, lines in rows.items():
             self.assertEqual(len(lines), 4, name)
             for line in lines:
@@ -213,6 +243,88 @@ class EscapeICTests(unittest.TestCase):
         self.assertTrue(counts.startswith('A, B, X, Y, Z, L and R.'), counts)
         for missing in ('C-stick', 'D-pad', 'Start'):
             self.assertIn(missing, misses)
+        # What decides the release, as CaptureWait does when it lets go (800DB974).
+        air = ' '.join(rows['What Pops You Up'])
+        for rule in ('X or Y in your first 16 frames', 'two-thirds up as you get out', 'ground release'):
+            self.assertIn(rule, air)
+        self.assertNotIn('pulled in counts', ' '.join(rows['Start Right Away']))
+
+    def test_the_flash_row_is_a_toggle_described_in_four_lines(self):
+        self.assertEqual(self.info(39), 1)
+        lines = [self.m.call('TestICMainLine', FLASH_ROW, line) for line in range(4)]
+        self.assertTrue(all(lines))
+        self.assertIn('This setting is saved.', self.string(lines[3]))
+
+    # The Actionable Flash.
+    def test_the_flash_is_on_by_default_and_saves(self):
+        self.assertEqual((self.info(35), self.info(36), self.info(37)), (1, 1, 0))
+        self.choose(FLASH_ROW, 0)
+        self.assertEqual((self.info(36), self.info(37)), (0, 1))
+        self.m.call('TestICFlashPreference', 1)
+        self.m.call('TestICLoadSettings')
+        self.assertEqual(self.info(35), 1)
+
+    def test_a_ground_release_flashes_yellow_then_green_as_you_can_act(self):
+        self.grab()
+        self.escape(2)
+        self.assertEqual(self.info(8), CAPTURE_CUT)
+        shown = self.overlays(len(FLASH) - 1)
+        self.assertEqual(shown, FLASH)
+        self.assertEqual((self.info(8), self.info(38)), (WAIT, 0))  # You can act; it's over.
+        self.assertEqual(self.overlays(RESULT_FRAMES - len(FLASH) - 1), [0] * (RESULT_FRAMES - len(FLASH)))
+
+    def test_an_air_release_flashes_green_from_its_30th_frame(self):
+        self.m.call('TestICAirRelease', 1)
+        self.grab()
+        self.escape(2)
+        self.assertEqual(self.info(8), CAPTURE_JUMP)
+        self.assertEqual(self.overlays(len(FLASH) - 1), FLASH)
+        self.assertEqual((self.info(8), self.info(40), self.info(38)), (CAPTURE_JUMP, (len(FLASH) - 1) * 10, 0))
+        self.step(50 - (len(FLASH) - 1))  # Falling at its end, frame 50, doesn't flash again.
+        self.assertEqual((self.info(8), self.info(34)), (FALL, 0))
+
+    def test_jumping_on_your_first_frame_still_flashes_green(self):
+        self.m.call('TestICAirRelease', 1)
+        self.grab()
+        self.escape(2)
+        self.overlays(RELEASE_FRAMES - 1)
+        self.assertEqual(self.info(34), YELLOW)
+        self.m.call('TestICAct', JUMP_AERIAL_F)
+        self.assertEqual(self.overlays(3)[1:], [GREEN, GREEN, 0])
+        self.assertEqual(self.info(38), 0)
+
+    def test_acting_into_an_untimed_state_ends_the_flash(self):
+        for release, action in ((1, ESCAPE_AIR), (0, KNEE_BEND)):
+            with self.subTest(release=release):
+                self.m.call('TestICAirRelease', release)
+                self.dpad(DPAD_LEFT)
+                self.grab()
+                self.escape(2)
+                self.overlays(RELEASE_FRAMES - 1)
+                self.m.call('TestICAct', action)
+                self.step()
+                self.assertEqual((self.info(34), self.info(38)), (0, 0))
+
+    def test_off_the_flash_shows_nothing(self):
+        self.choose(FLASH_ROW, 0)
+        self.grab()
+        self.escape(2)
+        self.assertEqual(self.overlays(len(FLASH) - 1), [0] * len(FLASH))
+
+    def test_only_a_mash_out_flashes(self):
+        shown = []
+        for _ in range(1 + GRAB_FRAME + PULL_FRAMES + 5):
+            self.step()
+            shown.append(self.info(34))  # The setup's Wait, the grab and the pull, then mashing.
+        self.assertEqual((shown, self.info(38), self.phase()), ([0] * len(shown), 0, GRAB))
+
+    def test_a_restart_clears_the_flash(self):
+        self.grab()
+        self.escape(2)
+        self.overlays(RELEASE_FRAMES - 2)
+        self.assertEqual(self.info(34), YELLOW)
+        self.dpad(DPAD_LEFT)
+        self.assertEqual((self.info(34), self.info(38), self.phase()), (0, 0, SETUP))
 
     def test_the_handoff_row_is_there_but_disabled(self):
         self.assertEqual((self.info(26), self.info(27), self.text(9), self.text(10)), (1, 1, 'None', 'Handoff (Coming Soon)'))

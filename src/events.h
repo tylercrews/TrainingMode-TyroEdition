@@ -314,6 +314,11 @@ typedef struct EventVars
      * keeps that one), skipping the CSS/SSS. Only for fighters the event takes
      * from the CSS; returns 0 when refused. Carry works as for a stage change. */
     int (*restart_on_fighters)(int hmn_kind, int hmn_costume, int cpu_kind, int cpu_costume);
+    /* What Actionable Yellow>Green reads (ActionCues_Remaining): updates until
+     * the fighter can act, 0 if it can now, 1 or 2 in the yellow window, 3 if
+     * further, and -1 for a state it doesn't cue. Events pass it to TMCue_Update
+     * (action_cues.c, compiled into the event) for the same yellow and green. */
+    int (*cue_remaining)(GOBJ *fighter);
 } EventVars;
 #define TM_EVENT_CARRY_SIZE 2048
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)

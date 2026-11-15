@@ -779,6 +779,49 @@ class SettingsTests(unittest.TestCase):
         fresh.call("Settings_Set", 25, 0, 1)
         self.assertEqual(fresh.call("Settings_Get", 25, 0), 1)
 
+    # Escape IC Grab's Actionable Flash (field 52): byte 37 bit 7, inverted like the guides.
+    def test_escape_ic_flash_defaults_on_and_only_changes_its_own_bit(self):
+        m = self.m; m.init()
+        self.assertEqual(m.read(52), 1)
+        m.write(24, 1, 20)  # The CPU character shares byte 37 (bits 1-5),
+        m.write(18, 2, 4)   # and Ledgedash's criterion its bit 6.
+        before = m.record()
+        self.assertEqual(m.write(52, 0, 0), 1)
+        expected = bytearray(before); expected[37] |= 0x80
+        self.assertEqual(m.record(), bytes(expected))
+        self.assertEqual((m.read(52), m.read(24, 1), m.read(18, 2)), (0, 20, 4))
+        self.assertEqual(m.write(52, 0, 0), 0)
+        m.write(24, 1, 3); m.write(18, 2, 1)  # Its neighbors' edits keep it,
+        m.write(14, 28, 5)  # and so does OSD 28's color (slot 18), which ends in byte 37's bit 0.
+        self.assertEqual(m.read(52), 0)
+        self.assertEqual(m.write(52, 0, 1), 1)
+        self.assertEqual((m.read(52), m.record()[37] & 0x80), (1, 0))
+
+    def test_escape_ic_flash_rejects_bad_values_and_defaults_old_saves_on(self):
+        m = self.m; m.init(); before = m.record()
+        for index, value in [(1, 0), (0, 2), (0, 0xFFFFFFFF)]:
+            self.assertEqual(m.write(52, index, value), 0)
+            self.assertEqual(m.record(), before)
+        self.assertEqual(m.read(52, 1), 0)
+        for version in (1, 2):  # Their byte 37 padding was never this bit's.
+            old = bytearray(before); old[10] = version << 6; old[37] = 0xFF
+            m.put(old)
+            self.assertEqual(m.call("TMSettings_Prepare", RECORD, 1), 1)
+            self.assertEqual(m.read(52), 1)
+
+    def test_escape_ic_flash_survives_a_fresh_service_without_dirtying_on_read(self):
+        m = self.m; m.init()
+        self.assertEqual(m.call("Settings_Get", 52, 0), 1)
+        self.assertEqual(m.call("TestDirty"), 0)
+        m.call("Settings_Set", 52, 0, 0)
+        saved = m.record()
+        fresh = Machine(); fresh.put(saved)
+        self.assertEqual(fresh.call("Settings_Get", 52, 0), 0)
+        self.assertEqual(fresh.call("TestDirty"), 0)
+        self.assertEqual(fresh.record(), saved)
+        fresh.call("Settings_Set", 52, 0, 1)
+        self.assertEqual(fresh.call("Settings_Get", 52, 0), 1)
+
     def test_global_trail_rows_do_not_use_enable_mask_bits(self):
         m = self.m
         m.init()
@@ -3539,6 +3582,22 @@ class EscapeICSaveTests(EventMenuSaveTests, unittest.TestCase):
     saved = (('Your Percent', 21, 0),)
     natives = EventMenuSaveTests.natives + ('GObj_AddProc',)
 
+    def test_actionable_flash_saves_in_the_core_record(self):
+        m = self.m
+        m.call('DAT_EventInit', 0)
+        flash = self.rows[0] + 44  # Row 1, after Your Percent.
+        self.assertEqual(self.text(self.word(flash+12)), 'Actionable Flash')
+        self.assertEqual(struct.unpack('>2h', m.cpu.mem_read(flash+6, 4)), (1, 1))  # On by default.
+        extension = bytes(m.cpu.mem_read(self.extension, 88))
+        m.cpu.mem_write(flash+6, struct.pack('>2h', 0, 1))
+        m.symbols['DAT_Change'] = self.word(flash+36)
+        m.call('DAT_Change', 0, 0)
+        self.assertEqual((m.call('Settings_Get', 52, 0), m.record()[37] & 0x80), (0, 0x80))
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 88)), extension)  # Not in TYEX.
+        m.cpu.mem_write(flash+6, struct.pack('>2h', 1, 1))
+        m.call('DAT_EventInit', 0)
+        self.assertEqual(struct.unpack('>2h', m.cpu.mem_read(flash+6, 4)), (0, 0))
+
 
 class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/upbsweetspot-test.dat'
@@ -3930,6 +3989,29 @@ class ActionCueTests(unittest.TestCase):
             self.assertEqual(self.show(4, 14, 0), self.GREEN)
             self.assertEqual(self.show(5, 14, 1), self.GREEN)
             self.assertEqual(self.show(6, 14, 2), 0)
+
+    def test_a_ground_release_cues_its_end_then_greens_in_wait(self):
+        # CaptureCut, after mashing out: no interrupt, Wait at its animation's end (DK's is 20).
+        for end in (30, 20):
+            self.m.call("ActionCues_Clear")
+            self.assertEqual([self.show(i, 229, end - 3 + i, end) for i in range(3)], [0, self.YELLOW, self.YELLOW])
+            self.assertEqual([self.show(3 + i, 14, i) for i in range(3)], [self.GREEN, self.GREEN, 0])
+
+    def test_an_air_release_greens_at_its_30th_frame_not_its_animation_end(self):
+        m = self.m
+        shown = []
+        for frame in range(27, 35):  # CaptureJump's animation is 50 frames.
+            m.call("TestCueHeld", 0, frame)
+            shown.append(self.show(frame, 230, frame, 50))
+        self.assertEqual(shown, [0, self.YELLOW, self.YELLOW, self.GREEN, self.GREEN, 0, 0, 0])
+        m.call("TestCueHeld", 0, 49)
+        self.assertEqual(self.show(49, 230, 49, 50), 0)
+        self.assertEqual(self.show(50, 29, 0), 0)  # Falling at its end is no new recovery.
+
+    def test_held_in_a_grab_isnt_cued(self):
+        for state in (223, 224, 225):  # CapturePulledHi, CaptureWaitHi, CaptureDamageHi.
+            self.m.call("TestCueState", 0, state, 38, 40, 100)
+            self.assertEqual(self.m.call("ActionCues_Remaining", self.m.call("TestCueObject", 0)), 0xFFFFFFFF)
 
     def test_ledge_jump_cues_its_second_stage_and_greens_on_fall(self):
         for first, second in [(260, 261), (262, 263)]:

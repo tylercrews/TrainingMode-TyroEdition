@@ -128,7 +128,7 @@ queue_mex_build "evFunction" "build/grabpunish.dat" "src/grabpunish.c"
 queue_mex_build "evFunction" "build/passing.dat" "src/passing.c"
 queue_mex_build "evFunction" "build/ledgegrab.dat" "src/ledgegrab.c"
 queue_mex_build "evFunction" "build/escapesamus.dat" "src/escapesamus.c"
-queue_mex_build "evFunction" "build/escapeic.dat" "src/escapeic.c"
+queue_mex_build "evFunction" "build/escapeic.dat" "src/escapeic.c src/action_cues.c"
 queue_mex_build "evFunction" "build/grabercise.dat" "src/grabercise.c"
 queue_mex_build "cssFunction" "build/grabpunishCSS.dat" "src/grabpunish_css.c"
 

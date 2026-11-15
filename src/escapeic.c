@@ -14,18 +14,36 @@
  * tied with handicap off, 75 + 1.6 x percent frames without mashing (0%: 75,
  * 100%: 235, 200%: 395), the way Grab Punish Practice does.
  *
- * Mashing. CapturePulled's and CaptureWait's animation callbacks (800DB8A4,
- * 800DB908) take PlCo 0x3A4 (1) off the timer a frame, and
- * Fighter_CheckGrabBreakout (8007DC08) takes PlCo 0x3A8 (6) more for a fresh
- * press in input.down & 0x80000F00 (A, B, X, Y, and the shield bit that the
- * input build at 8006B070 sets for L, R or Z; Z also sets A), and 6 more when
- * the control stick crosses into a new direction (past PlCo 0x308 on either
- * axis; the grab starts each axis at neither), at most one of each a frame: 13
- * a frame at most. It never reads the C-stick or D-pad. CaptureWait lets go at 0. A pummel's
- * flinch, CaptureDamage, runs neither, which is why wobbling's hits kept a
- * victim from mashing. So the timer drops by 1 + 6 x the frame's inputs, and the
- * counter reads that drop. It reads after the frame's hits (s_link 15), so it
- * sees the timer the grab set before the first frame's mash. */
+ * Mashing. CaptureWait's animation callback (800DB908) takes PlCo 0x3A4 (1)
+ * off the timer a frame, and Fighter_CheckGrabBreakout (8007DC08) takes PlCo
+ * 0x3A8 (6) more for a fresh press in input.down & 0x80000F00 (A, B, X, Y, and
+ * the shield bit that the input build at 8006B070 sets for L, R or Z; Z also
+ * sets A), and 6 more when the control stick crosses into a new direction
+ * (past PlCo 0x308 on either axis; the grab starts each axis at neither), at
+ * most one of each a frame: 13 a frame at most. It never reads the C-stick or
+ * D-pad. CaptureWait lets go at 0. Nothing ticks while Popo pulls you in:
+ * CapturePulled's callbacks are empty. His CatchPull (800D9E80) puts you in
+ * CaptureWait when his Catch script's 0x50 command, on frame 8, sets the flag
+ * it waits for, a frame or two after his grab connects. A pummel's flinch,
+ * CaptureDamage, ticks and counts like CaptureWait (800DB8A4) once its hitlag
+ * is over: hitlag skips every animation callback (8006AA64). So the timer
+ * drops by 1 + 6 x the frame's inputs, and the counter reads that drop, from
+ * the first frame it drops. It reads after the frame's hits (s_link 15), so it
+ * sees the timer the grab set before the first frame's mash.
+ *
+ * The release. When CaptureWait lets go (800DB974), you're released into the
+ * air, CaptureJump (800DC070), if you pressed X or Y while its frame count
+ * (state_var1, zeroed when the grab connects and counted by CaptureWait and
+ * CaptureDamage) was under PlCo 0x3AC (16): CaptureWait's interrupt check
+ * (800DC014) sets a flag for it. Or if the control stick is up at least PlCo
+ * 0x70 (0.6625) as you get out (800DC044). Otherwise it's on the ground,
+ * CaptureCut (800DC750). CaptureCut slides you back and has no interrupt: you
+ * can act when its animation ends (30 frames, DK's 20). CaptureJump pops you up
+ * and back (PlCo 0x374, 0x378: 1 and 2) with drift, takes Fall's aerial
+ * actions from its 30th frame (PlCo 0x3B8) and falls at its end (50). The
+ * Actionable Flash shows that end with the global Actionable Yellow>Green cue:
+ * event_vars->cue_remaining is the same check, and action_cues.c (compiled
+ * into this event) the same yellow and green. */
 
 #define SETUP_FRAMES 40   // A grab that hasn't connected by then is tried again.
 #define RESULT_FRAMES 60  // The result stays up this long before the next grab.
@@ -50,13 +68,15 @@ static const char *Values_Percent[] = {
 // Handoffs to come; see the research notes. The row stays disabled until then.
 static const char *Values_Handoff[] = { "None" };
 
-enum menu_options { OPT_PERCENT, OPT_HANDOFF, OPT_BESTS, OPT_HELP };
-// Each saved row's preference ID is its row number.
-typedef char escape_ic_saved_rows[((int)OPT_PERCENT == TM_ESC_IC_PERCENT &&
+enum menu_options { OPT_PERCENT, OPT_FLASH, OPT_HANDOFF, OPT_BESTS, OPT_HELP };
+// Each TM_SETTING_ESCAPE_IC row's preference ID is its row number. The
+// Actionable Flash is saved on its own (TM_SETTING_ESCAPE_IC_FLASH).
+typedef char escape_ic_saved_rows[((int)OPT_PERCENT == TM_ESC_IC_PERCENT && TM_ESC_IC_PREF_COUNT == 1 &&
     countof(Values_Percent) == TM_ESC_PERCENT_COUNT) ? 1 : -1];
 
 static void Exit(GOBJ *menu);
 static void SaveSettings(GOBJ *menu, int value);
+static void SaveFlash(GOBJ *menu, int value);
 
 // Session Bests: one row a percent. Its value is the fastest escape and its inputs.
 static char best_text[TM_ESC_PERCENT_COUNT][16] = {
@@ -134,20 +154,45 @@ static EventOption Options_Help[] = {
              "20 inputs a second gets you out at 100% in",
              "79 frames instead of 235."),
     HELP_ROW("Start Right Away",
-             "Being pulled in counts too. The grab clears",
-             "the stick's memory, so your first push",
-             "counts, even one already held. A button",
-             "held as you're grabbed needs a new press."),
+             "Mashing counts once Popo has pulled you in,",
+             "a frame or two after his grab connects. A",
+             "stick held past halfway counts right then.",
+             "A held button needs a fresh press."),
     HELP_ROW("What Doesn't Count",
              "The C-stick, D-pad and Start. Holding or",
              "letting go of a button. The stick under",
              "halfway, back in the middle, or pushed the",
              "same way again. L or R under 30%."),
+    HELP_ROW("Ground or Air Release",
+             "On the ground you slide back and can act 30",
+             "frames later (DK: 20). In the air you pop up",
+             "and back, drifting, and 30 frames later can",
+             "do anything you could while falling."),
+    HELP_ROW("What Pops You Up",
+             "You're released into the air if you pressed",
+             "X or Y in your first 16 frames held, or the",
+             "stick is two-thirds up as you get out.",
+             "Anything else gets a ground release."),
+    HELP_ROW("Choosing Your Release",
+             "For the ground, mash A, B, L, R or Z for the",
+             "first 16 frames, not X or Y, and don't end",
+             "with the stick up. For the air, hold up as",
+             "you get out, or tap X or Y right away."),
+    HELP_ROW("Waggling Up and Down",
+             "Only where the stick is on the frame you get",
+             "out counts, so waggling up and down can give",
+             "either release. Waggle left and right to",
+             "stay on the ground."),
+    HELP_ROW("Actionable Flash",
+             "With it on, you flash yellow on the last two",
+             "frames of your release and green when you",
+             "can act. It's the Actionable Yellow>Green",
+             "cue, shown for you after a mash out only."),
     HELP_ROW("Pummels",
-             "In a match, the grab timer stops while a",
-             "pummel makes you flinch, and mashing then",
-             "doesn't count. Not in this beta: Popo just",
-             "holds you."),
+             "In a match, a pummel's hitlag freezes you:",
+             "the grab timer stops and mashing doesn't",
+             "count. The rest of the flinch counts. Not in",
+             "this beta: Popo just holds you."),
     HELP_ROW("Reading the HUD",
              "Mash is the inputs the game took this grab.",
              "Held For against No-Mash Hold is what your",
@@ -171,6 +216,16 @@ static EventOption Options_Main[] = {
                  "75 + 1.6 frames per percent before mashing",
                  "(0%: 75f, 100%: 235f, 200%: 395f).",
                  "D-Pad up/down changes it and restarts."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Actionable Flash",
+        .val = 1,
+        .OnChange = SaveFlash,
+        .desc = {"Flash yellow, then green, as your grab",
+                 "release ends, so you know when you can move.",
+                 "The Actionable Yellow>Green cue, after a mash",
+                 "out only. Defaults On. This setting is saved."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -218,9 +273,13 @@ static void SaveSettings(GOBJ *menu, int value) {
     for (int i = 0; i < TM_ESC_IC_PREF_COUNT; i++)
         TM_SetSetting(TM_SETTING_ESCAPE_IC, i, Options_Main[i].val);
 }
+static void SaveFlash(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_ESCAPE_IC_FLASH, 0, Options_Main[OPT_FLASH].val);
+}
 static void LoadSettings(void) {
     for (int i = 0; i < TM_ESC_IC_PREF_COUNT; i++)
         Options_Main[i].val = Options_Main[i].val_prev = TM_GetSetting(TM_SETTING_ESCAPE_IC, i);
+    Options_Main[OPT_FLASH].val = Options_Main[OPT_FLASH].val_prev = !!TM_GetSetting(TM_SETTING_ESCAPE_IC_FLASH, 0);
 }
 
 enum phase {
@@ -242,11 +301,18 @@ static struct attempt {
 // This grab, kept on screen until the next one connects. (FighterData's own
 // nested struct already has the tag grab.)
 static struct held_grab {
-    int frames;     // Frames held, the frame you got out included.
+    int frames;     // Frames the timer ran, the frame you got out included.
     int inputs;     // Mash inputs the game counted.
     float timer;    // The grab timer after last frame.
+    bool ticking;   // Popo has pulled you in, so the timer runs.
     bool done, new_best;
 } grab;
+
+// The Actionable Flash, from your release until its green is over.
+static struct flash {
+    bool armed, green;
+    TMCueState cue;
+} flash;
 
 // This session's fastest escape at each percent; 0 frames is none yet.
 static struct best { int frames, inputs; } bests[TM_ESC_PERCENT_COUNT];
@@ -353,6 +419,33 @@ static bool IsCaptured(FighterData *ft) {
 static bool IsGrabbing(FighterData *ft) {
     return ft->state_id >= ASID_CATCH && ft->state_id <= ASID_CATCHWAIT;
 }
+static bool IsReleased(FighterData *ft) {
+    return ft->state_id == ASID_CAPTURECUT || ft->state_id == ASID_CAPTUREJUMP;
+}
+
+/* The Actionable Flash: Actionable Yellow>Green on you, but only for the
+ * release after you mash out. It's armed as you get out, and ends once its
+ * green is over, or when you leave the release without one (into a state the
+ * cue doesn't time, like a jump's squat or an air dodge). */
+static void ShowFlash(unsigned color) {
+    static const GXColor yellow = TM_CUE_YELLOW_COLOR, green = TM_CUE_GREEN_COLOR;
+    event_vars->set_timing_overlay(Fighter_GetGObj(0),
+        color == TM_CUE_YELLOW ? &yellow : color == TM_CUE_GREEN ? &green : 0);
+}
+static void ClearFlash(void) {
+    flash = (struct flash) {0};
+    ShowFlash(TM_CUE_NONE);
+}
+static void UpdateFlash(void) {
+    if (!flash.armed) return;
+    GOBJ *fighter = Fighter_GetGObj(0);
+    FighterData *you = fighter->userdata;
+    unsigned color = TMCue_Update(&flash.cue, you->state_id, you->state.frame, you->atk_instance,
+        event_vars->cue_remaining(fighter), you->flags.hitlag || you->flags.freeze, 1, 0);
+    if (color == TM_CUE_GREEN) flash.green = true;
+    else if (flash.green || !IsReleased(you)) { ClearFlash(); return; }
+    ShowFlash(Options_Main[OPT_FLASH].val ? color : TM_CUE_NONE);
+}
 
 // The attempt -------------------------------------------------------------
 
@@ -368,7 +461,8 @@ static void PlaceClimbers(void) {
 static void Reset(void) {
     restart = false;
     event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
-    attempt = (struct attempt) { .percent = Options_Main[OPT_PERCENT].val, .side = HSD_Randi(2) ? 1 : -1 };
+    ClearFlash();
+    attempt =(struct attempt) { .percent = Options_Main[OPT_PERCENT].val, .side = HSD_Randi(2) ? 1 : -1 };
     int line;
     FloorUnder(0, &attempt.you, &line);
     StandAt(Fighter_GetGObj(0), attempt.you.X, attempt.side);
@@ -412,11 +506,14 @@ static void Escaped(void) {
     SFX_Play(grab.new_best ? 303 : 0xAD);
     phase = PHASE_RESULT;
     phase_timer = 0;
+    flash = (struct flash) { .armed = true };
 }
 
 /* At s_link 15, after the frame's hits: on the frame Popo's grab connects you
- * hold the timer it set, and from then on each frame's animation callback
- * (s_link 1) has taken that frame's mash off it, up to the frame you get out. */
+ * hold the timer it set. Once he's pulled you in, each frame's animation
+ * callback (s_link 1) has taken that frame's mash off it, up to the frame you
+ * get out. The pull's frames, before the first drop, aren't counted: the
+ * No-Mash Hold is the timer's, and the pull's length depends on his frame. */
 static void MeasureGrab(GOBJ *gobj) {
     if (!ready || Pause_CheckStatus(1) == 2) return;
     FighterData *you = You();
@@ -425,11 +522,21 @@ static void MeasureGrab(GOBJ *gobj) {
         if (held) StartGrab(you);
         return;
     }
-    if (phase != PHASE_GRAB) return;
+    if (phase != PHASE_GRAB) {
+        UpdateFlash();
+        return;
+    }
+    if (!grab.ticking) {
+        if (held && you->grab.grab_timer >= grab.timer) return;
+        grab.ticking = true;
+    }
     if (grab.frames < 9999) grab.frames++;
     CountInputs(grab.timer - you->grab.grab_timer);
     grab.timer = you->grab.grab_timer;
-    if (!held) Escaped();
+    if (!held) {
+        Escaped();
+        UpdateFlash(); // Your release's first frame.
+    }
 }
 
 #define DPAD_BUTTONS (HSD_BUTTON_DPAD_LEFT | HSD_BUTTON_DPAD_RIGHT | HSD_BUTTON_DPAD_DOWN | HSD_BUTTON_DPAD_UP)

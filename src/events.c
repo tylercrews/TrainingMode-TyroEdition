@@ -1143,6 +1143,7 @@ EventVars stc_event_vars = {
     .carry_store = Events_CarryStore,
     .carry_take = Events_CarryTake,
     .restart_on_fighters = Events_RestartOnFighters,
+    .cue_remaining = ActionCues_Remaining,
 };
 
 static GOBJ *stc_msgmgr;

@@ -4,7 +4,9 @@
 
 enum { TM_CUE_NONE, TM_CUE_YELLOW, TM_CUE_GREEN, TM_CUE_RED };
 #define TM_CUE_PULSE_FRAMES 8
-/* The red cue, for events that show it themselves through the timing overlay. */
+/* The cues' colors, for events that show them through the timing overlay. */
+#define TM_CUE_YELLOW_COLOR {255,240,0,220}
+#define TM_CUE_GREEN_COLOR {80,255,90,220}
 #define TM_CUE_RED_COLOR {255,40,40,180}
 #define TM_CUE_RED_PULSE {180,140,100,60,20,60,100,140}
 #define TM_CPU_INVINCIBILITY_NAMES "Off", "Red", "Blue", "Yellow", "Green", "Cyan", "Magenta", "Lavender"

@@ -25,7 +25,7 @@ esac
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/escapesamus-test.dat -i src/escapesamus.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
-    -t MexTK/evFunction.txt -o build/escapeic-test.dat -i src/escapeic.c
+    -t MexTK/evFunction.txt -o build/escapeic-test.dat -i src/escapeic.c src/action_cues.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgechase-test.dat -i src/ledgechase.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
