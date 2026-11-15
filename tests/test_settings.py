@@ -3556,7 +3556,7 @@ class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/grabpunish-test.dat'
     field = 42  # TM_SETTING_GRAB_PUNISH
     saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 11, 3), ('Teammate Percent', 11, 0),
-             ('CPU Mashing', 6, 1), ('Teammate Facing', 3, 0), ('Release Hit = Success', 2, 1))
+             ('CPU Mashing', 6, 2), ('Teammate Facing', 3, 0), ('Release Hit = Success', 2, 1))
 
 
 class PassingSaveTests(EventMenuSaveTests, unittest.TestCase):

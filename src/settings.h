@@ -254,12 +254,12 @@ enum TMGrabPunishPreference {
 };
 #define TM_GP_LOCATION_COUNT 8 /* Random, then seven spots. */
 #define TM_GP_PERCENT_COUNT 11 /* 0% to 200% in steps of 20. */
-#define TM_GP_MASH_COUNT 6 /* No Mash, Light, Medium, Heavy, Very Heavy, Inhuman. */
+#define TM_GP_MASH_COUNT 6 /* No Mash, Light, Medium, Heavy, Extreme, Inhuman: 0 to 50 inputs a second. */
 #define TM_GP_FACING_COUNT 3
 #define TM_GP_TEAM_COUNT 3 /* Red, Blue, Green. */
 #define TM_GP_CHARACTER_COUNT 27 /* None yet, then the 26 external IDs. */
 #define TM_GP_DEFAULT_PERCENT 3 /* 60% */
-#define TM_GP_DEFAULT_MASH 1 /* Light Mash */
+#define TM_GP_DEFAULT_MASH 2 /* Medium Mash (Light before T10) */
 /* Passing Practice: its menu rows in row order (Teammate Aerial, Enemy Percent,
  * Percent Mode, Reset If Hitstun Ends, Distance, Your Side, Your Facing), in
  * word 72's spare bits 14-27, 29 and 30 (version 21, no bump). Each is stored

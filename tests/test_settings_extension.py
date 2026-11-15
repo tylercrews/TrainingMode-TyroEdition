@@ -46,7 +46,7 @@ EG_KB_DISTANCE = 25  # TM_EG_KB_DISTANCE
 EG_FOX_UPB, EG_FALCO_UPB, EG_LUIGI2 = 26, 27, 28  # TM_EG_RECOVERY_FOX_UPB, _FALCO_UPB, _LUIGI2
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
-# Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Light
+# Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Medium
 # Mash, Random, Release Hit = Success stored inverted so clear is On) in bits
 # 0-13 and Up-B Sweetspot (Line Guides On, Tipper, Normal) in bits 16-18. Its
 # B0XX Angles (T10, Off) is word 72's bit 28, with no version bump.
@@ -56,7 +56,7 @@ UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
 # word 68's bits 14-15 and the enemy's in word 20's bits 30-31. Enemy Percent,
 # Teammate Percent and CPU Mashing keep their top bits in bytes 34 and 35.
 # P3's and P4's last characters follow, in word 72: 0 none yet, else ID + 1.
-GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3, 27, 27), (0, 0, 3, 0, 1, 0, 1, 0, 0, 0, 0)
+GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3, 27, 27), (0, 0, 3, 0, 2, 0, 1, 0, 0, 0, 0)
 GP_PERCENT, GP_MATE_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM, GP_ENEMY_TEAM = 2, 3, 4, 6, 7, 8
 GP_P3_CHARACTER, GP_P4_CHARACTER = 9, 10
 LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET
@@ -74,7 +74,7 @@ PASSING_MASK = 0x3FFF << 14 | 3 << 29
 UPB_COUNTS, UPB_DEFAULTS = (2, 2, 3, 2), (1, 0, 0, 0)
 UPB_B0XX, UPB_MARTH, UPB_CAMERA = 1, 2, 3  # TMUpBSweetspotPreference, in menu order.
 MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 0, 1, 2
-EVENT_MENU_BYTES = bytes.fromhex('c0020100')
+EVENT_MENU_BYTES = bytes.fromhex('c0040100')
 # Word 76, appended by version 22 (T10): Escape Samus Up-B (Your Position,
 # Distance, Samus Side, Your Percent) in bits 0-10 and Escape IC Grab (Your
 # Percent) in bits 11-15, each stored as its distance from its default, so the
@@ -870,9 +870,9 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (15, with its top bit), CPU Mashing (7, with
         # its) and Teammate Facing (3) repair to their defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 9 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2, 26, 26), (1, 1, 2, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 10, 2, 0, 1, 2, 2, 26, 26), (1, 1, 2, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'),
-                         word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 1 << 9)
+                         word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 2 << 9)
         self.assertEqual((m.cpu.mem_read(EXT + 34, 1)[0] >> 6, m.cpu.mem_read(EXT + 35, 1)[0] >> 7), (2, 0))
 
     def test_recovery_menu_defaults_match_saved_initial_masks(self):
@@ -1693,6 +1693,9 @@ class ExtensionTests(unittest.TestCase):
     def test_low_laser_byte_35_invalid_values_read_and_repair_to_defaults(self):
         m = self.m
         m.call('Settings_Set',30,1,1)
+        # Bit 7 is CPU Mashing's top bit. On Light's low bits it reads as a valid
+        # Inhuman, so only Low Laser's nibbles need repairing.
+        m.call('Settings_Set', GRAB_PUNISH, GP_MASH, 1)
         record = bytearray(m.cpu.mem_read(EXT, REGION_SIZE)); record[35] = 0xFF  # Position 15, height 7, spare bit 7.
         m.cpu.mem_write(EXT, bytes(record))
         self.assertEqual((m.call('TMExtension_Read',EXT,30,2), m.call('TMExtension_Read',EXT,30,3)), (0,0))

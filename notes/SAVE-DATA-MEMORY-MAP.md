@@ -277,7 +277,7 @@ Migrating to version 20 zeroes this word and then writes the defaults, so the sp
 | 0-2 | Grab Punish: Grab Location (8 choices, default Random) |
 | 3-5 | Grab Punish: Your Location (8 choices, default Random) |
 | 6-8 | Grab Punish: Enemy Percent, low bits (0% to 200% in steps of 20, default 60%), with its top bit in byte 34 bit 6 |
-| 9-10 | Grab Punish: CPU Mashing, low bits (No / Light / Medium / Heavy / Very Heavy / Inhuman, default Light), with its top bit in byte 35 bit 7 |
+| 9-10 | Grab Punish: CPU Mashing, low bits (No / Light / Medium / Heavy / Extreme / Inhuman: 0, 10, 20, 30, 40, 50 inputs a second, default Medium), with its top bit in byte 35 bit 7. T10 renamed 4 from Very Heavy (60 a second) to Extreme and slowed Inhuman from 120 to 50, with no version bump: each saved value keeps its name. The default was Light before T10, and records that already hold Light keep it |
 | 11-12 | Grab Punish: Teammate Facing (Random / Toward You / Away From You, default Random) |
 | 13 | Grab Punish: Release Hit = Success, stored inverted: 0 On (default), 1 Off, so a save that never touched it reads On |
 | 14-15 | Grab Punish: your team in your last match (T9): 0 Red (default), 1 Blue, 2 Green. These are this event's own, apart from the normal costumes in bytes 50-51 |

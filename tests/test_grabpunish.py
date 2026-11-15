@@ -11,8 +11,8 @@ HMN, MATE, ENEMY = 0, 1, 2
 WAIT, CATCH = 14, 0xD4
 DPAD_LEFT = 1
 PERCENT_ROW, MATE_PERCENT_ROW, MASH_ROW, RELEASE_ROW = 2, 3, 4, 6
-NO_MASH, MEDIUM, VERY_HEAVY = 0, 2, 4
-MASH_RATES = (1, 2, 3, 4, 7, 13)  # Timer taken a frame by each setting, in menu order.
+NO_MASH, MEDIUM, EXTREME, INHUMAN = 0, 2, 4, 5
+MASH_RATES = (1, 2, 3, 4, 5, 6)  # Timer taken a frame by each setting, in menu order.
 RED, WHITE, YELLOW = 0xFF2828, 0xFFFFFF, 0xFFF000
 RED_PULSE = (180, 140, 100, 60, 20, 60, 100, 140)
 SETUP, GRAB, RELEASE, RESOLVE, FOLLOWUP = range(5)
@@ -429,7 +429,7 @@ class GrabPunishTests(unittest.TestCase):
             self.assertEqual(taken, 48 * rate, row)
 
     def test_the_countdown_uses_the_new_rates(self):
-        for row, frames in ((MEDIUM, 132), (VERY_HEAVY, 57)):
+        for row, frames in ((MEDIUM, 132), (EXTREME, 79), (INHUMAN, 66)):
             self.setUp()
             self.m.call('TestGPChoose', MASH_ROW, row)
             self.grab(395)  # 200%.

@@ -30,18 +30,28 @@
  *   Light         38   54   70   86  102  118  134  150  166  182  198
  *   Medium        25   36   47   57   68   79   89  100  111  121  132
  *   Heavy         19   27   35   43   51   59   67   75   83   91   99
- *   Very Heavy    11   16   20   25   29   34   39   43   48   52   57
- *   Inhuman        6    9   11   14   16   19   21   23   26   28   31
- * What each takes off the timer a frame:
- *   No Mash        1  nothing but the frame
- *   Light          2  a button every 6 frames (10 inputs a second)
- *   Medium         3  a button every 3 frames (20 a second)
- *   Heavy          4  a button and a new stick direction, each every 4
- *                     frames (30 a second)
- *   Very Heavy     7  a button and a new stick direction, each every 2
- *                     frames (60 a second)
- *   Inhuman       13  a new button and stick direction every frame, the
- *                     fastest possible
+ *   Extreme       15   22   28   35   41   47   54   60   67   73   79
+ *   Inhuman       13   18   24   29   34   40   45   50   56   61   66
+ * Each setting is a number of mash inputs a second. Each input takes 6, so
+ * the timer drops 1 + inputs a second / 10 a frame:
+ *              inputs/s  a frame
+ *   No Mash         0       1   nothing but the frame
+ *   Light          10       2   a button every 6 frames
+ *   Medium         20       3   a button every 3 frames (the default)
+ *   Heavy          30       4   a button and a new stick direction, each
+ *                               every 4 frames
+ *   Extreme        40       5   a button and a new stick direction, each
+ *                               every 3 frames
+ *   Inhuman        50       6   a button every 2 frames and a new stick
+ *                               direction every 3
+ * The rates come from the event author's own mash practice (T10): 20 a second
+ * comes easily, 25 is about average, 35 is a really solid stretch, and 40 was
+ * the peak, reached only after practicing for a while. So Extreme is about the
+ * best a practiced human does, and Inhuman is just past it. The game would
+ * count up to 120 a second (a new button and stick direction every frame,
+ * which this event's Inhuman used to be), but no one mashes that fast. Before
+ * T10 the fourth setting was Very Heavy at 60 a second; Extreme keeps its saved
+ * value, and Inhuman keeps Inhuman's.
  *
  * The grab ending isn't the end of the punish. The enemy lands in CaptureCut,
  * the ground release: 30 frames (20 for Donkey Kong), which nothing can cut
@@ -72,8 +82,9 @@
 
 // Teammate-to-enemy distance (center to center) each time the grab is tried.
 static const float Grab_Gaps[] = { 8, 5, 11, 14 };
-// Frames taken off the grab timer a frame by each mash setting, on average.
-static const int Mash_Rate[] = { 1, 2, 3, 4, 7, 13 };
+// Frames taken off the grab timer a frame by each mash setting, on average:
+// 1 + inputs a second / 10, for 0, 10, 20, 30, 40 and 50 inputs a second.
+static const int Mash_Rate[] = { 1, 2, 3, 4, 5, 6 };
 
 void Exit(GOBJ *menu);
 static void Reset(int same_attempt);
@@ -104,9 +115,10 @@ static const char *Values_Location[] = {
     "Under Left Plat", "Under Right Plat", "Left Corner", "Right Corner",
 };
 
-enum mash { MASH_NONE, MASH_LIGHT, MASH_MEDIUM, MASH_HEAVY, MASH_VERY_HEAVY, MASH_INHUMAN };
+// Saved by position: Extreme took Very Heavy's value and Inhuman kept its own.
+enum mash { MASH_NONE, MASH_LIGHT, MASH_MEDIUM, MASH_HEAVY, MASH_EXTREME, MASH_INHUMAN };
 static const char *Values_Mash[] = {
-    "No Mash", "Light Mash", "Medium Mash", "Heavy Mash", "Very Heavy Mash", "Inhuman Mash",
+    "No Mash", "Light Mash", "Medium Mash", "Heavy Mash", "Extreme Mash", "Inhuman Mash",
 };
 typedef char grabpunish_mash_rates[(countof(Mash_Rate) == countof(Values_Mash)) ? 1 : -1];
 
@@ -178,13 +190,13 @@ static EventOption Options_Main[] = {
         .name = "CPU Mashing",
         .values = Values_Mash,
         .value_num = countof(Values_Mash),
-        .val = MASH_LIGHT,
-        .val_prev = MASH_LIGHT,
+        .val = MASH_MEDIUM,
+        .val_prev = MASH_MEDIUM,
         .OnChange = SaveSettings,
-        .desc = {"How hard the enemy mashes. Each mash input takes",
-                 "6 frames off the hold, on top of 1 a frame.",
-                 "Light holds 1/2 as long, Medium 1/3, Heavy 1/4,",
-                 "Very Heavy 1/7, Inhuman 1/13. See Mashing Info."},
+        .desc = {"How fast the enemy mashes, in inputs a second:",
+                 "Light 10, Medium 20, Heavy 30, Extreme 40,",
+                 "Inhuman 50. Each input takes 6 frames off the",
+                 "hold, on top of 1 a frame. See Mashing Info."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -214,7 +226,7 @@ static EventOption Options_Main[] = {
         .desc = {"Holds 75 + 1.6 x percent frames, minus 6 for each",
                  "new A/B/X/Y press or stick direction. At 60%, 200%:",
                  "No Mash 171, 395. Light 86, 198. Medium 57, 132.",
-                 "Heavy 43, 99. Very Heavy 25, 57. Inhuman 14, 31."},
+                 "Heavy 43, 99. Extreme 35, 79. Inhuman 29, 66."},
     },
     {
         .kind = OPTKIND_INFO,
@@ -606,14 +618,15 @@ static void Mash(FighterData *cpu, int frame) {
             if (frame % 4 < 2) cpu->cpu.held = frame / 4 % 2 ? PAD_BUTTON_B : PAD_BUTTON_A;
             cpu->cpu.lstickX = (frame + 2) / 4 % 2 ? 127 : -127;
             break;
-        case MASH_VERY_HEAVY:
-            if (frame % 2 == 0) cpu->cpu.held = PAD_BUTTON_A;
-            cpu->cpu.lstickX = (frame + 1) / 2 % 2 ? 127 : -127;
+        case MASH_EXTREME:
+            // A on frames 0, 3, 6..., the stick flipping on 2, 5, 8...
+            if (frame % 3 == 0) cpu->cpu.held = PAD_BUTTON_A;
+            cpu->cpu.lstickX = (frame + 1) / 3 % 2 ? 127 : -127;
             break;
         case MASH_INHUMAN:
-            // Alternating buttons, so each frame is a fresh press.
-            cpu->cpu.held = frame % 2 ? PAD_BUTTON_B : PAD_BUTTON_A;
-            cpu->cpu.lstickX = frame % 2 ? 127 : -127;
+            // A on even frames, the stick flipping on 1, 4, 7...
+            if (frame % 2 == 0) cpu->cpu.held = PAD_BUTTON_A;
+            cpu->cpu.lstickX = (frame + 2) / 3 % 2 ? 127 : -127;
             break;
     }
 }
