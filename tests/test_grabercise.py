@@ -26,6 +26,7 @@ FLOORS = {
 FD_EDGE = 85.6
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 NEAR_END = 4  # A moving CPU's feet get this close to each end of its floor before it turns.
+GRAB_WINDOW = 30  # Frames a hit CPU stays, after the hitlag, for a follow-up grab.
 # Menu rows and saved preferences.
 (OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH,
  OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(15)
@@ -37,7 +38,7 @@ MOVE_PREFS = (PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PR
 # States, from the MexTK enum.
 ASID_WAIT, ASID_FALL = 14, 29
 ASID_CAPTUREPULLEDHI, ASID_CAPTUREWAITHI, ASID_THROWNF = 223, 224, 239
-ASID_DAMAGEN1, ASID_DAMAGEFLYN = 78, 88
+ASID_DAMAGEN1, ASID_DAMAGEN2, ASID_DAMAGEFLYN, ASID_DOWNBOUNDU = 78, 79, 88, 183
 ASID_CAPTURECAPTAIN, ASID_SLEEP = 275, 11
 ASID_GUARDON, ASID_GUARD, ASID_GUARDSETOFF = 178, 179, 181
 PAD_TRIGGER_R = 0x20
@@ -474,13 +475,60 @@ class GrabCountTests(unittest.TestCase):
         p.run(1)
         self.assertEqual(p.info(0), 2)
 
-    def test_a_hit_sends_the_cpu_somewhere_else_without_counting(self):
+    def test_a_hit_leaves_the_cpu_for_a_grab_then_sends_it_away_without_counting(self):
+        p = Probe()
+        p.place(-20, MAIN_LEFT, WALK, 1)
+        p.run(30)
+        p.set_state(ASID_DAMAGEN1, hitlag=4)
+        for frame in range(1, 4 + GRAB_WINDOW):  # The hitlag, then the window.
+            if frame == 15:
+                p.set_state(ASID_WAIT)  # Its hitstun is over: it stays, and doesn't walk on.
+            p.run(1)
+            self.assertEqual((p.info(21), p.info(10), p.info(11)), (1, 0, 0), frame)
+        self.assertEqual(p.state(), ASID_WAIT)
+        p.run(1)
+        self.assertEqual((p.info(21), p.info(0)), (0, 0))  # Back somewhere else, uncounted.
+
+    def test_a_grab_after_a_hit_counts_and_the_throw_sends_the_cpu_away(self):
         p = self.start()
         p.set_state(ASID_DAMAGEN1, hitlag=4)
-        p.run(3)
+        p.run(4 + GRAB_WINDOW - 1)  # The window's last frame.
         self.assertEqual(p.state(), ASID_DAMAGEN1)
+        p.set_state(ASID_CAPTUREPULLEDHI)
         p.run(1)
-        self.assertEqual((p.state(), p.info(0)), (ASID_WAIT, 0))
+        self.assertEqual((p.info(0), p.info(2)), (1, 1))
+        p.set_state(ASID_DAMAGEFLYN, hitlag=3, air=1)  # The throw.
+        p.run(2)
+        self.assertEqual(p.state(), ASID_DAMAGEFLYN)
+        p.run(1)
+        self.assertEqual((p.state(), p.info(21), p.info(0)), (ASID_WAIT, 0, 1))
+
+    def test_each_new_hit_starts_the_window_over(self):
+        p = self.start()
+        p.set_state(ASID_DAMAGEN1, hitlag=4)
+        p.run(4 + GRAB_WINDOW - 5)
+        p.set_state(ASID_DAMAGEN2, hitlag=4)  # Five frames before the first window would end.
+        p.run(4 + GRAB_WINDOW - 1)
+        self.assertEqual((p.state(), p.info(21)), (ASID_DAMAGEN2, 1))
+        p.run(1)
+        self.assertEqual((p.state(), p.info(21), p.info(0)), (ASID_WAIT, 0, 0))
+
+    def test_a_knockdown_sends_the_cpu_away_at_once(self):
+        p = self.start()
+        p.set_state(ASID_DAMAGEN1, hitlag=4)
+        p.run(10)
+        p.set_state(ASID_DOWNBOUNDU)
+        p.run(1)
+        self.assertEqual((p.state(), p.info(21), p.info(0)), (ASID_WAIT, 0, 0))
+
+    def test_a_hit_off_the_stage_still_comes_back_at_once(self):
+        p = self.start()
+        p.set_state(ASID_DAMAGEFLYN, hitlag=4, air=1)
+        p.m.call('TestGrabsMoveCPU', -90000, 20000)
+        p.run(3)
+        self.assertEqual(p.state(), ASID_DAMAGEFLYN)  # Hitlag.
+        p.run(1)
+        self.assertEqual((p.state(), p.info(21)), (ASID_WAIT, 0))
 
     def test_a_command_grab_plays_out_without_counting(self):
         p = self.start()

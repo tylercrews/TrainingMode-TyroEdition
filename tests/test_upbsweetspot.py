@@ -5,8 +5,8 @@ from pathlib import Path
 import struct
 import subprocess
 import unittest
+import test_settings as fixtures  # Puts build/test-deps on sys.path first.
 from unicorn import UC_HOOK_MEM_WRITE
-import test_settings as fixtures
 from test_lowlaser import load_probe
 
 ROOT = Path(__file__).resolve().parents[1]

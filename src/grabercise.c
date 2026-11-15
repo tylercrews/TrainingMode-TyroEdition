@@ -8,9 +8,11 @@
  * platform, on the ground under one, or anywhere along the ground. Half the
  * time it stands still; otherwise it walks, runs or rolls at full speed, or
  * dash dances, back and forth across the floor it's on, or dash dances in
- * place, with full or half dashes. Grab it,
- * throw it, and it
- * disappears and comes back somewhere else. A timed minute counts grabs, with
+ * place, with full or half dashes. Grab it, throw it, and it disappears and
+ * comes back somewhere else. A hit leaves it where it is for half a second
+ * after the hitlag, each new hit starting that over, so an attack can lead into
+ * a grab; then, or at a knockdown, it comes back somewhere else. A shield it
+ * holds never runs out, and a hit on it doesn't move it. A timed minute counts grabs, with
  * the best saved; Free Practice has no clock and lets you pick the movements.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
@@ -68,6 +70,9 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define SPAWN_FROM_YOU 30.f
 #define SPAWN_FROM_LAST 25.f
 #define SPAWN_TRIES 40
+/* A hit CPU stays this long after the hitlag of the last hit, pressing nothing,
+ * so an attack can lead into a grab, then comes back somewhere else. */
+#define GRAB_WINDOW 30
 // An airborne CPU this long, or this far off the stage, comes back.
 #define AIR_FRAMES 120
 #define OFF_STAGE 10.f
@@ -285,7 +290,10 @@ static struct target {
     bool last_flag;    // Last frame's dash had its run flag set.
     int run_phase;     // Run mode: running, crouching, or dashing out of the crouch.
     bool shield;       // Standing: holding shield.
-    bool grabbed;      // Counted: waiting for the grab or throw to end.
+    bool grabbed;      // Counted: a standard grab caught it.
+    bool held;         // Held by any grab: once it's let go, it's gone.
+    bool hit;          // Hit: left where it is, for a follow-up grab, until
+    int hit_frames;    // this many frames after the last hit's hitlag pass GRAB_WINDOW.
     int air_frames;    // Airborne, not held.
     Vec3 spot;         // Where it last appeared.
     int ends_line;     // The floor FloorEnds last measured, and its ends.
@@ -563,7 +571,8 @@ static void Respawn(void) {
     target.last_state = ASID_WAIT;
     target.last_flag = false;
     target.run_phase = 0;
-    target.grabbed = false;
+    target.grabbed = target.held = target.hit = false;
+    target.hit_frames = 0;
     target.air_frames = 0;
     target.spot = spot;
 }
@@ -580,7 +589,7 @@ static bool Held(int state) {
         (state >= ASID_CAPTUREMEWTWO && state <= ASID_THROWNMEWTWOAIR);
 }
 /* The states the CPU's own movement puts it in. Anything else (a hit, a
- * shield break) sends it back to a new spot. */
+ * shield break) starts the grab window (UpdateTarget). */
 static bool Moving(int state) {
     return (state >= ASID_WAIT && state <= ASID_RUNBRAKE) || state == ASID_FALL ||
         state == ASID_LANDING || state == ASID_LANDINGFALLSPECIAL ||
@@ -592,6 +601,8 @@ static bool Moving(int state) {
 static bool Frozen(FighterData *ft) {
     return ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames > 0;
 }
+/* Knocked down, lying on the floor, where no grab can catch it. */
+static bool Down(int state) { return state >= ASID_DOWNBOUNDU && state <= ASID_DOWNSPOTD; }
 
 /* How far ground friction carries a fighter from speed v, frame by frame, for
  * up to `frames` frames: ft_80084F3C's friction, doubled above walk speed.
@@ -941,14 +952,25 @@ static void UpdateTarget(void) {
     }
     int state = ft->state_id;
     if (Held(state)) {
+        // Any grab sends it away once it's let go; a standard one counts.
         if (JustGrabbed(state) && !target.grabbed) {
             target.grabbed = true;
             if (grab_count < 999) grab_count++;
         }
+        target.held = true;
         return;
     }
     if (ft->flags.dead) return;
-    bool away = target.grabbed || !Moving(state);
+    bool away = target.held;
+    /* A hit doesn't send it away at once: it stays, pressing nothing, for
+     * GRAB_WINDOW frames after the hitlag, so a hit can lead into a grab, and
+     * each new hit's hitlag starts the window over. A knockdown, which no grab
+     * can catch, ends it then and there. */
+    if (!away && !Moving(state)) target.hit = true;
+    if (!away && target.hit) {
+        if (Frozen(ft)) target.hit_frames = 0;
+        else if (++target.hit_frames > GRAB_WINDOW || Down(state)) away = true;
+    }
     if (ft->phys.air_state != 0) {
         float left, right, bottom;
         target.air_frames++;
@@ -959,11 +981,13 @@ static void UpdateTarget(void) {
     } else {
         target.air_frames = 0;
     }
-    // A throw, hit or fall: after the hitlag, it's gone and back somewhere else.
+    // A throw, a hit's window run out, or a fall: after any hitlag, it's gone
+    // and back somewhere else.
     if (away) {
         if (!Frozen(ft)) Respawn();
         return;
     }
+    if (target.hit) return; // Left alone to be grabbed: back to its movement only at a new spot.
     Move(cpu, ft);
 }
 

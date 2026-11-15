@@ -707,6 +707,7 @@ int TestGrabsInfo(int key) {
         case 18: return run_frame;
         case 19: return target.shield;
         case 20: return f->state_id;
+        case 21: return target.hit;
     }
     return -1;
 }

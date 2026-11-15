@@ -1,7 +1,8 @@
 """Execute native DOL save, checksum, score-access and reset boundaries.
 
-Run with Unicorn available (the settings test dependencies also suffice):
-    PYTHONPATH=build/tangibility-test-deps python tests/test_score_storage.py -v
+Requires Unicorn, installed into build/test-deps or the Python environment,
+like the other settings tests:
+    python tests/test_score_storage.py -v
 
 No card file is written. CARDWrite is intercepted after the native code has
 copied, checksummed and encrypted the payload, and the native decoder verifies
@@ -10,12 +11,14 @@ the captured sector. Real card/Dolphin error handling remains a separate check.
 from pathlib import Path
 import re
 import struct
+import sys
 import unittest
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "build/test-deps"))
 from unicorn import Uc, UC_ARCH_PPC, UC_MODE_32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
 from unicorn import ppc_const as reg
 
-ROOT = Path(__file__).resolve().parents[1]
 BASE = 0x8045A6C0
 SCORE_START, SPARE_START, SCORE_END = 0x1A70, 0x1AE0, 0x1B3C
 SPARE_END, SPARE_SIZE = 0x1B38, 88
