@@ -3273,9 +3273,9 @@ class SweetspotCameraTests(unittest.TestCase):
         exported = event_exports(self.dat_path)
         m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
         menu = self.word(self.base + exported[3])
-        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 8)
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 9)
         self.options = options = self.word(menu+8)
-        self.row = options + 3 * 44  # Knockback, Success Criteria and Line Guides come first.
+        self.row = options + 4 * 44  # Knockback, Success Criteria, Marth and Line Guides come first.
         self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
         self.assertEqual(struct.unpack('>H', m.cpu.mem_read(self.row+4, 2))[0], 2)
         names = self.word(self.row+32)
@@ -3408,6 +3408,31 @@ class SweetspotCameraTests(unittest.TestCase):
         m.call('DAT_InitSweetspot', 0)
         self.assertEqual(bytes(m.cpu.mem_read(knockback+6, 4)), struct.pack('>2h', 6, 6))
         self.assertEqual(bytes(m.cpu.mem_read(success+6, 4)), struct.pack('>2h', 1, 1))
+
+    def test_marth_defaults_to_down_tilt_and_saves_only_its_extension_bit(self):
+        m = self.m; row = self.options + 2 * 44
+        self.assertEqual(self.text(self.word(row+12)), 'Marth')
+        self.assertEqual(struct.unpack('>H', m.cpu.mem_read(row+4, 2))[0], 2)
+        names = self.word(row+32)
+        self.assertEqual([self.text(self.word(names+i*4)) for i in range(2)], ['Down Tilt', 'Off'])
+        before = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 0, 0))
+        m.symbols['DAT_ChangeMarth'] = self.word(row+36)
+        extension = 0x8045A6C0 + 0x1AE0
+        m.call('DAT_ChangeMarth', 0, 1)
+        snapshot = bytes(m.cpu.mem_read(extension, 80))
+        for choice in (0, 1, 0, 1):
+            m.call('DAT_ChangeMarth', 0, choice)
+            self.assertEqual(m.call('Settings_Get', 41, 2), choice)
+            after = bytes(m.cpu.mem_read(extension, 80))
+            self.assertEqual(after[75] >> 7, choice)  # Word 72 bit 31,
+            self.assertEqual(after[:75], snapshot[:75])  # and nothing else.
+            self.assertEqual((after[75] & 0x7F, after[76:]), (snapshot[75] & 0x7F, snapshot[76:]))
+        self.assertEqual([m.call('Settings_Get', 41, i) for i in range(2)], [0, 0])  # Success, Knockback.
+        self.assertEqual(m.record(), before)  # It lives in TYEX.
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 1, 1))
 
 
 class EventMenuSaveTests:
@@ -3704,6 +3729,38 @@ class SweetspotResetTests(unittest.TestCase):
         self.attempt(False)
         for frame in range(35): self.step(349, 1)
         self.assertEqual(self.resets, [])
+
+    def marth(self, value):
+        """Choose the Marth row's value, the menu's third row: 0 Down Tilt, 1 Off."""
+        menu = struct.unpack('>I', self.m.cpu.mem_read(self.base + event_exports(self.dat_path)[3], 4))[0]
+        options = struct.unpack('>I', self.m.cpu.mem_read(menu + 8, 4))[0]
+        self.m.cpu.mem_write(options + 2 * 44 + 6, struct.pack('>h', value))
+
+    def side_b_inputs(self):
+        """Step into side-B and return the CPU's held buttons and stick Y."""
+        self.step(350)
+        self.m.cpu.mem_write(self.cpu_data + 0x1A88, bytes(6))  # FighterData.cpu: held, sticks.
+        self.step(351)
+        held = struct.unpack('>I', self.m.cpu.mem_read(self.cpu_data + 0x1A88, 4))[0]
+        return held, struct.unpack('>b', self.m.cpu.mem_read(self.cpu_data + 0x1A8D, 1))[0]
+
+    def test_marth_down_tilts_on_your_side_b_by_default(self):
+        self.assertEqual(self.side_b_inputs(), (0x100, -38))  # A with the stick tilted down.
+
+    def test_marth_off_never_down_tilts_and_a_ledge_grab_still_counts(self):
+        self.marth(1)
+        self.assertEqual(self.side_b_inputs(), (0, -127))  # Just the crouch.
+        self.marth(0)  # Turning him back on mid-attempt waits for the next side-B,
+        self.m.call('TestCueState', 2, 57, 7, 40, 100)  # so even a down-tilt isn't frozen.
+        self.step(352)
+        self.assertEqual(self.speeds, [])
+        self.step(252)  # CliffCatch.
+        self.assertEqual(self.speeds, [1])
+        for frame in range(59):
+            self.step(253)
+            self.assertEqual(self.resets, [])
+        self.step(253)
+        self.assertEqual(self.resets, [2])
 
     def ledgedash_criterion(self):
         """Choose Sweetspot + Ledgedash, the menu's second row, then sweetspot."""

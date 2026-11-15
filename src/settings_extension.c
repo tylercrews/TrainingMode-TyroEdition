@@ -25,9 +25,12 @@ static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT]
  * zeroed padding, word 20 bit 22, also without a version bump. */
 static const ExtensionPreference sweetspot_dj_preference = {22,1,2,0};
 /* Its Success Criteria and Knockback take bits 26..29 of the same padding,
- * which nothing ever wrote, so zero reads as Sweetspot and Random. */
+ * which nothing ever wrote, so zero reads as Sweetspot and Random. Marth (T10)
+ * takes word 72's last spare bit, 31, with no version bump: every migration to
+ * 21 zeroed it, and Down Tilt, the default, is 0. */
 static const ExtensionPreference sweetspot_preferences[TM_SWEETSPOT_PREF_COUNT] = {
     {26,1,TM_SWEETSPOT_SUCCESS_COUNT,0}, {27,3,TM_SWEETSPOT_KNOCKBACK_COUNT,0},
+    {31,1,TM_SWEETSPOT_MARTH_COUNT,0},
 };
 /* The global Blast Zone Overlay flag takes the last bit of that padding, word
  * 20 bit 23 (byte 22 bit 7), the same way. */
@@ -146,7 +149,8 @@ static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = 
     {16,1,2,1}, {28,1,2,0}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
 };
 /* Passing Practice's menu takes word 72's spare bits 14..27, then 29 and 30
- * for Reset If Hitstun Ends and Your Facing (bit 28 is Up-B Sweetspot's), with
+ * for Reset If Hitstun Ends and Your Facing (bit 28 is Up-B Sweetspot's, and
+ * 31 Side-B Sweetspot's Marth), with
  * no version bump: every migration to 21 zeroed them. Each row is stored as its
  * distance from its default, so those zeros read as the defaults; a stored
  * value past the row's choices reads as invalid (count) and is repaired. */
@@ -348,7 +352,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
         return index>=TM_GP_P3_CHARACTER?TEAM_CHARACTERS_OFFSET:
             index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:EVENT_MENUS_OFFSET;
-    if(field==TM_SETTING_PASSING) return TEAM_CHARACTERS_OFFSET;
+    if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
     if(IS_ESCAPE(field)) return ESCAPES_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
@@ -613,7 +617,7 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     /* Version 20 is the first to own the event menus' word, and version 21 the
      * team select's. */
     /* Only version 21 records own word 72. */
-    if(field==TM_SETTING_PASSING) {
+    if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) {
         unsigned value=supported(r)||v21?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }

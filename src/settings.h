@@ -131,7 +131,7 @@ enum TMSettingsField {
     TM_SETTING_COSTUME, /* Index 0 human / 1 CPU: costume of the saved CHARACTER, in the extension. */
     TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
     TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
-    TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
+    TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29, and Marth, word 72 bit 31. */
     TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu and team colors; see TMGrabPunishPreference. */
     TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18 and word 72 bit 28. */
     TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
@@ -229,10 +229,12 @@ enum TMEdgeguardPreference {
     TM_EG_RECOVERY_FOX_UPB, TM_EG_RECOVERY_FALCO_UPB, TM_EG_RECOVERY_LUIGI2, TM_EG_PREF_COUNT
 };
 /* Side-B Sweetspot: Success Criteria in word 20 bit 26, Knockback in bits
- * 27-29. Zero, which every record that owns word 20 has there, is the default. */
-enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_PREF_COUNT };
+ * 27-29, and Marth (T10) in word 72 bit 31. Zero, which every record that owns
+ * those words has there, is the default. */
+enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_MARTH, TM_SWEETSPOT_PREF_COUNT };
 #define TM_SWEETSPOT_SUCCESS_COUNT 2 /* Sweetspot / Sweetspot + Ledgedash. */
 #define TM_SWEETSPOT_KNOCKBACK_COUNT 8 /* Random, six presets, Random Preset. */
+enum TMSweetspotMarth { TM_SWEETSPOT_MARTH_DTILT, TM_SWEETSPOT_MARTH_OFF, TM_SWEETSPOT_MARTH_COUNT };
 /* 2v1 Grab Punish: its menu rows in row order (Grab Location, Your Location,
  * Enemy Percent, Teammate Percent, CPU Mashing, Teammate Facing and Release
  * Hit = Success), then the teams its character select last started a match with

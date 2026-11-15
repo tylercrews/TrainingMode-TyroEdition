@@ -102,11 +102,15 @@ static void ChangeDoubleJumpIndicator(GOBJ *menu, int value) {
 static void ChangeKnockback(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_KNOCKBACK, value);
 }
+static void ChangeMarth(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_MARTH, value);
+}
 static void ChangeSuccess(GOBJ *menu, int value);
 
 enum menu_options {
     OPT_KNOCKBACK,
     OPT_SUCCESS,
+    OPT_MARTH,
     OPT_VERTICAL_LINES,
     OPT_CAMERA,
     OPT_DJ_HEIGHT,
@@ -146,6 +150,8 @@ static const char *Values_Knockback[] = {
 typedef char sweetspot_knockback_names[(countof(Values_Knockback) == TM_SWEETSPOT_KNOCKBACK_COUNT) ? 1 : -1];
 static const char *Values_Success[] = {"Sweetspot", "Sweetspot + Ledgedash"};
 typedef char sweetspot_success_names[(countof(Values_Success) == TM_SWEETSPOT_SUCCESS_COUNT) ? 1 : -1];
+static const char *Values_Marth[] = {"Down Tilt", "Off"};
+typedef char sweetspot_marth_names[(countof(Values_Marth) == TM_SWEETSPOT_MARTH_COUNT) ? 1 : -1];
 
 // Knockback and launch angle (degrees up from the ground, away from the
 // stage) ranges. The HUD's Knockback row shows the preset of each attempt.
@@ -181,6 +187,16 @@ static EventOption Options_Main[] = {
                  "Sweetspot + Ledgedash: then ledgedash onto the stage",
                  "with ledge intangibility left (GALINT).",
                  "Changing this resets the success rate."},
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Marth",
+        .values = Values_Marth,
+        .value_num = countof(Values_Marth),
+        .OnChange = ChangeMarth,
+        .desc = {"Marth down-tilts as you side-B and freezes, so",
+                 "overshooting onto the stage gets you hit.",
+                 "Turn it off to practice shorten distances."},
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -286,6 +302,7 @@ static struct attempt {
     int knockback;          // The preset used, never KB_RANDOM_PRESET.
     bool grabbed, released; // Sweetspot + Ledgedash: hung on the ledge, then let go.
     bool airdodged;
+    bool dtilt;             // Marth down-tilts: the menu's choice when you side-B.
     LdshAttempt ledgedash;
 } attempt = { 0 };
 // This session's totals and the last counted attempt.
@@ -645,6 +662,8 @@ void Event_Init(GOBJ* gobj) {
         TM_GetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_KNOCKBACK);
     Options_Main[OPT_SUCCESS].val = Options_Main[OPT_SUCCESS].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_SUCCESS);
+    Options_Main[OPT_MARTH].val = Options_Main[OPT_MARTH].val_prev =
+        TM_GetSetting(TM_SETTING_SWEETSPOT, TM_SWEETSPOT_MARTH);
     Options_Main[OPT_VERTICAL_LINES].val = Options_Main[OPT_VERTICAL_LINES].val_prev =
         TM_GetSetting(TM_SETTING_SWEETSPOT_LINES, 0);
     Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
@@ -740,9 +759,13 @@ void Event_Think(GOBJ *menu) {
             break;
         case STATE_WAIT_ATTACK:
             if (hmn_data->state_id == 0x15F) { // side b asid
-                // input dtilt
-                cpu_data->cpu.lstickY = -38;
-                cpu_data->cpu.held = PAD_BUTTON_A;
+                // Kept for the attempt, so a menu change can't leave Marth frozen.
+                attempt.dtilt = Options_Main[OPT_MARTH].val == TM_SWEETSPOT_MARTH_DTILT;
+                if (attempt.dtilt) {
+                    // input dtilt
+                    cpu_data->cpu.lstickY = -38;
+                    cpu_data->cpu.held = PAD_BUTTON_A;
+                }
                 state = STATE_ATTACK_THINK;
             } else if (hmn_data->state_id == 0x162 // up b asid
                     || hmn_data->state_id == ASID_ESCAPEAIR) {
@@ -753,14 +776,17 @@ void Event_Think(GOBJ *menu) {
             }
             break;
         case STATE_ATTACK_THINK:
-            if (cpu_data->state_id != ASID_ATTACKLW3) break;
-            if (cpu_data->state.frame == 7) {
-                FrameSpeedChange(cpu, 0);       // freeze cpu
-                if (hmn_data->victim) {         // if hit
-                    CountAttempt(RESULT_HIT);
-                    FrameSpeedChange(cpu, 1.0); // unfreeze
-                    reset_timer = 30;
-                    state = STATE_RESET;
+            // With Marth off, only the ledge grab (or a landing) ends the attempt.
+            if (attempt.dtilt) {
+                if (cpu_data->state_id != ASID_ATTACKLW3) break;
+                if (cpu_data->state.frame == 7) {
+                    FrameSpeedChange(cpu, 0);       // freeze cpu
+                    if (hmn_data->victim) {         // if hit
+                        CountAttempt(RESULT_HIT);
+                        FrameSpeedChange(cpu, 1.0); // unfreeze
+                        reset_timer = 30;
+                        state = STATE_RESET;
+                    }
                 }
             }
             if (hmn_data->state_id == ASID_CLIFFCATCH) {

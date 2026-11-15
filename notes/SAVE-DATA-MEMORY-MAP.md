@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **7 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **6 loose bits**, all retired, in word 12 |
 | **Unallocated spare score slots** | `0x1B30..0x1B37` | **8 bytes** | nothing | **8 bytes (64 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 8 whole bytes are free, all in one block at `0x1B30..0x1B37`, plus 1 bit in word 72 and scattered single bits. The core record is full.
+**Bottom line:** 8 whole bytes are free, all in one block at `0x1B30..0x1B37`, plus scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -129,7 +129,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 9..11 | Techchase, Under Fire | word 9 bits 0-23, fully used (table below). Bit 15 (byte 10 bit 7) is Player Distance's top bit since T10 | — |
 | 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
-| 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish | word 20, fully used | — |
+| 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish | word 20, fully used (Side-B Sweetspot's Marth is word 72 bit 31) | — |
 | 24..34 | Global OSD colors, Ledgegrab Speedrun, 2v1 Grab Punish | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender. Byte 34 bits 4-5 are Ledgegrab Speedrun's Reset Speed (T9), stored as an offset from the default: 0 Short, 1 Linger, 2 Instant, and an invalid 3 reads as Short. Byte 34 bits 6-7 are the top bits of Grab Punish's Enemy Percent and Teammate Percent (T9). No version bump: every migration to version 15 zeroed this nibble and the color code keeps it. Read only from version 15 on, and Grab Punish's only from version 20 on | — |
 | 35 | Low Laser Puff Practice, 2v1 Grab Punish | bits 0-3 Puff position, bits 4-6 Puff height, bit 7 the top bit of Grab Punish's CPU Mashing (T9, no version bump: nothing else ever wrote it) | — |
 | 36..49 | Fixed Grid OSD positions, Eggs-ercise | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell. Byte 49 bits 6-7 are Eggs Under Platforms and Eggs In The Air (T9), Off by default. No version bump: every migration to version 16 zeroed them and the grid cells keep them. Read only from version 17 on, like the Egg Counter Position | — |
@@ -138,10 +138,10 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
-| 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot | word 72 (table below) | bit 31 |
+| 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot, Side-B Sweetspot | word 72 (table below) | — |
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
 
-Free bits inside the record: word 76 is full (Grabs-ercise took 16-30 in T10, and Escape Samus's Goal took 31), leaving 6 + 1 = **7 loose bits**: word 12's six retired bits and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10, and Grabs-ercise byte 51 bits 3-4. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10, and Grabs-ercise byte 51 bits 3-4. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -288,7 +288,7 @@ Migrating to version 20 zeroes this word and then writes the defaults, so the sp
 | 24-28 | Edgeguard: Falco's side-B rows 8-12, the same way |
 | 29-31 | Edgeguard: Knockback Distance plus 1: 1 Random, 2 Close, 3 Near, 4 Medium, 5 Far. 0 means no choice saved yet, so word 60 bits 0-2 still hold Hit Strength |
 
-**Word 72: Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice and Up-B Sweetspot** (T9, version 21)
+**Word 72: Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot and Side-B Sweetspot** (T9, version 21)
 
 Every migration to version 21 zeroes this word, so its spare bits are zero in every record that owns it, and any event can grow into them with no version bump if the new setting's default is 0. Version 20 and older records read no character saved.
 
@@ -307,7 +307,7 @@ Every migration to version 21 zeroes this word, so its spare bits are zero in ev
 | 28 | Up-B Sweetspot (T10): B0XX Angles, default Off. No version bump. Its other rows are in word 68; the menu lists it second, and `TMUpBSweetspotPreference` follows the menu |
 | 29 | Passing Practice (T10): Reset If Hitstun Ends (Off / On, default Off). It's fourth in the menu, and `TMPassingPreference` follows the menu |
 | 30 | Passing Practice (T10): Your Facing (Toward / Away from your teammate, default Toward), last in the menu |
-| 31 | Spare |
+| 31 | Side-B Sweetspot (T10): Marth (Down Tilt / Off, default Down Tilt, stored as 0). No version bump. Its other rows are in word 20 |
 
 Passing Practice stores each row as its distance from its default, `(value + count - default) % count`, so the zeros every record has there read as the defaults. A stored value past the row's choices reads as invalid and is repaired to the default. Version 20 and older records read the defaults. Its Session Best and Previous counts are RAM-only (below).
 

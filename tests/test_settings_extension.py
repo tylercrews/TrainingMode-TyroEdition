@@ -134,6 +134,7 @@ LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET: byte 34 bits 4-5.
 RESET_INSTANT, RESET_SHORT, RESET_LINGER = 0, 1, 2
 SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
 SWEETSPOT = 41  # TM_SETTING_SWEETSPOT: Success Criteria word 20 bit 26, Knockback bits 27-29.
+SWEETSPOT_MARTH = 2  # TM_SWEETSPOT_MARTH: word 72 bit 31, 0 Down Tilt (the default) / 1 Off.
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
 
 class ExtensionTests(unittest.TestCase):
@@ -466,6 +467,40 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_CAMERA), 1)
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
+    def test_side_b_marth_uses_only_word_72_bit_31(self):
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's other rows,
+        m.call('Settings_Set', PASSING, PASSING_FACING, 1)  # bit 30 right beside it,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)
+        m.call('Settings_Set', SWEETSPOT, 1, 7)  # and Side-B's own rows in word 20.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', SWEETSPOT, SWEETSPOT_MARTH), 0)  # Down Tilt.
+        for value in (1, 0, 1):
+            m.call('Settings_Set', SWEETSPOT, SWEETSPOT_MARTH, value)
+            self.assertEqual(m.call('Settings_Get', SWEETSPOT, SWEETSPOT_MARTH), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            word, old = (int.from_bytes(record[72:76], 'little') for record in (after, before))
+            self.assertEqual((word >> 31, word & ~(1 << 31)), (value, old))
+            self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', SWEETSPOT, SWEETSPOT_MARTH, 2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        self.assertEqual([m.call('Settings_Get', SWEETSPOT, i) for i in range(2)], [0, 7])
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_P3_CHARACTER), m.call('Settings_Get', PASSING, PASSING_FACING),
+                          m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX)), (26, 1, 1))
+
+    def test_version_20_records_read_side_b_marth_as_down_tilt_without_writing(self):
+        m = self.m
+        old = self.version_20_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 20 never owned word 72.
+            old[72:76] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, SWEETSPOT, SWEETSPOT_MARTH), 0)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        old[4:6] = bytes((21, 68))  # Version 21 does, so its bit is read as is.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, SWEETSPOT, SWEETSPOT_MARTH), 1)
+
     def passing(self, machine=None):
         machine = machine or self.m
         return tuple(machine.call('Settings_Get', PASSING, i) for i in range(len(PASSING_COUNTS)))
@@ -499,7 +534,7 @@ class ExtensionTests(unittest.TestCase):
                 after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
                 self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
                 word = int.from_bytes(after[72:76], 'little')
-                self.assertEqual(word & ~PASSING_MASK, neighbors)  # Bit 31 stays spare, too.
+                self.assertEqual(word & ~PASSING_MASK, neighbors)  # Bit 31, Side-B's Marth, is kept too.
                 shift, width = PASSING_FIELDS[index]
                 default = PASSING_DEFAULTS[index]
                 self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - default) % count)
@@ -1826,7 +1861,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get',SWEETSPOT_DJ,0), m.call('Settings_Get',EDGEGUARD,EG_SIDE)), (1, 2))
         m.call('Settings_Set',SWEETSPOT,0,2)  # Out of range is ignored,
         m.call('Settings_Set',SWEETSPOT,1,8)
-        m.call('Settings_Set',SWEETSPOT,2,0)  # and so is a third index.
+        m.call('Settings_Set',SWEETSPOT,3,0)  # and so is a fourth index (the third is Marth's).
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
         # Version 11..18 records own word 20, so the bits are read as is.
         old = bytearray(after); old[4:6] = bytes((18,56))
