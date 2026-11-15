@@ -25,6 +25,13 @@ static const u8 CustomKnockback_Prefs[OPT_CUSTOMKB_COUNT] = {
     TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
 };
 
+/* The saved value of each Side row, in row order. */
+static const u8 Side_Saved[EG_SIDE_COUNT] = {
+    [EG_SIDE_LEFT] = TM_EG_SIDE_LEFT,
+    [EG_SIDE_RIGHT] = TM_EG_SIDE_RIGHT,
+    [EG_SIDE_RANDOM] = TM_EG_SIDE_RANDOM,
+};
+
 static int RecoveryPref(EventMenu *menu) {
     if (menu == &RecMenu_Fox) return TM_EG_RECOVERY_FOX;
     if (menu == &RecMenu_Falco) return TM_EG_RECOVERY_FALCO;
@@ -124,7 +131,7 @@ static void LoadKnockback(void) {
 }
 
 static void SaveSettings(void) {
-    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE, Options_Main[OPT_MAIN_SIDE].val);
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE, Side_Saved[Options_Main[OPT_MAIN_SIDE].val]);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT, Options_Main[OPT_MAIN_PERCENT].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION, Options_Main[OPT_MAIN_POSITION].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_KB_HEIGHT, Options_Main[OPT_MAIN_KB_HEIGHT].val);
@@ -134,7 +141,10 @@ static void SaveSettings(void) {
 }
 
 static void LoadSettings(EventMenu *recovery_menu) {
-    Options_Main[OPT_MAIN_SIDE].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE);
+    int side = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE);
+    for (int row = 0; row < EG_SIDE_COUNT; ++row)
+        if (Side_Saved[row] == side)
+            Options_Main[OPT_MAIN_SIDE].val = row;
     Options_Main[OPT_MAIN_PERCENT].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT);
     Options_Main[OPT_MAIN_POSITION].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION);
     LoadKnockback();
@@ -448,6 +458,12 @@ static int ChooseLaunch(FighterData *ft, int side_idx, float *distance, float *m
     return KB_PERCENT_MIN + HSD_Randi(KB_PERCENT_MAX - KB_PERCENT_MIN);
 }
 
+/* This attempt's ledge index: Left and Right are rows 0 and 1. */
+static int ChooseSide(void) {
+    int side = Options_Main[OPT_MAIN_SIDE].val;
+    return side == EG_SIDE_RANDOM ? HSD_Randi(2) : side;
+}
+
 static void Reset(void) {
     event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
     edgeguard_timer = 0;
@@ -460,8 +476,7 @@ static void Reset(void) {
 
     // 0 is the left ledge: the fighters start inland of it and the cpu is
     // launched leftward. 1 is the right.
-    int side = Options_Main[OPT_MAIN_SIDE].val;
-    int side_idx = side == TM_EG_SIDE_LEFT ? 0 : side == TM_EG_SIDE_RIGHT ? 1 : HSD_Randi(2);
+    int side_idx = ChooseSide();
     int hmn_dmg = Options_Main[OPT_MAIN_PERCENT].val;
 
     // The cpu keeps its usual launch spot, unless the hmn starts closer to the
@@ -600,6 +615,18 @@ void Event_Init(GOBJ *gobj) {
     GObj_AddUserData(camera_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
 }
 
+/* D-pad left/right picks that ledge, like the Side row, and restarts. Pressing
+ * the side already chosen only restarts, as D-pad left always has. */
+static void ReadDPad(int down) {
+    int side = down & HSD_BUTTON_DPAD_LEFT ? EG_SIDE_LEFT
+        : down & HSD_BUTTON_DPAD_RIGHT ? EG_SIDE_RIGHT : -1;
+    if (side < 0)
+        return;
+    Options_Main[OPT_MAIN_SIDE].val = Options_Main[OPT_MAIN_SIDE].val_prev = side;
+    SaveSettings();
+    reset_timer = 0;
+}
+
 /* The restart saves the card. */
 static void FighterSwap_BeforeRestart(void) { FlushRecovery(); }
 static void StageSwap_BeforeRestart(void) { FlushRecovery(); }
@@ -657,10 +684,8 @@ void Event_Think(GOBJ *menu) {
         reset_timer = RESET_DELAY;
     }
     
-    HSD_Pad *pad = PadGetMaster(hmn_data->pad_index);
-    if (pad->down & HSD_BUTTON_DPAD_LEFT)
-        reset_timer = 0;
-        
+    ReadDPad(PadGetMaster(hmn_data->pad_index)->down);
+
     u32 opt_flags = RecoveryMenuOptFlags(cpu);
     SaveRecovery(cpu, opt_flags);
     Recovery_Think(cpu, opt_flags);

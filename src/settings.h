@@ -319,7 +319,8 @@ enum TMGrabsStanding { TM_GRABS_STAND, TM_GRABS_SHIELD, TM_GRABS_STAND_RANDOM, T
  * The order is the menu's; each row's bits are its own, wherever it sits. */
 enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_B0XX, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
 enum TMUpBMarth { TM_UPB_MARTH_FSMASH, TM_UPB_MARTH_DTILT, TM_UPB_MARTH_OFF, TM_UPB_MARTH_COUNT };
-/* Edgeguard Side choices: which ledge each attempt uses. */
+/* Edgeguard Side choices as saved: which ledge each attempt uses. The menu lists
+ * them Left, Right, Random (edgeguard.h), but 0 stays Random for older saves. */
 enum { TM_EG_SIDE_RANDOM, TM_EG_SIDE_LEFT, TM_EG_SIDE_RIGHT, TM_EG_SIDE_COUNT };
 #define TM_EG_KB_HEIGHT_COUNT 7 /* Random, five heights, Custom. */
 #define TM_EG_KB_DISTANCE_COUNT 5 /* Random, four distances. */

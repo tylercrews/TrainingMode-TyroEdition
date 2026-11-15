@@ -118,6 +118,16 @@ void TestChangeHeight(int value) {
     ChangeKnockbackHeight(0, value);
 }
 void TestChangeCustom(void) { ChangeCustomKB_MagMin(0, 0); }
+void TestLoadSettings(void) { LoadSettings(0); }
+int TestSideRow(void) { return Options_Main[OPT_MAIN_SIDE].val; }
+void TestChangeSide(int row) {
+    Options_Main[OPT_MAIN_SIDE].val = row;
+    ChangeSide(0, row);
+}
+int TestChooseSide(void) { return ChooseSide(); }
+void TestDPad(int down) { ReadDPad(down); }
+int TestResetTimer(void) { return reset_timer; }
+void TestClearReset(void) { reset_timer = -1; }
 
 /* One actionable frame of a plan, 40 out unless told otherwise. */
 static SpacieGeo TestGeo(int out, int h, int vy, int kbx, int kby) {

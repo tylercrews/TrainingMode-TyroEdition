@@ -169,6 +169,67 @@ class KnockbackTests(unittest.TestCase):
         self.assertEqual(re.findall(r'"([^"]+)"', table), ['Random', 'Close', 'Near', 'Medium', 'Far'])
 
 
+SIDE = 22  # TM_EG_SIDE
+SAVED_RANDOM, SAVED_LEFT, SAVED_RIGHT = range(3)  # TM_EG_SIDE_*, the save's order
+ROW_LEFT, ROW_RIGHT, ROW_RANDOM = range(3)  # the menu's order
+DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP = 1, 2, 4, 8
+
+
+class SideTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'edgeguard-probe.elf', 'TestEdgeguardInit')
+
+    def test_the_menu_lists_left_right_random_and_defaults_to_random(self):
+        header = (ROOT / 'src' / 'edgeguard.h').read_text()
+        table = re.search(r'Values_Side\[\] = \{(.*?)\};', header).group(1)
+        self.assertEqual(re.findall(r'"([^"]+)"', table), ['Left', 'Right', 'Random'])
+        self.assertIn('.val = EG_SIDE_RANDOM,', header)
+
+    def test_saved_sides_keep_their_meaning(self):
+        # 0 is a save that never set Side, and still reads as Random.
+        for saved, row in ((SAVED_RANDOM, ROW_RANDOM), (SAVED_LEFT, ROW_LEFT), (SAVED_RIGHT, ROW_RIGHT)):
+            with self.subTest(saved=saved):
+                self.m.call('TestPreference', SIDE, saved)
+                self.m.call('TestLoadSettings')
+                self.assertEqual(self.m.call('TestSideRow'), row)
+                self.m.call('TestPreference', SIDE, 3)
+                self.m.call('TestChangeSide', row)
+                self.assertEqual(self.m.call('TestReadPreference', SIDE), saved)
+
+    def test_left_and_right_always_use_their_ledge(self):
+        for rand in (0, 1):
+            self.m.call('TestRand', 0, rand)
+            for row, ledge in ((ROW_LEFT, 0), (ROW_RIGHT, 1), (ROW_RANDOM, rand)):
+                self.m.call('TestChangeSide', row)
+                self.assertEqual(self.m.call('TestChooseSide'), ledge, (row, rand))
+
+    def reset_timer(self):
+        value = self.m.call('TestResetTimer')
+        return value if value < 0x80000000 else value - 0x100000000
+
+    def test_the_dpad_picks_a_side_saves_it_and_restarts(self):
+        self.m.call('TestChangeSide', ROW_RANDOM)
+        # The last press picks the side already chosen, which only restarts.
+        for button, row, saved in ((DPAD_RIGHT, ROW_RIGHT, SAVED_RIGHT), (DPAD_LEFT, ROW_LEFT, SAVED_LEFT),
+                                   (DPAD_LEFT, ROW_LEFT, SAVED_LEFT)):
+            self.m.call('TestClearReset')
+            self.m.call('TestDPad', button)
+            self.assertEqual(self.m.call('TestSideRow'), row)
+            self.assertEqual(self.m.call('TestReadPreference', SIDE), saved)
+            self.assertEqual(self.reset_timer(), 0)
+
+    def test_up_and_down_leave_the_side_alone(self):
+        self.m.call('TestChangeSide', ROW_RANDOM)
+        for button in (0, DPAD_DOWN, DPAD_UP):
+            self.m.call('TestDPad', button)
+            self.assertEqual(self.m.call('TestSideRow'), ROW_RANDOM)
+            self.assertEqual(self.reset_timer(), -1)
+
+
 class ToMainStageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls): build()

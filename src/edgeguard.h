@@ -86,8 +86,12 @@ static const char *Values_KnockbackDistance[] = {"Random", "Close", "Near", "Med
 typedef char edgeguard_distance_names[(countof(Values_KnockbackDistance) == KB_DISTANCE_COUNT && KB_DISTANCE_COUNT == TM_EG_KB_DISTANCE_COUNT) ? 1 : -1];
 static const char *Values_PlayerPosition[] = {"At Ledge", "Close", "Halfway", "Mid Stage"};
 typedef char edgeguard_position_names[(countof(Values_PlayerPosition) == TM_EG_POSITION_COUNT) ? 1 : -1];
-static const char *Values_Side[] = {"Random", "Left", "Right"};
-typedef char edgeguard_side_names[(countof(Values_Side) == TM_EG_SIDE_COUNT) ? 1 : -1];
+/* The Side row's order. Left and Right are also the ledge indices (Reset). The
+ * save keeps the order the row first had (TM_EG_SIDE_*), so 0, a save that
+ * never set it, still reads as Random: see Side_Saved in edgeguard.c. */
+enum edgeguard_side { EG_SIDE_LEFT, EG_SIDE_RIGHT, EG_SIDE_RANDOM, EG_SIDE_COUNT };
+static const char *Values_Side[] = {"Left", "Right", "Random"};
+typedef char edgeguard_side_names[(countof(Values_Side) == EG_SIDE_COUNT && (int)EG_SIDE_COUNT == (int)TM_EG_SIDE_COUNT) ? 1 : -1];
 enum options_initial {
     OPT_MAIN_RECOVERY,
     OPT_MAIN_SIDE,
@@ -116,11 +120,13 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_STRING,
         .name = "Side",
-        .desc = {"Which ledge each attempt starts at: a random one,",
-                 "or always the left or the right.",
+        .desc = {"Which ledge each attempt starts at: always the",
+                 "left or the right, or a random one each reset.",
+                 "D-Pad left/right also picks a side and restarts.",
                  "Takes effect on the next reset. This setting is saved."},
         .values = Values_Side,
         .value_num = countof(Values_Side),
+        .val = EG_SIDE_RANDOM,
         .OnChange = ChangeSide,
     },
     {
