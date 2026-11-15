@@ -160,7 +160,8 @@ static const ExtensionPreference passing_preferences[TM_PASS_PREF_COUNT] = {
 #define PASS_READ(p,stored) ((stored)<(p)->count?((stored)+(p)->initial)%(p)->count:(p)->count)
 /* Version 22 appends word 76: Escape Samus Up-B's menu in bits 0..10 (Your
  * Position, Distance, Samus Side, Your Percent) and Escape IC Grab's in bits
- * 11..15 (Your Percent). Each row is stored as its distance from its default,
+ * 11..15 (Your Percent). Escape Samus's Goal, added after, takes bit 31 with
+ * no version bump: Escape, its default, is stored as 0. Each row is stored as its distance from its default,
  * the way Passing Practice's are, so the zeros every migration to 22 writes
  * read as the defaults, and bits 16..31 can take a setting whose stored 0 is
  * its default with no version bump. */
@@ -168,14 +169,14 @@ static const ExtensionPreference passing_preferences[TM_PASS_PREF_COUNT] = {
 #define ESCAPES_SIZE 4
 static const ExtensionPreference escape_samus_preferences[TM_ESC_SAMUS_PREF_COUNT] = {
     {0,2,TM_ESC_POSITION_COUNT,0}, {2,2,TM_ESC_DISTANCE_COUNT,TM_ESC_DEFAULT_DISTANCE},
-    {4,2,TM_ESC_SIDE_COUNT,0}, {6,5,TM_ESC_PERCENT_COUNT,0},
+    {4,2,TM_ESC_SIDE_COUNT,0}, {6,5,TM_ESC_PERCENT_COUNT,0}, {31,1,TM_ESC_GOAL_COUNT,0},
 };
 static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {{11,5,TM_ESC_PERCENT_COUNT,0}};
 /* Grabs-ercise (T10) takes word 76's bits 16..30 with no version bump: its
  * timed best (7 bits), Free Practice, the movements (default On, so stored 0)
  * and Fighter Collision. Walk, Run, Traveling Dash Dance and Roll are bits
  * 24-27, Collision 28, and the in-place dash dances, added after, 29 and 30.
- * Bit 31 stays spare. Standing CPU, which word 76 had no room for, is byte 51's
+ * Bit 31 is Escape Samus's Goal. Standing CPU, which word 76 had no room for, is byte 51's
  * spare bits 3-4 (bits 27-28 of the word at 48, under Eggs-ercise's counter):
  * costume writes and repairs keep to the low 3 bits, so they're clear in every
  * record that owns the byte, and Random, the default, is stored as 0. */
@@ -274,13 +275,14 @@ typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIO
     EVENT_MENUS_OFFSET+EVENT_MENUS_SIZE<=TEAM_CHARACTERS_OFFSET &&
     TEAM_CHARACTERS_OFFSET+TEAM_CHARACTERS_SIZE<=ESCAPES_OFFSET &&
     ESCAPES_OFFSET+ESCAPES_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
-/* Escape Samus Up-B's rows fill bits 0..10 and Escape IC Grab's 11..15. */
+/* Escape Samus Up-B's rows fill bits 0..10 and 31, and Escape IC Grab's 11..15. */
 /* Each Grabs-ercise row but Standing CPU fills its bits exactly, so none needs
  * repairing; a stored 3 in Standing CPU reads as its default, Random. */
 typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<7 && TM_GRABS_PREF_COUNT==10 &&
     TM_GRABS_STANDING_COUNT==3) ? 1 : -1];
 typedef char TMExtension_EscapeBits[(TM_ESC_POSITION_COUNT<=4 && TM_ESC_DISTANCE_COUNT<=4 &&
-    TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32) ? 1 : -1];
+    TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32 && TM_ESC_GOAL_COUNT==2 &&
+    TM_ESC_SAMUS_PREF_COUNT==5) ? 1 : -1];
 static unsigned grid_cell(const uint8_t *r,unsigned slot) {
     unsigned bit=slot*GRID_BITS, at=GRID_OFFSET+bit/8;
     unsigned pair=r[at]|(at+1<GRID_END?(unsigned)r[at+1]<<8:0);

@@ -78,12 +78,13 @@ EVENT_MENU_BYTES = bytes.fromhex('c0020100')
 # Word 76, appended by version 22 (T10): Escape Samus Up-B (Your Position,
 # Distance, Samus Side, Your Percent) in bits 0-10 and Escape IC Grab (Your
 # Percent) in bits 11-15, each stored as its distance from its default, so the
-# defaults (Ground, Side, Random, 0%; 0%) are all zeros.
+# defaults (Ground, Side, Random, 0%; 0%) are all zeros. Escape Samus's Goal
+# (Escape / Punish), added after, is bit 31, Escape stored as 0.
 ESCAPE_SAMUS, ESCAPE_IC = 49, 50  # TM_SETTING_ESCAPE_SAMUS, TM_SETTING_ESCAPE_IC
-ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS = (3, 4, 3, 21), (0, 1, 0, 0)
-ESCAPE_SAMUS_FIELDS = ((0, 2), (2, 2), (4, 2), (6, 5))  # (shift, width) in word 76, in menu order.
+ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS = (3, 4, 3, 21, 2), (0, 1, 0, 0, 0)
+ESCAPE_SAMUS_FIELDS = ((0, 2), (2, 2), (4, 2), (6, 5), (31, 1))  # (shift, width) in word 76, in menu order.
 ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS = (21,), (0,), ((11, 5),)
-ESCAPE_MASK = 0xFFFF
+ESCAPE_MASK = 0x8000FFFF  # Bits 16-30 are Grabs-ercise's.
 # Grabs-ercise (T10) in word 76's spare bits 16-28, no version bump: its timed
 # best (7 bits), Free Practice, the four movements and Fighter Collision, each
 # stored as its distance from its default, so word 76's zeros read as no best,
@@ -551,7 +552,7 @@ class ExtensionTests(unittest.TestCase):
         old = self.version_21_record()
         old[76:80] = b'\xFF' * 4  # Version 21 never owned word 76.
         m.cpu.mem_write(EXT, bytes(old))
-        self.assertEqual(self.escape(ESCAPE_SAMUS, 4), ESCAPE_SAMUS_DEFAULTS)
+        self.assertEqual(self.escape(ESCAPE_SAMUS, 5), ESCAPE_SAMUS_DEFAULTS)
         expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[76:80] = bytes(4)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(self.word_72_settings(lambda f, i: m.call('Settings_Get', f, i)), (7, 26, 12, 1, 3, 2))
@@ -563,23 +564,23 @@ class ExtensionTests(unittest.TestCase):
             old[76:80] = spare
             m.cpu.mem_write(EXT, bytes(old))
             read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
-            self.assertEqual(tuple(read(ESCAPE_SAMUS, i) for i in range(4)), ESCAPE_SAMUS_DEFAULTS)
+            self.assertEqual(tuple(read(ESCAPE_SAMUS, i) for i in range(5)), ESCAPE_SAMUS_DEFAULTS)
             self.assertEqual(read(ESCAPE_IC, 0), ESCAPE_IC_DEFAULTS[0])
             self.assertEqual(self.word_72_settings(read), (7, 26, 12, 1, 3, 2))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
     def test_escape_menus_read_their_defaults_without_a_record_and_from_word_76s_zeros(self):
         m = self.m
-        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), 0)
-        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
         snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        m.call('Settings_Set', ESCAPE_SAMUS, 4, 1)  # Not rows.
+        m.call('Settings_Set', ESCAPE_SAMUS, 5, 1)  # Not rows.
         m.call('Settings_Set', ESCAPE_IC, 1, 1)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
 
-    def test_escape_menus_round_trip_in_word_76_bits_0_to_15_alone(self):
+    def test_escape_menus_round_trip_in_word_76_bits_0_to_15_and_31_alone(self):
         m = self.m
         m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's rows.
         m.call('Settings_Set', PASSING, 1, 12)
@@ -597,14 +598,14 @@ class ExtensionTests(unittest.TestCase):
                     word = int.from_bytes(after[76:80], 'little')
                     shift, width = fields[index]
                     self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - defaults[index]) % count)
-                    self.assertEqual(word & ~ESCAPE_MASK, 0)  # Bits 16-31 stay spare.
+                    self.assertEqual(word & ~ESCAPE_MASK, 0)  # Grabs-ercise's bits stay clear.
                 snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
                 for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
                     m.call('Settings_Set', field, index, value)
                     self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         m.call('Settings_Set', ESCAPE_SAMUS, 3, 20)
         m.call('Settings_Set', ESCAPE_IC, 0, 13)  # Neither event's rows move the other's.
-        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20), (13,)))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
         self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_P3_CHARACTER), m.call('Settings_Get', PASSING, 1)), (26, 12))
 
     def test_escape_menus_repair_stored_values_past_their_choices_to_their_defaults(self):
@@ -614,10 +615,10 @@ class ExtensionTests(unittest.TestCase):
         word = int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little')
         # Position 3 and Samus Side 3 aren't choices; all four distances are.
         m.cpu.mem_write(EXT + 76, (word | 3 << 0 | 3 << 4).to_bytes(4, 'little'))
-        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 15), (9,)))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 15, 0), (9,)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), word)
         m.cpu.mem_write(EXT + 76, (word | 31 << 6 | 31 << 11).to_bytes(4, 'little'))  # Nor are percents 21..31.
-        self.assertEqual((self.escape(ESCAPE_SAMUS, 4)[3], self.escape(ESCAPE_IC, 1)[0]), (0, 0))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5)[3], self.escape(ESCAPE_IC, 1)[0]), (0, 0))
 
     def grabs(self):
         return tuple(self.m.call('Settings_Get', GRABS, i) for i in range(len(GRABS_COUNTS)))
@@ -662,7 +663,7 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', GRABS, 5, 0)
         m.call('Settings_Set', GRABS, 7, 0)
         self.assertEqual(self.grabs(), (127, 0, 1, 1, 1, 0, 1, 0, 1, 0))
-        self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20), (13,)))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
 
     def test_standing_cpu_shares_byte_51_with_the_cpu_costume_and_egg_counter(self):
         m = self.m

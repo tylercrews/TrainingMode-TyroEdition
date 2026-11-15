@@ -1,6 +1,8 @@
 /* Production Escape Samus Up-B event, with fixtures only at native engine
  * boundaries. The native SDI callback (8008E4F0) is a stub that moves you the
- * way an accepted SDI input does whenever a test asks for one. */
+ * way an accepted SDI input does whenever a test asks for one. Samus's up-B
+ * ends in FallSpecial from 44 up, falls, fast falls on a fresh flick down
+ * (8007D528's rules), lands into 24 frames of LandingFallSpecial, then Waits. */
 #include "../src/events.h"
 static void TestNativeSDI(GOBJ *fighter);
 #define ESCAPE_SAMUS_SDI TestNativeSDI
@@ -12,7 +14,8 @@ static EventVars vars;
 static GOBJ event, fighters[PLAYERS];
 static FighterData ft[PLAYERS];
 static JOBJ joints[PLAYERS];
-static unsigned preferences[TM_ESC_SAMUS_PREF_COUNT] = { 0, TM_ESC_DEFAULT_DISTANCE, 0, 0 };
+static unsigned preferences[TM_ESC_SAMUS_PREF_COUNT] = { 0, TM_ESC_DEFAULT_DISTANCE, 0, 0, 0 };
+static ftCommonData common;
 static int loads, saves, sfx, hud_percent[PLAYERS], panel_rows, randi, enter_waits[PLAYERS];
 static float randf = .5f;
 static char panel_label[4][24], panel_info[4][24], big_text_shown[16];
@@ -20,6 +23,11 @@ static GXColor big_color;
 // The hit the test asks for, applied after the event's think like hit detection.
 static int pending_hit, pending_damage, pending_launcher;
 static int hitlag_left, sdi_queue, sdi_dir = 1, sdi_calls;
+// Samus: her hurtbox state and color animation, and the hitstun a test gives her.
+static int hurt_state[PLAYERS], colanim[PLAYERS], samus_hitstun, samus_stick_y, fastfall_frame;
+#define UPB_END_FRAME 50  // Her up-B's animation runs out here.
+#define UPB_TOP 44.f      // How high it leaves her.
+#define LANDING_LAG 24    // PlSs special attribute 0x50.
 
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
 void memcpy(void *dest, const void *src, int size) { u8 *d = dest; const u8 *s = src; while (size--) *d++ = *s++; }
@@ -71,11 +79,13 @@ static int Load(void *state, int flags) {
         ft[i].state.frame = 0;
         ft[i].phys.pos = (Vec3){i ? 30 : -30, 20, 0};
         ft[i].cb.EveryHitlag = 0;
-        ft[i].flags.hitlag = ft[i].flags.dead = 0;
+        ft[i].flags.hitlag = ft[i].flags.dead = ft[i].flags.hitstun = ft[i].flags.is_fastfall = 0;
+        ft[i].phys.self_vel = (Vec3){0};
+        ft[i].input.lstick = (Vec2){0};
         ft[i].input.held = 0;
         for (int h = 0; h < 4; ++h) ft[i].hitbox[h].active = 0;
     }
-    hitlag_left = 0;
+    hitlag_left = samus_hitstun = fastfall_frame = 0;
     return 1;
 }
 static void Panel(const char **label, const char **info, int count) {
@@ -95,7 +105,9 @@ void JOBJ_SetMtxDirtySub(JOBJ *joint) { }
 void Fighter_SetPosition(int ply, int ms, Vec3 *pos) { }
 void Fighter_SetGrounded(FighterData *f) { f->phys.air_state = 0; }
 void Fighter_SetAirborne(FighterData *f) { f->phys.air_state = 1; }
-void Fighter_SetAllHurtboxState(GOBJ *f, int kind) { }
+void Fighter_SetAllHurtboxState(GOBJ *f, int kind) { hurt_state[f - fighters] = kind; }
+void Fighter_ColAnim_Apply(FighterData *f, int kind, int unk) { colanim[f - ft] = kind; }
+void Fighter_ColAnim_Remove(FighterData *f, int kind) { if (colanim[f - ft] == kind) colanim[f - ft] = 0; }
 void Fighter_UpdateCameraBox(GOBJ *f) { }
 void EnvironmentCollision_WaitLanding(GOBJ *f) { }
 void Fighter_EnterWait(GOBJ *f) {
@@ -161,6 +173,8 @@ int TestEscInit(void) {
         ft[i].pad_index = i;
     }
     ft[SAMUS].kind = FTKIND_SAMUS;
+    common.x8 = .25f;
+    *stc_ftcommon = &common;
     Event_Init(&event);
     return 0;
 }
@@ -175,15 +189,48 @@ void TestEscThink(int frames) {
             ft[i].dmg.percent_temp = 0;
         }
         FighterData *samus = &ft[SAMUS], *you = &ft[YOU];
-        if (InUpB(samus) && !samus->flags.hitlag && ++samus->state.frame >= 50) samus->state_id = ASID_FALLSPECIAL;
+        // Samus's animation: her up-B runs out into FallSpecial, landing lag into Wait, hitstun away.
+        if (InUpB(samus) && !samus->flags.hitlag && ++samus->state.frame >= UPB_END_FRAME) {
+            samus->state_id = ASID_FALLSPECIAL;
+            samus->phys.pos.Y = UPB_TOP;
+            samus->phys.self_vel.Y = 0;
+        } else if (samus->state_id == ASID_LANDINGFALLSPECIAL && ++samus->state.frame >= LANDING_LAG) {
+            Fighter_EnterWait(&fighters[SAMUS]);
+        }
+        if (samus->flags.hitstun && --samus_hitstun <= 0) {
+            samus->flags.hitstun = 0;
+            if (samus->state_id == ASID_DAMAGEN2) Fighter_EnterWait(&fighters[SAMUS]);
+        }
         ++vars.game_timer;
         Event_Think(&event);
+        samus_stick_y = samus->cpu.lstickY;
         // Samus's input: a fresh B with the stick up from Wait is her up-B.
         if (samus->state_id == ASID_WAIT && (samus->cpu.held & ~samus->input.held & PAD_BUTTON_B) && samus->cpu.lstickY > 64) {
             samus->state_id = SAMUS_UPB_GROUND;
             samus->state.frame = 0;
         }
         samus->input.held = samus->cpu.held;
+        samus->input.lstick_prev = samus->input.lstick;
+        samus->input.lstick.Y = samus->cpu.lstickY / 127.f;
+        /* FallSpecial's physics: the fast fall check (falling, the stick past
+         * 0.6625 down, freshly from inside 0.25), then gravity or fast fall,
+         * and landing at the floor. */
+        if (samus->state_id == ASID_FALLSPECIAL) {
+            if (!samus->flags.is_fastfall && samus->phys.self_vel.Y < 0 && samus->input.lstick.Y <= -.6625f &&
+                samus->input.lstick_prev.Y > -.25f) {
+                samus->flags.is_fastfall = 1;
+                fastfall_frame = vars.game_timer;
+            }
+            if (samus->flags.is_fastfall) samus->phys.self_vel.Y = -2.3f;
+            else if ((samus->phys.self_vel.Y -= .095f) < -1.4f) samus->phys.self_vel.Y = -1.4f;
+            samus->phys.pos.Y += samus->phys.self_vel.Y;
+            if (samus->phys.pos.Y <= 0) {
+                samus->phys.pos.Y = 0;
+                samus->phys.self_vel.Y = 0;
+                samus->flags.is_fastfall = 0;
+                ActionStateChange(0, 1, 0, &fighters[SAMUS], ASID_LANDINGFALLSPECIAL, 0, 0);
+            }
+        }
         // Physics: the hitlag callback, then hitlag running out.
         if (you->flags.hitlag) {
             if (you->cb.EveryHitlag) you->cb.EveryHitlag(&fighters[YOU]);
@@ -208,6 +255,13 @@ void TestEscThink(int frames) {
     }
 }
 void TestEscHit(int damage, int launcher) { pending_hit = 1; pending_damage = damage; pending_launcher = launcher; }
+// You hit Samus: damage and hitstun, which runs out back into Wait.
+void TestEscHitSamus(int damage, int hitstun) {
+    ft[SAMUS].dmg.percent_temp += damage;
+    ft[SAMUS].state_id = ASID_DAMAGEN2;
+    ft[SAMUS].flags.hitstun = 1;
+    samus_hitstun = hitstun;
+}
 void TestEscSDI(int count, int dir) { sdi_queue = count; sdi_dir = dir; }
 void TestEscRandom(int value, int fraction_percent) { randi = value; randf = fraction_percent / 100.f; }
 void TestEscDPad(int buttons) {
@@ -259,9 +313,25 @@ int TestEscInfo(int key) {
     case 31: return ft[YOU].jump.jumps_used;
     case 32: return ft[SAMUS].cpu.ai;
     case 33: return ft[YOU].input.held;
+    case 34: return preferences[TM_ESC_SAMUS_GOAL];
+    case 35: return samus_stick_y;
+    case 36: return fastfall_frame;
+    case 37: return Tenths(ft[SAMUS].phys.pos.Y) ;
+    case 38: return ft[SAMUS].hurt.kind_game * 100 + hurt_state[SAMUS] * 10 + (colanim[SAMUS] == INVINCIBLE_COLANIM);
+    case 39: return attempt.punished;
+    case 40: return stats.punish_attempts;
+    case 41: return stats.punishes;
+    case 42: return attempt.closed;
+    case 43: return vars.game_timer;
+    case 44: return countof(Options_Help);
+    case 45: return Options_Main[OPT_HELP].kind == OPTKIND_MENU && Options_Main[OPT_HELP].menu == &Menu_Help;
+    case 46: return countof(Options_Main);
     }
     return -1;
 }
 char *TestEscText(int key) {
     return key < 4 ? panel_label[key] : key < 8 ? panel_info[key - 4] : big_text_shown;
 }
+char *TestEscMainName(int row) { return Options_Main[row].name; }
+char *TestEscHelpName(int row) { return Options_Help[row].name; }
+char *TestEscHelpLine(int row, int line) { return Options_Help[row].desc[line]; }

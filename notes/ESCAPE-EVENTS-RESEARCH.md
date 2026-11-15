@@ -51,8 +51,17 @@ The aerial loop's knockback growth is 0, so its hits knock you the same distance
 - **The result.** The attempt resolves once Samus's animation is past frame 33 (every hitbox is gone by 30) or she leaves the up-B. Launched if the last hit landed, Escaped if any other hit did, Samus Missed if none did. A miss isn't counted.
 - **Holding you still.** Until her first hit you can't act. In the air you're held in Fall the way Passing Practice floats its enemy. On the ground, Wait's interrupt callback is cleared every frame. Your stick still feeds the tilt timers, so SDIing the first hit works as it does in a match. Locking your controller instead would have handed you a free SDI on the first hit if you were holding a direction.
 
+### Goal: Punish
+
+- **Her helpless fall.** Samus's up-B ends through `Fighter_EnterSpecialFall` (`80096900`), from the grounded version at `8012A8A0` and the aerial one at `8012A948`. Both pass `can_fastfall` 1 and take the drift multiplier and landing lag from her special attributes `0x48` (0.66) and `0x50` (24). That's 24 frames of LandingFallSpecial before she can act. The code is hers: the aerial up-B's entry at `8012A7C8` sets her rise speed from attribute `0x44`, the 2.5 above.
+- **Fast falling.** FallSpecial's physics (`80096B44`) starts with the common fast fall check (`8007D528`). It needs her falling (`self_vel.Y` < 0), the stick at least PlCo `0x88` (0.6625) down, and the y tilt timer under PlCo `0x8C` (4), so a fresh flick. With `can_fastfall` set she then falls at her fast fall speed. The event flicks her CPU stick down on each falling frame after one with the stick inside PlCo `0x8`, so she fast falls on her first falling frame.
+- **The window.** It's open from her up-B until she can act: Wait, a Fall, Landing, DamageFall or a DownWait, out of hitlag and hitstun. After her up-B that's Wait, on the frame her landing lag ends. Her animation runs before the event's think and hits come after it, so she's invincible from her first free frame. Damage to her or a grab (a Capture state other than CaptureCut and CaptureJump, or a Thrown state) while it's open is a punish. After a punish, the window stays open, so your combo plays out, until she can act again.
+- **Invincible.** `hurt.kind_game` 1, as respawning sets it, and `Fighter_SetAllHurtboxState(1)`. The game only rewrites `kind_game` when a ledge or respawn timer runs out (`8006A420` on), so it lasts until the reset puts it back to 0. Hit detection skips a fighter whose `kind_script` or `kind_game` is set (`800770A4`). She flashes with Lab's intangibility color animation (10).
+- **Counting.** Every counted attempt is an escape attempt. A punish attempt counts when it's decided: launched, punished or too slow. So a D-pad restart in the window leaves it out, and a miss is never counted.
+
 ### To check in Dolphin
 
+- Punish: Samus fast falls as soon as she starts falling, lands with 24 frames of lag, and turns invincible (flashing) the frame she can act. Hits in her landing lag count; hits after don't.
 - Samus's up-B comes out on the setup's last frame, from the B-and-up CPU press, on Battlefield at every distance, both sides and both positions.
 - The SDI count matches the global SDI OSD's "successful" count (turn it on to compare).
 - Holding a direction through the setup gives no SDI on the first hit.

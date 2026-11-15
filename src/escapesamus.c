@@ -25,7 +25,16 @@
  * 0x4B8 (6) units along it; then both axis timers read 254 until a new
  * crossing (damage entry also sets them to 254, so a held stick never SDIs).
  * The event wraps that callback and counts the calls that moved you: those
- * are exactly the SDI inputs the game took, whether or not the SDI OSD is on. */
+ * are exactly the SDI inputs the game took, whether or not the SDI OSD is on.
+ *
+ * Goal: Punish. After you escape, hit or grab Samus before she can act again.
+ * Her up-B ends in FallSpecial with can_fastfall set (8012A8A0, 8012A948) and
+ * 24 frames of landing lag (PlSs special attribute 0x50). FallSpecial's
+ * physics (80096B44) runs the common fast fall check (8007D528): falling, the
+ * stick at or past PlCo 0x88 (0.6625) down, its y tilt timer under PlCo 0x8C
+ * (4). So she flicks the stick down on each falling frame after a neutral one.
+ * Once she's free again she turns invincible (hurt.kind_game 1, as respawning
+ * does), with Lab's intangibility flash, and the attempt ends. */
 
 // The native SDI callback. A test probe defines its own before including this.
 #ifndef ESCAPE_SAMUS_SDI
@@ -42,6 +51,8 @@
 #define AIR_HEIGHT 6.f        // In the air, your feet this high: in her opener's reach.
 #define RANDOM_DISTANCE 10.f  // Random distances run from on top of you to this.
 #define PIN_SLACK .01f        // How far a held fighter can drift before it's put back.
+#define PUNISH_GIVE_UP_FRAMES 600 // A punish window that never closes ends anyway.
+#define INVINCIBLE_COLANIM 10 // Lab's intangibility flash (INTANG_COLANIM).
 
 // The big SDI count under the match timer, where Grab Punish draws its countdown.
 #define BIG_X -5.f
@@ -54,6 +65,7 @@
 enum position { POS_GROUND, POS_AIR, POS_RANDOM };
 enum distance { DIST_ON_TOP, DIST_SIDE, DIST_FAR, DIST_RANDOM };
 enum side { SIDE_RANDOM, SIDE_LEFT, SIDE_RIGHT };
+enum goal { GOAL_ESCAPE, GOAL_PUNISH };
 // Samus's distance from you, center to center: right on you, your middle on her
 // hitbox column (5.9 x 0.88 = 5.2 out), and you at its edge.
 static const float Distances[] = { 0, 6, 10 };
@@ -65,18 +77,98 @@ static const char *Values_Percent[] = {
     "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%",
     "110%", "120%", "130%", "140%", "150%", "160%", "170%", "180%", "190%", "200%",
 };
+static const char *Values_Goal[] = { "Escape", "Punish" };
 
-enum menu_options { OPT_POSITION, OPT_DISTANCE, OPT_SIDE, OPT_PERCENT };
+enum menu_options { OPT_POSITION, OPT_DISTANCE, OPT_SIDE, OPT_PERCENT, OPT_GOAL, OPT_HELP };
 // Each saved row's preference ID is its row number.
 typedef char escape_samus_saved_rows[((int)OPT_POSITION == TM_ESC_SAMUS_POSITION &&
     (int)OPT_DISTANCE == TM_ESC_SAMUS_DISTANCE && (int)OPT_SIDE == TM_ESC_SAMUS_SIDE &&
-    (int)OPT_PERCENT == TM_ESC_SAMUS_PERCENT &&
+    (int)OPT_PERCENT == TM_ESC_SAMUS_PERCENT && (int)OPT_GOAL == TM_ESC_SAMUS_GOAL &&
+    (int)OPT_HELP == TM_ESC_SAMUS_PREF_COUNT &&
     countof(Values_Position) == TM_ESC_POSITION_COUNT && countof(Values_Distance) == TM_ESC_DISTANCE_COUNT &&
     countof(Values_Side) == TM_ESC_SIDE_COUNT && countof(Values_Percent) == TM_ESC_PERCENT_COUNT &&
-    countof(Distances) == DIST_RANDOM) ? 1 : -1];
+    countof(Values_Goal) == TM_ESC_GOAL_COUNT && countof(Distances) == DIST_RANDOM) ? 1 : -1];
 
 static void Exit(GOBJ *menu);
 static void SaveSettings(GOBJ *menu, int value);
+
+/* Help: how escaping and punishing work. The numbers are the game's: SDI is
+ * 8008E4F0 and ASDI 8008E714 (see the top of this file and the research notes),
+ * C-stick ASDI past PlCo 0x4B0 (800DF608), and the move data is PlSs.dat's. */
+#define HELP_ROW(label, line1, line2, line3, line4) \
+    { .kind = OPTKIND_INFO, .name = label, .desc = {line1, line2, line3, line4} }
+static EventOption Options_Help[] = {
+    HELP_ROW("About This Event",
+             "Samus Screw Attacks you as each attempt",
+             "starts, and you can't act until her first hit.",
+             "D-Pad left/right picks her side and down",
+             "switches ground/air. Both restart, uncounted."),
+    HELP_ROW("Goal: Escape",
+             "Fall out before her last hit, the launcher,",
+             "lands. If it lands, you're launched: a miss.",
+             "An attempt she never hits isn't counted.",
+             "The result shows as her hitboxes end."),
+    HELP_ROW("Goal: Punish",
+             "Escape, then hit or grab her before she can",
+             "act. She falls helpless, fast falling as soon",
+             "as she can, and has 24 frames of landing lag.",
+             "Once she can act she turns invincible."),
+    HELP_ROW("What SDI Is",
+             "Smash DI moves you during hitlag, the freeze",
+             "as a hit lands. A flick of the control stick",
+             "past 70% moves you up to 6 units its way.",
+             "Each of her hits freezes you for 3 frames."),
+    HELP_ROW("Fresh Flicks Only",
+             "An SDI needs the stick to leave the middle",
+             "(25%) and pass 70% within 4 frames. Then it's",
+             "used up until an axis leaves the middle again.",
+             "A stick held from before a hit never SDIs."),
+    HELP_ROW("Quarter Circles",
+             "Rolling from straight to a diagonal makes the",
+             "other axis leave the middle, so it's fresh:",
+             "away, down-away, away, down-away SDIs at each",
+             "diagonal without crossing the middle."),
+    HELP_ROW("Don't Go Back and Forth",
+             "SDI goes the way the stick points, so left",
+             "then right cancels out. Tap the same way, or",
+             "roll between two neighbors. Going through the",
+             "middle between flicks does nothing."),
+    HELP_ROW("Which Way to SDI",
+             "Her loop hits lift you and pull you toward",
+             "her, and she rises fast. SDI away from her,",
+             "and down and away once you're off the ground,",
+             "so she rises past you."),
+    HELP_ROW("ASDI",
+             "As each hit's freeze ends you're nudged 3",
+             "units: along the C-stick if it's past 70%,",
+             "otherwise along the control stick if it is.",
+             "Holding counts: no flick needed."),
+    HELP_ROW("Hold the C-Stick",
+             "The C-stick can't SDI in Melee, but it wins",
+             "ASDI. Hold it away (or down and away) and",
+             "every hit nudges you out while your control",
+             "stick does the SDI."),
+    HELP_ROW("Her Last Hit",
+             "The launcher is about 3 times as wide as her",
+             "loop hits and electric (4 frames of hitlag),",
+             "so it reaches you at a column's edge. Be out",
+             "before it, about frame 28 of her up-B."),
+    HELP_ROW("Percent and Position",
+             "Her grounded hits knock you farther at higher",
+             "percents, so they hold you less. Air starts",
+             "you in her opener's reach. Distance sets how",
+             "deep in her hitboxes you start."),
+    HELP_ROW("Reading the HUD",
+             "The big SDI count is the inputs the game took",
+             "this attempt: green on a success, yellow while",
+             "you can punish, red on a miss. The panel has",
+             "your results and SDI average."),
+};
+static EventMenu Menu_Help = {
+    .name = "Help",
+    .option_num = countof(Options_Help),
+    .options = Options_Help,
+};
 
 static EventOption Options_Main[] = {
     {
@@ -125,20 +217,22 @@ static EventOption Options_Main[] = {
                  "Takes effect on the next attempt."},
     },
     {
-        .kind = OPTKIND_INFO,
-        .name = "SDI Info",
-        .desc = {"Flick the control stick to its rim (70%+) in",
-                 "hitlag: each flick moves you up to 6 units.",
-                 "The C-stick can't SDI in Melee. It only ASDIs:",
-                 "3 units as each hit's hitlag ends."},
+        .kind = OPTKIND_STRING,
+        .name = "Goal",
+        .values = Values_Goal,
+        .value_num = countof(Values_Goal),
+        .OnChange = SaveSettings,
+        .desc = {"Escape: fall out before her last hit lands.",
+                 "Punish: escape, then hit or grab her before",
+                 "she can act again, when she turns invincible.",
+                 "Takes effect on the next attempt."},
     },
     {
-        .kind = OPTKIND_INFO,
+        .kind = OPTKIND_MENU,
         .name = "Help",
-        .desc = {"Samus up-Bs as each attempt starts. Smash DI",
-                 "away to fall out before her last hit launches",
-                 "you. SDI counts the inputs the game took.",
-                 "A missed attempt (no hit) isn't counted."},
+        .menu = &Menu_Help,
+        .desc = {"How SDI and ASDI work, how to get out of her",
+                 "up-B, and how each goal is judged."},
     },
     {
         .kind = OPTKIND_FUNC,
@@ -169,10 +263,11 @@ static void LoadSettings(void) {
 enum phase {
     PHASE_SETUP,   // You're in place; Samus waits a moment.
     PHASE_ATTACK,  // Samus is in her up-B.
+    PHASE_PUNISH,  // Punish: you're out, and have until she can act to hit her.
     PHASE_RESULT,  // Counted; the next attempt follows.
 };
-enum result { RESULT_NONE, RESULT_ESCAPED, RESULT_LAUNCHED, RESULT_MISSED };
-static const char *Result_Text[] = { "-", "Escaped", "Launched", "Samus Missed" };
+enum result { RESULT_NONE, RESULT_ESCAPED, RESULT_LAUNCHED, RESULT_MISSED, RESULT_PUNISHED, RESULT_TOO_SLOW };
+static const char *Result_Text[] = { "-", "Escaped", "Launched", "Samus Missed", "Punished", "Too Slow" };
 
 static int phase = PHASE_SETUP, phase_timer;
 static bool ready, restart;
@@ -183,16 +278,22 @@ static struct attempt {
     int toward;       // From you toward Samus: -1 or 1.
     float distance;
     Vec3 you, samus;  // Where each of you starts.
+    bool punish;      // The goal is Punish (read as the attempt starts).
     bool started;     // Samus is in her up-B.
     int hits, sdi;
     bool launched;    // Her last hit landed.
+    bool punished;    // You hit or grabbed her while she couldn't act.
+    bool closed;      // She can act again, and is invincible.
     float damage;     // Your percent plus pending damage, after last frame's hits.
+    float samus_damage; // Hers, the same way.
     int result;
 } attempt;
 
-// This session's counted attempts, and the last one.
+// This session's counted attempts, and the last one. Every counted attempt is
+// an escape attempt; those with Punish as the goal are punish attempts too.
 static struct stats {
     int attempts, escapes, sdi_total;
+    int punish_attempts, punishes;
     int last, last_hits, last_sdi;
 } stats;
 
@@ -345,6 +446,45 @@ static void PressUpB(FighterData *samus) {
     samus->cpu.lstickY = 127;
 }
 
+static bool InSpecialFall(FighterData *samus) {
+    return samus->state_id >= ASID_FALLSPECIAL && samus->state_id <= ASID_FALLSPECIALB;
+}
+/* Fast fall as soon as she can: the check (8007D528) wants her falling and a
+ * fresh flick down, so the stick goes down on a falling frame after one in the
+ * middle (inside PlCo 0x8). The think runs before her input is read. */
+static void FastFall(FighterData *samus) {
+    if (!InSpecialFall(samus) || samus->flags.is_fastfall || samus->phys.self_vel.Y >= 0) return;
+    if (samus->input.lstick.Y > -(*stc_ftcommon)->x8)
+        samus->cpu.lstickY = -127;
+}
+// Held or being thrown: a grab is a punish too.
+static bool Grabbed(FighterData *samus) {
+    return (samus->state_id >= ASID_CAPTUREPULLEDHI && samus->state_id <= ASID_CAPTUREDAMAGELW) ||
+        (samus->state_id >= ASID_CAPTURENECK && samus->state_id <= ASID_CAPTUREFOOT) ||
+        (samus->state_id >= ASID_THROWNF && samus->state_id <= ASID_THROWNLWWOMEN);
+}
+/* Free to act: out of hitlag and hitstun and in a state she can act from. With
+ * no AI, wherever she ends up comes back to one of these. After her up-B that's
+ * Wait, the frame her landing lag ends. */
+static bool SamusFree(FighterData *samus) {
+    if (samus->flags.hitstun || samus->flags.hitlag) return false;
+    switch (samus->state_id) {
+        case ASID_WAIT: case ASID_FALL: case ASID_FALLF: case ASID_FALLB:
+        case ASID_FALLAERIAL: case ASID_FALLAERIALF: case ASID_FALLAERIALB:
+        case ASID_LANDING: case ASID_DAMAGEFALL: case ASID_DOWNWAITU: case ASID_DOWNWAITD:
+            return true;
+    }
+    return false;
+}
+/* Invincible the way respawning is (hurt kind 1), which nothing resets while
+ * she stands there, and flashing as Lab's intangible CPU does. */
+static void MakeInvincible(GOBJ *fighter) {
+    FighterData *ft = fighter->userdata;
+    ft->hurt.kind_game = 1;
+    Fighter_SetAllHurtboxState(fighter, 1);
+    Fighter_ColAnim_Apply(ft, INVINCIBLE_COLANIM, 0);
+}
+
 // The attempt -------------------------------------------------------------
 
 static int RandomSign(void) { return HSD_Randi(2) ? 1 : -1; }
@@ -362,7 +502,7 @@ static void ChooseLayout(void) {
 static void Reset(void) {
     restart = false;
     event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
-    attempt = (struct attempt) { 0 };
+    attempt = (struct attempt) { .punish = Options_Main[OPT_GOAL].val == GOAL_PUNISH };
     ChooseLayout();
 
     // You in the middle, Samus beside you, each facing the other. Right on top
@@ -381,10 +521,12 @@ static void Reset(void) {
     }
     FloorUnder(attempt.toward * attempt.distance, &attempt.samus, &line);
     StandAt(samus, attempt.samus, line, attempt.distance > .5f ? -attempt.toward : RandomSign());
+    Fighter_ColAnim_Remove(Samus(), INVINCIBLE_COLANIM); // StandAt made her hittable again.
 
     SetPercent(you, Options_Main[OPT_PERCENT].val * 10);
     SetPercent(samus, 0);
     attempt.damage = Damage(You());
+    attempt.samus_damage = Damage(Samus());
     phase = PHASE_SETUP;
     phase_timer = 0;
     // Your input runs after this think, so this frame's interrupt goes too.
@@ -392,21 +534,58 @@ static void Reset(void) {
     Match_CorrectCamera();
 }
 
+static void SetResult(int result) { attempt.result = stats.last = result; }
+static void ShowResult(void) {
+    phase = PHASE_RESULT;
+    phase_timer = 0;
+}
+/* A punish attempt counts once it's decided (launched, punished or too slow),
+ * so a D-pad restart in the window leaves it out. */
+static void CountPunishAttempt(bool punished) {
+    if (stats.punish_attempts >= 99999) return;
+    stats.punish_attempts++;
+    stats.punishes += punished;
+}
+static void CountPunish(void) {
+    CountPunishAttempt(true);
+    SetResult(RESULT_PUNISHED);
+    SFX_Play(303);
+}
+
+// Her up-B's hitboxes are done: you're out, launched, or she missed.
 static void Resolve(void) {
     int result = attempt.launched ? RESULT_LAUNCHED : attempt.hits ? RESULT_ESCAPED : RESULT_MISSED;
-    attempt.result = result;
-    stats.last = result;
+    SetResult(result);
     stats.last_hits = attempt.hits;
     stats.last_sdi = attempt.sdi;
     if (result != RESULT_MISSED && stats.attempts < 99999) {
         stats.attempts++;
         stats.escapes += result == RESULT_ESCAPED;
         stats.sdi_total += attempt.sdi;
+        if (attempt.punish && result == RESULT_LAUNCHED) CountPunishAttempt(false);
+    }
+    // Punish: out, so the window's open until she can act.
+    if (attempt.punish && result == RESULT_ESCAPED) {
+        if (attempt.punished) CountPunish(); // Already, in her up-B.
+        phase = PHASE_PUNISH;
+        phase_timer = 0;
+        return;
     }
     if (result != RESULT_MISSED)
         SFX_Play(result == RESULT_ESCAPED ? 303 : 0xAF);
-    phase = PHASE_RESULT;
-    phase_timer = 0;
+    ShowResult();
+}
+
+// She can act again: the window's shut and she's invincible.
+static void ClosePunish(void) {
+    attempt.closed = true;
+    MakeInvincible(Fighter_GetGObj(1));
+    if (!attempt.punished) {
+        CountPunishAttempt(false);
+        SetResult(RESULT_TOO_SLOW);
+        SFX_Play(0xAF);
+    }
+    ShowResult();
 }
 
 /* At s_link 15, after the frame's hits and damage: a hit shows as new damage,
@@ -421,6 +600,14 @@ static void AfterHits(GOBJ *gobj) {
         if (LauncherOut(samus)) attempt.launched = true;
     }
     attempt.damage = damage;
+    // Punish: any damage to her, or a grab, before she can act.
+    float samus_damage = Damage(samus);
+    if (attempt.punish && !attempt.punished && !attempt.closed && (phase == PHASE_ATTACK || phase == PHASE_PUNISH) &&
+        (samus_damage > attempt.samus_damage + .001f || Grabbed(samus))) {
+        attempt.punished = true;
+        if (phase == PHASE_PUNISH) CountPunish();
+    }
+    attempt.samus_damage = samus_damage;
 }
 
 #define DPAD_BUTTONS (HSD_BUTTON_DPAD_LEFT | HSD_BUTTON_DPAD_RIGHT | HSD_BUTTON_DPAD_DOWN | HSD_BUTTON_DPAD_UP)
@@ -452,7 +639,7 @@ static void ReadDPad(FighterData *you) {
 static void DrawHUD(GOBJ *gobj, int pass) {
     if (pass != 2 || !ready)
         return;
-    static char last_text[24], rate_text[24], hits_text[12], sdi_text[24], big_text[16];
+    static char last_text[24], rate_text[24], hits_text[24], sdi_text[24], big_text[16];
     sprintf(last_text, "%s", Result_Text[stats.last]);
     if (stats.attempts) {
         sprintf(rate_text, "%d/%d (%.1f%%)", stats.escapes, stats.attempts, 100.f * stats.escapes / stats.attempts);
@@ -463,14 +650,29 @@ static void DrawHUD(GOBJ *gobj, int pass) {
     }
     if (stats.last) sprintf(hits_text, "%d", stats.last_hits);
     else sprintf(hits_text, "-");
-    static const char *labels[] = { "Last Attempt", "Escapes", "Hits Taken", "SDI Inputs" };
+    // Punish: the punish rate leads, and the escape rate takes Hits Taken's place.
+    static const char *escape_labels[] = { "Last Attempt", "Escapes", "Hits Taken", "SDI Inputs" };
+    static const char *punish_labels[] = { "Last Attempt", "Punishes", "Escapes", "SDI Inputs" };
     const char *info[] = { last_text, rate_text, hits_text, sdi_text };
-    event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
+    if (attempt.punish) {
+        static char punish_text[24];
+        if (stats.punish_attempts)
+            sprintf(punish_text, "%d/%d (%.1f%%)", stats.punishes, stats.punish_attempts,
+                100.f * stats.punishes / stats.punish_attempts);
+        else
+            sprintf(punish_text, "-");
+        info[1] = punish_text;
+        info[2] = rate_text;
+    }
+    event_vars->HUD_DrawInfoPanel(attempt.punish ? punish_labels : escape_labels, info, countof(info));
 
-    // This attempt's SDI inputs, big: green once you've escaped, red if launched.
+    /* This attempt's SDI inputs, big: green on a success (out, or punished),
+     * yellow while a punish is still open, red if launched or too slow. */
     Rect rect = { BIG_X, BIG_Y, BIG_WIDTH, BIG_HEIGHT };
-    GXColor color = attempt.result == RESULT_ESCAPED ? (GXColor){40, 255, 60, 255}
-        : attempt.result == RESULT_LAUNCHED ? (GXColor)TM_CUE_RED_COLOR : (GXColor){255, 255, 255, 255};
+    int result = attempt.result;
+    GXColor color = result == RESULT_PUNISHED || (result == RESULT_ESCAPED && !attempt.punish) ? (GXColor){40, 255, 60, 255}
+        : result == RESULT_ESCAPED ? (GXColor){255, 220, 40, 255}
+        : result == RESULT_LAUNCHED || result == RESULT_TOO_SLOW ? (GXColor)TM_CUE_RED_COLOR : (GXColor){255, 255, 255, 255};
     color.a = 255;
     sprintf(big_text, "SDI %d", attempt.sdi);
     event_vars->HUD_DrawTextEx(big_text, &rect, BIG_SIZE, color, (GXColor){0, 0, 0, 255}, BIG_BORDER, 1);
@@ -539,7 +741,15 @@ void Event_Think(GOBJ *gobj) {
                 || you->flags.dead || phase_timer >= GIVE_UP_FRAMES)
                 Resolve();
             break;
+        case PHASE_PUNISH:
+            /* Her state is this frame's (her animation ran first), and hits
+             * come after this, so she's invincible from her first free frame. */
+            FastFall(samus);
+            if (SamusFree(samus) || samus->flags.dead || you->flags.dead || phase_timer >= PUNISH_GIVE_UP_FRAMES)
+                ClosePunish();
+            break;
         case PHASE_RESULT:
+            if (attempt.closed) samus->hurt.kind_game = 1; // Invincible until the reset.
             if (phase_timer >= RESULT_FRAMES)
                 Reset();
             break;

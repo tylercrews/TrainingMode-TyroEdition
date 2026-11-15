@@ -3504,7 +3504,7 @@ class PassingSaveTests(EventMenuSaveTests, unittest.TestCase):
 class EscapeSamusSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/escapesamus-test.dat'
     field = 49  # TM_SETTING_ESCAPE_SAMUS
-    saved = (('Your Position', 3, 0), ('Distance', 4, 1), ('Samus Side', 3, 0), ('Your Percent', 21, 0))
+    saved = (('Your Position', 3, 0), ('Distance', 4, 1), ('Samus Side', 3, 0), ('Your Percent', 21, 0), ('Goal', 2, 0))
     natives = EventMenuSaveTests.natives + ('GObj_AddProc',)
 
 

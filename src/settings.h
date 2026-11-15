@@ -139,7 +139,7 @@ enum TMSettingsField {
     TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
     TM_SETTING_DOOR_ZELDA, /* Index: CSS door. 1 if its Zelda icon means Zelda, not Sheik. Runtime-only. */
     TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
-    TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 (v22); see TMEscapeSamusPreference. */
+    TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 and 31 (v22); see TMEscapeSamusPreference. */
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
     TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30 and byte 51 bits 3-4 (T10); see TMGrabercisePreference. */
 };
@@ -277,9 +277,11 @@ enum TMPassingPreference {
 /* Escape Samus Up-B and Escape IC Grab (T10): their saved menu rows, in row
  * order, in word 76, which version 22 appends. Each is stored as its distance
  * from its default, as Passing Practice's are, so the word's zeros read as the
- * defaults and its spare bits 16-31 can take a later setting with no bump. */
+ * defaults, and the settings added to it later (Grabs-ercise in bits 16-30,
+ * Escape Samus's Goal in 31) need no bump. */
 enum TMEscapeSamusPreference {
     TM_ESC_SAMUS_POSITION, TM_ESC_SAMUS_DISTANCE, TM_ESC_SAMUS_SIDE, TM_ESC_SAMUS_PERCENT,
+    TM_ESC_SAMUS_GOAL, /* Added after, in word 76's last spare bit, 31: Escape is stored as 0. */
     TM_ESC_SAMUS_PREF_COUNT
 };
 enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
@@ -288,6 +290,7 @@ enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
 #define TM_ESC_SIDE_COUNT 3 /* Random, Left, Right: where Samus is from you. */
 #define TM_ESC_PERCENT_COUNT 21 /* 0% to 200% in steps of 10. */
 #define TM_ESC_DEFAULT_DISTANCE 1 /* Side */
+#define TM_ESC_GOAL_COUNT 2 /* Escape, Punish. */
 /* Grabs-ercise (T10): its timed best, then its saved menu rows, in word 76's
  * spare bits 16..30 and byte 51's bits 3-4 (Standing CPU), with no version
  * bump. Every row is stored as its distance from its default, as the escape
