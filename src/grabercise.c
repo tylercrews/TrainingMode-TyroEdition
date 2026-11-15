@@ -3,7 +3,7 @@
 #include "stage_swap.h"
 #include "fighter_swap.h"
 
-/* Grab-ercise (Minigames): Eggs-ercise with a CPU to grab instead of eggs to
+/* Grabs-ercise (Minigames): Eggs-ercise with a CPU to grab instead of eggs to
  * break. The CPU you picked appears somewhere on the stage you picked: on a
  * platform, on the ground under one, or anywhere along the ground. Half the
  * time it stands still; otherwise it walks, runs or rolls at full speed, or
@@ -32,7 +32,7 @@
  *   turn brakes the dash to a quarter of its speed (0x54, 0.75 off), and the
  *   new dash adds its initial speed the other way (ftCo_Dash_Enter).
  * - From Run, a stick 0x38 (-0.375) back turns around (TurnRun), which brakes
- *   at the dash acceleration until the velocity reverses, then runs. Grab-ercise
+ *   at the dash acceleration until the velocity reverses, then runs. Grabs-ercise
  *   turns a run around by crouching instead (RunStick).
  * - From GuardOn or Guard, a stick 0x31C (0.7) out with the timer under 0x320
  *   (4) rolls. Rolls and run turnarounds stop at the edge of a floor; walks,
@@ -75,7 +75,7 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -97,9 +97,11 @@ static void ChangeDashFull(GOBJ *menu, int value);
 static void ChangeDashHalf(GOBJ *menu, int value);
 static void ChangeRoll(GOBJ *menu, int value);
 static void ChangeCollision(GOBJ *menu, int value);
+static void ChangeStanding(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
+static const char *StandingText[TM_GRABS_STANDING_COUNT] = { "Stand", "Shield", "Random" };
 static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
     "Top Left", "Top Right", "Bottom Left", "Bottom Right", "Under Timer"
 };
@@ -142,6 +144,19 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "movement and saves your best.",
                  "Saved. Changing it restarts the match."},
         .OnChange = ChangeFreePractice,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Standing CPU",
+        .value_num = countof(StandingText),
+        .values = StandingText,
+        .val = TM_GRABS_STAND_RANDOM,
+        .desc = {"What the half of the CPUs that don't move do:",
+                 "stand, hold shield, or either. The shield never",
+                 "runs out, and hitting it doesn't send the CPU away.",
+                 "Free Practice only; timed runs are Random."},
+        .disable = 1,
+        .OnChange = ChangeStanding,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -245,7 +260,7 @@ static EventOption Options_Main[OPT_COUNT] = {
 };
 static EventMenu Menu_Main = {
     .on_exit = Exit,
-    .name = "Grab-ercise",
+    .name = "Grabs-ercise",
     .option_num = countof(Options_Main),
     .options = Options_Main,
 };
@@ -269,6 +284,7 @@ static struct target {
     bool turn_dash;    // turn, which can turn back at once (dash.x4 is 0).
     bool last_flag;    // Last frame's dash had its run flag set.
     int run_phase;     // Run mode: running, crouching, or dashing out of the crouch.
+    bool shield;       // Standing: holding shield.
     bool grabbed;      // Counted: waiting for the grab or throw to end.
     int air_frames;    // Airborne, not held.
     Vec3 spot;         // Where it last appeared.
@@ -280,9 +296,14 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF,
-    TM_GRABS_ROLL, TM_GRABS_COLLISION};
+static const u8 saved_rows[] = {OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL,
+    OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL,
+    TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
+// Each saved row's default: Random, every movement on, Fighter Collision off.
+static int SavedDefault(unsigned row) {
+    return row == OPT_STANDING ? TM_GRABS_STAND_RANDOM : row != OPT_COLLISION;
+}
 static void LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_rows); ++i) {
         EventOption *option = &Options_Main[saved_rows[i]];
@@ -383,7 +404,7 @@ static void EnterFreePractice(void) {
 static void ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_FREE_PRACTICE, 0);
     for (unsigned i = 0; i < countof(saved_rows); ++i)
-        TM_SetSetting(TM_SETTING_GRABERCISE, saved_ids[i], saved_rows[i] != OPT_COLLISION);
+        TM_SetSetting(TM_SETTING_GRABERCISE, saved_ids[i], SavedDefault(saved_rows[i]));
     LoadSettings();
     Retry(menu);
 }
@@ -473,6 +494,14 @@ static int PickSpot(Vec3 you, Vec3 *spot, int *line) {
     return 0;
 }
 
+static void ChangeStanding(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_STANDING, value);
+}
+// A standing CPU holds shield, as Standing CPU says; timed runs mix both.
+static bool ChooseShield(void) {
+    int standing = FreePractice() ? Options_Main[OPT_STANDING].val : TM_GRABS_STAND_RANDOM;
+    return standing == TM_GRABS_SHIELD || (standing == TM_GRABS_STAND_RANDOM && HSD_Randi(2));
+}
 static int ChooseMove(void) {
     if (HSD_Randi(2) == 0) return MOVE_STAND;
     int on[TM_GRABS_MOVES], count = 0;
@@ -521,6 +550,7 @@ static void Respawn(void) {
     SetPercent(ft, 0);
     GroundAt(cpu, spot, line);
     target.move = ChooseMove();
+    target.shield = target.move == MOVE_STAND && ChooseShield();
     target.dir = target.leg = HSD_Randi(2) ? 1 : -1;
     ft->facing_direction = ft->facing_direction_prev = target.dir;
     Fighter_EnterWait(cpu);
@@ -853,6 +883,14 @@ static int RollStick(FighterData *ft, int dir) {
     return state == ASID_GUARDON || state == ASID_GUARD ? Smash(ft, dir) : 0;
 }
 
+/* R held, and the shield kept full every frame, as Infinite Shields keeps it.
+ * A hit on the shield puts the CPU in GuardSetOff, one of its own states
+ * (Moving), so it stays put rather than coming back somewhere else; R still
+ * held, it goes back to Guard. */
+static void HoldShield(FighterData *ft) {
+    ft->cpu.held |= PAD_TRIGGER_R;
+    ft->shield.health = (*stc_ftcommon)->x260;
+}
 static void Move(GOBJ *cpu, FighterData *ft) {
     int state = ft->state_id;
     if (state == ASID_DASH && target.last_state != ASID_DASH) target.turn_dash = target.last_state == ASID_TURN;
@@ -861,7 +899,11 @@ static void Move(GOBJ *cpu, FighterData *ft) {
     target.last_flag = flag;
     if (state == ASID_TURN && !turn_frames) turn_frames = Fighter_GetCurrentAnimLength(cpu);
     target.last_state = state;
-    if (target.move == MOVE_STAND || ft->phys.air_state != 0) return;
+    if (ft->phys.air_state != 0) return;
+    if (target.move == MOVE_STAND) {
+        if (target.shield) HoldShield(ft);
+        return;
+    }
     if (target.move == MOVE_DASH_FULL || target.move == MOVE_DASH_HALF) {
         UpdateEnds(ft);
         ft->cpu.lstickX = DanceStick(ft);
@@ -878,10 +920,8 @@ static void Move(GOBJ *cpu, FighterData *ft) {
         case MOVE_WALK: ft->cpu.lstickX = WalkStick(ft, dir); break;
         case MOVE_DASH: ft->cpu.lstickX = DashStick(ft, dir); break;
         case MOVE_ROLL:
-            // Shield held throughout, so each roll ends back in shield. The
-            // shield stays full, as Infinite Shields keeps it.
-            ft->cpu.held |= PAD_TRIGGER_R;
-            ft->shield.health = (*stc_ftcommon)->x260;
+            // Shield held throughout, so each roll ends back in shield.
+            HoldShield(ft);
             ft->cpu.lstickX = RollStick(ft, dir);
             break;
     }

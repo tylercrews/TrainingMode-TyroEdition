@@ -825,12 +825,12 @@ EventDesc Eggs = {
     .matchData = &Eggs_MatchData,
 };
 
-/* Grab-ercise (T10): Eggs-ercise's timed minute and Free Practice, with a CPU
+/* Grabs-ercise (T10): Eggs-ercise's timed minute and Free Practice, with a CPU
  * from the training character select to grab instead of eggs. Its best is in
  * TYEX word 76, not a score slot, so Events_ScoreIndex gives it none. */
 EventDesc Grabercise = {
     .tyro_edited = true,
-    .eventName = "Grab-ercise\n",
+    .eventName = "Grabs-ercise\n",
     .eventDescription = "Grab the CPU as it walks, runs, dashes\nand rolls around! Start = more options.",
     .eventFile = "grabercise",
     .jumpTableIndex = -1,
@@ -1037,7 +1037,7 @@ typedef char event_score_map_matches[(countof(Minigames_Events) == 7 &&
     countof(Doubles_Events) == 2) ? 1 : -1];
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
-    /* Ledgegrab Speedrun (5) only keeps session bests, in RAM, and Grab-ercise
+    /* Ledgegrab Speedrun (5) only keeps session bests, in RAM, and Grabs-ercise
      * (6, T10) keeps its best in the TYEX extension. */
     if (page == 0)
         return event < 5 ? event : UINT32_MAX;

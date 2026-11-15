@@ -171,13 +171,16 @@ static const ExtensionPreference escape_samus_preferences[TM_ESC_SAMUS_PREF_COUN
     {4,2,TM_ESC_SIDE_COUNT,0}, {6,5,TM_ESC_PERCENT_COUNT,0},
 };
 static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {{11,5,TM_ESC_PERCENT_COUNT,0}};
-/* Grab-ercise (T10) takes bits 16..30 with no version bump: its timed best
- * (7 bits), Free Practice, the movements (default On, so stored 0) and
- * Fighter Collision. Walk, Run, Traveling Dash Dance and Roll are bits 24-27,
- * Collision 28, and the in-place dash dances, added after, 29 and 30. Bit 31
- * stays spare. */
+/* Grabs-ercise (T10) takes word 76's bits 16..30 with no version bump: its
+ * timed best (7 bits), Free Practice, the movements (default On, so stored 0)
+ * and Fighter Collision. Walk, Run, Traveling Dash Dance and Roll are bits
+ * 24-27, Collision 28, and the in-place dash dances, added after, 29 and 30.
+ * Bit 31 stays spare. Standing CPU, which word 76 had no room for, is byte 51's
+ * spare bits 3-4 (bits 27-28 of the word at 48, under Eggs-ercise's counter):
+ * costume writes and repairs keep to the low 3 bits, so they're clear in every
+ * record that owns the byte, and Random, the default, is stored as 0. */
 static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
-    {16,7,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0},
+    {16,7,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0}, {27,2,TM_GRABS_STANDING_COUNT,TM_GRABS_STAND_RANDOM},
     {24,1,2,1}, {25,1,2,1}, {26,1,2,1}, {29,1,2,1}, {30,1,2,1}, {27,1,2,1}, {28,1,2,0},
 };
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
@@ -272,8 +275,10 @@ typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIO
     TEAM_CHARACTERS_OFFSET+TEAM_CHARACTERS_SIZE<=ESCAPES_OFFSET &&
     ESCAPES_OFFSET+ESCAPES_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
 /* Escape Samus Up-B's rows fill bits 0..10 and Escape IC Grab's 11..15. */
-/* Each Grab-ercise row fills its bits exactly, so none needs repairing. */
-typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<7 && TM_GRABS_PREF_COUNT==9) ? 1 : -1];
+/* Each Grabs-ercise row but Standing CPU fills its bits exactly, so none needs
+ * repairing; a stored 3 in Standing CPU reads as its default, Random. */
+typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<7 && TM_GRABS_PREF_COUNT==10 &&
+    TM_GRABS_STANDING_COUNT==3) ? 1 : -1];
 typedef char TMExtension_EscapeBits[(TM_ESC_POSITION_COUNT<=4 && TM_ESC_DISTANCE_COUNT<=4 &&
     TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32) ? 1 : -1];
 static unsigned grid_cell(const uint8_t *r,unsigned slot) {
@@ -342,6 +347,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
             index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_PASSING) return TEAM_CHARACTERS_OFFSET;
+    if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
     if(IS_ESCAPE(field)) return ESCAPES_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
         (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) return COSTUME_WORD_OFFSET;
@@ -535,8 +541,9 @@ int TMExtension_Prepare(uint8_t *r) {
         TM_SETTING_LOW_LASER,TM_SETTING_POWERSHIELD,TM_SETTING_REVERSAL,TM_SETTING_ATTACK_SHIELD,TM_SETTING_EDGEGUARD,
         TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER,TM_SETTING_PASSING,
         TM_SETTING_ESCAPE_SAMUS,TM_SETTING_ESCAPE_IC};
-    /* Grab-ercise is left out: every value of each of its rows is valid (see
-     * TMExtension_GrabsBits), so checking them would only cost time. */
+    /* Grabs-ercise is left out: every value of each of its rows is valid but
+     * Standing CPU's 3, which reads as its default (see TMExtension_GrabsBits),
+     * so checking them would only cost time. */
     for(unsigned f=0;f<sizeof(fields);++f) {
         unsigned field=fields[f], count=preference_count(field);
         for(unsigned i=0;i<count;++i) {

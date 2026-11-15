@@ -97,7 +97,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         functions, machine = self.functions, self.m
         minigames = self.word(self.word(functions[0]) + 8)
         descriptor = self.word(minigames + 6 * 4)
-        self.assertEqual(self.text(self.word(descriptor)).strip(), 'Grab-ercise')
+        self.assertEqual(self.text(self.word(descriptor)).strip(), 'Grabs-ercise')
         self.assertEqual(self.text(self.word(descriptor + 8)), 'grabercise')
         # The training select, as Techchase (General Tech 4) has: you pick the CPU.
         self.assertEqual(machine.call(functions[10], 0, 6), machine.call(functions[10], 1, 4))

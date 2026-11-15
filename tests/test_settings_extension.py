@@ -84,16 +84,19 @@ ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS = (3, 4, 3, 21), (0, 1, 0, 0)
 ESCAPE_SAMUS_FIELDS = ((0, 2), (2, 2), (4, 2), (6, 5))  # (shift, width) in word 76, in menu order.
 ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS = (21,), (0,), ((11, 5),)
 ESCAPE_MASK = 0xFFFF
-# Grab-ercise (T10) in word 76's spare bits 16-28, no version bump: its timed
+# Grabs-ercise (T10) in word 76's spare bits 16-28, no version bump: its timed
 # best (7 bits), Free Practice, the four movements and Fighter Collision, each
 # stored as its distance from its default, so word 76's zeros read as no best,
 # timed runs, every movement on and collision off.
 GRABS = 51  # TM_SETTING_GRABERCISE
-# In menu order: best, Free Practice, Walk, Run, Traveling, Full and Half Dash
-# Dance, Rolling, Fighter Collision. The in-place dances came later: bits 29-30.
-GRABS_COUNTS, GRABS_DEFAULTS = (128, 2, 2, 2, 2, 2, 2, 2, 2), (0, 0, 1, 1, 1, 1, 1, 1, 0)
-GRABS_FIELDS = ((16, 7), (23, 1), (24, 1), (25, 1), (26, 1), (29, 1), (30, 1), (27, 1), (28, 1))
-GRABS_MASK = 0x7FFF << 16
+# In menu order: best, Free Practice, Standing CPU, Walk, Run, Traveling, Full
+# and Half Dash Dance, Rolling, Fighter Collision. The in-place dances came
+# later (word 76 bits 29-30), and Standing CPU, with no room left in word 76,
+# is byte 51's bits 3-4: bits 27-28 of the word at 48. (offset, shift, width).
+GRABS_COUNTS, GRABS_DEFAULTS = (128, 2, 3, 2, 2, 2, 2, 2, 2, 2), (0, 0, 2, 1, 1, 1, 1, 1, 1, 0)
+GRABS_FIELDS = ((76, 16, 7), (76, 23, 1), (48, 27, 2), (76, 24, 1), (76, 25, 1), (76, 26, 1), (76, 29, 1),
+                (76, 30, 1), (76, 27, 1), (76, 28, 1))
+GRABS_STANDING, GRABS_WALK = 2, 3
 # Bytes 24..79 appended by versions 15 to 22: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
@@ -634,7 +637,6 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', ESCAPE_SAMUS, 3, 20)  # The escape events' rows below it.
         m.call('Settings_Set', ESCAPE_IC, 0, 13)
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        low = int.from_bytes(before[76:80], 'little') & ESCAPE_MASK
         values = list(GRABS_DEFAULTS)
         for index, count in enumerate(GRABS_COUNTS):
             for value in sorted({0, 1, count - 1, count // 2, GRABS_DEFAULTS[index]}) + [GRABS_DEFAULTS[index]]:
@@ -642,21 +644,42 @@ class ExtensionTests(unittest.TestCase):
                 values[index] = value
                 self.assertEqual(self.grabs(), tuple(values))
                 after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-                self.assertEqual(after[:76] + after[80:], before[:76] + before[80:])
-                word = int.from_bytes(after[76:80], 'little')
-                shift, width = GRABS_FIELDS[index]
+                offset, shift, width = GRABS_FIELDS[index]
+                word = int.from_bytes(after[offset:offset + 4], 'little')
                 self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - GRABS_DEFAULTS[index]) % count)
-                self.assertEqual(word & ESCAPE_MASK, low)  # The escape events keep theirs.
-                self.assertEqual(word & ~(GRABS_MASK | ESCAPE_MASK), 0)  # Bit 31 stays spare.
+                # Nothing else in the record moves: the escape events' bits, bit
+                # 31, and byte 51's costume and Egg Counter Position included.
+                changed = bytearray(a ^ b for a, b in zip(after, before))
+                for k, byte in enumerate((((1 << width) - 1) << shift).to_bytes(4, 'little')):
+                    changed[offset + k] &= ~byte & 0xFF
+                self.assertEqual(bytes(changed), bytes(len(changed)))
             snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
             for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
                 m.call('Settings_Set', GRABS, index, value)
                 self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         m.call('Settings_Set', GRABS, 0, 127)
-        m.call('Settings_Set', GRABS, 4, 0)
-        m.call('Settings_Set', GRABS, 6, 0)
-        self.assertEqual(self.grabs(), (127, 0, 1, 1, 0, 1, 0, 1, 0))
+        m.call('Settings_Set', GRABS, GRABS_STANDING, 1)  # Shield
+        m.call('Settings_Set', GRABS, 5, 0)
+        m.call('Settings_Set', GRABS, 7, 0)
+        self.assertEqual(self.grabs(), (127, 0, 1, 1, 1, 0, 1, 0, 1, 0))
         self.assertEqual((self.escape(ESCAPE_SAMUS, 4), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20), (13,)))
+
+    def test_standing_cpu_shares_byte_51_with_the_cpu_costume_and_egg_counter(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 1, 4)
+        m.call('Settings_Set', EGGS_COUNTER, 0, 3)
+        for choice in range(3):
+            m.call('Settings_Set', GRABS, GRABS_STANDING, choice)
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_STANDING), choice)
+            self.assertEqual((m.call('Settings_Get', COSTUME, 1), m.call('Settings_Get', EGGS_COUNTER, 0)), (4, 3))
+            # Stored as its distance from Random, the default, in bits 3-4.
+            self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0] >> 3 & 3, (choice + 1) % 3)
+        m.call('Settings_Set', COSTUME, 1, 2)  # A costume change keeps it.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_STANDING), 2)
+        byte = m.cpu.mem_read(EXT + 51, 1)[0]
+        m.cpu.mem_write(EXT + 51, bytes((byte | 3 << 3,)))  # 3 isn't a choice: it reads as Random.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_STANDING), 2)
+        self.assertEqual((m.call('Settings_Get', COSTUME, 1), m.call('Settings_Get', EGGS_COUNTER, 0)), (2, 3))
 
     def cost(self, name, *args):
         """The instructions a settings call takes, and what it returns. Unicorn's
@@ -679,8 +702,8 @@ class ExtensionTests(unittest.TestCase):
         # about 1,400.
         m = self.m
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
-        m.call('Settings_Get', GRABS, 2)
-        steady, value = self.cost('Settings_Get', GRABS, 2)
+        m.call('Settings_Get', GRABS, GRABS_WALK)
+        steady, value = self.cost('Settings_Get', GRABS, GRABS_WALK)
         self.assertLess(steady, 3000)
         self.assertEqual(value, 1)
         blast_zones, _ = self.cost('Settings_Get', 11, 11)  # TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES

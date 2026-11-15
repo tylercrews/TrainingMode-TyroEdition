@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | **1 bit** (byte 37 bit 7) |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **1 bit** in word 76, plus **9 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b2f) | `0x1AE0..0x1B2F` | 80 bytes | 80 bytes | **1 bit** in word 76, plus **7 loose bits** (6 of them retired, in word 12), including **1 bit** in word 72 |
 | **Unallocated spare score slots** | `0x1B30..0x1B37` | **8 bytes** | nothing | **8 bytes (64 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -114,7 +114,7 @@ Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't foll
 | 48..49 | `0x1B30..0x1B37` | **Free (8 bytes)** |
 | 50 | `0x1B38` | Ledgechase Training |
 | — | — | Low Laser Puff Practice is free practice and has no score |
-| — | — | Grab-ercise (T10) keeps its timed best in `TYEX` word 76 bits 16-22, not a score slot |
+| — | — | Grabs-ercise (T10) keeps its timed best in `TYEX` word 76 bits 16-22, not a score slot |
 
 ## `TYEX` extension record (`0x1AE0..0x1B2F`)
 
@@ -134,14 +134,14 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 35 | Low Laser Puff Practice, 2v1 Grab Punish | bits 0-3 Puff position, bits 4-6 Puff height, bit 7 the top bit of Grab Punish's CPU Mashing (T9, no version bump: nothing else ever wrote it) | — |
 | 36..49 | Fixed Grid OSD positions, Eggs-ercise | 22 × 5-bit cells (21 OSDs + JC Shine): 0 = Auto, 1..30 = grid cell. Byte 49 bits 6-7 are Eggs Under Platforms and Eggs In The Air (T9), Off by default. No version bump: every migration to version 16 zeroed them and the grid cells keep them. Read only from version 17 on, like the Egg Counter Position | — |
 | 50 | Character select, 2v1 Grab Punish | bits 0-2 **Player costume** (0..5), bits 5-7 the low bits of Teammate Percent (T9): 0% to 200% in steps of 20, default 0%, with its top bit in byte 34 bit 7. No version bump, for the same reason as the Egg Counter Position below. Bits 3-4 are Techchase's **Player Side** (T10): 0 Left (default), 1 Right, 2 Random, and an invalid 3 repairs to Left. No version bump: every costume write stored 0..5 and every repair cleared the low 5 bits, so they're clear in every record that owns the byte. Read only from version 17 on. Since T10 the costume is read and repaired through the low 3 bits (5 before) | — |
-| 51 | Character select, Eggs-ercise | bits 0-2 **CPU costume** (0..5), bits 5-7 Eggs-ercise Egg Counter Position (T9): 0 Top Left (default), 1 Top Right, 2 Bottom Left, 3 Bottom Right, 4 Under Timer. No version bump: a costume is at most 5 and a higher byte always repaired to 0, so these bits are clear in every record that owns the byte. Read only from records that do (version 17 on). The costume is read and repaired through the low 3 bits (5 before T10), so a damaged costume still repairs to Default and keeps the position and bits 3-4 | bits 3-4 |
+| 51 | Character select, Eggs-ercise, Grabs-ercise | bits 0-2 **CPU costume** (0..5), bits 3-4 Grabs-ercise Standing CPU (T10): stored as its distance from Random, the default (0 Random, 1 Stand, 2 Shield; an invalid 3 reads as Random), with no version bump, since these bits are clear in every record that owns the byte (below), and read only from version 22 records like the rest of Grabs-ercise. Bits 5-7 Eggs-ercise Egg Counter Position (T9): 0 Top Left (default), 1 Top Right, 2 Bottom Left, 3 Bottom Right, 4 Under Timer. No version bump: a costume is at most 5 and a higher byte always repaired to 0, so these bits are clear in every record that owns the byte. Read only from records that do (version 17 on). The costume is read and repaired through the low 3 bits (5 before T10), so a damaged costume still repairs to Default and keeps the position and bits 3-4 | — |
 | 52..63 | Edgeguard, Up-B Sweetspot | words 52, 56 and 60 (tables below) | — |
 | 64..67 | Edgeguard | word 64: recovery options of the later CPUs (table below) | — |
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot | word 72 (table below) | bit 31 |
-| 76..79 | Escape Samus Up-B, Escape IC Grab, Grab-ercise | word 76 (table below) | bit 31 |
+| 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | bit 31 |
 
-Free bits inside the record: word 76's bit 31 (Grab-ercise took 16-30 in T10), which takes a setting whose default is stored as 0 with no version bump, and 6 + 2 + 1 = **9 loose bits**: word 12's six retired bits, byte 51 bits 3-4 and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: word 76's bit 31 (Grabs-ercise took 16-30 in T10), which takes a setting whose default is stored as 0 with no version bump, and 6 + 1 = **7 loose bits**: word 12's six retired bits and word 72 bit 31. Techchase took word 9 bit 15 and byte 50 bits 3-4 in T10, and Grabs-ercise byte 51 bits 3-4. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -313,7 +313,7 @@ Passing Practice stores each row as its distance from its default, `(value + cou
 
 P1 and P2 use the normal saved characters (core bytes 6 and 37), which already tell Zelda and Sheik apart.
 
-**Word 76: Escape Samus Up-B, Escape IC Grab and Grab-ercise** (T10, version 22)
+**Word 76: Escape Samus Up-B, Escape IC Grab and Grabs-ercise** (T10, version 22)
 
 Every migration to version 22 zeroes this word, and each row is stored as its distance from its default, `(value + count - default) % count`, the way Passing Practice's are, so those zeros read as the defaults. A stored value past a row's choices reads as invalid and is repaired to the default. Version 21 and older records read the defaults.
 
@@ -324,11 +324,11 @@ Every migration to version 22 zeroes this word, and each row is stored as its di
 | 4-5 | Escape Samus Up-B: Samus Side (Random / Left / Right, default Random) |
 | 6-10 | Escape Samus Up-B: Your Percent (0% to 200% in steps of 10, default 0%) |
 | 11-15 | Escape IC Grab: Your Percent (0% to 200% in steps of 10, default 0%) |
-| 16-22 | Grab-ercise (T10): timed best, 0 (none yet) to 127. No version bump, like the rest of Grab-ercise's bits: every migration to 22 zeroed them. Saved here rather than in a score slot, so Reset Records doesn't clear it |
-| 23 | Grab-ercise: Free Practice (Off / On, default Off, so timed runs) |
-| 24-27 | Grab-ercise: Full Speed Walk, Full Speed Run, Traveling Dash Dance (was Full Speed Dash, then Dash Dance), Rolling (default On, stored inverted as each row's distance from its default). The event turns them all back on if a save has every one off |
-| 28 | Grab-ercise: Fighter Collision (default Off) |
-| 29-30 | Grab-ercise: Full Dash Dance and Half Dash Dance (default On, stored inverted like the other movements). They sit between Traveling Dash Dance and Rolling in the menu, so `TMGrabercisePreference` follows the menu and each row's bits are its own |
+| 16-22 | Grabs-ercise (T10): timed best, 0 (none yet) to 127. No version bump, like the rest of Grabs-ercise's bits: every migration to 22 zeroed them. Saved here rather than in a score slot, so Reset Records doesn't clear it |
+| 23 | Grabs-ercise: Free Practice (Off / On, default Off, so timed runs) |
+| 24-27 | Grabs-ercise: Full Speed Walk, Full Speed Run, Traveling Dash Dance (was Full Speed Dash, then Dash Dance), Rolling (default On, stored inverted as each row's distance from its default). The event turns them all back on if a save has every one off |
+| 28 | Grabs-ercise: Fighter Collision (default Off) |
+| 29-30 | Grabs-ercise: Full Dash Dance and Half Dash Dance (default On, stored inverted like the other movements). They sit between Traveling Dash Dance and Rolling in the menu, so `TMGrabercisePreference` follows the menu and each row's bits are its own |
 | 31 | Spare |
 
 Escape IC Grab's Handoff row is disabled and not saved. Both events' totals and session bests are RAM-only (below).

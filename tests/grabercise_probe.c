@@ -1,4 +1,4 @@
-/* Production Grab-ercise, with a small engine at the native boundaries: the
+/* Production Grabs-ercise, with a small engine at the native boundaries: the
  * CPU's stick and tilt timer; the Wait, Walk, Turn, Dash, Run, TurnRun,
  * Guard and roll transitions as the decomp has them (see src/grabercise.c);
  * ground speed; floors that end, with rolls and run turnarounds stopping at
@@ -264,6 +264,9 @@ static void Animate(void) {
             break;
         case ASID_GUARDON:
             if (frame >= 8) Enter(ASID_GUARD, 1000);
+            break;
+        case ASID_GUARDSETOFF: // Shield stun, then back in shield while R is held.
+            if (frame >= 8) Enter(f->input.held & PAD_TRIGGER_R ? ASID_GUARD : ASID_WAIT, 1000);
             break;
         case ASID_ESCAPEF:
         case ASID_ESCAPEB:
@@ -612,6 +615,7 @@ void TestGrabsPlace(int x1000, int line, int move, int dir) {
     FighterData *f = &ft[CPU_FT];
     float y;
     if (!target.placed) Frame(); // The first spawn.
+    target.shield = 0;
     LineY(line, x1000 / 1000.f, &y);
     f->phys.pos = (Vec3){x1000 / 1000.f, y, 0};
     f->phys.air_state = 0;
@@ -660,7 +664,11 @@ int TestGrabsRow(int row, int key) {
     return -1;
 }
 unsigned TestGrabsRowName(int row) { return (unsigned)Options_Main[row].name; }
+unsigned TestGrabsRowChoice(int row, int i) { return (unsigned)Options_Main[row].values[i]; }
 int TestGrabsChooseMove(void) { return ChooseMove(); }
+int TestGrabsChooseShield(void) { return ChooseShield(); }
+void TestGrabsShield(int on) { target.shield = on; }
+void TestGrabsShieldHealth(int health) { ft[CPU_FT].shield.health = health; }
 int TestGrabsSpot(int key) {
     FighterData *f = &ft[CPU_FT];
     switch (key) {
@@ -697,6 +705,8 @@ int TestGrabsInfo(int key) {
         case 16: return f->show_hit;
         case 17: return counter_pref;
         case 18: return run_frame;
+        case 19: return target.shield;
+        case 20: return f->state_id;
     }
     return -1;
 }
