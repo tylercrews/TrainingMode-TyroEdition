@@ -257,8 +257,8 @@ From 40 out, holding toward the stage as you fall (what you'd naturally do), any
 
 - **Path up-Bs:** 20 straight above the blue dot (the fastest grab), and at least 15 out so the platform clears the stage's wall. Luigi, Kirby, Samus and Peach go straight up, so they drift in a little on the way down.
 - **Aimed up-Bs:** 20 above the white X, the full travel out: fall a little, up-B, and hold straight toward the stage. Fox's and Falco's charge drops about 6, so they up-B 6 above the X.
-- **Donkey Kong, Bowser, Link and Young Link** have no guide, so their spots come from a simulation: drop off the platform, up-B after k frames, and hold toward the stage. It's the decompilation's physics with the ISO's attributes, Final Destination's 10 units of wall under the ledge (the stage's underside further down counts as a miss), the ledge-grab box as above, and a guessed ECB front (6 for DK and Bowser, 3 and 2.5 for the Links). Each spot is one where up-B works straight off the platform and still works after falling a while, whether you drift toward the stage while falling or not.
-- **Bottom blast zone:** the platform is never within 35 of the bottom blast zone. Only Game & Watch is affected, on Yoshi's Story, where his dot is below the blast zone anyway.
+- **Donkey Kong, Bowser, Link and Young Link** have no guide, so their spots come from a simulation: drop off the platform holding toward the stage, up-B after k frames, and keep holding toward the stage. See "The physics up-Bs' second try" below.
+- **Blast zones:** the platform is never within 35 of the bottom blast zone or 20 of a side one. Game & Watch is moved on Yoshi's Story, where his dot is below the blast zone anyway, and so is Bowser (by 10).
 
 | Fighter | Out, up from the ledge | From |
 | --- | --- | --- |
@@ -279,13 +279,42 @@ From 40 out, holding toward the stage as you fall (what you'd naturally do), any
 | Mewtwo | 57, 6 | X 7.1, −14, plus 50 |
 | Pikachu | 55, 9 | X 5.5, −11, plus 49.5 |
 | Pichu | 41, 14 | X 5.5, −6, plus 35.2 |
-| Donkey Kong | 70, 10 | up-B within 31 frames of leaving (25 without drift) |
-| Bowser | 60, 0 | 16 (14) |
-| Link | 55, 0 | 31 (27) |
-| Young Link | 65, −5 | 30 (25) |
+| Donkey Kong | 105, 35 | see below |
+| Bowser | 110, 15 | |
+| Link | 85, 35 | |
+| Young Link | 100, 35 | |
 | Ness, Ice Climbers | 40, 15 | the old spot |
 
-The dots and X's come from `scripts/upb_overlay_numbers.py`'s numbers. The physics up-Bs' spots haven't been checked in Dolphin. If DK or Bowser still overshoot, move them out; if they come up short, move them in.
+The dots and X's come from `scripts/upb_overlay_numbers.py`'s numbers. The physics up-Bs' second spots haven't been checked in Dolphin. If they still overshoot, move them out along the band (about 10 out for every 15 up); if they come up short, move them in.
+
+### The physics up-Bs' second try
+
+The first spots (DK 70, 10; Bowser 60, 0; Link 55, 0; Young Link 65, −5) failed in Dolphin: DK and Bowser had to jump backwards before up-B to get anywhere they could sweetspot from, and DK drifting in got hit by Marth. The simulation behind them was too kind in two ways:
+
+- **It let the wall catch them.** It stopped anyone who passed ledge height a few units out against Final Destination's wall, from where they slid down into the ledge. In the game, the ECB clips the stage's corner there, and they land on the stage.
+- **It guessed the ECBs.** `scripts/fighter_ecb_pose.py` on each `SpecialAirHi` (medians over the move):
+
+  | Fighter | ECB bottom above the feet | Half width |
+  | --- | --- | --- |
+  | Donkey Kong | 0 | 4.5 |
+  | Bowser | 2.0 (0 to 5.5) | 4.7 |
+  | Link | 5.8 | 2.2 |
+  | Young Link | 4.6 | 2.0 |
+
+  A raised bottom lands them on the stage from that much lower, and they can't grab until it's below the ledge.
+
+The simulation now counts a grab only when the ledge is in the box, they're moving down and the ECB's bottom is below the ledge. It counts as a failure when they pass ledge height over the stage (land), or within half a width plus 2 of the ledge (corner), or reach the stage's side below it (wall). No wall to slide down.
+
+With that, the old spots work for an up-B straight off the platform, but drifting in for 3 to 6 frames overshoots, which is what happened in Dolphin. The spots that sweetspot form a narrow diagonal band, about 10 across, farther out the higher you start, and drifting in carries you across it. So the platform now sits just beyond the band, where falling with the stick toward the stage takes you into it and keeps you there. Dolphin showed the up-Bs go farther than the simulation says, so each spot is picked to still work if they really go 5 or 10 farther:
+
+| Fighter | Spot | Up-B after this many frames of drifting in | If the up-B really goes 10 farther, 5 farther, as simulated, 5 shorter |
+| --- | --- | --- | --- |
+| Donkey Kong | 105, 35 | 2 to 37 | 41, 40, 36, 25 frames |
+| Bowser | 110, 15 | 11 to 35 | 19, 29, 25, 18 |
+| Link | 85, 35 | 1 to 57 | 18, 58, 57, 41 |
+| Young Link | 100, 35 | 5 to 61 | 30, 58, 53, 38 |
+
+Bowser keeps all the drift he carries into Whirling Fortress, so his window opens only once he has some (about 10 frames). Up-B straight off the platform comes up short. Dropping without drifting comes up short for all four.
 
 ## Air up-Bs and the animation numbers
 
@@ -348,4 +377,4 @@ Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge 
 13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's. The B0XX codes' hooks (`8016E760` to `8016E7D8`) run earlier still, just after Slippi's two at `8016E748` and `8016E74C`.
 14. The ring's gaps: during Fox's charge, hold the stick a little off straight across, up or down. Held should stay at 0 or 90, and the live line straight, until the stick is about 16 degrees off.
 15. B0XX Angles with a B0XX (or a box on HayBox's Melee mode): up-B from a dot, hold its input, and the live line should end on the X and grab. Mod X with a diagonal should read 23 in Held / Need. For Sheik, check a blue dot with B held through the startup and a dim one without.
-16. [Start spots](#start-spots-t10): Donkey Kong, Bowser, Link and Young Link should sweetspot with up-B straight off the platform, and after falling a while, drifting in or not. Game & Watch on Yoshi's Story starts 35 above the blast zone.
+16. [Start spots](#start-spots-t10): Donkey Kong, Link and Young Link should sweetspot if they drop holding toward the stage and up-B anywhere in the first 30 frames or so, and Bowser if he up-Bs after 10 to 30 frames of it, without jumping backwards first. Game & Watch on Yoshi's Story starts 35 above the blast zone, and Bowser there 20 inside the side one.

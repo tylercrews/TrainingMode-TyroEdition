@@ -30,8 +30,10 @@ static int Load(void *state, int flags) {
 GOBJ *Fighter_GetGObj(int player) { return player < PLAYERS ? &fighters[player] : 0; }
 GOBJ *Fighter_GetSubcharGObj(int player, int ms) { return 0; }
 int Stage_GetExternalID(void) { return GRKINDEXT_FD; }
-static float blast_bottom = -140; /* Final Destination's. */
+static float blast_bottom = -140, blast_side = 246; /* Final Destination's. */
 float Stage_GetBlastzoneBottom(void) { return blast_bottom; }
+float Stage_GetBlastzoneLeft(void) { return -blast_side; }
+float Stage_GetBlastzoneRight(void) { return blast_side; }
 void Stage_GetLeftOfLineCoordinates(int line, Vec3 *pos) { *pos = (Vec3){-85, 0, 0}; }
 void Stage_GetRightOfLineCoordinates(int line, Vec3 *pos) { *pos = (Vec3){85, 0, 0}; }
 int GrColl_RaycastGround(Vec3 *pos, int *line, int *kind, Vec3 *unk1, int unk2, int unk3, int unk4, void *cb,
@@ -186,6 +188,7 @@ void TestUpBAimed(int kind) {
 }
 void TestUpBB0XX(int on) { Options_Main[OPT_B0XX].val = on; }
 void TestUpBBlastBottom(int y) { blast_bottom = y; }
+void TestUpBBlastSide(int x) { blast_side = x; }
 void TestUpBDraw(void) { on_top_vertices = 0; Draw_Guides(); }
 int TestUpBOnTopVertices(void) { return on_top_vertices; }
 int TestUpBInfo(int key) {

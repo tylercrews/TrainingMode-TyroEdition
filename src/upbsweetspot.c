@@ -12,9 +12,11 @@
 // Start_Spots leaves out: Ness and the Ice Climbers.
 #define PLATFORM_OUT 40
 #define PLATFORM_UP 15
-// The platform stays at least this far above the bottom blast zone. Game &
-// Watch's spot is under Yoshi's Story's.
+// The platform stays at least this far above the bottom blast zone (Game &
+// Watch's spot is under Yoshi's Story's) and this far inside the side one
+// (Bowser's is 10 short of Yoshi's Story's).
 #define PLATFORM_BLAST_MARGIN 35
+#define PLATFORM_SIDE_MARGIN 20
 // Nana's platform, beside Popo's on the stage side.
 #define NANA_PLATFORM_GAP 8
 
@@ -27,10 +29,11 @@
  * - Aimed: 20 above the white X, the full travel out. Fall a little, up-B, and
  *   hold straight toward the stage. Fox's and Falco's charge drops about 6.
  * - Donkey Kong, Bowser, Link and Young Link: their up-Bs go a long way
- *   sideways, farther still with the drift you carry into them, so from close
- *   in they only overshoot. They start far out, where up-B works straight off
- *   the platform or after falling a while, drifting toward the stage or not.
- *   From 40 out, holding toward the stage left DK and Bowser about 3 frames. */
+ *   sideways, farther still with the drift you carry into them. The spots
+ *   that sweetspot form a narrow band, farther out the higher you are, so
+ *   they start just beyond it: fall holding toward the stage and up-B
+ *   (Bowser, who keeps all his drift, after about 10 frames of it). Starting
+ *   inside the band, as they did at first, drifting in overshoots. */
 typedef struct StartSpot {
     s8 out, up;
 } StartSpot;
@@ -54,10 +57,10 @@ static const StartSpot Start_Spots[FTKIND_ROY + 1] = {
     [FTKIND_MEWTWO]    = { 57, 6 },
     [FTKIND_PIKACHU]   = { 55, 9 },
     [FTKIND_PICHU]     = { 41, 14 },
-    [FTKIND_DK]        = { 70, 10 },
-    [FTKIND_BOWSER]    = { 60, 0 },
-    [FTKIND_LINK]      = { 55, 0 },
-    [FTKIND_YOUNGLINK] = { 65, -5 },
+    [FTKIND_DK]        = { 105, 35 },
+    [FTKIND_BOWSER]    = { 110, 15 },
+    [FTKIND_LINK]      = { 85, 35 },
+    [FTKIND_YOUNGLINK] = { 100, 35 },
 };
 
 // Marth's forward smash is out on frames 10 to 13 and his down-tilt from frame
@@ -233,6 +236,10 @@ static Vec2 PlatformSpot(FighterData *ft, Vec2 ledge, float outward) {
     float lowest = Stage_GetBlastzoneBottom() + PLATFORM_BLAST_MARGIN;
     if (at.Y < lowest)
         at.Y = lowest;
+    float side = outward > 0 ? Stage_GetBlastzoneRight() - PLATFORM_SIDE_MARGIN
+                             : Stage_GetBlastzoneLeft() + PLATFORM_SIDE_MARGIN;
+    if (outward * (at.X - side) > 0)
+        at.X = side;
     return at;
 }
 

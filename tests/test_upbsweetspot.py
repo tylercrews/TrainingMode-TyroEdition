@@ -195,12 +195,12 @@ class StartSpotTests(unittest.TestCase):
         self.m.call('TestUpBDown', 0)
         return self.info(10) / 10, self.info(11) / 10, self.info(12)
 
-    def test_donkey_kong_starts_far_out_where_his_spin_reaches_the_ledge(self):
-        self.assertEqual(self.placed(self.DK), (-155, 10, 1))
-        self.assertEqual(self.placed(self.DK, self.DPAD_RIGHT), (155, 10, -1))
+    def test_donkey_kong_starts_high_and_beyond_where_his_spin_sweetspots(self):
+        self.assertEqual(self.placed(self.DK), (-190, 35, 1))
+        self.assertEqual(self.placed(self.DK, self.DPAD_RIGHT), (190, 35, -1))
 
-    def test_bowser_starts_far_out_level_with_the_ledge(self):
-        self.assertEqual(self.placed(self.BOWSER), (-145, 0, 1))
+    def test_bowser_starts_far_enough_out_to_drift_in_first(self):
+        self.assertEqual(self.placed(self.BOWSER), (-195, 15, 1))
 
     def test_fox_starts_above_where_holding_straight_sweetspots(self):
         self.assertEqual(self.placed(FTKIND_FOX), (-173, 7, 1))
@@ -215,6 +215,13 @@ class StartSpotTests(unittest.TestCase):
         self.assertEqual(self.placed(self.GAW)[1], -71)
         self.m.call('TestUpBBlastBottom', -91)  # Yoshi's Story's.
         self.assertEqual(self.placed(self.GAW)[1], -56)
+
+    def test_the_platform_stays_clear_of_the_side_blast_zones(self):
+        self.m.call('TestUpBBlastSide', 200)
+        self.assertEqual(self.placed(self.BOWSER), (-180, 15, 1))
+        self.assertEqual(self.placed(self.BOWSER, self.DPAD_RIGHT), (180, 15, -1))
+        self.assertEqual(self.placed(self.DK), (-180, 35, 1))
+        self.assertEqual(self.placed(self.NESS), (-125, 15, 1))
 
 
 class UpBLineTests(unittest.TestCase):
