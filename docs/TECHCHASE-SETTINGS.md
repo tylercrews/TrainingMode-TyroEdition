@@ -14,9 +14,18 @@ event restores the saved preset and the original defaults for getup choices.
 | Away Only | 0 | 100 | 0 | 0 |
 | Toward Only | 0 | 0 | 100 | 0 |
 | Miss Tech Only | 0 | 0 | 0 | 100 |
+| Getup Attack Only | 0 | 0 | 0 | 100 |
 | Place / Toward | 50 | 0 | 50 | 0 |
 | Away / Toward | 0 | 50 | 50 | 0 |
 | Tyro Setting | 60 | 15 | 15 | 10 |
+
+Getup Attack Only (T10) is the one preset that also sets the getups: Stand,
+Roll Away and Roll Toward 0, Getup Attack 100. Miss Tech Wait is left alone.
+The other presets keep this session's getup edits, except that leaving Getup
+Attack Only puts the getups back to the even 25s. It is listed after Miss Tech
+Only but saved as preset 9, after Tyro Setting (`TC_PresetToSaved`), so a save
+from before it still loads In Place / Toward, Away / Toward or Tyro Setting.
+The 4-bit saved field already held 16 values, so there's no version bump.
 
 Reaction Frame OSD, Timing OSD, Reset, Tech Invisibility, Camera mode,
 Starting Location, CPU Drop Height, Player Distance, Player Side, Spotdodge

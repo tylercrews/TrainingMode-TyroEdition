@@ -1,9 +1,10 @@
 #ifndef TM_TECHCHASE_LOGIC_H
 #define TM_TECHCHASE_LOGIC_H
 
+/* Menu order. Getup Attack Only (T10) is saved last, see TC_PresetToSaved. */
 enum TCTechPreset {
     TC_PRESET_ORIGINAL, TC_PRESET_EVEN, TC_PRESET_PLACE, TC_PRESET_AWAY,
-    TC_PRESET_TOWARD, TC_PRESET_MISS, TC_PRESET_PLACE_TOWARD,
+    TC_PRESET_TOWARD, TC_PRESET_MISS, TC_PRESET_GETUP_ATTACK, TC_PRESET_PLACE_TOWARD,
     TC_PRESET_AWAY_TOWARD, TC_PRESET_TYRO, TC_PRESET_COUNT
 };
 enum TCLocation { TC_CENTER, TC_LEFT_PLATFORM, TC_RIGHT_PLATFORM, TC_TOP_PLATFORM, TC_LOCATION_COUNT };
@@ -62,11 +63,35 @@ static int TC_PresetChance(int preset, int option)
 {
     static const unsigned char chances[TC_PRESET_COUNT][4] = {
         {40, 30, 30, 0}, {25, 25, 25, 25},
-        {100, 0, 0, 0}, {0, 100, 0, 0}, {0, 0, 100, 0}, {0, 0, 0, 100},
+        {100, 0, 0, 0}, {0, 100, 0, 0}, {0, 0, 100, 0}, {0, 0, 0, 100}, {0, 0, 0, 100},
         {50, 0, 50, 0}, {0, 50, 50, 0}, {60, 15, 15, 10}
     };
     if (preset < 0 || preset >= TC_PRESET_COUNT) preset = TC_PRESET_ORIGINAL;
     return option >= 0 && option < 4 ? chances[preset][option] : 0;
+}
+
+/* Getup Attack Only is the one preset that also picks the getup: stand, roll
+ * away, roll toward, attack. -1 means the preset leaves the getups alone. */
+static int TC_PresetGetupChance(int preset, int option)
+{
+    static const unsigned char attack[4] = {0, 0, 0, 100};
+    if (preset != TC_PRESET_GETUP_ATTACK) return -1;
+    return option >= 0 && option < 4 ? attack[option] : 0;
+}
+
+/* Saves from before Getup Attack Only keep their numbers: it is saved as 9,
+ * after Tyro setting, though the menu lists it after Miss Tech Only. */
+static int TC_PresetToSaved(int preset)
+{
+    if (preset == TC_PRESET_GETUP_ATTACK) return TC_PRESET_COUNT - 1;
+    return preset > TC_PRESET_GETUP_ATTACK ? preset - 1 : preset;
+}
+
+static int TC_PresetFromSaved(int saved)
+{
+    if (saved < 0 || saved >= TC_PRESET_COUNT) return TC_PRESET_ORIGINAL;
+    if (saved == TC_PRESET_COUNT - 1) return TC_PRESET_GETUP_ATTACK;
+    return saved >= TC_PRESET_GETUP_ATTACK ? saved + 1 : saved;
 }
 
 /* Only arm after a tech/getup. The timer starts after the one spotdodge ends,

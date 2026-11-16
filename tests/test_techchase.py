@@ -177,16 +177,23 @@ class TechchaseTests(unittest.TestCase):
     def setUp(self):
         self.m = Machine()
 
+    def getups(self):
+        return tuple(self.m.call("TestTCChance", j) for j in range(5, 9))
+
     def test_presets_and_only_preset_is_persisted(self):
-        expected = [(40, 30, 30, 0), (25, 25, 25, 25), (100, 0, 0, 0),
-                    (0, 100, 0, 0), (0, 0, 100, 0), (0, 0, 0, 100),
-                    (50, 0, 50, 0), (0, 50, 50, 0), (60, 15, 15, 10)]
+        # Menu order: tech chances, then the saved number. Getup Attack Only
+        # (6) is saved as 9 so older saves keep In Place / Toward through Tyro.
+        expected = [((40, 30, 30, 0), 0), ((25, 25, 25, 25), 1), ((100, 0, 0, 0), 2),
+                    ((0, 100, 0, 0), 3), ((0, 0, 100, 0), 4), ((0, 0, 0, 100), 5),
+                    ((0, 0, 0, 100), 9), ((50, 0, 50, 0), 6), ((0, 50, 50, 0), 7),
+                    ((60, 15, 15, 10), 8)]
         self.assertEqual(self.m.call("TestTCPresetCount"), len(expected))
         self.m.call("TestTCSetChance", 4, 81)  # Miss-tech wait stays session-local.
-        for i, percentages in enumerate(expected):
-            self.assertEqual(self.m.call("TestTCSetPreset", i), i)
+        for i, (percentages, saved) in enumerate(expected):
+            self.assertEqual(self.m.call("TestTCSetPreset", i), saved)
             self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4)), percentages)
             self.assertEqual(self.m.call("TestTCChance", 4), 81)
+            self.assertEqual(self.getups(), (0, 0, 0, 100) if i == 6 else (25, 25, 25, 25))
             self.assertEqual(self.m.call("TestTCLastWriteField"), 27)
             self.assertEqual(self.m.call("TestTCLastWriteIndex"), 0)
         count = self.m.call("TestTCWriteCount")
@@ -197,12 +204,41 @@ class TechchaseTests(unittest.TestCase):
             if i >= 5:
                 self.assertEqual(sum(self.m.call("TestTCChance", j) for j in range(5, 9)), 100)
         self.assertEqual(self.m.call("TestTCWriteCount"), count)
-        self.m.call("TestTCSetPreset", 8)
-        self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4)), expected[8])
+        self.m.call("TestTCSetPreset", 9)
+        self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4)), expected[9][0])
         count = self.m.call("TestTCWriteCount")
         self.assertEqual(self.m.call("TestTCReloadChances"), count)
-        self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4)), expected[8])
+        self.assertEqual(self.m.call("TestTCPreset"), 9)
+        self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4)), expected[9][0])
         self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4, 9)), (0, 25, 25, 25, 25))
+
+    def test_getup_attack_only_sets_the_getups_and_leaving_it_restores_them(self):
+        self.m.call("TestTCSetChance", 5, 70)  # A session edit: Stand 70%.
+        edited = self.getups()
+        self.m.call("TestTCSetPreset", 0)  # Other presets keep it.
+        self.assertEqual(self.getups(), edited)
+        self.m.call("TestTCSetPreset", 6)
+        self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4)), (0, 0, 0, 100))
+        self.assertEqual(self.getups(), (0, 0, 0, 100))
+        self.m.call("TestTCSetPreset", 6)  # Reselecting it changes nothing.
+        self.assertEqual(self.getups(), (0, 0, 0, 100))
+        self.m.call("TestTCSetPreset", 5)  # Miss Tech Only: back to the even getups.
+        self.assertEqual(tuple(self.m.call("TestTCChance", j) for j in range(4)), (0, 0, 0, 100))
+        self.assertEqual(self.getups(), (25, 25, 25, 25))
+        self.m.call("TestTCSetChance", 6, 70)  # Then later presets keep edits again.
+        edited = self.getups()
+        self.m.call("TestTCSetPreset", 1)
+        self.assertEqual(self.getups(), edited)
+        # Saved Getup Attack Only reloads as itself, with its getups.
+        self.m.call("TestTCSetPreset", 6)
+        self.m.call("TestTCReloadChances")
+        self.assertEqual(self.m.call("TestTCPreset"), 6)
+        self.assertEqual(self.getups(), (0, 0, 0, 100))
+        # Every older saved number still reloads its old preset.
+        for saved, preset in enumerate((0, 1, 2, 3, 4, 5, 7, 8, 9, 6)):
+            with self.subTest(saved=saved):
+                self.assertEqual(self.m.call("TestTCLoadSaved", saved), preset)
+        self.assertEqual(self.m.call("TestTCLoadSaved", 10), 0)  # Out of range reads Original.
 
     def test_native_static_legal_stage_platforms_and_grounded_human(self):
         # Stadium hazards are disabled by the event, leaving its normal group

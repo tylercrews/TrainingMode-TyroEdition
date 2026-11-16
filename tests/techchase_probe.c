@@ -64,6 +64,11 @@ int TestTCReloadChances(void) {
     InitializeChances(saved_preferences[TM_TECHCHASE_PRESET]);
     return writes;
 }
+int TestTCPreset(void) { return Options_Chances[OPTCHANCE_PRESET].val; }
+int TestTCLoadSaved(int saved) {
+    InitializeChances(saved);
+    return Options_Chances[OPTCHANCE_PRESET].val;
+}
 int TestTCSetChance(int i, int chance) {
     EventOption *option = &Options_Chances[OPTCHANCE_TECHINPLACE + i];
     option->val = chance;

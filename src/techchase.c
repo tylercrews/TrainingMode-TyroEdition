@@ -100,7 +100,7 @@ static int ResetDurations[] = { 30, 60, 2147483647 };
 static const char *Options_CamMode[] = {"Normal", "Zoom", "Custom"};
 static const char *Options_Preset[] = {
     "Original", "Even", "In Place Only", "Away Only", "Toward Only", "Miss Tech Only",
-    "In Place / Toward", "Away / Toward", "Tyro setting"
+    "Getup Attack Only", "In Place / Toward", "Away / Toward", "Tyro setting"
 };
 static const char *Options_Location[] = {"Center Stage", "Left Plat", "Right Plat", "Top Plat"};
 static const char *Options_Height[] = {"Normal", "Short", "Tall", "Double"};
@@ -108,7 +108,8 @@ static const char *Options_Distance[] = {"Right Next To", "Close", "Medium", "Pa
 static const char *Options_Side[] = {"Left", "Right", "Random"};
 static const char *Options_LocationDisplay[TC_LOCATION_COUNT];
 static const char *Options_CPUColor[] = {TM_CPU_INVINCIBILITY_NAMES};
-typedef char TCMenuMatchesSave[(countof(Options_Distance) == TC_DISTANCE_COUNT &&
+typedef char TCMenuMatchesSave[(countof(Options_Preset) == TC_PRESET_COUNT &&
+    TC_PRESET_COUNT == TM_TECHCHASE_PRESET_COUNT && countof(Options_Distance) == TC_DISTANCE_COUNT &&
     TC_DISTANCE_COUNT == TM_TECHCHASE_DISTANCE_COUNT && countof(Options_Side) == TC_SIDE_COUNT &&
     TC_SIDE_COUNT == TM_TECHCHASE_SIDE_COUNT) ? 1 : -1];
 
@@ -284,7 +285,9 @@ static EventOption Options_Chances[] = {
     {
         .kind = OPTKIND_STRING,
         .name = "Preset",
-        .desc = {"Choose the four tech chances. This is saved.", "Percentage edits below last for this session."},
+        .desc = {"Choose the four tech chances. This is saved.",
+                 "Getup Attack Only also sets the getups.",
+                 "Percentage edits below last for this session."},
         .values = Options_Preset,
         .value_num = TC_PRESET_COUNT,
         .OnChange = ChangePreset,
@@ -378,16 +381,30 @@ static EventMenu Menu_Chances = {
     .options = Options_Chances,
 };
 
+static const s16 DefaultChances[] = {40, 30, 30, 0, 0, 25, 25, 25, 25};
+static bool preset_set_getups; // The getups are Getup Attack Only's, not the defaults or edits.
+
 static void SetTechPresetChances(int preset) {
     for (int i = 0; i < 4; ++i)
         Options_Chances[OPTCHANCE_TECHINPLACE + i].val = TC_PresetChance(preset, i);
+    // The other presets keep this session's getups, but leaving
+    // Getup Attack Only puts back the defaults.
+    bool sets_getups = TC_PresetGetupChance(preset, 0) >= 0;
+    if (sets_getups || preset_set_getups) {
+        for (int i = 0; i < 4; ++i) {
+            Options_Chances[OPTCHANCE_GETUPSTAND + i].val = sets_getups ? TC_PresetGetupChance(preset, i) :
+                DefaultChances[OPTCHANCE_GETUPSTAND - OPTCHANCE_TECHINPLACE + i];
+        }
+    }
+    preset_set_getups = sets_getups;
 }
 
-static void InitializeChances(int preset) {
-    static const s16 defaults[] = {40, 30, 30, 0, 0, 25, 25, 25, 25};
-    for (unsigned i = 0; i < countof(defaults); ++i)
-        Options_Chances[OPTCHANCE_TECHINPLACE + i].val = defaults[i];
+static void InitializeChances(int saved) {
+    int preset = TC_PresetFromSaved(saved);
+    for (unsigned i = 0; i < countof(DefaultChances); ++i)
+        Options_Chances[OPTCHANCE_TECHINPLACE + i].val = DefaultChances[i];
     Options_Chances[OPTCHANCE_PRESET].val = preset;
+    preset_set_getups = false;
     SetTechPresetChances(preset);
 }
 
@@ -1024,7 +1041,7 @@ static void Exit(GOBJ *menu) {
 
 static void ChangePreset(GOBJ *menu, int value) {
     SetTechPresetChances(value);
-    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_PRESET, value);
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_PRESET, TC_PresetToSaved(value));
 }
 static void ChangeReactionOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_REACTION_OSD, value); }
 static void ChangeTimingOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_TIMING_OSD, value); }

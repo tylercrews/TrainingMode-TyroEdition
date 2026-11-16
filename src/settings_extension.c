@@ -12,7 +12,7 @@ typedef struct ExtensionPreference { uint8_t shift, width; uint16_t count, initi
  * Side (T10) takes byte 50 bits 3..4 (word 48 bits 19..20), see
  * preference_offset. */
 static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
-    {0,4,9,0}, {4,1,2,0}, {5,1,2,1}, {6,2,3,0},
+    {0,4,TM_TECHCHASE_PRESET_COUNT,0}, {4,1,2,0}, {5,1,2,1}, {6,2,3,0},
     {8,2,3,0}, {10,2,3,0}, {12,2,4,0}, {14,1,2,0}, {16,3,8,7},
     {19,2,4,0}, {21,2,TM_TECHCHASE_DISTANCE_COUNT,0}, {19,2,TM_TECHCHASE_SIDE_COUNT,0},
 };

@@ -179,6 +179,7 @@ enum TMTechchasePreference {
     TM_TECHCHASE_HEIGHT, TM_TECHCHASE_DISTANCE, TM_TECHCHASE_SIDE,
     TM_TECHCHASE_PREF_COUNT,
 };
+#define TM_TECHCHASE_PRESET_COUNT 10 /* Getup Attack Only (T10) is 9; 4 bits hold up to 16. */
 #define TM_TECHCHASE_DISTANCE_COUNT 5 /* Right Next To, Close, Medium, Past Tech Roll, Random (T10). */
 #define TM_TECHCHASE_SIDE_COUNT 3 /* Left, Right, Random (T10). */
 enum TMLedgechasePreference {

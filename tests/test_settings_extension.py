@@ -8,7 +8,7 @@ from test_settings import Machine, RECORD, ROOT
 EXT = 0x8045A6C0 + 0x1AE0
 # Techchase. Player Distance (index 10) gained Random (T10), its top bit in word
 # 9's spare bit 15; Player Side (index 11, T10) is byte 50 bits 3-4.
-COUNTS = (9, 2, 2, 3, 3, 3, 4, 2, 8, 4, 5, 3)
+COUNTS = (10, 2, 2, 3, 3, 3, 4, 2, 8, 4, 5, 3)
 DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0, 0)
 TECH_DISTANCE, TECH_SIDE = 10, 11
 LEDGE_COUNTS = (4, 2, 7, 15, 5, 8, 33, 12, 3, 3)
