@@ -8,12 +8,57 @@
  * whenever you arrive and overshooting onto the stage gets you hit. The guides
  * and every number behind them are in notes/UPB-SWEETSPOT-RESEARCH.md. */
 
-// Where the angel platform sits, from the ledge: far enough out that you have
-// to recover, close enough that every character here can.
+// The angel platform's spot, out from the ledge and up from it, for anyone
+// Start_Spots leaves out: Ness and the Ice Climbers.
 #define PLATFORM_OUT 40
 #define PLATFORM_UP 15
+// The platform stays at least this far above the bottom blast zone. Game &
+// Watch's spot is under Yoshi's Story's.
+#define PLATFORM_BLAST_MARGIN 35
 // Nana's platform, beside Popo's on the stage side.
 #define NANA_PLATFORM_GAP 8
+
+/* Where each fighter's angel platform sits, out from the ledge and up from it
+ * (where their feet are), so the spot their up-B sweetspots from is in easy
+ * reach. Worked out from the ISO's numbers; see "Start spots" in
+ * notes/UPB-SWEETSPOT-RESEARCH.md.
+ * - Paths: 20 above the blue dot, and at least 15 out so the platform clears
+ *   the stage's wall.
+ * - Aimed: 20 above the white X, the full travel out. Fall a little, up-B, and
+ *   hold straight toward the stage. Fox's and Falco's charge drops about 6.
+ * - Donkey Kong, Bowser, Link and Young Link: their up-Bs go a long way
+ *   sideways, farther still with the drift you carry into them, so from close
+ *   in they only overshoot. They start far out, where up-B works straight off
+ *   the platform or after falling a while, drifting toward the stage or not.
+ *   From 40 out, holding toward the stage left DK and Bowser about 3 frames. */
+typedef struct StartSpot {
+    s8 out, up;
+} StartSpot;
+
+static const StartSpot Start_Spots[FTKIND_ROY + 1] = {
+    [FTKIND_MARIO]     = { 25, -35 },
+    [FTKIND_DRMARIO]   = { 25, -35 },
+    [FTKIND_LUIGI]     = { 15, -41 },
+    [FTKIND_MARTH]     = { 17, -44 },
+    [FTKIND_ROY]       = { 19, -42 },
+    [FTKIND_FALCON]    = { 18, -35 },
+    [FTKIND_GANONDORF] = { 21, -39 },
+    [FTKIND_PEACH]     = { 15, -32 },
+    [FTKIND_KIRBY]     = { 15, -41 },
+    [FTKIND_SAMUS]     = { 15, -37 },
+    [FTKIND_GAW]       = { 16, -71 },
+    [FTKIND_FOX]       = { 88, 7 },
+    [FTKIND_FALCO]     = { 67, 7 },
+    [FTKIND_SHEIK]     = { 47, 5 },
+    [FTKIND_ZELDA]     = { 91, 10 },
+    [FTKIND_MEWTWO]    = { 57, 6 },
+    [FTKIND_PIKACHU]   = { 55, 9 },
+    [FTKIND_PICHU]     = { 41, 14 },
+    [FTKIND_DK]        = { 70, 10 },
+    [FTKIND_BOWSER]    = { 60, 0 },
+    [FTKIND_LINK]      = { 55, 0 },
+    [FTKIND_YOUNGLINK] = { 65, -5 },
+};
 
 // Marth's forward smash is out on frames 10 to 13 and his down-tilt from frame
 // 7, each with the tipper as hitbox 3 (20% and 10%). He freezes with the whole
@@ -177,6 +222,18 @@ static void PlaceOnPlatform(GOBJ *fighter, float x, float y, float facing) {
     Fighter_UpdateRebirthPlatformPos(fighter);
     ft->jump.jumps_used = 1; // The double jump is still there after the platform.
     UpdateCameraBox(fighter);
+}
+
+// Where the fighter's platform goes, from the ledge on this side.
+static Vec2 PlatformSpot(FighterData *ft, Vec2 ledge, float outward) {
+    StartSpot spot = { PLATFORM_OUT, PLATFORM_UP };
+    if (ft->kind >= 0 && ft->kind <= FTKIND_ROY && Start_Spots[ft->kind].out)
+        spot = Start_Spots[ft->kind];
+    Vec2 at = { ledge.X + outward * spot.out, ledge.Y + spot.up };
+    float lowest = Stage_GetBlastzoneBottom() + PLATFORM_BLAST_MARGIN;
+    if (at.Y < lowest)
+        at.Y = lowest;
+    return at;
 }
 
 /* Leaving the platform gives respawn invincibility, which Marth's tipper
@@ -1023,8 +1080,8 @@ static void Reset(int new_side) {
     FighterData *hmn_data = hmn->userdata;
 
     float outward = Outward();
-    Vec2 ledge = ledge_positions[side_idx];
-    float x = ledge.X + outward * PLATFORM_OUT, y = ledge.Y + PLATFORM_UP;
+    Vec2 spot = PlatformSpot(hmn_data, ledge_positions[side_idx], outward);
+    float x = spot.X, y = spot.Y;
     PlaceOnPlatform(hmn, x, y, -outward);
     GOBJ *hmn_sub = Fighter_GetSubcharGObj(0, 1);
     if (hmn_sub && hmn_data->flags.has_follower) {

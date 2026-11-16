@@ -191,7 +191,7 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 
 [src/upbsweetspot.c](../src/upbsweetspot.c) follows this note, with these choices:
 
-- **Start:** an angel platform 40 out and 15 above the ledge, placed the way Ledgedash places its Respawn Platform start. Unlike Ledgedash, the game's own `RebirthWait` interrupt still decides when you leave, so any action works, up-B included.
+- **Start:** an angel platform 40 out and 15 above the ledge, placed the way Ledgedash places its Respawn Platform start. Unlike Ledgedash, the game's own `RebirthWait` interrupt still decides when you leave, so any action works, up-B included. Since T10 each character has its own spot ([Start spots](#start-spots-t10)).
     - That exit grants respawn invincibility (`ftColl_8007B7A4`). The event sets the remaining frames to 1 once you're off, so the game ends it itself, flashing included.
 - **Up-B detection:** each character's up-B action-state range, from the decompilation's motion-state enums (clones share their original's). Yoshi and Jigglypuff are left off the CSS.
 - **Guides:**
@@ -242,6 +242,50 @@ So the shallowest angle off a straight direction is `atan2(23, 76)`, **16.84 deg
 - Fox and Falco go the same distance at any tilt, so B moves their angles under half a degree (0.67 units on Fox's ring, less than a dot): they get one dot per angle. The teleports and Quick Attack get both: with B nearly at the full travel, without B closer in. Sheik's Mod X diagonal is 36.0 away without B (0.80 of a tilt) and 39.8 with it. Mod Y + C-Right is the exception: without B it's the longer one.
 - Each dot is where up-B with that stick has to start to end at the X: the stick's direction reversed, at the distance its tilt travels. Under the stage, Fox's and Falco's are from aiming up and away from it, from 31.7 degrees (Mod X + C-Left) up: 23 and 27 would start past the ring's end, 30 degrees short of level.
 - Spots under a unit apart are one dot: white first, then blue, then dim.
+
+## Start spots (T10)
+
+**The problem.** Donkey Kong and Bowser couldn't get to anywhere they could sweetspot from on the old platform (40 out, 15 up). Their air up-Bs barely rise but go a long way sideways, and they keep the drift you carry into them:
+
+- **Donkey Kong** (`ftDk_SpecialAirHi`): 0.675 up, under 0.07 of his gravity until `cmd_var0` at frame 27, then full gravity. That's a peak of about 16.5 at frame 31. Sideways he accelerates 0.05 a frame toward 1.4 (attributes `0x4C` to `0x60`), starting from your drift capped at 0.85. Held toward the stage from a standstill, he's 51 across when he's back to the height he started at (frame 50) and 100 across by the end (frame 85). Drift carried in adds about 16.
+- **Bowser** (`ftKp_SpecialAirHi`): 1.78 up against 0.05 gravity (max fall 1.0) until frame 50, then FallSpecial. Sideways he accelerates 0.02 toward 1.6 (`0x54` to `0x6C`), and his drift is kept, not capped. That's a peak of about 31 at frame 35. From a standstill he's back to his start height 39 across (frame 65). Carrying 0.8 of drift in, that's 87.
+- **Link and Young Link** (`ftLk_SpecialAirHi`): 2.3 (2.31) up against half gravity for 80 frames, keeping half your drift, toward 0.6 (0.8) of their drift. That's a peak of about 47 at frame 41.
+
+From 40 out, holding toward the stage as you fall (what you'd naturally do), any up-B overshoots onto the stage. The only grabs left are after falling 23 to 34 frames, using the stage's wall, in a window of about 3 frames.
+
+**The rule now** (`Start_Spots` in the event; Ness and the Ice Climbers keep the old spot):
+
+- **Path up-Bs:** 20 straight above the blue dot (the fastest grab), and at least 15 out so the platform clears the stage's wall. Luigi, Kirby, Samus and Peach go straight up, so they drift in a little on the way down.
+- **Aimed up-Bs:** 20 above the white X, the full travel out: fall a little, up-B, and hold straight toward the stage. Fox's and Falco's charge drops about 6, so they up-B 6 above the X.
+- **Donkey Kong, Bowser, Link and Young Link** have no guide, so their spots come from a simulation: drop off the platform, up-B after k frames, and hold toward the stage. It's the decompilation's physics with the ISO's attributes, Final Destination's 10 units of wall under the ledge (the stage's underside further down counts as a miss), the ledge-grab box as above, and a guessed ECB front (6 for DK and Bowser, 3 and 2.5 for the Links). Each spot is one where up-B works straight off the platform and still works after falling a while, whether you drift toward the stage while falling or not.
+- **Bottom blast zone:** the platform is never within 35 of the bottom blast zone. Only Game & Watch is affected, on Yoshi's Story, where his dot is below the blast zone anyway.
+
+| Fighter | Out, up from the ledge | From |
+| --- | --- | --- |
+| Mario, Dr. Mario | 25, −35 | dot 24.7, −55.4 |
+| Luigi | 15, −41 | dot 7.2, −60.9 |
+| Marth | 17, −44 | dot 17.2, −64.3 |
+| Roy | 19, −42 | dot 19.4, −61.5 |
+| Captain Falcon | 18, −35 | dot 18.4, −54.6 |
+| Ganondorf | 21, −39 | dot 20.5, −58.9 |
+| Peach | 15, −32 | dot 9.4, −51.8 |
+| Kirby | 15, −41 | dot 6.0, −60.7 |
+| Samus | 15, −37 | dot 6.0, −57.3 |
+| Game & Watch | 16, −71 | dot 16.1, −90.6 |
+| Fox | 88, 7 | X 6.5, −13, plus 81.5 |
+| Falco | 67, 7 | X 6.65, −13, plus 60.1 |
+| Sheik | 47, 5 | X 7.0, −15, plus 40 |
+| Zelda | 91, 10 | X 6.5, −10, plus 84 |
+| Mewtwo | 57, 6 | X 7.1, −14, plus 50 |
+| Pikachu | 55, 9 | X 5.5, −11, plus 49.5 |
+| Pichu | 41, 14 | X 5.5, −6, plus 35.2 |
+| Donkey Kong | 70, 10 | up-B within 31 frames of leaving (25 without drift) |
+| Bowser | 60, 0 | 16 (14) |
+| Link | 55, 0 | 31 (27) |
+| Young Link | 65, −5 | 30 (25) |
+| Ness, Ice Climbers | 40, 15 | the old spot |
+
+The dots and X's come from `scripts/upb_overlay_numbers.py`'s numbers. The physics up-Bs' spots haven't been checked in Dolphin. If DK or Bowser still overshoot, move them out; if they come up short, move them in.
 
 ## Air up-Bs and the animation numbers
 
@@ -304,3 +348,4 @@ Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge 
 13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's. The B0XX codes' hooks (`8016E760` to `8016E7D8`) run earlier still, just after Slippi's two at `8016E748` and `8016E74C`.
 14. The ring's gaps: during Fox's charge, hold the stick a little off straight across, up or down. Held should stay at 0 or 90, and the live line straight, until the stick is about 16 degrees off.
 15. B0XX Angles with a B0XX (or a box on HayBox's Melee mode): up-B from a dot, hold its input, and the live line should end on the X and grab. Mod X with a diagonal should read 23 in Held / Need. For Sheik, check a blue dot with B held through the startup and a dim one without.
+16. [Start spots](#start-spots-t10): Donkey Kong, Bowser, Link and Young Link should sweetspot with up-B straight off the platform, and after falling a while, drifting in or not. Game & Watch on Yoshi's Story starts 35 above the blast zone.

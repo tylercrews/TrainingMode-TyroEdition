@@ -168,6 +168,55 @@ class MarthTests(unittest.TestCase):
         self.assertEqual((self.swings(), self.dtilts()), (1, 1))
 
 
+class StartSpotTests(unittest.TestCase):
+    """Where each fighter's angel platform puts them. The fixture's ledges are at
+    (-85, 0) and (85, 0)."""
+    MARIO, DK, BOWSER, NESS, GAW = 0, 3, 5, 8, 24
+    DPAD_RIGHT = 2
+
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'upbsweetspot-probe.elf', 'TestUpBLoaded')
+        self.m.call('TestUpBInit', OFF)
+        self.m.call('TestUpBThink', 1)
+
+    def info(self, key):
+        value = self.m.call('TestUpBInfo', key)
+        return value - (1 << 32) if value >> 31 else value
+
+    def placed(self, kind, button=DPAD_LEFT):
+        """Where a D-pad reset on that ledge puts this fighter, and which way it faces."""
+        self.m.call('TestUpBKind', kind)
+        self.m.call('TestUpBDown', button)
+        self.m.call('TestUpBThink', 1)
+        self.m.call('TestUpBDown', 0)
+        return self.info(10) / 10, self.info(11) / 10, self.info(12)
+
+    def test_donkey_kong_starts_far_out_where_his_spin_reaches_the_ledge(self):
+        self.assertEqual(self.placed(self.DK), (-155, 10, 1))
+        self.assertEqual(self.placed(self.DK, self.DPAD_RIGHT), (155, 10, -1))
+
+    def test_bowser_starts_far_out_level_with_the_ledge(self):
+        self.assertEqual(self.placed(self.BOWSER), (-145, 0, 1))
+
+    def test_fox_starts_above_where_holding_straight_sweetspots(self):
+        self.assertEqual(self.placed(FTKIND_FOX), (-173, 7, 1))
+
+    def test_mario_starts_20_above_his_blue_dot_under_the_ledge(self):
+        self.assertEqual(self.placed(self.MARIO), (-110, -35, 1))
+
+    def test_ness_keeps_the_old_spot(self):
+        self.assertEqual(self.placed(self.NESS), (-125, 15, 1))
+
+    def test_the_platform_stays_clear_of_the_bottom_blast_zone(self):
+        self.assertEqual(self.placed(self.GAW)[1], -71)
+        self.m.call('TestUpBBlastBottom', -91)  # Yoshi's Story's.
+        self.assertEqual(self.placed(self.GAW)[1], -56)
+
+
 class UpBLineTests(unittest.TestCase):
     """The yellow line, read from the vertices the event sends to the GX pipe."""
     START = (-120, -40)
