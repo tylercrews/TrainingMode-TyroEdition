@@ -15,7 +15,8 @@
  * holds never runs out, and a hit on it doesn't move it. A timed minute counts
  * grabs, with the best saved; Free Practice has no clock and lets you pick the
  * movements and what counts: a grab, or (Hit) a hit after the grab's throw,
- * while the CPU stays up to be juggled, with every hit counted apart.
+ * while the CPU stays up to be juggled, with every hit counted apart, from a
+ * percent you pick or a random one.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
  * runs before the fighters' input proc. The rules below are the native
@@ -82,7 +83,7 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_STANDING,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -106,10 +107,14 @@ static void ChangeRoll(GOBJ *menu, int value);
 static void ChangeCollision(GOBJ *menu, int value);
 static void ChangeStanding(GOBJ *menu, int value);
 static void ChangeSuccess(GOBJ *menu, int value);
+static void ChangePercent(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
 static const char *SuccessText[TM_GRABS_SUCCESS_COUNT] = { "Throw", "Hit" };
+static const char *PercentText[TM_GRABS_PERCENT_COUNT] = {
+    "Random", "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%",
+};
 static const char *StandingText[TM_GRABS_STANDING_COUNT] = { "Stand", "Shield", "Random" };
 static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
     "Top Left", "Top Right", "Bottom Left", "Bottom Right", "Under Timer"
@@ -165,6 +170,18 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "Free Practice only; timed runs are Throw."},
         .disable = 1,
         .OnChange = ChangeSuccess,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "CPU Percent",
+        .value_num = countof(PercentText),
+        .values = PercentText,
+        .desc = {"The CPU's percent each time it appears, for Hit",
+                 "mode's juggles. Random picks 0% to 120%, in",
+                 "steps of 10, each time it appears.",
+                 "Hit only: Throw and timed runs are always 0%."},
+        .disable = 1,
+        .OnChange = ChangePercent,
     },
     {
         .kind = OPTKIND_STRING,
@@ -324,21 +341,31 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_SUCCESS, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF,
-    OPT_ROLL, OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH,
-    TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
-// Each saved row's default: Throw, Random, every movement on, Fighter Collision off.
+static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL,
+    OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN,
+    TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
+// Each saved row's default: Throw, Random percents and standing, every movement on, Fighter Collision off.
 static int SavedDefault(unsigned row) {
     if (row == OPT_SUCCESS) return TM_GRABS_SUCCESS_THROW;
+    if (row == OPT_PERCENT) return TM_GRABS_PERCENT_RANDOM;
     return row == OPT_STANDING ? TM_GRABS_STAND_RANDOM : row != OPT_COLLISION;
 }
 // Hit mode: a grab counts once a hit follows its throw. Free Practice only.
 static bool HitMode(void) { return FreePractice() && Options_Main[OPT_SUCCESS].val == TM_GRABS_SUCCESS_HIT; }
+// CPU Percent only does anything in Hit mode, so it's greyed out otherwise.
+static void GatePercent(void) { Options_Main[OPT_PERCENT].disable = !HitMode(); }
+static void ApplyPercent(void);
 // Changing what counts starts the counts over.
 static void ChangeSuccess(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_SUCCESS, value);
     grab_count = total_hits = 0;
+    GatePercent();
+    ApplyPercent();
+}
+static void ChangePercent(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_PERCENT, value);
+    ApplyPercent();
 }
 static void LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_rows); ++i) {
@@ -435,8 +462,9 @@ static void ChangeFreePractice(GOBJ *menu, int value) {
 }
 static void EnterFreePractice(void) {
     reset_clock = true;
-    for (unsigned i = 0; i < countof(saved_rows); ++i) Options_Main[saved_rows[i]].disable = 0;
     stc_match->match.timer = MATCH_TIMER_COUNTUP;
+    for (unsigned i = 0; i < countof(saved_rows); ++i) Options_Main[saved_rows[i]].disable = 0;
+    GatePercent();
     ShowCollision(Options_Main[OPT_COLLISION].val);
 }
 
@@ -573,9 +601,28 @@ static void SetPercent(FighterData *ft, float percent) {
     Fighter_SetHUDDamage(ft->ply, percent);
 }
 
+/* The CPU's percent as it appears: CPU Percent's in Hit mode, a new pick each
+ * time for Random, and 0% otherwise. */
+static int SpawnPercent(void) {
+    if (!HitMode()) return 0;
+    int choice = Options_Main[OPT_PERCENT].val;
+    if (choice <= TM_GRABS_PERCENT_RANDOM || choice >= TM_GRABS_PERCENT_COUNT)
+        choice = 1 + HSD_Randi(TM_GRABS_PERCENT_COUNT - 1);
+    return (choice - 1) * TM_GRABS_PERCENT_STEP;
+}
+/* A change to Success Criteria or CPU Percent reaches a CPU that's waiting to
+ * be grabbed at once. One that's been hit, grabbed or juggled keeps its damage
+ * until it comes back. */
+static void ApplyPercent(void) {
+    GOBJ *cpu = Fighter_GetGObj(1);
+    if (!cpu || !target.placed || target.hit || target.held) return;
+    SetPercent(cpu->userdata, SpawnPercent());
+}
+
 /* The CPU disappears from wherever it was and comes back on a new spot, facing
- * its heading, at 0%. Sleep and Rebirth wipe a throw's or hit's leftovers
- * (hitstun, knockback), as Ledgechase and Ledgedash reset their fighters. */
+ * its heading, at its percent (SpawnPercent). Sleep and Rebirth wipe a throw's
+ * or hit's leftovers (hitstun, knockback), as Ledgechase and Ledgedash reset
+ * their fighters. */
 static void Respawn(void) {
     GOBJ *cpu = Fighter_GetGObj(1), *hmn = Fighter_GetGObj(0);
     FighterData *ft = cpu->userdata;
@@ -586,7 +633,7 @@ static void Respawn(void) {
     Fighter_EnterRebirth(cpu);
     ft->flags.hitstun = 0;
     ft->dmg.hitlag_frames = 0;
-    SetPercent(ft, 0);
+    SetPercent(ft, SpawnPercent());
     GroundAt(cpu, spot, line);
     target.move = ChooseMove();
     target.shield = target.move == MOVE_STAND && ChooseShield();

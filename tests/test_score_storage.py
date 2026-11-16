@@ -230,7 +230,7 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],33,0,16)  # Split-bit Reversal action is a live preference.
         machine.call(functions[28],34,0,14)
         machine.call(functions[28],34,4,1)
-        machine.cpu.mem_write(BASE + SPARE_START + 80,bytes((index*13+3)&255 for index in range(SPARE_SIZE-80)))  # After the 80-byte TYEX record.
+        machine.cpu.mem_write(BASE + SPARE_START + 84,bytes((index*13+3)&255 for index in range(SPARE_SIZE-84)))  # After the 84-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
         # Scored events per page and their slots. Ledgegrab Speedrun and
         # Grabs-ercise (page 0, 5 and 6, whose best is in TYEX), Up-B Sweetspot (page 2, 3),

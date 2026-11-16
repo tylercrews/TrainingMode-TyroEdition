@@ -28,12 +28,14 @@ INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 NEAR_END = 4  # A moving CPU's feet get this close to each end of its floor before it turns.
 GRAB_WINDOW = 30  # Frames a hit CPU stays, after the hitlag, for a follow-up grab.
 # Menu rows and saved preferences.
-(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_STANDING, OPT_WALK, OPT_RUN,
- OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(16)
-(BEST, FREE_PRACTICE, SUCCESS, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF,
- PREF_ROLL, COLLISION) = range(11)
+(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_STANDING, OPT_WALK,
+ OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS,
+ OPT_EXIT) = range(17)
+(BEST, FREE_PRACTICE, SUCCESS, PERCENT, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF,
+ PREF_ROLL, COLLISION) = range(12)
 STAND_STILL, STAND_SHIELD, STAND_RANDOM = range(3)  # Standing CPU's choices.
 THROW, HIT = range(2)  # Success Criteria's.
+RANDOM_PERCENT = 0  # CPU Percent's first choice; choice n > 0 is (n - 1) * 10%.
 MOVE_ROWS = (OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL)
 MOVE_PREFS = (PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PREF_ROLL)
 # States, from the MexTK enum.
@@ -61,8 +63,8 @@ class Probe:
     def __init__(self, stage=BATTLEFIELD, character=FOX, signed_timer=0, prefs=None, follower=False):
         self.m = fixtures.Machine()
         load_probe(self.m, 'grabercise-probe.elf', 'TestGrabsLoaded')
-        defaults = {BEST: 0, FREE_PRACTICE: 0, SUCCESS: THROW, STANDING: STAND_RANDOM, COLLISION: 0,
-                    **{pref: 1 for pref in MOVE_PREFS}}
+        defaults = {BEST: 0, FREE_PRACTICE: 0, SUCCESS: THROW, PERCENT: RANDOM_PERCENT, STANDING: STAND_RANDOM,
+                    COLLISION: 0, **{pref: 1 for pref in MOVE_PREFS}}
         defaults.update(prefs or {})
         for index, value in defaults.items():
             self.m.call('TestGrabsPref', index, value)
@@ -103,9 +105,9 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_the_menu_has_the_stage_and_character_selects(self):
         p = Probe()
-        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(16)]
+        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(17)]
         self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice',
-                                 'Success Criteria', 'Standing CPU',
+                                 'Success Criteria', 'CPU Percent', 'Standing CPU',
                                  'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
                                  'Full Dash Dance', 'Half Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
@@ -167,6 +169,26 @@ class GrabSettingsTests(unittest.TestCase):
         self.assertEqual((p.pref(SUCCESS), p.info(0)), (HIT, 0))  # Saved, and the count starts over.
         self.assertEqual(Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT}).row(OPT_SUCCESS), HIT)
 
+    def test_cpu_percent_is_random_or_0_to_120_and_saved(self):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT})
+        self.assertEqual([p.string(p.m.call('TestGrabsRowChoice', OPT_PERCENT, i)) for i in range(14)],
+                         ['Random'] + ['%d%%' % (10 * i) for i in range(13)])
+        self.assertEqual(p.row(OPT_PERCENT), RANDOM_PERCENT)  # The default.
+        for choice in (13, 1, RANDOM_PERCENT):
+            p.menu(OPT_PERCENT, choice)
+            self.assertEqual(p.pref(PERCENT), choice)
+        self.assertEqual(Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 7}).row(OPT_PERCENT), 7)
+
+    def test_cpu_percent_is_greyed_out_but_in_hit_mode(self):
+        self.assertEqual(Probe(prefs={SUCCESS: HIT}).row(OPT_PERCENT, 1), 1)  # Timed runs.
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        self.assertEqual(p.row(OPT_PERCENT, 1), 1)  # Throw.
+        p.menu(OPT_SUCCESS, HIT)
+        self.assertEqual(p.row(OPT_PERCENT, 1), 0)
+        p.menu(OPT_SUCCESS, THROW)
+        self.assertEqual(p.row(OPT_PERCENT, 1), 1)
+        self.assertEqual(Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT}).row(OPT_PERCENT, 1), 0)
+
     def test_standing_cpu_is_stand_shield_or_random_and_saved(self):
         p = Probe(prefs={FREE_PRACTICE: 1})
         self.assertEqual([p.string(p.m.call('TestGrabsRowChoice', OPT_STANDING, i)) for i in range(3)],
@@ -195,10 +217,12 @@ class GrabSettingsTests(unittest.TestCase):
         self.assertEqual(Probe(prefs={COLLISION: 1}).info(16), 0)  # Timed runs never show it.
 
     def test_reset_event_settings_restores_the_defaults_but_keeps_your_best(self):
-        p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, SUCCESS: HIT, PREF_WALK: 0, PREF_DASH: 0, COLLISION: 1})
+        p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 9, PREF_WALK: 0, PREF_DASH: 0,
+                         COLLISION: 1})
         p.menu(OPT_COUNTER, 3)
         p.select(OPT_DEFAULTS)
-        self.assertEqual([p.pref(i) for i in range(11)], [17, 0, THROW, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0])
+        self.assertEqual([p.pref(i) for i in range(12)],
+                         [17, 0, THROW, RANDOM_PERCENT, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
         self.assertEqual(p.row(OPT_FREEPRACTICE), 0)
 
@@ -258,6 +282,66 @@ class GrabSpawnTests(unittest.TestCase):
         x, y, line, move, direction = p.spot()
         self.assertIn(move, (STAND, WALK, RUN, DASH, ROLL))
         self.assertEqual(signed(p.m.call('TestGrabsSpot', 5)), direction)
+
+    def percents(self, p, count=1):
+        spawns = []
+        for _ in range(count):
+            p.respawn()
+            spawns.append(p.info(3))
+        return spawns
+
+    def test_hit_mode_cpus_appear_at_cpu_percent(self):
+        for choice, percent in ((1, 0), (9, 80), (13, 120)):
+            p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: choice})
+            self.assertEqual(set(self.percents(p, 5)), {percent})
+
+    def test_a_random_percent_is_a_new_pick_from_0_to_120_in_tens_every_time(self):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT})
+        spawns = self.percents(p, 300)
+        self.assertEqual(set(spawns), set(range(0, 130, 10)))
+        self.assertGreater(sum(a != b for a, b in zip(spawns, spawns[1:])), 200)
+
+    def test_throw_mode_and_timed_runs_appear_at_0(self):
+        for prefs in ({FREE_PRACTICE: 1, PERCENT: 9}, {FREE_PRACTICE: 1, PERCENT: RANDOM_PERCENT},
+                      {SUCCESS: HIT, PERCENT: 9}):
+            p = Probe(prefs=prefs)
+            p.m.call('TestGrabsPercent', 45)
+            self.assertEqual(set(self.percents(p, 20)), {0}, prefs)
+
+    def test_a_change_reaches_a_cpu_waiting_to_be_grabbed_at_once(self):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 2})
+        p.run(1)  # The first spawn.
+        self.assertEqual(p.info(3), 10)
+        p.menu(OPT_PERCENT, 7)
+        self.assertEqual(p.info(3), 60)
+        p.menu(OPT_SUCCESS, THROW)  # Throw is 0%,
+        self.assertEqual(p.info(3), 0)
+        p.menu(OPT_SUCCESS, HIT)  # and Hit CPU Percent's again.
+        self.assertEqual(p.info(3), 60)
+
+    def test_a_change_leaves_a_hit_grabbed_or_juggled_cpu_its_damage(self):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 2})
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        p.m.call('TestGrabsPercent', 33)
+        p.set_state(ASID_DAMAGEN1, hitlag=4)  # Hit, before any grab.
+        p.run(1)
+        p.menu(OPT_PERCENT, 7)
+        self.assertEqual(p.info(3), 33)
+        p.set_state(ASID_CAPTUREPULLEDHI)  # Grabbed.
+        p.run(1)
+        p.menu(OPT_PERCENT, 8)
+        self.assertEqual(p.info(3), 33)
+        p.set_state(ASID_THROWNF)
+        p.run(10)
+        p.set_state(ASID_DAMAGEFLYN, air=1)  # Thrown, and juggled.
+        p.m.call('TestGrabsMoveCPU', -20000, 200000)
+        p.run(1)
+        p.menu(OPT_SUCCESS, THROW)
+        p.menu(OPT_SUCCESS, HIT)
+        p.menu(OPT_PERCENT, 9)
+        self.assertEqual((p.info(3), p.info(23)), (33, 1))
+        p.respawn()  # Its next appearance is at the new percent.
+        self.assertEqual(p.info(3), 80)
 
     def test_the_first_spawn_is_on_the_first_frame(self):
         p = Probe()

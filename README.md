@@ -103,7 +103,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - **Grabs-ercise** (Minigames): Eggs-ercise with a CPU to grab instead of eggs to break. Grab and throw it, and it shows up somewhere else on the stage. Hit it and it holds still for half a second, so a follow-up grab (like nair or shine into grab) counts.
         - The CPU stands or shields (**Standing CPU**), or moves back and forth across its floor: walking, running, traveling dash dance or rolling, or a full or half dash dance in place. It moves with real controller inputs, so it walks at full speed and dash dances without breaking into a run.
         - A timed minute counts your grabs and saves your best, like Eggs-ercise. **Free Practice** takes the clock away and lets you pick the movements and turn on **Fighter Collision**.
-        - In Free Practice, **Success Criteria: Hit** counts a grab only once you hit the CPU after the throw, for practicing follow-ups like up throw up air. The CPU stays up for you to juggle, and **Hits** counts every hit.
+        - In Free Practice, **Success Criteria: Hit** counts a grab only once you hit the CPU after the throw, for practicing follow-ups like up throw up air. The CPU stays up for you to juggle, and **Hits** counts every hit. **CPU Percent** sets the percent it appears at, or picks a random one from 0% to 120% each time.
         - **Change Stage** and **Change Characters** in the pause menu restart without going back through the character and stage select.
 - **Globals and all events**
     - **Actionable Yellow>Green** now covers grab releases, on the ground and in the air.

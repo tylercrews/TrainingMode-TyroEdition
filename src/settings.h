@@ -143,7 +143,7 @@ enum TMSettingsField {
     TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
     TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 and 31 (v22); see TMEscapeSamusPreference. */
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
-    TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30 and byte 51 bits 3-4 (T10); see TMGrabercisePreference. */
+    TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 (T10); see TMGrabercisePreference. */
     TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
@@ -299,14 +299,15 @@ enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
 #define TM_ESC_GOAL_COUNT 2 /* Escape, Punish. */
 /* Grabs-ercise (T10): its timed best, then its saved menu rows, in word 76's
  * spare bits 16..30 and byte 51's bits 3-4 (Standing CPU), with no version
- * bump. Every row is stored as its distance from its default, as the escape
- * events' are, so the zeros every version 22 record has there read as the
- * defaults: no best yet, timed mode, Throw, standing CPUs Random, every
- * movement on, Fighter Collision off. The IDs follow the menu; each row's bits
- * are its own (the two in-place dash dances came later, in bits 29 and 30, and
- * Success Criteria later still, in bit 22, the best's old top bit). */
+ * bump, and CPU Percent in word 80's bits 0-3, which version 23 appends. Every
+ * row is stored as its distance from its default, as the escape events' are,
+ * so the zeros every record has there read as the defaults: no best yet, timed
+ * mode, Throw, a Random percent, standing CPUs Random, every movement on,
+ * Fighter Collision off. The IDs follow the menu; each row's bits are its own
+ * (the two in-place dash dances came later, in bits 29 and 30, and Success
+ * Criteria later still, in bit 22, the best's old top bit). */
 enum TMGrabercisePreference {
-    TM_GRABS_BEST, TM_GRABS_FREE_PRACTICE, TM_GRABS_SUCCESS, TM_GRABS_STANDING,
+    TM_GRABS_BEST, TM_GRABS_FREE_PRACTICE, TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_STANDING,
     /* The movements, in menu order. */
     TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL,
     TM_GRABS_COLLISION, TM_GRABS_PREF_COUNT
@@ -317,6 +318,10 @@ enum TMGrabercisePreference {
 #define TM_GRABS_BEST_MAX 63
 /* What counts: a grab, or a hit after a grab's throw. */
 enum TMGrabsSuccess { TM_GRABS_SUCCESS_THROW, TM_GRABS_SUCCESS_HIT, TM_GRABS_SUCCESS_COUNT };
+/* The CPU's percent in Hit mode: Random, then 0% to 120% in steps of 10. */
+#define TM_GRABS_PERCENT_RANDOM 0
+#define TM_GRABS_PERCENT_COUNT 14
+#define TM_GRABS_PERCENT_STEP 10
 /* What a CPU that doesn't move does: stands, holds shield, or either. */
 enum TMGrabsStanding { TM_GRABS_STAND, TM_GRABS_SHIELD, TM_GRABS_STAND_RANDOM, TM_GRABS_STANDING_COUNT };
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down

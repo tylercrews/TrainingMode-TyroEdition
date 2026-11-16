@@ -18,8 +18,8 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 22, 72  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x16\x48\xA5\x5A'
+CURRENT, PAYLOAD = 23, 76  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x17\x4C\xA5\x5A'
 # Bytes 52..63 appended by version 18: Edgeguard's three words at their defaults
 # (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
 # CPU's default recovery toggles).
@@ -90,21 +90,23 @@ ESCAPE_MASK = 0x8000FFFF  # Bits 16-30 are Grabs-ercise's.
 # stored as its distance from its default, so word 76's zeros read as no best,
 # timed runs, every movement on and collision off.
 GRABS = 51  # TM_SETTING_GRABERCISE
-# In menu order: best, Free Practice, Success Criteria, Standing CPU, Walk, Run,
-# Traveling, Full and Half Dash Dance, Rolling, Fighter Collision. The in-place
-# dances came later (word 76 bits 29-30), then Standing CPU, with no room left
-# in word 76, in byte 51's bits 3-4 (bits 27-28 of the word at 48), then
-# Success Criteria in bit 22, the 7-bit best's top bit before T10 shipped.
-# (offset, shift, width).
-GRABS_COUNTS, GRABS_DEFAULTS = (64, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2), (0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0)
-GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (48, 27, 2), (76, 24, 1), (76, 25, 1), (76, 26, 1),
-                (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1))
-GRABS_SUCCESS, GRABS_STANDING, GRABS_WALK = 2, 3, 4
-# Bytes 24..79 appended by versions 15 to 22: one color nibble per OSD (all
+# In menu order: best, Free Practice, Success Criteria, CPU Percent, Standing
+# CPU, Walk, Run, Traveling, Full and Half Dash Dance, Rolling, Fighter
+# Collision. The in-place dances came later (word 76 bits 29-30), then Standing
+# CPU, with no room left in word 76, in byte 51's bits 3-4 (bits 27-28 of the
+# word at 48), then Success Criteria in bit 22, the 7-bit best's top bit before
+# T10 shipped, then CPU Percent (Random, 0% to 120%) in word 80, which version
+# 23 appends. (offset, shift, width).
+GRABS_COUNTS, GRABS_DEFAULTS = (64, 2, 2, 14, 3, 2, 2, 2, 2, 2, 2, 2), (0, 0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0)
+GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (80, 0, 4), (48, 27, 2), (76, 24, 1), (76, 25, 1),
+                (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1))
+GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK = 2, 3, 4, 5
+# Bytes 24..83 appended by versions 15 to 23: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
-# team select's characters (none yet) and the escape events' menus.
-COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES + bytes(4) + bytes(4)
+# team select's characters (none yet), the escape events' menus and
+# Grabs-ercise's CPU Percent (Random).
+COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES + bytes(4) + bytes(4) + bytes(4)
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -124,7 +126,7 @@ def upgraded(raw):
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 80
+REGION_SIZE, OWNED_SIZE = 88, 84
 # Under Fire's Lava Overlay (index 2) and Remove Fleshy Pillars (index 3) live outside
 # FIELDS' tables: word 20 and word 9.
 PREF_COUNTS = {29: 4}
@@ -587,18 +589,18 @@ class ExtensionTests(unittest.TestCase):
     def test_version_21_migration_keeps_every_byte_and_claims_only_word_76(self):
         m = self.m
         old = self.version_21_record()
-        old[76:80] = b'\xFF' * 4  # Version 21 never owned word 76.
+        old[76:84] = b'\xFF' * 8  # Version 21 never owned words 76 and 80.
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual(self.escape(ESCAPE_SAMUS, 5), ESCAPE_SAMUS_DEFAULTS)
-        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[76:80] = bytes(4)
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[76:84] = bytes(8)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(self.word_72_settings(lambda f, i: m.call('Settings_Get', f, i)), (7, 26, 12, 1, 3, 2))
 
     def test_version_21_records_read_word_72_and_the_escape_defaults_without_writing(self):
         m = self.m
         old = self.version_21_record()
-        for spare in (bytes(4), b'\xFF' * 4):  # Spare score bytes are not menus.
-            old[76:80] = spare
+        for spare in (bytes(8), b'\xFF' * 8):  # Spare score bytes are not menus.
+            old[76:84] = spare
             m.cpu.mem_write(EXT, bytes(old))
             read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
             self.assertEqual(tuple(read(ESCAPE_SAMUS, i) for i in range(5)), ESCAPE_SAMUS_DEFAULTS)
@@ -697,10 +699,11 @@ class ExtensionTests(unittest.TestCase):
                 self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         m.call('Settings_Set', GRABS, 0, 63)
         m.call('Settings_Set', GRABS, GRABS_SUCCESS, 1)  # Hit
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 13)  # 120%
         m.call('Settings_Set', GRABS, GRABS_STANDING, 1)  # Shield
-        m.call('Settings_Set', GRABS, 6, 0)
-        m.call('Settings_Set', GRABS, 8, 0)
-        self.assertEqual(self.grabs(), (63, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0))
+        m.call('Settings_Set', GRABS, 7, 0)
+        m.call('Settings_Set', GRABS, 9, 0)
+        self.assertEqual(self.grabs(), (63, 0, 1, 13, 1, 1, 1, 0, 1, 0, 1, 0))
         self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
 
     def test_standing_cpu_shares_byte_51_with_the_cpu_costume_and_egg_counter(self):
@@ -757,11 +760,60 @@ class ExtensionTests(unittest.TestCase):
         again, _ = self.cost('Settings_Get', ESCAPE_SAMUS, 0)
         self.assertLess(again, 3000)
 
+    # Version 23 (T10): word 80, Grabs-ercise's CPU Percent.
+    def version_22_record(self):
+        """A version 22 record, with settings in word 76, byte 51 and the words before it."""
+        m = self.m
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 20); m.call('Settings_Set', ESCAPE_IC, 0, 13)
+        m.call('Settings_Set', GRABS, 0, 41); m.call('Settings_Set', GRABS, GRABS_SUCCESS, 1)
+        m.call('Settings_Set', GRABS, GRABS_STANDING, 1); m.call('Settings_Set', PASSING, 1, 12)
+        m.call('Settings_Set', COSTUME, 1, 2)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((22, 72))
+        return old
+
+    def word_76_settings(self, read):
+        return (read(ESCAPE_SAMUS, 3), read(ESCAPE_IC, 0), read(GRABS, 0), read(GRABS, GRABS_SUCCESS),
+                read(GRABS, GRABS_STANDING), read(PASSING, 1), read(COSTUME, 1))
+
+    def test_version_22_migration_keeps_every_byte_and_claims_only_word_80(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)  # Random.
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[80:84] = bytes(4)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))
+
+    def test_version_22_records_read_word_76_and_a_random_percent_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Spare score bytes are not a percent.
+            old[80:84] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual(read(GRABS, GRABS_PERCENT), 0)
+            self.assertEqual(self.word_76_settings(read), (20, 13, 41, 1, 1, 12, 2))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_cpu_percent_reads_random_from_word_80s_zeros_and_its_two_spare_values(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # 80%
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 9)
+        for stored in (14, 15):  # No choice: they read as Random, and the rest of word 80 stays.
+            m.cpu.mem_write(EXT + 80, (stored | 0xABCDE0).to_bytes(4, 'little'))
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)
+            self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), stored | 0xABCDE0)
+
     def test_version_21_records_read_the_grabercise_defaults_without_writing(self):
         m = self.m
         old = self.version_21_record()
-        for spare in (bytes(4), b'\xFF' * 4):  # Version 21 never owned word 76.
-            old[76:80] = spare
+        for spare in (bytes(8), b'\xFF' * 8):  # Version 21 never owned words 76 and 80.
+            old[76:84] = spare
             m.cpu.mem_write(EXT, bytes(old))
             read = lambda index: m.call('TMExtension_Read', EXT, GRABS, index)
             self.assertEqual(tuple(read(i) for i in range(len(GRABS_COUNTS))), GRABS_DEFAULTS)
@@ -1110,7 +1162,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.record(), core)
 
     def test_records_that_own_the_grid_bytes_read_egg_spawn_options_as_off(self):
-        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (CURRENT, PAYLOAD)):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (22, 72), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)
@@ -1144,7 +1196,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 0), RESET_SHORT)
 
     def test_records_that_own_byte_34_read_its_clear_bits_as_short(self):
-        for version, payload in ((15, 28), (16, 42), (17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (CURRENT, PAYLOAD)):
+        for version, payload in ((15, 28), (16, 42), (17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (22, 72), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)  # Create the record.
@@ -1193,7 +1245,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 2)
 
     def test_records_that_own_the_costume_bytes_read_their_clear_top_bits_as_top_left(self):
-        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (CURRENT, PAYLOAD)):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (22, 72), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)
