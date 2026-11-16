@@ -114,7 +114,7 @@ Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't foll
 | 48..49 | `0x1B30..0x1B37` | **Free (8 bytes)** |
 | 50 | `0x1B38` | Ledgechase Training |
 | — | — | Low Laser Puff Practice is free practice and has no score |
-| — | — | Grabs-ercise (T10) keeps its timed best in `TYEX` word 76 bits 16-22, not a score slot |
+| — | — | Grabs-ercise (T10) keeps its timed best in `TYEX` word 76 bits 16-21, not a score slot |
 
 ## `TYEX` extension record (`0x1AE0..0x1B2F`)
 
@@ -324,7 +324,8 @@ Every migration to version 22 zeroes this word, and each row is stored as its di
 | 4-5 | Escape Samus Up-B: Samus Side (Random / Left / Right, default Random) |
 | 6-10 | Escape Samus Up-B: Your Percent (0% to 200% in steps of 10, default 0%) |
 | 11-15 | Escape IC Grab: Your Percent (0% to 200% in steps of 10, default 0%) |
-| 16-22 | Grabs-ercise (T10): timed best, 0 (none yet) to 127. No version bump, like the rest of Grabs-ercise's bits: every migration to 22 zeroed them. Saved here rather than in a score slot, so Reset Records doesn't clear it |
+| 16-21 | Grabs-ercise (T10): timed best, 0 (none yet) to 63. No version bump, like the rest of Grabs-ercise's bits: every migration to 22 zeroed them. Saved here rather than in a score slot, so Reset Records doesn't clear it |
+| 22 | Grabs-ercise: Success Criteria (Throw / Hit, default Throw). The best's top bit until it went to 6 bits, before T10 shipped |
 | 23 | Grabs-ercise: Free Practice (Off / On, default Off, so timed runs) |
 | 24-27 | Grabs-ercise: Full Speed Walk, Full Speed Run, Traveling Dash Dance (was Full Speed Dash, then Dash Dance), Rolling (default On, stored inverted as each row's distance from its default). The event turns them all back on if a save has every one off |
 | 28 | Grabs-ercise: Fighter Collision (default Off) |

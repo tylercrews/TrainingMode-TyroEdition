@@ -28,15 +28,16 @@ INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 NEAR_END = 4  # A moving CPU's feet get this close to each end of its floor before it turns.
 GRAB_WINDOW = 30  # Frames a hit CPU stays, after the hitlag, for a follow-up grab.
 # Menu rows and saved preferences.
-(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH,
- OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(15)
-(BEST, FREE_PRACTICE, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PREF_ROLL,
- COLLISION) = range(10)
+(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_STANDING, OPT_WALK, OPT_RUN,
+ OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(16)
+(BEST, FREE_PRACTICE, SUCCESS, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF,
+ PREF_ROLL, COLLISION) = range(11)
 STAND_STILL, STAND_SHIELD, STAND_RANDOM = range(3)  # Standing CPU's choices.
+THROW, HIT = range(2)  # Success Criteria's.
 MOVE_ROWS = (OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL)
 MOVE_PREFS = (PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PREF_ROLL)
 # States, from the MexTK enum.
-ASID_WAIT, ASID_FALL = 14, 29
+ASID_WAIT, ASID_FALL, ASID_LANDING = 14, 29, 42
 ASID_CAPTUREPULLEDHI, ASID_CAPTUREWAITHI, ASID_THROWNF = 223, 224, 239
 ASID_DAMAGEN1, ASID_DAMAGEN2, ASID_DAMAGEFLYN, ASID_DOWNBOUNDU = 78, 79, 88, 183
 ASID_CAPTURECAPTAIN, ASID_SLEEP = 275, 11
@@ -60,7 +61,8 @@ class Probe:
     def __init__(self, stage=BATTLEFIELD, character=FOX, signed_timer=0, prefs=None, follower=False):
         self.m = fixtures.Machine()
         load_probe(self.m, 'grabercise-probe.elf', 'TestGrabsLoaded')
-        defaults = {BEST: 0, FREE_PRACTICE: 0, STANDING: STAND_RANDOM, COLLISION: 0, **{pref: 1 for pref in MOVE_PREFS}}
+        defaults = {BEST: 0, FREE_PRACTICE: 0, SUCCESS: THROW, STANDING: STAND_RANDOM, COLLISION: 0,
+                    **{pref: 1 for pref in MOVE_PREFS}}
         defaults.update(prefs or {})
         for index, value in defaults.items():
             self.m.call('TestGrabsPref', index, value)
@@ -101,8 +103,9 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_the_menu_has_the_stage_and_character_selects(self):
         p = Probe()
-        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(15)]
-        self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice', 'Standing CPU',
+        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(16)]
+        self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice',
+                                 'Success Criteria', 'Standing CPU',
                                  'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
                                  'Full Dash Dance', 'Half Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
@@ -110,10 +113,10 @@ class GrabSettingsTests(unittest.TestCase):
     def test_timed_runs_grey_out_the_movement_rows_and_free_practice_opens_them(self):
         # The Free Practice row itself is never greyed out, and shows the saved mode.
         p = Probe()
-        self.assertEqual([p.row(row, 1) for row in (OPT_STANDING,) + MOVE_ROWS + (OPT_COLLISION,)], [1] * 8)
+        self.assertEqual([p.row(row, 1) for row in (OPT_SUCCESS, OPT_STANDING) + MOVE_ROWS + (OPT_COLLISION,)], [1] * 9)
         self.assertEqual((p.row(OPT_FREEPRACTICE), p.row(OPT_FREEPRACTICE, 1), p.info(12)), (0, 0, 0))
         p = Probe(prefs={FREE_PRACTICE: 1})
-        self.assertEqual([p.row(row, 1) for row in (OPT_STANDING,) + MOVE_ROWS + (OPT_COLLISION,)], [0] * 8)
+        self.assertEqual([p.row(row, 1) for row in (OPT_SUCCESS, OPT_STANDING) + MOVE_ROWS + (OPT_COLLISION,)], [0] * 9)
         self.assertEqual((p.row(OPT_FREEPRACTICE), p.row(OPT_FREEPRACTICE, 1), p.info(12)), (1, 0, 1))
 
     def test_the_free_practice_toggle_is_saved_and_restarts_either_way(self):
@@ -154,6 +157,16 @@ class GrabSettingsTests(unittest.TestCase):
         self.assertEqual(set(moves), {STAND, RUN, DASH_HALF})
         self.assertAlmostEqual(moves.count(STAND) / len(moves), .5, delta=.08)
 
+    def test_success_criteria_is_throw_or_hit_and_saved(self):
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        self.assertEqual([p.string(p.m.call('TestGrabsRowChoice', OPT_SUCCESS, i)) for i in range(2)],
+                         ['Throw', 'Hit'])
+        self.assertEqual(p.row(OPT_SUCCESS), THROW)  # The default.
+        p.m.call('TestGrabsClock', 1, 7)
+        p.menu(OPT_SUCCESS, HIT)
+        self.assertEqual((p.pref(SUCCESS), p.info(0)), (HIT, 0))  # Saved, and the count starts over.
+        self.assertEqual(Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT}).row(OPT_SUCCESS), HIT)
+
     def test_standing_cpu_is_stand_shield_or_random_and_saved(self):
         p = Probe(prefs={FREE_PRACTICE: 1})
         self.assertEqual([p.string(p.m.call('TestGrabsRowChoice', OPT_STANDING, i)) for i in range(3)],
@@ -182,10 +195,10 @@ class GrabSettingsTests(unittest.TestCase):
         self.assertEqual(Probe(prefs={COLLISION: 1}).info(16), 0)  # Timed runs never show it.
 
     def test_reset_event_settings_restores_the_defaults_but_keeps_your_best(self):
-        p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, PREF_WALK: 0, PREF_DASH: 0, COLLISION: 1})
+        p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, SUCCESS: HIT, PREF_WALK: 0, PREF_DASH: 0, COLLISION: 1})
         p.menu(OPT_COUNTER, 3)
         p.select(OPT_DEFAULTS)
-        self.assertEqual([p.pref(i) for i in range(10)], [17, 0, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0])
+        self.assertEqual([p.pref(i) for i in range(11)], [17, 0, THROW, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
         self.assertEqual(p.row(OPT_FREEPRACTICE), 0)
 
@@ -567,11 +580,11 @@ class GrabCountTests(unittest.TestCase):
         p.run(1)
         self.assertEqual((p.info(5), p.pref(BEST), p.info(6), p.info(7)), (1, 12, 324, 0))
 
-    def test_a_best_past_seven_bits_saves_as_the_most_it_holds(self):
+    def test_a_best_past_six_bits_saves_as_the_most_it_holds(self):
         p = self.start()
         p.m.call('TestGrabsClock', 3600, 300)
         p.run(1)
-        self.assertEqual(p.pref(BEST), 127)
+        self.assertEqual(p.pref(BEST), 63)
 
     def test_free_practice_never_ends(self):
         p = self.start(prefs={FREE_PRACTICE: 1})
@@ -584,6 +597,118 @@ class GrabCountTests(unittest.TestCase):
         p.run(2)
         self.assertEqual(p.info(13), ASID_SLEEP)
         self.assertEqual(p.info(14), -999)
+
+
+class GrabHitModeTests(unittest.TestCase):
+    """Success Criteria Hit: a grab counts once a hit follows its throw."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def thrown(self, timed=False, high=False):
+        p = Probe(prefs={SUCCESS: HIT} if timed else {FREE_PRACTICE: 1, SUCCESS: HIT})
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.run(1)
+        p.set_state(ASID_THROWNF)
+        p.run(10)
+        p.set_state(ASID_DAMAGEFLYN, air=1)  # The throw lets go.
+        if high:
+            p.m.call('TestGrabsMoveCPU', -20000, 200000)
+        p.run(1)
+        return p
+
+    def hit(self, p, hitlag=4):
+        p.set_state(ASID_DAMAGEFLYN, hitlag=hitlag, air=1)
+        p.run(1)
+
+    def test_the_grab_and_throw_alone_dont_count_and_the_cpu_stays_up(self):
+        p = self.thrown(high=True)
+        self.assertEqual((p.info(0), p.info(22), p.state(), p.info(23)), (0, 0, ASID_DAMAGEFLYN, 1))
+
+    def test_the_first_hit_counts_once_and_every_hit_adds_to_the_hits(self):
+        p = self.thrown(high=True)
+        self.hit(p)
+        self.assertEqual((p.info(0), p.info(22)), (1, 1))
+        p.run(20)
+        for hits in (2, 3):
+            self.hit(p)
+            p.run(20)
+            self.assertEqual((p.info(0), p.info(22), p.state()), (1, hits, ASID_DAMAGEFLYN))
+        # A hit landing during another's hitlag is a hit too.
+        self.hit(p, hitlag=8)
+        p.run(3)
+        self.hit(p, hitlag=8)
+        self.assertEqual((p.info(0), p.info(22)), (1, 5))
+
+    def test_hitlag_running_down_isnt_a_new_hit(self):
+        p = self.thrown(high=True)
+        self.hit(p, hitlag=10)
+        p.run(15)
+        self.assertEqual(p.info(22), 1)
+
+    def test_the_juggle_lasts_until_it_lands_then_half_a_second(self):
+        p = self.thrown(high=True)
+        frames = 0
+        while p.state() == ASID_DAMAGEFLYN:  # Falling, with no window running out.
+            self.assertEqual(p.info(23), 1)
+            p.run(1)
+            frames += 1
+        self.assertGreater(frames, 2 * GRAB_WINDOW)
+        self.assertEqual(p.state(), ASID_LANDING)  # On its feet, on the left platform.
+        p.run(GRAB_WINDOW)
+        self.assertEqual((p.info(21), p.info(23)), (1, 1))
+        p.run(1)
+        self.assertEqual((p.state(), p.info(21), p.info(23), p.info(0)), (ASID_WAIT, 0, 0, 0))
+
+    def test_a_hit_on_the_ground_starts_its_window_over(self):
+        p = self.thrown()
+        p.run(5)  # Landed.
+        p.set_state(ASID_DAMAGEN1, hitlag=4)
+        p.run(3 + GRAB_WINDOW)
+        self.assertEqual((p.state(), p.info(0), p.info(22)), (ASID_DAMAGEN1, 1, 1))
+        p.run(1)
+        self.assertEqual((p.state(), p.info(23), p.info(0)), (ASID_WAIT, 0, 1))
+
+    def test_a_knockdown_ends_the_juggle(self):
+        p = self.thrown()
+        self.hit(p)
+        p.set_state(ASID_DOWNBOUNDU)
+        p.run(1)
+        self.assertEqual((p.state(), p.info(23), p.info(0), p.info(22)), (ASID_WAIT, 0, 1, 1))
+
+    def test_a_cpu_thrown_off_the_stage_comes_back(self):
+        p = self.thrown(high=True)
+        p.m.call('TestGrabsMoveCPU', -90000, 20000)
+        p.run(1)
+        self.assertEqual((p.state(), p.info(23)), (ASID_WAIT, 0))
+
+    def test_the_cpu_presses_nothing_while_its_juggled(self):
+        p = self.thrown(high=True)
+        for _ in range(20):
+            p.run(1)
+            self.assertEqual((p.info(10), p.info(11)), (0, 0))
+
+    def test_hits_before_the_grab_dont_count(self):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT})
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        p.set_state(ASID_DAMAGEN1, hitlag=4)
+        p.run(10)
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.run(1)
+        self.assertEqual((p.info(0), p.info(22), p.info(21)), (0, 0, 0))
+
+    def test_timed_runs_count_throws(self):
+        p = self.thrown(timed=True)
+        self.assertEqual((p.info(0), p.state()), (1, ASID_WAIT))
+
+    def test_a_command_grab_still_sends_the_cpu_away(self):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT})
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        p.set_state(ASID_CAPTURECAPTAIN)
+        p.run(5)
+        p.set_state(ASID_DAMAGEFLYN, air=1)
+        p.run(1)
+        self.assertEqual((p.state(), p.info(0), p.info(23)), (ASID_WAIT, 0, 0))
 
 
 if __name__ == '__main__':

@@ -177,7 +177,8 @@ static const ExtensionPreference escape_samus_preferences[TM_ESC_SAMUS_PREF_COUN
 };
 static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {{11,5,TM_ESC_PERCENT_COUNT,0}};
 /* Grabs-ercise (T10) takes word 76's bits 16..30 with no version bump: its
- * timed best (7 bits), Free Practice, the movements (default On, so stored 0)
+ * timed best (6 bits, 16-21), Success Criteria (22, which the best had before
+ * T10 shipped), Free Practice (23), the movements (default On, so stored 0)
  * and Fighter Collision. Walk, Run, Traveling Dash Dance and Roll are bits
  * 24-27, Collision 28, and the in-place dash dances, added after, 29 and 30.
  * Bit 31 is Escape Samus's Goal. Standing CPU, which word 76 had no room for, is byte 51's
@@ -185,7 +186,8 @@ static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {
  * costume writes and repairs keep to the low 3 bits, so they're clear in every
  * record that owns the byte, and Random, the default, is stored as 0. */
 static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
-    {16,7,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0}, {27,2,TM_GRABS_STANDING_COUNT,TM_GRABS_STAND_RANDOM},
+    {16,6,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0}, {22,1,TM_GRABS_SUCCESS_COUNT,TM_GRABS_SUCCESS_THROW},
+    {27,2,TM_GRABS_STANDING_COUNT,TM_GRABS_STAND_RANDOM},
     {24,1,2,1}, {25,1,2,1}, {26,1,2,1}, {29,1,2,1}, {30,1,2,1}, {27,1,2,1}, {28,1,2,0},
 };
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
@@ -282,8 +284,8 @@ typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIO
 /* Escape Samus Up-B's rows fill bits 0..10 and 31, and Escape IC Grab's 11..15. */
 /* Each Grabs-ercise row but Standing CPU fills its bits exactly, so none needs
  * repairing; a stored 3 in Standing CPU reads as its default, Random. */
-typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<7 && TM_GRABS_PREF_COUNT==10 &&
-    TM_GRABS_STANDING_COUNT==3) ? 1 : -1];
+typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<6 && TM_GRABS_PREF_COUNT==11 &&
+    TM_GRABS_STANDING_COUNT==3 && TM_GRABS_SUCCESS_COUNT==2) ? 1 : -1];
 typedef char TMExtension_EscapeBits[(TM_ESC_POSITION_COUNT<=4 && TM_ESC_DISTANCE_COUNT<=4 &&
     TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32 && TM_ESC_GOAL_COUNT==2 &&
     TM_ESC_SAMUS_PREF_COUNT==5) ? 1 : -1];

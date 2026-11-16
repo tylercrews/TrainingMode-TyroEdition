@@ -12,8 +12,10 @@
  * comes back somewhere else. A hit leaves it where it is for half a second
  * after the hitlag, each new hit starting that over, so an attack can lead into
  * a grab; then, or at a knockdown, it comes back somewhere else. A shield it
- * holds never runs out, and a hit on it doesn't move it. A timed minute counts grabs, with
- * the best saved; Free Practice has no clock and lets you pick the movements.
+ * holds never runs out, and a hit on it doesn't move it. A timed minute counts
+ * grabs, with the best saved; Free Practice has no clock and lets you pick the
+ * movements and what counts: a grab, or (Hit) a hit after the grab's throw,
+ * while the CPU stays up to be juggled, with every hit counted apart.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
  * runs before the fighters' input proc. The rules below are the native
@@ -80,7 +82,7 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_STANDING,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -103,9 +105,11 @@ static void ChangeDashHalf(GOBJ *menu, int value);
 static void ChangeRoll(GOBJ *menu, int value);
 static void ChangeCollision(GOBJ *menu, int value);
 static void ChangeStanding(GOBJ *menu, int value);
+static void ChangeSuccess(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
+static const char *SuccessText[TM_GRABS_SUCCESS_COUNT] = { "Throw", "Hit" };
 static const char *StandingText[TM_GRABS_STANDING_COUNT] = { "Stand", "Shield", "Random" };
 static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
     "Top Left", "Top Right", "Bottom Left", "Bottom Right", "Under Timer"
@@ -144,11 +148,23 @@ static EventOption Options_Main[OPT_COUNT] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Free Practice",
-        .desc = {"On: no time limit, and you choose how the CPU",
-                 "moves. Off: the timed minute, which mixes every",
-                 "movement and saves your best.",
-                 "Saved. Changing it restarts the match."},
+        .desc = {"On: no time limit, and you choose what counts and",
+                 "how the CPU moves. Off: the timed minute, which",
+                 "counts grabs, mixes every movement and saves your",
+                 "best. Saved. Changing it restarts the match."},
         .OnChange = ChangeFreePractice,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Success Criteria",
+        .value_num = countof(SuccessText),
+        .values = SuccessText,
+        .desc = {"Throw: a grab counts. Hit: grab and throw, then",
+                 "hit the CPU for it to count. It stays up to juggle:",
+                 "every hit adds to Hits. Changing it resets both.",
+                 "Free Practice only; timed runs are Throw."},
+        .disable = 1,
+        .OnChange = ChangeSuccess,
     },
     {
         .kind = OPTKIND_STRING,
@@ -273,9 +289,10 @@ EventMenu *Event_Menu = &Menu_Main;
 
 // Session state. This .dat is read again for every match, statics and all.
 static int grab_count, best;
+static int total_hits; // Hit mode: every hit after a throw, each juggle's included.
 static bool reset_clock;
 static int canvas;
-static Text *hud_score_text, *hud_best_text;
+static Text *hud_score_text, *hud_best_text, *hud_hits_text;
 static GXColor text_gold = {255, 211, 0, 255};
 static GXColor text_white = {255, 255, 255, 255};
 
@@ -290,8 +307,11 @@ static struct target {
     bool last_flag;    // Last frame's dash had its run flag set.
     int run_phase;     // Run mode: running, crouching, or dashing out of the crouch.
     bool shield;       // Standing: holding shield.
-    bool grabbed;      // Counted: a standard grab caught it.
-    bool held;         // Held by any grab: once it's let go, it's gone.
+    bool grabbed;      // A standard grab caught it.
+    bool held;         // Held by any grab: once it's let go, it's gone, but in Hit mode
+    bool juggle;       // it stays up after a standard grab to be hit,
+    bool scored;       // and the first hit counts.
+    float last_lag;    // Last frame's hitlag: more now is a new hit.
     bool hit;          // Hit: left where it is, for a follow-up grab, until
     int hit_frames;    // this many frames after the last hit's hitlag pass GRAB_WINDOW.
     int air_frames;    // Airborne, not held.
@@ -304,13 +324,21 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL,
-    OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL,
-    TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
-// Each saved row's default: Random, every movement on, Fighter Collision off.
+static const u8 saved_rows[] = {OPT_SUCCESS, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF,
+    OPT_ROLL, OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH,
+    TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
+// Each saved row's default: Throw, Random, every movement on, Fighter Collision off.
 static int SavedDefault(unsigned row) {
+    if (row == OPT_SUCCESS) return TM_GRABS_SUCCESS_THROW;
     return row == OPT_STANDING ? TM_GRABS_STAND_RANDOM : row != OPT_COLLISION;
+}
+// Hit mode: a grab counts once a hit follows its throw. Free Practice only.
+static bool HitMode(void) { return FreePractice() && Options_Main[OPT_SUCCESS].val == TM_GRABS_SUCCESS_HIT; }
+// Changing what counts starts the counts over.
+static void ChangeSuccess(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_SUCCESS, value);
+    grab_count = total_hits = 0;
 }
 static void LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_rows); ++i) {
@@ -359,8 +387,10 @@ static void ChangeCollision(GOBJ *menu, int value) {
 }
 
 /* Where the count goes for each Counter Position: Eggs-ercise's spots. The
- * label sits COUNTER_LABEL_Y under the count. */
+ * label sits COUNTER_LABEL_Y under the count, and Hit mode's hits HITS_LINE_Y
+ * under the label. */
 #define COUNTER_LABEL_Y 15
+#define HITS_LINE_Y 12
 static const struct { float x, y; u8 align; } Counter_Spots[TM_EGGS_COUNTER_COUNT] = {
     [TM_EGGS_COUNTER_TOP_LEFT] = {50, 25, 0},
     [TM_EGGS_COUNTER_TOP_RIGHT] = {590, 25, 2},
@@ -370,10 +400,11 @@ static const struct { float x, y; u8 align; } Counter_Spots[TM_EGGS_COUNTER_COUN
 };
 static void PlaceCounter(int position) {
     if (position < 0 || position >= TM_EGGS_COUNTER_COUNT) position = TM_EGGS_COUNTER_TOP_LEFT;
-    hud_score_text->trans.X = hud_best_text->trans.X = Counter_Spots[position].x;
+    hud_score_text->trans.X = hud_best_text->trans.X = hud_hits_text->trans.X = Counter_Spots[position].x;
     hud_score_text->trans.Y = Counter_Spots[position].y;
     hud_best_text->trans.Y = Counter_Spots[position].y + COUNTER_LABEL_Y;
-    hud_score_text->align = hud_best_text->align = Counter_Spots[position].align;
+    hud_hits_text->trans.Y = hud_best_text->trans.Y + HITS_LINE_Y;
+    hud_score_text->align = hud_best_text->align = hud_hits_text->align = Counter_Spots[position].align;
 }
 static void ChangeCounterPosition(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_EGGS_COUNTER, 0, value);
@@ -571,7 +602,7 @@ static void Respawn(void) {
     target.last_state = ASID_WAIT;
     target.last_flag = false;
     target.run_phase = 0;
-    target.grabbed = target.held = target.hit = false;
+    target.grabbed = target.held = target.juggle = target.scored = target.hit = false;
     target.hit_frames = 0;
     target.air_frames = 0;
     target.spot = spot;
@@ -938,6 +969,10 @@ static void Move(GOBJ *cpu, FighterData *ft) {
     }
 }
 
+static void Score(void) {
+    if (grab_count < 999) grab_count++;
+}
+
 /* Once a frame, before the fighters' input: count a new grab, bring the CPU
  * back when it's done, and otherwise set its inputs. */
 static void UpdateTarget(void) {
@@ -952,28 +987,51 @@ static void UpdateTarget(void) {
     }
     int state = ft->state_id;
     if (Held(state)) {
-        // Any grab sends it away once it's let go; a standard one counts.
+        // A standard grab counts at once, or in Hit mode once a hit follows it.
         if (JustGrabbed(state) && !target.grabbed) {
             target.grabbed = true;
-            if (grab_count < 999) grab_count++;
+            if (!HitMode()) Score();
         }
         target.held = true;
+        target.hit = false; // A hit that led into the grab: its window is over.
         return;
     }
     if (ft->flags.dead) return;
-    bool away = target.held;
+    /* Hit mode: let go after a standard grab, the CPU stays up to be hit. A hit
+     * is new hitlag, or more hitlag than was left: a hit during another's.
+     * Each one adds to the hits, and the first counts. */
+    bool juggle = target.grabbed && HitMode();
+    if (juggle) {
+        if (!target.juggle) {
+            target.juggle = target.hit = true; // A window, as after a hit,
+            target.hit_frames = target.air_frames = 0;
+        } else if (ft->dmg.hitlag_frames > target.last_lag) {
+            target.air_frames = 0;
+            if (total_hits < 999) total_hits++;
+            if (!target.scored) {
+                target.scored = true;
+                Score();
+            }
+        }
+        target.last_lag = ft->dmg.hitlag_frames; // (the throw itself isn't a hit).
+    }
+    // Any other grab's let go, a throw included: it's gone.
+    bool away = target.held && !juggle;
     /* A hit doesn't send it away at once: it stays, pressing nothing, for
      * GRAB_WINDOW frames after the hitlag, so a hit can lead into a grab, and
-     * each new hit's hitlag starts the window over. A knockdown, which no grab
-     * can catch, ends it then and there. */
+     * each new hit's hitlag starts the window over. A juggle's window starts
+     * only once it lands. A knockdown, which no grab can catch, ends it then
+     * and there. */
     if (!away && !Moving(state)) target.hit = true;
     if (!away && target.hit) {
-        if (Frozen(ft)) target.hit_frames = 0;
+        if (Frozen(ft) || (juggle && ft->phys.air_state != 0)) target.hit_frames = 0;
         else if (++target.hit_frames > GRAB_WINDOW || Down(state)) away = true;
     }
     if (ft->phys.air_state != 0) {
         float left, right, bottom;
-        target.air_frames++;
+        // Hitstun doesn't count: a CPU sent flying is still on its way.
+        if (ft->flags.hitstun) target.air_frames = 0;
+        else target.air_frames++;
         if (StageBounds(&left, &right, &bottom) &&
             (ft->phys.pos.X < left - OFF_STAGE || ft->phys.pos.X > right + OFF_STAGE || ft->phys.pos.Y < bottom - OFF_STAGE))
             away = true;
@@ -981,8 +1039,8 @@ static void UpdateTarget(void) {
     } else {
         target.air_frames = 0;
     }
-    // A throw, a hit's window run out, or a fall: after any hitlag, it's gone
-    // and back somewhere else.
+    // A throw, a hit's or a juggle's window run out, or a fall: after any
+    // hitlag, it's gone and back somewhere else.
     if (away) {
         if (!Frozen(ft)) Respawn();
         return;
@@ -1011,9 +1069,12 @@ static void UpdateHUD(void) {
     if (Pause_CheckStatus(1) == 2) {
         Text_SetText(hud_score_text, 0, "");
         Text_SetText(hud_best_text, 0, "");
+        Text_SetText(hud_hits_text, 0, "");
         return;
     }
     Text_SetText(hud_score_text, 0, "%d", grab_count);
+    if (HitMode()) Text_SetText(hud_hits_text, 0, "Hits: %d", total_hits);
+    else Text_SetText(hud_hits_text, 0, "");
     if (FreePractice()) {
         Text_SetText(hud_best_text, 0, "Free Practice");
         Text_SetColor(hud_best_text, 0, &text_gold);
@@ -1047,9 +1108,17 @@ void Event_Init(GOBJ *gobj) {
     hud_best_text->scale.Y = 0.35;
     hud_best_text->viewport_scale.X = 1;
     hud_best_text->viewport_scale.Y = 1;
+    hud_hits_text = Text_CreateText(2, canvas);
+    hud_hits_text->kerning = 1;
+    hud_hits_text->use_aspect = 1;
+    hud_hits_text->scale.X = 0.35;
+    hud_hits_text->scale.Y = 0.35;
+    hud_hits_text->viewport_scale.X = 1;
+    hud_hits_text->viewport_scale.Y = 1;
     PlaceCounter(Options_Main[OPT_COUNTER].val);
     Text_AddSubtext(hud_score_text, 0, 0, "-");
     Text_AddSubtext(hud_best_text, 0, 0, "-");
+    Text_AddSubtext(hud_hits_text, 0, 0, "-");
 
     stc_match->end_kind = MATCHENDKIND_NONE;
 }

@@ -90,14 +90,16 @@ ESCAPE_MASK = 0x8000FFFF  # Bits 16-30 are Grabs-ercise's.
 # stored as its distance from its default, so word 76's zeros read as no best,
 # timed runs, every movement on and collision off.
 GRABS = 51  # TM_SETTING_GRABERCISE
-# In menu order: best, Free Practice, Standing CPU, Walk, Run, Traveling, Full
-# and Half Dash Dance, Rolling, Fighter Collision. The in-place dances came
-# later (word 76 bits 29-30), and Standing CPU, with no room left in word 76,
-# is byte 51's bits 3-4: bits 27-28 of the word at 48. (offset, shift, width).
-GRABS_COUNTS, GRABS_DEFAULTS = (128, 2, 3, 2, 2, 2, 2, 2, 2, 2), (0, 0, 2, 1, 1, 1, 1, 1, 1, 0)
-GRABS_FIELDS = ((76, 16, 7), (76, 23, 1), (48, 27, 2), (76, 24, 1), (76, 25, 1), (76, 26, 1), (76, 29, 1),
-                (76, 30, 1), (76, 27, 1), (76, 28, 1))
-GRABS_STANDING, GRABS_WALK = 2, 3
+# In menu order: best, Free Practice, Success Criteria, Standing CPU, Walk, Run,
+# Traveling, Full and Half Dash Dance, Rolling, Fighter Collision. The in-place
+# dances came later (word 76 bits 29-30), then Standing CPU, with no room left
+# in word 76, in byte 51's bits 3-4 (bits 27-28 of the word at 48), then
+# Success Criteria in bit 22, the 7-bit best's top bit before T10 shipped.
+# (offset, shift, width).
+GRABS_COUNTS, GRABS_DEFAULTS = (64, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2), (0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0)
+GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (48, 27, 2), (76, 24, 1), (76, 25, 1), (76, 26, 1),
+                (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1))
+GRABS_SUCCESS, GRABS_STANDING, GRABS_WALK = 2, 3, 4
 # Bytes 24..79 appended by versions 15 to 22: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
@@ -693,11 +695,12 @@ class ExtensionTests(unittest.TestCase):
             for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
                 m.call('Settings_Set', GRABS, index, value)
                 self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
-        m.call('Settings_Set', GRABS, 0, 127)
+        m.call('Settings_Set', GRABS, 0, 63)
+        m.call('Settings_Set', GRABS, GRABS_SUCCESS, 1)  # Hit
         m.call('Settings_Set', GRABS, GRABS_STANDING, 1)  # Shield
-        m.call('Settings_Set', GRABS, 5, 0)
-        m.call('Settings_Set', GRABS, 7, 0)
-        self.assertEqual(self.grabs(), (127, 0, 1, 1, 1, 0, 1, 0, 1, 0))
+        m.call('Settings_Set', GRABS, 6, 0)
+        m.call('Settings_Set', GRABS, 8, 0)
+        self.assertEqual(self.grabs(), (63, 0, 1, 1, 1, 1, 0, 1, 0, 1, 0))
         self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
 
     def test_standing_cpu_shares_byte_51_with_the_cpu_costume_and_egg_counter(self):

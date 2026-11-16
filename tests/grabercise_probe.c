@@ -22,7 +22,7 @@ static unsigned counter_pref;
 static int retries, ended, post_sfx, records, error_sfx, pref_writes;
 static int stage_kind;
 static unsigned seed = 12345;
-static Text texts[2];
+static Text texts[3];
 static int text_count;
 
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
@@ -192,7 +192,7 @@ void Match_SetEndGraphic(int kind) { }
 void Match_SetPostMatchSFX(int sfx) { post_sfx = sfx; }
 void MatchInfo_0x0010_store(int value) { records++; }
 int Text_CreateCanvas(int sis, GOBJ *cam, int a, int b, int c, int d, int e, int f) { return 1; }
-Text *Text_CreateText(int sis, int canvas) { return &texts[text_count++ % 2]; }
+Text *Text_CreateText(int sis, int canvas) { return &texts[text_count++ % 3]; }
 int Text_AddSubtext(Text *text, float x, float y, char *fmt, ...) { return 0; }
 void Text_SetColor(Text *text, int row, GXColor *color) { }
 void Text_SetText(Text *text, int row, const char *fmt, ...) { }
@@ -595,7 +595,7 @@ void TestGrabsInit(int stage_id, int character, int signed_timer) {
     ft[CPU_FT].attr.dashrun_acceleration_a = eng.c->acc_a;
     ft[CPU_FT].attr.dashrun_acceleration_b = eng.c->acc_b;
     target = (struct target){ .ends_line = -1 };
-    grab_count = 0;
+    grab_count = total_hits = 0;
     retries = ended = post_sfx = records = error_sfx = pref_writes = 0;
     stc_match->match.timer = 0;
     stc_match->time_frames = 1;
@@ -708,6 +708,8 @@ int TestGrabsInfo(int key) {
         case 19: return target.shield;
         case 20: return f->state_id;
         case 21: return target.hit;
+        case 22: return total_hits;
+        case 23: return target.juggle;
     }
     return -1;
 }
