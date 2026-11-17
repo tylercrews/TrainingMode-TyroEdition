@@ -13,6 +13,48 @@ SIDES = ((0, -1), (1, 1))  # Player Side Left / Right, and the direction from th
 DISTANCES = (10, 20, 30, 45)  # Right Next To, Close, Medium, Past Tech Roll; Random is 4.
 DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP, BUTTON_A = 1, 2, 4, 8, 0x100
 SETTING_TECHCHASE, DISTANCE_INDEX, SIDE_INDEX = 27, 10, 11  # TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE/_SIDE
+FOLLOWUP_INDEX = 7  # TM_TECHCHASE_FOLLOWUP, Spotdodge Punish's old index
+# CPU Followup Action, in menu and saved order.
+NONE, SPOTDODGE, ROLL_AWAY, ROLL_IN, SHINE, RANDOM = range(6)
+FOX, MARTH, FALCO = 1, 18, 22  # internal fighter kinds
+BUTTON_B, BUTTON_X, TRIGGER_R, PAD_LR = 0x200, 0x400, 0x20, 0x80000000
+SHINE_START, SHINE_LOOP = 360, 361  # Fox's and Falco's grounded reflector
+# TestTCASID's order.
+(WAIT, TECH, GUARDON, GUARDREFLECT, ESCAPEF, ESCAPEB, KNEEBEND, JUMPF, ESCAPEAIR,
+ LANDINGFALLSPECIAL, ESCAPE, DAMAGEFALL, GUARD, JUMPB, DAMAGEHI1) = range(15)
+# The game's small-data bases, and where the tests keep PlCo.dat's common data.
+R2, R13, COMMON = 0x804DF9E0, 0x804DB6A0, 0x80403000
+# The native interrupt checks a followup's inputs go through, run from the
+# local DOL (sizes from GTME01.map). Every other call out of them is stubbed
+# inactive, except the state entries in ENTRIES, which go to the probe.
+NATIVE = {
+    0x8008A4D4: 0x170,  # Interrupt_AS_Wait
+    0x80096540: 0x9C,   # Interrupt_Side-B_Grounded
+    0x800D6824: 0x68,   # Interrupt_Neutral-B_Grounded
+    0x800D68C0: 0x68,   # Interrupt_Down-B_Grounded
+    0x800D695C: 0x68,   # Interrupt_Up-B_Grounded
+    0x80099794: 0x78,   # Interrupt_SpotDodgeWithShieldHeldCheck
+    0x80091A4C: 0x8C,   # Interrupt_Shield
+    0x80092758: 0x118,  # Interrupt_AS_GuardOn
+    0x80092BCC: 0x1C,   # DataOffset_PressingL/R_ThisFrame_SetFlag
+    0x80093694: 0x78,   # Interrupt_GuardReflect
+    0x8009980C: 0x88,   # Interrupt_SpotDodge (out of shield)
+    0x8009917C: 0xE8,   # Interrupt_Roll
+    0x800E8B14: 0x50,   # InterruptAS_FoxShineLoop
+    0x800CAED0: 0xA8,   # Interrupt_Jump_Grounded
+    0x80099A58: 0x44,   # Interrupt_EscapeAir_Airdodge
+}
+GUARDON_IASA, SHINE_LOOP_IASA, AIRDODGE_CHECK = 0x80092758, 0x800E8B14, 0x80099A58
+ENTRIES = {
+    0x80099894: "TestTCEnterSpotdodge", 0x800923B4: "TestTCEnterGuardOn",
+    0x800939B4: "TestTCEnterGuardReflect", 0x80093850: "TestTCEnterGuardReflect",
+    0x800992A8: "TestTCEnterRoll", 0x800CB4E0: "TestTCEnterKneebend",
+    0x80099A9C: "TestTCEnterAirdodge", 0x800965DC: "TestTCEnterWrongSpecial",
+}
+# The grounded specials' per-character entries, by kind: Side-B, Neutral-B,
+# Down-B and Up-B, from the lis/addi in each check.
+SPECIAL_TABLES = {0x803C13E8: "TestTCEnterWrongSpecial", 0x803C167C: "TestTCEnterWrongSpecial",
+                  0x803C1700: "TestTCEnterShine", 0x803C1784: "TestTCEnterWrongSpecial"}
 from unicorn import Uc, UC_ARCH_PPC, UC_MODE_32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
 from unicorn import ppc_const as reg
 
@@ -133,9 +175,65 @@ class Machine:
                          begin=0x80099794, end=0x80099794)
         return calls
 
+    def native_followups(self, kind):
+        """Run NATIVE's interrupt checks from the local DOL for a CPU of this
+        kind, with the game's r2 constants, r13 and PlCo.dat's common data.
+        Wait's IASA is the one Techchase calls; a test sets each other state's
+        IASA itself, as the state's entry would."""
+        dol = (ROOT / "build/Start.dol").read_bytes()
+        def native(address, size):
+            for i in range(18):
+                offset, base, length = [struct.unpack_from(">I", dol, at + i * 4)[0] for at in (0, 0x48, 0x90)]
+                if base <= address and address + size <= base + length:
+                    return dol[offset + address - base:offset + address - base + size]
+            raise AssertionError("Native routine missing from DOL")
+        def jump(address, target):
+            self.cpu.mem_write(address, struct.pack(">4I", 0x3D800000 | target >> 16,
+                0x618C0000 | target & 0xFFFF, 0x7D8903A6, 0x4E800420))
+        for address, size in NATIVE.items():
+            code = native(address, size)
+            for i in range(0, size, 4):
+                word = struct.unpack_from(">I", code, i)[0]
+                op, base, displacement = word >> 26, word >> 16 & 31, word & 0xFFFF
+                if op == 18 and word & 1:
+                    displacement = word & 0x03FFFFFC
+                    if displacement & 0x02000000:
+                        displacement -= 0x04000000
+                    target = address + i + displacement
+                    if target in ENTRIES:
+                        jump(target, self.symbols[ENTRIES[target]])
+                    elif target not in NATIVE:
+                        self.cpu.mem_write(target, bytes.fromhex("386000004e800020"))
+                elif op in (32, 48, 50) and base == 2:  # lwz/lfs/lfd from r2's constants
+                    constant = R2 + displacement - (0x10000 if displacement & 0x8000 else 0)
+                    self.cpu.mem_write(constant, native(constant, 8 if op == 50 else 4))
+        for address, size in NATIVE.items():
+            self.cpu.mem_write(address, native(address, size))
+        for table, entry in SPECIAL_TABLES.items():
+            self.cpu.mem_write(table + 4 * kind, struct.pack(">I", self.symbols[entry]))
+        jump(self.symbols["TestTCNativeWaitIASA"], 0x8008A4D4)
+        self.cpu.reg_write(reg.UC_PPC_REG_2, R2)
+        self.cpu.reg_write(reg.UC_PPC_REG_13, R13)
+        self.cpu.mem_write(COMMON, plco_common())
+        self.cpu.mem_write(R13 - 0x514C, struct.pack(">I", COMMON))  # stc_ftcommon
+        self.call("TestTCSetCPUKind", kind)
 
-def native_floors(filename):
-    """Read the main ISO's actual DAT collider flags/vertices and stage scale."""
+    def tick(self, state, iasa=0, airborne=0):
+        """A frame: the input proc, then the event's followup step."""
+        return self.call("TestTCFollowupTick", state, iasa, airborne)
+
+    def state(self):
+        return self.call("TestTCFollowupState")
+
+    def held(self, down):
+        """This frame's processed buttons, held or newly pressed (down)."""
+        return self.call("TestTCHeld", down) & 0xFFFFFFFF
+
+    def text(self, address):
+        return bytes(self.cpu.mem_read(address, 24)).split(b"\0", 1)[0].decode()
+
+
+def iso_file(filename):
     with (ROOT / "melee.iso").open("rb") as iso:
         iso.seek(0x424)
         offset, size = struct.unpack(">II", iso.read(8))
@@ -147,10 +245,11 @@ def native_floors(filename):
             kind_name, file_offset, file_size = struct.unpack_from(">3I", fst, 12 * i)
             if names[kind_name & 0xFFFFFF:].split(b"\0", 1)[0].decode() == filename:
                 iso.seek(file_offset)
-                dat = iso.read(file_size)
-                break
-        else:
-            raise AssertionError(filename + " missing from base ISO")
+                return iso.read(file_size)
+    raise AssertionError(filename + " missing from base ISO")
+
+
+def dat_roots(dat):
     _, size, reloc_count, public_count, external_count = struct.unpack_from(">5I", dat)
     root_offset = 32 + size + 4 * reloc_count
     string_offset = root_offset + 8 * (public_count + external_count)
@@ -158,6 +257,20 @@ def native_floors(filename):
     for i in range(public_count):
         data, name = struct.unpack_from(">II", dat, root_offset + i * 8)
         roots[dat[string_offset + name:].split(b"\0", 1)[0].decode()] = 32 + data
+    return roots
+
+
+def plco_common():
+    """The base ISO's PlCo.dat ftCommonData: the thresholds the native checks read."""
+    dat = iso_file("PlCo.dat")
+    common = 32 + struct.unpack_from(">I", dat, dat_roots(dat)["ftLoadCommonData"])[0]
+    return dat[common:common + 0x400]
+
+
+def native_floors(filename):
+    """Read the main ISO's actual DAT collider flags/vertices and stage scale."""
+    dat = iso_file(filename)
+    roots = dat_roots(dat)
     vertices, vertex_count, lines, line_count = struct.unpack_from(">4I", dat, roots["coll_data"])
     scale = struct.unpack_from(">f", dat, roots["grGroundParam"])[0]
     result = []
@@ -472,6 +585,191 @@ class TechchaseTests(unittest.TestCase):
         self.assertEqual(self.m.call("TestTCDodgeStep", 1, 3), 0)
         self.assertEqual(self.m.call("TestTCDodgeStep", 1, 2), 2)
         self.assertEqual(calls, [0x80099794])
+
+    def asid(self, which):
+        return self.m.call("TestTCASID", which)
+
+    def test_followup_row_names_its_choices_and_shine_is_fox_and_falcos(self):
+        m = self.m
+        self.assertEqual(m.text(m.call("TestTCFollowupRowName")), "CPU Followup Action")
+        self.assertEqual(m.call("TestTCFollowupRowCount"), 6)
+        for kind, shine in ((FOX, "Shine"), (FALCO, "Shine"), (MARTH, "Shine (N/A)"), (0, "Shine (N/A)")):
+            with self.subTest(kind=kind):
+                self.assertEqual(m.call("TestTCSetCPUKind", kind), shine == "Shine")
+                self.assertEqual([m.text(m.call("TestTCFollowupLabel", i)) for i in range(6)],
+                                 ["None", "Spotdodge", "Roll Away", "Roll In", shine, "Random"])
+
+    def test_followup_menu_skips_an_unavailable_shine_and_saves_each_choice(self):
+        m = self.m
+        m.hook_reset(self)
+        m.call("TestTCSetCPUKind", MARTH)
+        m.call("TestTCSetFollowupRow", ROLL_IN)
+        self.assertEqual(m.call("TestTCChangeFollowup", SHINE), RANDOM)  # Right, past Shine.
+        self.assertEqual((m.call("TestTCFollowupSaved"), m.call("TestTCLastWriteField"),
+                          m.call("TestTCLastWriteIndex")), (RANDOM, SETTING_TECHCHASE, FOLLOWUP_INDEX))
+        self.assertEqual(m.call("TestTCChangeFollowup", SHINE), ROLL_IN)  # Left, past it again.
+        self.assertEqual(m.call("TestTCChangeFollowup", RANDOM), RANDOM)  # From None, left wraps.
+        m.call("TestTCSetFollowupRow", NONE)
+        self.assertEqual(m.call("TestTCChangeFollowup", RANDOM), RANDOM)
+        self.assertEqual(m.call("TestTCChangeFollowup", NONE), NONE)  # Right wraps.
+        m.call("TestTCSetFollowupRow", SPOTDODGE)
+        self.assertEqual(m.call("TestTCChangeFollowup", SHINE), ROLL_IN)  # A picked N/A goes back.
+        m.call("TestTCSetCPUKind", FOX)
+        m.call("TestTCSetFollowupRow", ROLL_IN)
+        self.assertEqual(m.call("TestTCChangeFollowup", SHINE), SHINE)
+        self.assertEqual(m.call("TestTCFollowupSaved"), SHINE)
+
+    def test_saved_followup_loads_and_a_saved_shine_is_none_for_other_cpus(self):
+        m = self.m
+        for kind in (FOX, FALCO, MARTH):
+            m.call("TestTCSetCPUKind", kind)
+            for saved in range(6):
+                with self.subTest(kind=kind, saved=saved):
+                    writes = m.call("TestTCWriteCount")
+                    expected = NONE if saved == SHINE and kind == MARTH else saved
+                    self.assertEqual(m.call("TestTCLoadFollowup", saved), expected)
+                    self.assertEqual((m.call("TestTCWriteCount"), m.call("TestTCFollowupSaved")), (writes, saved))
+        # Spotdodge Punish saved Off as 0 and On as 1: None and Spotdodge.
+        self.assertEqual((m.call("TestTCLoadFollowup", 0), m.call("TestTCLoadFollowup", 1)), (NONE, SPOTDODGE))
+
+    def test_random_followup_picks_again_each_attempt_and_includes_shine_for_fox_and_falco(self):
+        m = self.m
+        m.call("TestTCSetFollowupRow", RANDOM)
+        for kind, choices in ((MARTH, (SPOTDODGE, ROLL_AWAY, ROLL_IN)), (FOX, (SPOTDODGE, ROLL_AWAY, ROLL_IN, SHINE)),
+                              (FALCO, (SPOTDODGE, ROLL_AWAY, ROLL_IN, SHINE))):
+            m.call("TestTCSetCPUKind", kind)
+            for coin in range(8):
+                with self.subTest(kind=kind, coin=coin):
+                    self.assertEqual(m.call("TestTCRollFollowup", coin), choices[coin % len(choices)])
+                    self.assertEqual(m.call("TestTCRandiMax"), len(choices))
+        for kind in (MARTH, FOX):  # A fixed choice never rolls.
+            m.call("TestTCSetCPUKind", kind)
+            for choice in (NONE, SPOTDODGE, ROLL_AWAY, ROLL_IN, SHINE):
+                m.call("TestTCSetFollowupRow", choice)
+                expected = NONE if choice == SHINE and kind == MARTH else choice
+                self.assertEqual((m.call("TestTCRollFollowup", 3), m.call("TestTCRandiMax")), (expected, 0))
+
+    def test_rolls_shield_for_one_frame_then_roll_relative_to_stage_center(self):
+        m = self.m
+        m.stage(32)
+        m.line(-85.5657, 0, 85.5657, 0)
+        m.native_followups(MARTH)
+        wait, tech, guardon = self.asid(WAIT), self.asid(TECH), self.asid(GUARDON)
+        roll_f, roll_b = self.asid(ESCAPEF), self.asid(ESCAPEB)
+        # (followup, CPU x, human x, roll direction): away from or toward x = 0,
+        # whichever side the human is on. The CPU faces right, so left is EscapeB.
+        for followup, cpu_x, hmn_x, direction in ((ROLL_AWAY, 20, 30, 1), (ROLL_AWAY, 20, 10, 1),
+                                                  (ROLL_AWAY, -20, -30, -1), (ROLL_IN, 20, 10, -1),
+                                                  (ROLL_IN, 20, 30, -1), (ROLL_IN, -20, -10, 1)):
+            with self.subTest(followup=followup, cpu_x=cpu_x, hmn_x=hmn_x):
+                m.call("TestTCFollowupBegin", followup, cpu_x * 1000, hmn_x * 1000, 0)
+                self.assertEqual(m.tick(tech), 0)
+                self.assertEqual(m.call("TestTCProtected"), 0)  # Not its last frame yet.
+                # First Wait frame: shield only, held, never a fresh digital
+                # press, so it's GuardOn, not GuardReflect's powershield.
+                self.assertEqual(m.tick(wait), 1)
+                self.assertEqual(m.state(), guardon)
+                self.assertEqual((m.held(0), m.held(1)), (TRIGGER_R | PAD_LR, 0))
+                self.assertEqual(m.call("TestTCRaw"), TRIGGER_R << 16)
+                self.assertEqual(m.call("TestTCFollowupPhase"), 2)
+                self.assertEqual(m.call("TestTCProtected"), 0)
+                # Next frame, still holding: a fresh full smash to the side rolls.
+                self.assertEqual(m.tick(-1, GUARDON_IASA), 0)
+                self.assertEqual(m.state(), roll_f if direction > 0 else roll_b)
+                self.assertEqual((m.call("TestTCStick", 0), m.call("TestTCTimer", 0)), (direction * 1000, 0))
+                self.assertEqual(m.held(1), 0)  # Still no powershield press.
+                self.assertEqual(m.call("TestTCEnterCalls"), 2)
+                m.call("TestTCAnimation", 35, 1000, 0)
+                for _ in range(34):
+                    self.assertEqual(m.tick(-1), 0)
+                    self.assertEqual((m.call("TestTCRaw"), m.call("TestTCProtected")), (0, 0))
+                self.assertEqual(m.call("TestTCFollowupLength"), 35)
+                self.assertEqual(m.tick(wait), 2)  # The reset timer starts now,
+                self.assertEqual((m.call("TestTCFollowupPhase"), m.call("TestTCProtected")), (3, 1))  # intangible.
+                self.assertEqual(m.call("TestTCEnterCalls"), 2)
+
+    def test_shine_jumps_out_and_wavelands_away_then_the_cpu_is_intangible(self):
+        for kind in (FOX, FALCO):
+            with self.subTest(kind=kind):
+                m = Machine()
+                m.stage(32)
+                m.line(-85.5657, 0, 85.5657, 0)
+                m.native_followups(kind)
+                asid = lambda which: m.call("TestTCASID", which)
+                m.call("TestTCFollowupBegin", SHINE, 5000, -5000, 0)
+                self.assertEqual(m.tick(asid(TECH)), 0)
+                # First Wait frame: Down B, read through the cached special
+                # classification, and nothing else (Side, Neutral or Up B).
+                self.assertEqual(m.tick(asid(WAIT)), 1)
+                self.assertEqual(m.state(), SHINE_START)
+                self.assertEqual(m.held(1), BUTTON_B)
+                self.assertEqual([m.call("TestTCTimer", i) for i in (2, 3, 4, 5)], [0, 255, 255, 255])
+                self.assertEqual(m.call("TestTCRaw"), BUTTON_B << 16 | 0x81)  # B and down for the next frame.
+                self.assertEqual(m.call("TestTCFollowupPhase"), 2)
+                for _ in range(3):  # B stays held through the start.
+                    self.assertEqual(m.tick(SHINE_START), 0)
+                    self.assertEqual(m.call("TestTCRaw"), BUTTON_B << 16)
+                    self.assertEqual(m.call("TestTCProtected"), 0)
+                # Its loop: a fresh X, with B still held, jumps out.
+                self.assertEqual(m.tick(SHINE_LOOP, SHINE_LOOP_IASA), 0)
+                self.assertEqual(m.state(), asid(KNEEBEND))
+                self.assertEqual((m.held(0), m.held(1)), (BUTTON_B | BUTTON_X, BUTTON_X))
+                self.assertEqual(m.call("TestTCWaveland"), 1)  # Away from the human, with room.
+                for _ in range(3):  # X lets go in jumpsquat: a short hop.
+                    self.assertEqual(m.tick(asid(KNEEBEND)), 0)
+                    self.assertEqual(m.call("TestTCRaw"), 0)
+                # Its first airborne frame: an air dodge down and away, a waveland.
+                self.assertEqual(m.tick(asid(JUMPF), AIRDODGE_CHECK, 1), 0)
+                self.assertEqual(m.state(), asid(ESCAPEAIR))
+                self.assertEqual((m.call("TestTCAirdodgeStick", 0), m.call("TestTCAirdodgeStick", 1)), (90, -90))
+                self.assertEqual(m.held(1), TRIGGER_R | PAD_LR)
+                self.assertEqual(m.tick(asid(ESCAPEAIR), 0, 1), 0)
+                m.call("TestTCAnimation", 30, 3000, 0)  # The landing's slowed to its 10 frames.
+                for _ in range(10):
+                    self.assertEqual(m.tick(asid(LANDINGFALLSPECIAL)), 0)
+                    self.assertEqual(m.call("TestTCProtected"), 0)
+                self.assertEqual(m.call("TestTCFollowupLength"), 10)
+                self.assertEqual(m.call("TestTCEnterCalls"), 3)  # Shine, jumpsquat, air dodge: nothing else.
+                self.assertEqual(m.tick(asid(WAIT)), 2)
+                self.assertEqual((m.call("TestTCFollowupPhase"), m.call("TestTCProtected")), (3, 1))
+
+    def test_waveland_turns_back_or_lands_in_place_where_its_floor_ends(self):
+        m = self.m
+        m.stage(32)
+        m.line(-60, 0, 60, 0)  # 0: the stage
+        m.line(-15, 30, 15, 30, 0x100)  # 1: a small platform
+        m.line(20, 30, 60, 30, 0x100)  # 2: a wide one
+        m.native_followups(FOX)
+        # (CPU x, human x, floor line, waveland direction and stick)
+        for cpu_x, hmn_x, ground, direction in ((10, 0, 0, 1), (10, 20, 0, -1), (40, 30, 0, -1),
+                                                (-40, -30, 0, 1), (0, -5, 1, 0), (25, 20, 2, 1),
+                                                (55, 50, 2, -1), (-1, 1, -1, -1)):
+            with self.subTest(cpu_x=cpu_x, hmn_x=hmn_x, ground=ground):
+                m.call("TestTCFollowupBegin", SHINE, cpu_x * 1000, hmn_x * 1000, ground)
+                m.tick(self.asid(TECH))
+                m.tick(self.asid(WAIT))
+                m.tick(SHINE_LOOP, SHINE_LOOP_IASA)
+                self.assertEqual(m.call("TestTCWaveland"), direction)
+                m.tick(self.asid(KNEEBEND))
+                m.tick(self.asid(JUMPF), AIRDODGE_CHECK, 1)
+                self.assertEqual(m.state(), self.asid(ESCAPEAIR))
+                stick = (direction * 90, -90) if direction else (0, -127)
+                self.assertEqual((m.call("TestTCAirdodgeStick", 0), m.call("TestTCAirdodgeStick", 1)), stick)
+
+    def test_a_followup_hit_or_none_never_inputs_and_none_keeps_the_old_reset(self):
+        m = self.m
+        m.native_followups(FOX)
+        wait = self.asid(WAIT)
+        m.call("TestTCFollowupBegin", NONE, 0, 1000, -1)
+        self.assertEqual(m.tick(self.asid(TECH)), 0)
+        self.assertEqual(m.tick(wait), 2)  # None: the reset timer starts on the first Wait frame.
+        self.assertEqual((m.call("TestTCEnterCalls"), m.call("TestTCRaw"), m.call("TestTCProtected")), (0, 0, 1))
+        for followup in (ROLL_AWAY, SHINE):  # Hit out of its first state, it stops.
+            m.call("TestTCFollowupBegin", followup, 0, 1000, -1)
+            m.tick(self.asid(TECH))
+            m.tick(wait)
+            self.assertEqual(m.tick(self.asid(DAMAGEHI1), GUARDON_IASA if followup == ROLL_AWAY else SHINE_LOOP_IASA), 0)
+            self.assertEqual((m.call("TestTCEnterCalls"), m.call("TestTCRaw")), (1, 0))
 
     def test_cpu_palette_and_off_preserve_native_colors(self):
         self.assertEqual(self.m.call("TestTCMenuCPUColorCount"), 8)

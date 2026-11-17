@@ -7,10 +7,13 @@ from test_settings import Machine, RECORD, ROOT
 
 EXT = 0x8045A6C0 + 0x1AE0
 # Techchase. Player Distance (index 10) gained Random (T10), its top bit in word
-# 9's spare bit 15; Player Side (index 11, T10) is byte 50 bits 3-4.
-COUNTS = (10, 2, 2, 3, 3, 3, 4, 2, 8, 4, 5, 3)
+# 9's spare bit 15; Player Side (index 11, T10) is byte 50 bits 3-4. CPU
+# Followup Action (index 7, T10) was Spotdodge Punish's word 9 bit 14, still its
+# low bit; its high bits are word 80's bits 4-5, so an older record reads only
+# the low bit.
+COUNTS = (10, 2, 2, 3, 3, 3, 4, 6, 8, 4, 5, 3)
 DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0, 0)
-TECH_DISTANCE, TECH_SIDE = 10, 11
+TECH_FOLLOWUP, TECH_DISTANCE, TECH_SIDE = 7, 10, 11
 LEDGE_COUNTS = (4, 2, 7, 15, 5, 8, 33, 12, 3, 3)
 LEDGE_DEFAULTS = (0, 0, 0, 0, 1, 7, 0, 0, 2, 0)
 PS_COUNTS = (4,61,61,5,2,4,2,2,2,2)
@@ -809,6 +812,44 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)
             self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), stored | 0xABCDE0)
 
+    def test_tech_followup_keeps_spotdodge_punishs_bit_and_takes_word_80_bits_4_and_5(self):
+        m = self.m
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # Word 80's bits 0-3 are Grabs-ercise's.
+        word = lambda offset: int.from_bytes(m.cpu.mem_read(EXT + offset, 4), 'little')
+        for value in list(range(6)) + [0]:  # None, Spotdodge, Roll Away, Roll In, Shine, Random.
+            m.call('Settings_Set', 27, TECH_FOLLOWUP, value)
+            self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), value)
+            self.assertEqual(word(9) >> 14 & 1, value & 1)  # Spotdodge Punish's bit is the low bit.
+            self.assertEqual(word(80), (value >> 1) << 4 | 9)
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 9)
+        for value in (6, 7):  # Not choices: ignored.
+            m.call('Settings_Set', 27, TECH_FOLLOWUP, value)
+            self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 0)
+        # A damaged 6 or 7 repairs to None, keeping the rest of both words.
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 4)
+        word9 = word(9)
+        for stored in (6, 7):
+            m.cpu.mem_write(EXT + 9, (word9 | (stored & 1) << 14).to_bytes(4, 'little'))
+            m.cpu.mem_write(EXT + 80, ((stored >> 1) << 4 | 9 | 0xABCD00).to_bytes(4, 'little'))
+            self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 0)
+            self.assertEqual((word(9), word(80)), (word9, 9 | 0xABCD00))
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 9)
+
+    def test_older_records_read_the_followup_from_word_9_alone(self):
+        m = self.m
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 1)  # Spotdodge, as Spotdodge Punish On saved.
+        old = self.version_22_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 22 never owned word 80.
+            old[80:84] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, 27, TECH_FOLLOWUP), 1)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating keeps Spotdodge, and the high bits start clear.
+        self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 5)
+        self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 5)
+
     def test_version_21_records_read_the_grabercise_defaults_without_writing(self):
         m = self.m
         old = self.version_21_record()
@@ -1562,7 +1603,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field >= 30: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                             tuple(0 if field == 27 and i == TECH_SIDE else 5 if field == 28 and i == 3 else 11 if field == 28 and i == 6 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else count - 1
+                             tuple(0 if field == 27 and i == TECH_SIDE else 1 if field == 27 and i == TECH_FOLLOWUP else 5 if field == 28 and i == 3 else 11 if field == 28 and i == 6 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else count - 1
                                    for i, count in enumerate(counts)))
 
     def test_v6_migration_preserves_all_other_preferences_and_spare_bits(self):
@@ -1598,7 +1639,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field == 31: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                tuple(0 if field == 27 and i == TECH_SIDE else 6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
+                tuple(0 if field == 27 and i == TECH_SIDE else 1 if field == 27 and i == TECH_FOLLOWUP else 6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
         self.assertEqual(m.record(),core)
 
     def test_opaque_future_extension_cannot_be_claimed_by_powershield(self):
@@ -1684,7 +1725,7 @@ class ExtensionTests(unittest.TestCase):
         expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD));expected[20:24]=SHIELD_DEFAULT_BYTES;expected[24:OWNED_SIZE]=COLOR_BYTES; expected[8] &= ~NEW_BITS
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
         for field, counts, _ in FIELDS:
-            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if (field == 30 and i >= 2) or (field == 27 and i == TECH_SIDE) else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15, byte 50 in 17
+            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if (field == 30 and i >= 2) or (field == 27 and i == TECH_SIDE) else 1 if field == 27 and i == TECH_FOLLOWUP else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15, byte 50 in 17, word 80 in 23 (only the followup's low bit is older)
         for field, counts, defaults in SHIELD_FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),defaults)
 
@@ -1703,7 +1744,8 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
             self.assertEqual(m.call('Settings_Get',34,0),action if action<10 else 0)
             expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD)); expected[8] &= ~NEW_BITS; expected[35]=0  # Version 15 claims byte 35
-            expected[50]&=~0x18  # and version 17 byte 50, Techchase's Player Side.
+            expected[50]&=~0x18  # and version 17 byte 50, Techchase's Player Side,
+            expected[80]&=~0x30  # and version 23 word 80, its CPU Followup Action's high bits.
             expected[20]=(expected[20]&0xF0) # Version-11 invalid attack padding repairs to choice zero.
             word=int.from_bytes(expected[20:24],'little')&~((1<<19)|(1<<20))
             if action>=10:word&=~(15<<9)

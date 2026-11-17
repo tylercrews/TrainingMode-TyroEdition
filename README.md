@@ -319,7 +319,7 @@ For T5 I was working with Claude Opus 5.5 (mostly on Medium, with Extra High use
     - **Techchase**
         - Creates a new list of nine saved chance presets so you can easily swap around without having to fine tune every single percentage every time.
         - Added a new mode where you can have the CPU drop onto a side or top platform instead of on the ground with you, so you can practice platform techchasing too. Gave a drop height setting too so hopefully any character can take advantage of it.
-        - Added a Spotdodge Punish setting that makes the CPU do an instant spotdodge after their tech option so you can practice punishing the spot dodge instead of the actual tech.
+        - Added a CPU Followup Action setting so you can practice punishing what the CPU does right after its tech option instead of the tech itself: Spotdodge, Roll Away or Roll In (from stage center), Shine for Fox and Falco (shine, jump out and waveland), or Random.
         - Add a local CPU Invincibility Overlay color to make it easier to see when they are invincible; overrides the global CPU invincibility overlay.
         - Saves preexisting settings like OSD, reset, invisibility and camera-mode choices, but manual percentages and camera coordinates remain session-only.
     - **Ledgechase** ([mechanics notes](docs/LEDGEDASH-MECHANICS.md))

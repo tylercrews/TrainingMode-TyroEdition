@@ -55,6 +55,58 @@ static float TC_PlayerX(float cpu_x, int direction, float distance, float left, 
     }
     return x;
 }
+/* CPU Followup Action (T10), in menu and saved order. It was Spotdodge
+ * Punish, Off/On, so a saved Off or On reads as None or Spotdodge. */
+enum TCFollowup {
+    TC_FOLLOWUP_NONE, TC_FOLLOWUP_SPOTDODGE, TC_FOLLOWUP_ROLL_AWAY, TC_FOLLOWUP_ROLL_IN,
+    TC_FOLLOWUP_SHINE, TC_FOLLOWUP_RANDOM, TC_FOLLOWUP_COUNT
+};
+/* The shine's waveland heads away from the player unless its floor ends
+ * within this far that way: a waveland slides, and it would slide off. */
+#define TC_WAVELAND_ROOM 30.f
+
+/* Shine is Fox's and Falco's alone. */
+static int TC_FollowupAvailable(int followup, int can_shine) {
+    return followup >= 0 && followup < TC_FOLLOWUP_COUNT && (followup != TC_FOLLOWUP_SHINE || can_shine);
+}
+
+/* Random picks one of Spotdodge, Roll Away, Roll In and, for Fox and Falco,
+ * Shine: `pick` is a roll in [0, TC_RandomFollowupCount). Anything this CPU
+ * can't do is None. */
+static int TC_RandomFollowupCount(int can_shine) { return can_shine ? 4 : 3; }
+static int TC_ResolveFollowup(int followup, int can_shine, int pick) {
+    if (!TC_FollowupAvailable(followup, can_shine)) return TC_FOLLOWUP_NONE;
+    if (followup != TC_FOLLOWUP_RANDOM) return followup;
+    if (pick < 0 || pick >= TC_RandomFollowupCount(can_shine)) pick = 0;
+    return TC_FOLLOWUP_SPOTDODGE + pick;
+}
+
+/* A menu step onto a choice this CPU can't do keeps going the same way, as
+ * Starting Location skips missing platforms. */
+static int TC_StepFollowup(int value, int previous, int can_shine) {
+    int direction = (value - previous + TC_FOLLOWUP_COUNT) % TC_FOLLOWUP_COUNT == 1 ? 1 : -1;
+    for (int i = 0; i < TC_FOLLOWUP_COUNT && !TC_FollowupAvailable(value, can_shine); ++i)
+        value = (value + direction + TC_FOLLOWUP_COUNT) % TC_FOLLOWUP_COUNT;
+    return value;
+}
+
+/* Roll Away rolls away from stage center (x = 0), Roll In toward it. Right
+ * at the center, `fallback` counts as away. */
+static int TC_RollDirection(int followup, float x, int fallback) {
+    int away = x > 0 ? 1 : x < 0 ? -1 : fallback;
+    return followup == TC_FOLLOWUP_ROLL_IN ? -away : away;
+}
+
+/* The waveland's direction: `away` (from the player) if its floor has the
+ * room, else back toward the player, else straight down (0). */
+static int TC_WavelandDirection(int away, float room_away, float room_toward) {
+    if (room_away >= TC_WAVELAND_ROOM) return away;
+    if (room_toward >= TC_WAVELAND_ROOM) return -away;
+    return 0;
+}
+
+/* DODGING is the followup under way, from its first state until the CPU
+ * stands again. TC_STATE_DODGE is a state only the followup enters. */
 enum TCPunishPhase { TC_PUNISH_START, TC_PUNISH_TECH, TC_PUNISH_DODGING, TC_PUNISH_FINISHED };
 enum TCPunishState { TC_STATE_OTHER, TC_STATE_OPTION, TC_STATE_WAIT, TC_STATE_DODGE };
 enum TCPunishAction { TC_ACTION_NONE, TC_ACTION_DODGE, TC_ACTION_RESET };
@@ -94,8 +146,9 @@ static int TC_PresetFromSaved(int saved)
     return saved >= TC_PRESET_GETUP_ATTACK ? saved + 1 : saved;
 }
 
-/* Only arm after a tech/getup. The timer starts after the one spotdodge ends,
- * and never consumes its startup, intangibility, or punishable recovery. */
+/* Only arm after a tech/getup. TC_ACTION_DODGE starts the followup on the
+ * first Wait frame. The timer starts once the one followup ends, and never
+ * consumes its startup, intangibility, or punishable recovery. */
 static int TC_PunishStep(int *phase, int enabled, int state)
 {
     if (!enabled) return state == TC_STATE_WAIT ? TC_ACTION_RESET : TC_ACTION_NONE;

@@ -25,7 +25,7 @@ static void ChangeReactionOSD(GOBJ *menu_gobj, int value);
 static void ChangeTimingOSD(GOBJ *menu_gobj, int value);
 static void ChangeReset(GOBJ *menu_gobj, int value);
 static void ChangeInvisibility(GOBJ *menu_gobj, int value);
-static void ChangeSpotdodge(GOBJ *menu_gobj, int value);
+static void ChangeFollowup(GOBJ *menu_gobj, int value);
 static void ChangeCPUColor(GOBJ *menu_gobj, int value);
 static void ChangeTechInPlaceChance (GOBJ *menu_gobj, int _new_val);
 static void ChangeTechAwayChance    (GOBJ *menu_gobj, int _new_val);
@@ -107,11 +107,14 @@ static const char *Options_Height[] = {"Normal", "Short", "Tall", "Double"};
 static const char *Options_Distance[] = {"Right Next To", "Close", "Medium", "Past Tech Roll", "Random"};
 static const char *Options_Side[] = {"Left", "Right", "Random"};
 static const char *Options_LocationDisplay[TC_LOCATION_COUNT];
+static const char *Options_Followup[] = {"None", "Spotdodge", "Roll Away", "Roll In", "Shine", "Random"};
+static const char *Options_FollowupDisplay[TC_FOLLOWUP_COUNT];
 static const char *Options_CPUColor[] = {TM_CPU_INVINCIBILITY_NAMES};
 typedef char TCMenuMatchesSave[(countof(Options_Preset) == TC_PRESET_COUNT &&
     TC_PRESET_COUNT == TM_TECHCHASE_PRESET_COUNT && countof(Options_Distance) == TC_DISTANCE_COUNT &&
     TC_DISTANCE_COUNT == TM_TECHCHASE_DISTANCE_COUNT && countof(Options_Side) == TC_SIDE_COUNT &&
-    TC_SIDE_COUNT == TM_TECHCHASE_SIDE_COUNT) ? 1 : -1];
+    TC_SIDE_COUNT == TM_TECHCHASE_SIDE_COUNT && countof(Options_Followup) == TC_FOLLOWUP_COUNT &&
+    TC_FOLLOWUP_COUNT == TM_TECHCHASE_FOLLOWUP_COUNT) ? 1 : -1];
 
 enum {
     OPT_CHANCE_MENU,
@@ -123,7 +126,7 @@ enum {
     OPT_HEIGHT,
     OPT_DISTANCE,
     OPT_SIDE,
-    OPT_SPOTDODGE,
+    OPT_FOLLOWUP,
     OPT_CPU_COLOR,
     OPT_SPEED,
     OPT_MOVE_CPU,
@@ -209,10 +212,15 @@ static EventOption Options_Main[] = {
         .OnChange = ChangeSide,
     },
     {
-        .kind = OPTKIND_TOGGLE,
-        .name = "Spotdodge Punish",
-        .desc = {"CPU spotdodges as soon as its tech/getup ends.", "Punish its recovery; reset waits until it ends."},
-        .OnChange = ChangeSpotdodge,
+        .kind = OPTKIND_STRING,
+        .name = "CPU Followup Action",
+        .desc = {"CPU acts once its tech/getup ends; punish it.",
+                 "Rolls go away from or in toward stage center.",
+                 "Shine (Fox/Falco) jumps out and wavelands.",
+                 "Random picks again each reset. This is saved."},
+        .values = Options_FollowupDisplay,
+        .value_num = TC_FOLLOWUP_COUNT,
+        .OnChange = ChangeFollowup,
     },
     {
         .kind = OPTKIND_STRING,
@@ -453,7 +461,14 @@ static int missed_tech_getup_timer = -1;
 static int first_action_frame = -1;
 static bool put_out_hitbox = false;
 static int punish_phase = TC_PUNISH_START;
-static int spotdodge_length = 0;
+// Frames in the followup's last, punishable state, for the Timing OSD.
+static int followup_length = 0;
+// This attempt's followup, with Random already picked.
+static int attempt_followup = TC_FOLLOWUP_NONE;
+// This match's CPU is Fox or Falco, so it can shine.
+static bool can_shine = false;
+// Which way this attempt's shine wavelands, picked while it's grounded.
+static int waveland_direction = 0;
 
 // figatree_curr->frame_num for last getup animation.
 // We can't easily request this on demand so we store it here pre-emptively.
@@ -583,6 +598,29 @@ static void RollPlacement(void) {
     player_distance = TC_PlayerDistance(distance, distance == TC_DISTANCE_RANDOM ? HSD_Randf() : 0);
 }
 
+/* Shine is only for a Fox or Falco CPU. Elsewhere it's labeled N/A and the
+ * menu skips it, as it skips missing platforms. */
+static void RefreshFollowupChoices(void) {
+    int kind = ((FighterData *)Fighter_GetGObj(1)->userdata)->kind;
+    can_shine = kind == FTKIND_FOX || kind == FTKIND_FALCO;
+    for (int i = 0; i < TC_FOLLOWUP_COUNT; ++i) Options_FollowupDisplay[i] = Options_Followup[i];
+    if (!can_shine) Options_FollowupDisplay[TC_FOLLOWUP_SHINE] = "Shine (N/A)";
+}
+
+// A saved Shine falls back to None for another CPU, without a save write.
+static void LoadFollowup(void) {
+    RefreshFollowupChoices();
+    int followup = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_FOLLOWUP);
+    Options_Main[OPT_FOLLOWUP].val = TC_FollowupAvailable(followup, can_shine) ? followup : TC_FOLLOWUP_NONE;
+}
+
+// Settle this attempt's followup, picking again if it's Random.
+static void RollFollowup(void) {
+    int followup = Options_Main[OPT_FOLLOWUP].val;
+    int pick = followup == TC_FOLLOWUP_RANDOM ? HSD_Randi(TC_RandomFollowupCount(can_shine)) : 0;
+    attempt_followup = TC_ResolveFollowup(followup, can_shine, pick);
+}
+
 static void ApplyStartingLocation(void) {
     RollPlacement();
     RefreshLocationChoices();
@@ -645,7 +683,9 @@ static void Reset(void) {
     first_action_frame = -1;
     put_out_hitbox = false;
     punish_phase = TC_PUNISH_START;
-    spotdodge_length = 0;
+    followup_length = 0;
+    waveland_direction = 0;
+    RollFollowup();
 }
 
 static int tech_frame_distinguishable[27] = {
@@ -678,33 +718,192 @@ static int tech_frame_distinguishable[27] = {
      7, // Roy
 };
 
-static int RunSpotdodgePunish(GOBJ *cpu) {
+/* Fox's and Falco's grounded reflector states, as osd_context.c numbers them. */
+enum { TC_SHINE_START = 360, TC_SHINE_LOOP, TC_SHINE_HIT, TC_SHINE_END, TC_SHINE_TURN };
+// The waveland's air dodge: 45 degrees down, as Attack on Shield's Wavedash Away.
+#define TC_WAVELAND_STICK 90
+
+/* CPU input processing already ran at priority 2. Supply this tick's
+ * processed input, which the IASA reads, and the raw input the next frame
+ * decodes, as Ledgechase's and Attack on Shield's adapters do. A button is
+ * pressed (input.down) only if it wasn't already held; L/R also carries the
+ * synthesized HSD_PAD_LR bit, and grounded specials read cached stick
+ * classifications rather than the stick. */
+static void QueueInput(FighterData *data, unsigned held, int x, int y) {
+    data->cpu.held = held;
+    data->cpu.lstickX = x;
+    data->cpu.lstickY = y;
+    unsigned processed = held;
+    if (held & (PAD_TRIGGER_L | PAD_TRIGGER_R)) processed |= 0x80000000u;
+    data->input.down = processed & ~data->input.held;
+    data->input.held = processed;
+    data->input.lstick = (Vec2){x / 127.f, y / 127.f};
+    data->input.trigger = processed & 0x80000000u ? 1 : 0;
+    data->input.timer_specialhi = data->input.timer_speciallw =
+        data->input.timer_specials = data->input.timer_specialn = 255;
+    if (data->input.down & PAD_BUTTON_B) {
+        ftCommonData *common = *stc_ftcommon;
+        float sx = fabs(data->input.lstick.X), sy = data->input.lstick.Y;
+        if (sy >= common->x21c) data->input.timer_specialhi = 0;
+        if (sy < -common->x21c) data->input.timer_speciallw = 0;
+        if (sx >= common->x218) data->input.timer_specials = 0;
+        if (sx < common->x218 && fabs(sy) < common->x21c) data->input.timer_specialn = 0;
+    }
+    // A stick pushed from neutral is a fresh tilt (a smash, at full).
+    if (x) data->input.timer_lstick_tilt_x = 0;
+    if (y) data->input.timer_lstick_tilt_y = 0;
+    if (data->input.down & 0x80000000u) data->input.timer_trigger_analog = data->input.timer_trigger_digital = 0;
+}
+
+// The current state's native IASA, which makes the regular eligibility checks.
+static void RunIASA(GOBJ *cpu) {
+    FighterData *data = cpu->userdata;
+    if (data->flags.dead || data->flags.freeze || data->flags.hitlag || data->dmg.hitlag_frames > 0) return;
+    if (data->cb.IASA) data->cb.IASA(cpu);
+}
+
+// The first state a followup's input puts the CPU in, from Wait.
+static bool FollowupStarted(int followup, int state) {
+    switch (followup) {
+        case TC_FOLLOWUP_SPOTDODGE: return state == ASID_ESCAPE;
+        case TC_FOLLOWUP_ROLL_AWAY:
+        case TC_FOLLOWUP_ROLL_IN:
+            return (ASID_GUARDON <= state && state <= ASID_GUARDREFLECT) || state == ASID_ESCAPEF || state == ASID_ESCAPEB;
+        case TC_FOLLOWUP_SHINE: return TC_SHINE_START <= state && state <= TC_SHINE_TURN;
+    }
+    return false;
+}
+
+// A followup's last state, which ends in Wait: the dodge, or the waveland's landing.
+static bool FollowupEndState(int state) {
+    return state == ASID_ESCAPE || state == ASID_ESCAPEF || state == ASID_ESCAPEB || state == ASID_LANDINGFALLSPECIAL;
+}
+
+static void NoteFollowupLength(FighterData *data) {
+    if (punish_phase != TC_PUNISH_DODGING || !FollowupEndState(data->state_id)) return;
+    // A special landing's animation is slowed to last its landing lag.
+    float frames = data->figatree_curr->frame_num, rate = data->state.rate;
+    followup_length = rate > 0 ? (int)(frames / rate + .5f) : (int)frames;
+}
+
+/* How far the CPU's floor reaches from it toward `dir`: to its platform's
+ * end, or to the end of the solid ground. Unknown counts as room. */
+static float FloorRoom(FighterData *data, int dir) {
+    CollDataStage *stage = *stc_colldata;
+    CollLine *lines = *stc_collline;
+    CollVert *verts = *stc_collvert;
+    float x = data->phys.pos.X, left, right;
+    int i = data->coll_data.ground_index;
+    CollLineDesc *line = stage && lines && verts && i >= 0 && i < stage->line_num ? lines[i].desc : 0;
+    if (line && IsPlatformLine(line) && line->vert_prev >= 0 && line->vert_next >= 0 &&
+        line->vert_prev < stage->vert_num && line->vert_next < stage->vert_num) {
+        Vec2 a = verts[line->vert_prev].pos_curr, b = verts[line->vert_next].pos_curr;
+        left = a.X < b.X ? a.X : b.X;
+        right = a.X > b.X ? a.X : b.X;
+    } else if (!SolidGroundEdges(&left, &right)) {
+        return TC_WAVELAND_ROOM;
+    }
+    return dir > 0 ? right - x : x - left;
+}
+
+// Away from the player, unless that would slide the CPU off its floor.
+static int WavelandDirection(FighterData *data) {
+    float gap = data->phys.pos.X - ((FighterData *)Fighter_GetGObj(0)->userdata)->phys.pos.X;
+    int away = gap > 0 ? 1 : gap < 0 ? -1 : -player_direction;
+    return TC_WavelandDirection(away, FloorRoom(data, away), FloorRoom(data, -away));
+}
+
+/* The followup's first input, on the CPU's first Wait frame. Native Wait
+ * IASA makes the regular eligibility check; no tech/getup state or animation
+ * length is forcibly shortened. */
+static void StartFollowup(GOBJ *cpu) {
+    FighterData *data = cpu->userdata;
+    switch (attempt_followup) {
+        case TC_FOLLOWUP_SPOTDODGE:
+            // Shield and a fresh down tilt.
+            data->cpu.held = PAD_TRIGGER_R;
+            data->cpu.lstickX = 0;
+            data->cpu.lstickY = -127;
+            // Native fighter input also carries the synthesized HSD_PAD_LR bit;
+            // the raw R button alone is insufficient for the spotdodge check.
+            data->input.held = PAD_TRIGGER_R | 0x80000000u;
+            data->input.lstick = (Vec2){0, -1};
+            data->input.trigger = 1;
+            data->input.timer_lstick_tilt_y = 0;
+            break;
+        case TC_FOLLOWUP_ROLL_AWAY:
+        case TC_FOLLOWUP_ROLL_IN:
+            /* Wait can't roll, only shield (Interrupt_Shield): the roll comes
+             * out of GuardOn on the next frame. No fresh digital press, so it's
+             * a plain shield, not a powershield (GuardReflect). */
+            QueueInput(data, PAD_TRIGGER_R, 0, 0);
+            data->input.down = 0;
+            break;
+        case TC_FOLLOWUP_SHINE:
+            QueueInput(data, PAD_BUTTON_B, 0, -127); // Down B.
+            break;
+        default:
+            return;
+    }
+    Fighter_IASACheck_AllGrounded(cpu);
+}
+
+/* The rest of the followup, one native step a frame: roll out of shield, or
+ * hold the shine into its loop, jump out of it and air dodge into the ground
+ * on the jump's first airborne frame (a waveland). */
+static void ContinueFollowup(GOBJ *cpu) {
+    FighterData *data = cpu->userdata;
+    int state = data->state_id;
+    switch (attempt_followup) {
+        case TC_FOLLOWUP_ROLL_AWAY:
+        case TC_FOLLOWUP_ROLL_IN:
+            // Shield still held, and a fresh smash to the side (Interrupt_Roll).
+            if (ASID_GUARDON <= state && state <= ASID_GUARDREFLECT && state != ASID_GUARDOFF) {
+                int dir = TC_RollDirection(attempt_followup, data->phys.pos.X, -player_direction);
+                QueueInput(data, PAD_TRIGGER_R, dir * 127, 0);
+                RunIASA(cpu);
+            }
+            break;
+        case TC_FOLLOWUP_SHINE:
+            if (state == TC_SHINE_START) {
+                data->cpu.held = PAD_BUTTON_B; // The shine lasts while B is held.
+            } else if (state == TC_SHINE_LOOP) {
+                waveland_direction = WavelandDirection(data);
+                QueueInput(data, PAD_BUTTON_B | PAD_BUTTON_X, 0, 0); // Jump out of the shine.
+                RunIASA(cpu);
+            } else if ((state == ASID_JUMPF || state == ASID_JUMPB) && data->phys.air_state) {
+                int x = waveland_direction * TC_WAVELAND_STICK;
+                QueueInput(data, PAD_TRIGGER_R, x, x ? -TC_WAVELAND_STICK : -127);
+                RunIASA(cpu);
+            }
+            break;
+    }
+}
+
+/* Intangible on the last frame of a tech or getup, standing, or falling into
+ * the tech, except while a followup is punishable: from its first state
+ * until the CPU stands again, when it's intangible as after a tech. */
+static bool ProtectCPU(FighterData *data) {
+    int state = data->state_id;
+    if (punish_phase == TC_PUNISH_DODGING) return false;
+    return (ASID_DOWNSPOTD <= state && state <= ASID_PASSIVESTANDB &&
+            data->state.frame + 1 == data->figatree_curr->frame_num) || // a tech/getup's last frame
+        state == ASID_WAIT || state == ASID_DAMAGEFALL;
+}
+
+static int RunFollowup(GOBJ *cpu) {
     FighterData *data = cpu->userdata;
     int state = data->state_id;
     int category = ASID_DOWNSPOTD <= state && state <= ASID_PASSIVESTANDB ? TC_STATE_OPTION :
-        state == ASID_WAIT ? TC_STATE_WAIT : state == ASID_ESCAPE ? TC_STATE_DODGE : TC_STATE_OTHER;
-    int action = TC_PunishStep(&punish_phase, Options_Main[OPT_SPOTDODGE].val, category);
-    if (state == ASID_ESCAPE) spotdodge_length = data->figatree_curr->frame_num;
+        state == ASID_WAIT ? TC_STATE_WAIT : FollowupStarted(attempt_followup, state) ? TC_STATE_DODGE : TC_STATE_OTHER;
+    int action = TC_PunishStep(&punish_phase, attempt_followup != TC_FOLLOWUP_NONE, category);
     if (action == TC_ACTION_DODGE) {
-        /* CPU input processing already ran at priority 2. Supply this tick's
-         * processed input, with a fresh down tilt, before native Wait IASA.
-         * Native Wait IASA performs the regular spotdodge eligibility check;
-         * no tech/getup state or animation length is forcibly shortened. */
-        data->cpu.held = PAD_TRIGGER_R;
-        data->cpu.lstickX = 0;
-        data->cpu.lstickY = -127;
-        // Native fighter input also carries the synthesized HSD_PAD_LR bit;
-        // the raw R button alone is insufficient for the spotdodge check.
-        data->input.held = PAD_TRIGGER_R | 0x80000000u;
-        data->input.lstick = (Vec2){0, -1};
-        data->input.trigger = 1;
-        data->input.timer_lstick_tilt_y = 0;
-        Fighter_IASACheck_AllGrounded(cpu);
-        if (data->state_id == ASID_ESCAPE) {
-            punish_phase = TC_PUNISH_DODGING;
-            spotdodge_length = data->figatree_curr->frame_num;
-        }
+        StartFollowup(cpu);
+        if (FollowupStarted(attempt_followup, data->state_id)) punish_phase = TC_PUNISH_DODGING;
+    } else if (punish_phase == TC_PUNISH_DODGING) {
+        ContinueFollowup(cpu);
     }
+    NoteFollowupLength(data);
     return action;
 }
 
@@ -803,9 +1002,11 @@ void Event_Think(GOBJ *menu) {
     cpu_data->cpu.cstickX = 0;
     cpu_data->cpu.cstickY = 0;
 
-    int punish_action = reset_timer == -1 ? RunSpotdodgePunish(cpu) : TC_ACTION_NONE;
+    int punish_action = reset_timer == -1 ? RunFollowup(cpu) : TC_ACTION_NONE;
     int state_id = cpu_data->state_id;
-    bool punish_recovery = Options_Main[OPT_SPOTDODGE].val && punish_phase >= TC_PUNISH_DODGING;
+    /* The followup is punishable from its first state until the CPU stands
+     * again. Then, like a tech that ends, it's intangible. */
+    bool punish_recovery = punish_phase == TC_PUNISH_DODGING;
     
     // cache getup_option_length
     if (ASID_DOWNSPOTD <= state_id && state_id <= ASID_PASSIVESTANDB)
@@ -832,15 +1033,7 @@ void Event_Think(GOBJ *menu) {
     }
 
     // set intangibility
-    if (!punish_recovery && (
-        (
-            // make invincible on last frame of getup/tech option
-            ASID_DOWNSPOTD <= state_id && state_id <= ASID_PASSIVESTANDB
-            && cpu_data->state.frame + 1 == cpu_data->figatree_curr->frame_num
-        )
-        || state_id == ASID_WAIT
-        || state_id == ASID_DAMAGEFALL
-    )) {
+    if (ProtectCPU(cpu_data)) {
         cpu_data->hurt.intang_frames.ledge = 1;
         cpu_data->hurt.kind_game = 1;
     } else {
@@ -851,8 +1044,8 @@ void Event_Think(GOBJ *menu) {
     // Check for late attack and show Timing OSD
     if (
         Options_Main[OPT_TIMING_OSD].val
-        && state_id == ASID_WAIT 
-        && (!Options_Main[OPT_SPOTDODGE].val || punish_phase == TC_PUNISH_FINISHED)
+        && state_id == ASID_WAIT
+        && (attempt_followup == TC_FOLLOWUP_NONE || punish_phase == TC_PUNISH_FINISHED)
         && hmn_data->flags.hitbox_active
         && !put_out_hitbox
     ) { 
@@ -864,8 +1057,8 @@ void Event_Think(GOBJ *menu) {
     }
 
     if (reset_timer == -1) {
-        // tech if airborne
-        if (cpu_data->phys.air_state == 1) {
+        // tech if airborne (not the shine's waveland jump)
+        if (cpu_data->phys.air_state == 1 && punish_phase < TC_PUNISH_DODGING) {
             cpu_data->input.timer_LR = 0;
             
             int rng = HSD_Randi(100);
@@ -932,7 +1125,8 @@ void Event_Think(GOBJ *menu) {
                 int prev_state_id = -1;
                 for (int i = 0; i < 6; ++i) {
                     prev_state_id = cpu_data->TM.state_prev[i];
-                    if ((punish_recovery && prev_state_id == ASID_ESCAPE) ||
+                    // A hit earlier in the followup (the shine or its jump) has no timing.
+                    if ((punish_recovery && FollowupEndState(prev_state_id)) ||
                         (!punish_recovery && ASID_DOWNSPOTD <= prev_state_id && prev_state_id <= ASID_PASSIVESTANDB)) {
                         frames_taken = cpu_data->TM.state_prev_frames[i];
                         break;
@@ -940,7 +1134,7 @@ void Event_Think(GOBJ *menu) {
                 }
 
                 if (frames_taken != -1) {
-                    int option_length = punish_recovery ? spotdodge_length : getup_option_length;
+                    int option_length = punish_recovery ? followup_length : getup_option_length;
                     event_vars->Message_Display(
                         16, hmn_data->ply, MSGCOLOR_GREEN, 
                         "%if Early\n", option_length - frames_taken - 2
@@ -1022,7 +1216,7 @@ void Event_Init(GOBJ *gobj) {
     Options_Main[OPT_HEIGHT].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_HEIGHT);
     Options_Main[OPT_DISTANCE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_DISTANCE);
     Options_Main[OPT_SIDE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SIDE);
-    Options_Main[OPT_SPOTDODGE].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE);
+    LoadFollowup();
     Options_Main[OPT_CPU_COLOR].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR);
     event_vars->set_cpu_invincibility_overlay(&Options_Main[OPT_CPU_COLOR].val);
     Options_Main[OPT_CAM].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CAMERA);
@@ -1063,8 +1257,11 @@ static void ChangeSide(GOBJ *menu, int value) {
     automatic_position = true;
     Reset();
 }
-static void ChangeSpotdodge(GOBJ *menu, int value) {
-    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_SPOTDODGE, value);
+static void ChangeFollowup(GOBJ *menu, int value) {
+    RefreshFollowupChoices();
+    value = TC_StepFollowup(value, Options_Main[OPT_FOLLOWUP].val_prev, can_shine);
+    Options_Main[OPT_FOLLOWUP].val = value;
+    TM_SetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_FOLLOWUP, value);
     Reset();
 }
 static void ChangeLocation(GOBJ *menu, int value) {

@@ -10,10 +10,13 @@ typedef struct ExtensionPreference { uint8_t shift, width; uint16_t count, initi
  * its top bit (see top_bit). No version bump: no record ever wrote that bit,
  * so saved distances keep their meaning, and v1 migration clears it. Player
  * Side (T10) takes byte 50 bits 3..4 (word 48 bits 19..20), see
- * preference_offset. */
+ * preference_offset. CPU Followup Action (T10) grew out of Spotdodge
+ * Punish's one bit, word 9 bit 14, which stays its low bit, so a saved Off or
+ * On still reads as None or Spotdodge. Its high bits are word 80's spare bits
+ * 4..5 (see TECH_FOLLOWUP_HIGH_SHIFT). */
 static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
     {0,4,TM_TECHCHASE_PRESET_COUNT,0}, {4,1,2,0}, {5,1,2,1}, {6,2,3,0},
-    {8,2,3,0}, {10,2,3,0}, {12,2,4,0}, {14,1,2,0}, {16,3,8,7},
+    {8,2,3,0}, {10,2,3,0}, {12,2,4,0}, {14,1,TM_TECHCHASE_FOLLOWUP_COUNT,0}, {16,3,8,7},
     {19,2,4,0}, {21,2,TM_TECHCHASE_DISTANCE_COUNT,0}, {19,2,TM_TECHCHASE_SIDE_COUNT,0},
 };
 /* The Lava Overlay bit is word 20's former padding: every record that owns
@@ -179,9 +182,17 @@ static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {
 /* Version 23 (T10) appends word 80: Grabs-ercise's CPU Percent in bits 0..3,
  * stored as its distance from Random, its default, as word 76's rows are.
  * Every migration to 23 zeroes the word, so bits 4..31 can take a setting
- * whose stored 0 is its default with no version bump. */
+ * whose stored 0 is its default with no version bump. Techchase's CPU
+ * Followup Action took bits 4..5 for its high bits that way: an older record
+ * reads only its low bit, word 9 bit 14, which is all it ever held. */
 #define GRABS_OFFSET 80
 #define GRABS_SIZE 4
+#define TECH_FOLLOWUP_HIGH_SHIFT 4
+#define TECH_FOLLOWUP_HIGH_MASK 3u
+typedef char TMExtension_TechFollowupBits[(TM_TECHCHASE_FOLLOWUP_COUNT<=8) ? 1 : -1]; /* 1 + 2 bits. */
+static int is_tech_followup(unsigned field,unsigned index) {
+    return field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_FOLLOWUP;
+}
 /* Grabs-ercise (T10) takes word 76's bits 16..30 with no version bump: its
  * timed best (6 bits, 16-21), Success Criteria (22, which the best had before
  * T10 shipped), Free Practice (23), the movements (default On, so stored 0)
@@ -402,6 +413,9 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     unsigned top=top_bit(field,index);
     if(top) value|=((r[top/8]>>(top%8))&1)<<p->width;
     if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
+    /* Only a current record owns word 80. */
+    if(is_tech_followup(field,index) && supported(r))
+        value|=((read_bits(r,GRABS_OFFSET)>>TECH_FOLLOWUP_HIGH_SHIFT)&TECH_FOLLOWUP_HIGH_MASK)<<p->width;
     return value;
 }
 static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned value) {
@@ -419,6 +433,11 @@ static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned val
     if(top) {
         uint8_t *byte=&r[top/8], bit=1u<<top%8;
         *byte=value>>p->width?*byte|bit:*byte&~bit;
+    }
+    if(is_tech_followup(field,index) && supported(r)) {
+        unsigned high=read_bits(r,GRABS_OFFSET)&~(TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT);
+        high|=((value>>p->width)&TECH_FOLLOWUP_HIGH_MASK)<<TECH_FOLLOWUP_HIGH_SHIFT;
+        for(unsigned byte=0;byte<4;++byte) r[GRABS_OFFSET+byte]=high>>(byte*8);
     }
 }
 static void init_shield_preferences(uint8_t *r) {
