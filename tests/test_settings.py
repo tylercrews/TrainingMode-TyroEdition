@@ -4641,6 +4641,179 @@ class ActionCueTests(unittest.TestCase):
         self.assertEqual(fresh.call("Settings_Get", 11, 7), 1)
 
 
+class InvincibilityStoplightTests(unittest.TestCase):
+    """The last four protected frames: red, red, then yellow, yellow."""
+    RED, YELLOW = 0xFF282896, 0xFFF00096
+    BLUE, LAVENDER = 0x4691FF70, 0xA06EFF70  # Invincibility Overlay: P1's Blue accent, a CPU.
+    STOPLIGHT = 12  # TM_FLAG_INVINCIBILITY_ENDING.
+    SCRIPT = 0x80403000
+    MORE = 5  # Five or more protected frames left.
+
+    def setUp(self):
+        m = self.m = Machine()
+        m.init(); m.call("TestCueInit")
+        m.call("Settings_Set", 11, self.STOPLIGHT, 1)
+        m.call("TestCuePlayer", 0, 1, 0)
+        m.call("TestCueState", 0, 181, 0, 40, 100)
+        self.frame = 1
+        m.call("TestCueTick", self.frame)  # Wraps the slot's renderer.
+
+    def draw(self, slot=0):
+        self.m.call("TestCueDraw", slot)
+        return self.m.call("TestCueDrawColor", slot)
+
+    def tick(self, slot=0):
+        self.frame += 1
+        self.m.call("TestCueTick", self.frame)
+        return self.draw(slot)
+
+    def left(self, slot=0):
+        return signed(self.m.call("TestCueProtectionLeft", slot))
+
+    def ledge(self, frames, respawn=0, held=0, star=-1, kind=None):
+        """The engine's timers as they stand after this frame's update."""
+        if kind is None: kind = 2 if frames else 1 if respawn else 0
+        self.m.call("TestCueProtection", 0, 0, kind, 0)
+        self.m.call("TestCueEngine", 0, frames, respawn, held, star)
+
+    def script(self, words, timer, frame=10, offset=0):
+        """Point the script at words[offset] with timer frames to its next command."""
+        self.m.cpu.mem_write(self.SCRIPT, struct.pack(">" + "I" * len(words), *words))
+        self.m.call("TestCueScript", 0, self.SCRIPT + offset * 4, timer * 100, frame * 100)
+
+    def test_ledge_timer_shows_red_twice_then_yellow_twice_before_vulnerability(self):
+        colors = []
+        for frames in range(8, -1, -1):
+            self.ledge(frames)
+            self.assertEqual(self.left(), min(frames, self.MORE))
+            colors.append(self.tick())
+        self.assertEqual(colors, [0, 0, 0, 0, self.RED, self.RED, self.YELLOW, self.YELLOW, 0])
+
+    def test_overlay_colors_hold_until_the_stoplight_which_is_the_same_for_everyone(self):
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)
+        expected = lambda base: [base, base, self.RED, self.RED, self.YELLOW, self.YELLOW, 0]
+        for accent, cpu, base in ((1, 0, self.BLUE), (0, 1, self.LAVENDER)):
+            m.call("TestCuePlayer", 0, accent, cpu)
+            colors = []
+            for frames in range(6, -1, -1):
+                self.ledge(frames); colors.append(self.tick())
+            self.assertEqual(colors, expected(base))
+        # An event's CPU palette, Off included, and the dropped-invincibility pulse leave it alone.
+        option = 0x80407000
+        m.cpu.mem_write(option, struct.pack(">hh", 0, 1))
+        m.call("ActionCues_SetCPUInvincibilityOverlay", option)
+        self.ledge(3); self.assertEqual(self.tick(), self.RED)
+        m.call("ActionCues_SetTangibilityOverlay", option + 2)
+        self.ledge(5); self.assertEqual(self.tick(), 0)
+        self.ledge(1); self.assertEqual(self.tick(), self.YELLOW)
+        self.ledge(0); self.assertEqual(self.tick(), 0xFF2828B4)  # Then the vulnerable pulse.
+
+    def test_respawn_and_ledge_timers_combine_as_the_native_countdown_does(self):
+        for (ledge, respawn, held, kind), left in (
+            ((3, 1, 0, 2), 3), ((1, 3, 0, 2), 3), ((2, 6, 0, 2), self.MORE), ((0, 2, 0, 1), 2),
+            ((2, 0, 1, 2), self.MORE),  # The 0x2221 hold: no timer ends it.
+            ((0, 0, 0, 1), self.MORE),  # Set with no timer (Escape Samus's invincibility).
+        ):
+            with self.subTest(ledge=ledge, respawn=respawn, held=held):
+                self.ledge(ledge, respawn, held, kind=kind)
+                self.assertEqual(self.left(), left)
+
+    def test_starman_counts_down_its_own_timer(self):
+        for star, left, color in ((3, 3, self.RED), (1, 1, self.YELLOW), (9, self.MORE, 0), (0, self.MORE, 0)):
+            self.ledge(0, star=star)
+            self.assertEqual(self.left(), left)
+            self.assertEqual(self.tick(), color)
+        self.ledge(0)
+        self.assertEqual((self.left(), self.tick()), (0, 0))
+
+    def test_script_intangibility_ends_on_its_body_state_command(self):
+        m = self.m
+        # A roll: intangible on frame 4 (0x68 state 2), vulnerable on frame 20 (0x68 state 0).
+        roll = [(2 << 26) | 4, (26 << 26) | 2, (2 << 26) | 20, 26 << 26, 0]
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        colors = []
+        for frame in range(14, 21):
+            if frame == 20: m.call("TestCueProtection", 0, 0, 0, 0)
+            self.script(roll, 20 - frame, frame, offset=3)
+            self.assertEqual(self.left(), min(20 - frame, self.MORE))
+            colors.append(self.tick())
+        self.assertEqual(colors, [0, 0, self.RED, self.RED, self.YELLOW, self.YELLOW, 0])
+        # A synchronous timer still to run, and a script that ends while protected.
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        self.script([(2 << 26) | 14, 26 << 26, 0], 0)
+        self.assertEqual(self.left(), 4)
+        self.script([(26 << 26) | 1, 0], 1)
+        self.assertEqual(self.left(), self.MORE)
+
+    def test_whole_body_hurtbox_commands_count_too(self):
+        m = self.m
+        m.call("TestCueCapsules", 0, 15, 2)
+        for bone in range(15): m.call("TestCueBone", 0, bone, bone)
+        for words, timer, left in (
+            ([27 << 26, 0], 2, 2),  # 0x6C: every hurtbox normal.
+            ([(28 << 26) | (4 << 18), 0], 3, 3),  # 0x70: bone 4 normal, so not the whole body.
+            ([(28 << 26) | (99 << 18), 0], 1, self.MORE),  # No hurtbox on bone 99.
+            ([(27 << 26) | 1, 0], 1, self.MORE),  # Every hurtbox still protected.
+        ):
+            with self.subTest(words=words):
+                self.script(words, timer)
+                self.assertEqual(self.left(), left)
+        self.assertEqual([m.call("TestCueProtection", 0, 0, 0, 0)] and self.left(), self.MORE)
+
+    def test_hitlag_holds_the_script_but_not_the_timers(self):
+        m = self.m
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        self.script([26 << 26, 0], 2)
+        m.call("TestCueFrozen", 0, 1)
+        self.assertEqual(self.left(), self.MORE)
+        self.assertEqual(self.tick(), 0)
+        m.call("TestCueProtection", 0, 0, 0, 0)
+        self.ledge(2)
+        self.assertEqual(self.left(), 2)
+        self.assertEqual(self.tick(), self.YELLOW)
+
+    def test_unknown_ends_show_nothing(self):
+        m = self.m
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        m.call("TestCueScript", 0, 0x1000, 0, 1000)  # Unreadable.
+        self.assertEqual(self.left(), -1)
+        self.assertEqual(self.tick(), 0)
+        self.ledge(6, kind=2)
+        m.cpu.mem_write(m.call("TestCueData", 0) + 0x1988, struct.pack(">i", 2))
+        self.assertEqual(self.left(), self.MORE)  # The ledge outlasts the lookahead.
+        self.ledge(3, kind=2)
+        m.cpu.mem_write(m.call("TestCueData", 0) + 0x1988, struct.pack(">i", 2))
+        self.assertEqual(self.left(), -1)
+        # Counters and Yoshi's armor have no countdown to read, even over a timer.
+        data = m.call("TestCueData", 0)
+        self.ledge(2)
+        m.call("TestCueKind", 0, 18); m.call("TestCueState", 0, 369, 10, 60, 100)
+        m.cpu.mem_write(data + 0x221B, b"\xC0")
+        self.assertEqual((self.left(), self.tick()), (self.MORE, 0))
+        m.cpu.mem_write(data + 0x221B, b"\x00")
+        m.call("TestCueKind", 0, 14); m.call("TestCueState", 0, 27, 0, 40, 100)
+        m.call("TestCueProtection", 0, 0, 2, 12000)
+        self.assertEqual((self.left(), self.tick()), (self.MORE, 0))
+
+    def test_actionable_cue_keeps_priority_and_toggles_apply_while_paused(self):
+        m = self.m
+        data = m.call("TestCueData", 0)
+        m.cpu.mem_write(data + 0x408, bytes((i * 7 + 3) & 255 for i in range(384)))
+        before = bytes(m.cpu.mem_read(data + 0x408, 384))
+        self.ledge(2)
+        self.assertEqual(self.tick(), self.YELLOW)
+        self.assertEqual(bytes(m.cpu.mem_read(data + 0x408, 384)), before)
+        m.call("Settings_Set", 11, self.STOPLIGHT, 0)
+        self.assertEqual(self.draw(), 0)
+        m.call("Settings_Set", 11, self.STOPLIGHT, 1)
+        self.assertEqual(self.draw(), self.YELLOW)
+        m.call("Settings_Set", 11, 4, 1)  # Actionable Yellow>Green.
+        m.call("TestCueLanding", 0, 5, 1)
+        m.call("TestCueState", 0, 42, 3, 40, 100)
+        self.assertEqual(self.tick(), 0xFFF000DC)
+
+
 class LedgedashLogicTests(unittest.TestCase):
     def setUp(self):
         self.m = Machine()

@@ -6,7 +6,8 @@
 /* Grabs-ercise (Minigames): Eggs-ercise with a CPU to grab instead of eggs to
  * break. The CPU you picked appears somewhere on the stage you picked: on a
  * platform, on the ground under one, or anywhere along the ground. Half the
- * time it stands still; otherwise it walks, runs or rolls at full speed, or
+ * time it stands still (Free Practice's CPU Movement can make that every time,
+ * or never); otherwise it walks, runs or rolls at full speed, or
  * dash dances, back and forth across the floor it's on, or dash dances in
  * place, with full or half dashes. Grab it, throw it, and it disappears and
  * comes back somewhere else. A hit leaves it where it is for half a second
@@ -14,7 +15,8 @@
  * a grab; then, or at a knockdown, it comes back somewhere else. A shield it
  * holds never runs out, and a hit on it doesn't move it. A timed minute counts
  * grabs, with the best saved; Free Practice has no clock and lets you pick the
- * movements and what counts: a grab, or (Hit) a hit after the grab's throw,
+ * movements, whether they're used at all, and what counts: a grab, or (Hit)
+ * a hit after the grab's throw,
  * while the CPU stays up to be juggled, with every hit counted apart, from a
  * percent you pick or a random one.
  *
@@ -83,7 +85,7 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_STANDING,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_MOVEMENT, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -105,6 +107,7 @@ static void ChangeDashFull(GOBJ *menu, int value);
 static void ChangeDashHalf(GOBJ *menu, int value);
 static void ChangeRoll(GOBJ *menu, int value);
 static void ChangeCollision(GOBJ *menu, int value);
+static void ChangeMovement(GOBJ *menu, int value);
 static void ChangeStanding(GOBJ *menu, int value);
 static void ChangeSuccess(GOBJ *menu, int value);
 static void ChangePercent(GOBJ *menu, int value);
@@ -115,6 +118,7 @@ static const char *SuccessText[TM_GRABS_SUCCESS_COUNT] = { "Throw", "Hit" };
 static const char *PercentText[TM_GRABS_PERCENT_COUNT] = {
     "Random", "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%",
 };
+static const char *MovementText[TM_GRABS_MOVEMENT_COUNT] = { "Random", "Still Only", "Moving Only" };
 static const char *StandingText[TM_GRABS_STANDING_COUNT] = { "Stand", "Shield", "Random" };
 static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
     "Top Left", "Top Right", "Bottom Left", "Bottom Right", "Under Timer"
@@ -185,14 +189,26 @@ static EventOption Options_Main[OPT_COUNT] = {
     },
     {
         .kind = OPTKIND_STRING,
+        .name = "CPU Movement",
+        .value_num = countof(MovementText),
+        .values = MovementText,
+        .desc = {"Random: half the CPUs stand still and half move.",
+                 "Still Only: none move. Moving Only: all of them do.",
+                 "The next CPU to appear follows it.",
+                 "Free Practice only; timed runs are Random."},
+        .disable = 1,
+        .OnChange = ChangeMovement,
+    },
+    {
+        .kind = OPTKIND_STRING,
         .name = "Standing CPU",
         .value_num = countof(StandingText),
         .values = StandingText,
         .val = TM_GRABS_STAND_RANDOM,
-        .desc = {"What the half of the CPUs that don't move do:",
-                 "stand, hold shield, or either. The shield never",
-                 "runs out, and hitting it doesn't send the CPU away.",
-                 "Free Practice only; timed runs are Random."},
+        .desc = {"What the CPUs that don't move do: stand, hold",
+                 "shield, or either. The shield never runs out, and",
+                 "hitting it doesn't send the CPU away. Free Practice",
+                 "only, not with Moving Only; timed runs are Random."},
         .disable = 1,
         .OnChange = ChangeStanding,
     },
@@ -200,10 +216,10 @@ static EventOption Options_Main[OPT_COUNT] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Full Speed Walk",
         .val = 1,
-        .desc = {"Half the CPUs stand still. The rest pick one of",
-                 "the movements that are on and go back and forth",
-                 "on their floor. This one walks at full speed.",
-                 "One movement always stays on. Free Practice only."},
+        .desc = {"Moving CPUs pick one of the movements that are",
+                 "on and go back and forth on their floor. This one",
+                 "walks at full speed. One movement always stays on.",
+                 "Free Practice only, not with Still Only."},
         .disable = 1,
         .OnChange = ChangeWalk,
     },
@@ -214,7 +230,7 @@ static EventOption Options_Main[OPT_COUNT] = {
         .desc = {"Moving CPUs can dash into a full speed run. At",
                  "each end they crouch, dash forward out of the",
                  "crouch right to the edge, then dash back and run.",
-                 "One movement always stays on. Free Practice only."},
+                 "One stays on. Free Practice only, not Still Only."},
         .disable = 1,
         .OnChange = ChangeRun,
     },
@@ -225,7 +241,7 @@ static EventOption Options_Main[OPT_COUNT] = {
         .desc = {"Moving CPUs can dash dance across: a full dash, a",
                  "quick dash back for a frame or two, then the next",
                  "dash, and the same the other way at each end.",
-                 "One movement always stays on. Free Practice only."},
+                 "One stays on. Free Practice only, not Still Only."},
         .disable = 1,
         .OnChange = ChangeDash,
     },
@@ -236,7 +252,7 @@ static EventOption Options_Main[OPT_COUNT] = {
         .desc = {"Moving CPUs can dash dance in place: a full dash",
                  "one way, then a full dash back, over and over. A",
                  "full dash goes until it would turn into a run.",
-                 "One movement always stays on. Free Practice only."},
+                 "One stays on. Free Practice only, not Still Only."},
         .disable = 1,
         .OnChange = ChangeDashFull,
     },
@@ -247,7 +263,7 @@ static EventOption Options_Main[OPT_COUNT] = {
         .desc = {"Moving CPUs can dash dance in place with dashes",
                  "half as long: half a dash one way, then half back.",
                  "The first dash of a match is a full one.",
-                 "One movement always stays on. Free Practice only."},
+                 "One stays on. Free Practice only, not Still Only."},
         .disable = 1,
         .OnChange = ChangeDashHalf,
     },
@@ -257,7 +273,7 @@ static EventOption Options_Main[OPT_COUNT] = {
         .val = 1,
         .desc = {"Moving CPUs can shield and roll, roll after",
                  "roll, and roll back at each end.",
-                 "One movement always stays on. Free Practice only."},
+                 "One stays on. Free Practice only, not Still Only."},
         .disable = 1,
         .OnChange = ChangeRoll,
     },
@@ -341,20 +357,40 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL,
-    OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN,
-    TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
-// Each saved row's default: Throw, Random percents and standing, every movement on, Fighter Collision off.
+static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH,
+    OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_MOVEMENT, TM_GRABS_STANDING, TM_GRABS_WALK,
+    TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
+typedef char grabercise_saved_rows[countof(saved_rows) == countof(saved_ids) ? 1 : -1];
+/* Each saved row's default: Throw, Random percents, movement and standing,
+ * every movement on, Fighter Collision off. */
 static int SavedDefault(unsigned row) {
     if (row == OPT_SUCCESS) return TM_GRABS_SUCCESS_THROW;
     if (row == OPT_PERCENT) return TM_GRABS_PERCENT_RANDOM;
+    if (row == OPT_MOVEMENT) return TM_GRABS_MOVEMENT_RANDOM;
     return row == OPT_STANDING ? TM_GRABS_STAND_RANDOM : row != OPT_COLLISION;
 }
 // Hit mode: a grab counts once a hit follows its throw. Free Practice only.
 static bool HitMode(void) { return FreePractice() && Options_Main[OPT_SUCCESS].val == TM_GRABS_SUCCESS_HIT; }
 // CPU Percent only does anything in Hit mode, so it's greyed out otherwise.
 static void GatePercent(void) { Options_Main[OPT_PERCENT].disable = !HitMode(); }
+/* CPU Movement, Free Practice's: Random in timed runs. */
+static int Movement(void) {
+    int movement = FreePractice() ? Options_Main[OPT_MOVEMENT].val : TM_GRABS_MOVEMENT_RANDOM;
+    return movement >= 0 && movement < TM_GRABS_MOVEMENT_COUNT ? movement : TM_GRABS_MOVEMENT_RANDOM;
+}
+/* Free Practice: Standing CPU does nothing when every CPU moves, and the
+ * movement rows nothing when none do, so they're greyed out then. */
+static void GateMovement(void) {
+    int movement = Movement();
+    Options_Main[OPT_STANDING].disable = movement == TM_GRABS_MOVEMENT_MOVING;
+    for (int i = 0; i < TM_GRABS_MOVES; ++i) Options_Main[OPT_WALK + i].disable = movement == TM_GRABS_MOVEMENT_STILL;
+}
+// The next CPU to appear moves, or doesn't, as it says (ChooseMove).
+static void ChangeMovement(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_MOVEMENT, value);
+    GateMovement();
+}
 static void ApplyPercent(void);
 // Changing what counts starts the counts over.
 static void ChangeSuccess(GOBJ *menu, int value) {
@@ -465,6 +501,7 @@ static void EnterFreePractice(void) {
     stc_match->match.timer = MATCH_TIMER_COUNTUP;
     for (unsigned i = 0; i < countof(saved_rows); ++i) Options_Main[saved_rows[i]].disable = 0;
     GatePercent();
+    GateMovement();
     ShowCollision(Options_Main[OPT_COLLISION].val);
 }
 
@@ -569,8 +606,12 @@ static bool ChooseShield(void) {
     int standing = FreePractice() ? Options_Main[OPT_STANDING].val : TM_GRABS_STAND_RANDOM;
     return standing == TM_GRABS_SHIELD || (standing == TM_GRABS_STAND_RANDOM && HSD_Randi(2));
 }
+/* Stand, or one of the movements that are on: half the time each (Random),
+ * or always one or the other, as CPU Movement says. */
 static int ChooseMove(void) {
-    if (HSD_Randi(2) == 0) return MOVE_STAND;
+    int movement = Movement();
+    if (movement == TM_GRABS_MOVEMENT_STILL) return MOVE_STAND;
+    if (movement == TM_GRABS_MOVEMENT_RANDOM && HSD_Randi(2) == 0) return MOVE_STAND;
     int on[TM_GRABS_MOVES], count = 0;
     for (int i = 0; i < TM_GRABS_MOVES; ++i)
         if (!FreePractice() || Options_Main[OPT_WALK + i].val) on[count++] = MOVE_WALK + i;

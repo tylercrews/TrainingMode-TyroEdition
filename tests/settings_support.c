@@ -526,6 +526,18 @@ void TestCueCapsules(unsigned slot, int num, int state) {
     for (unsigned i = 0; i < countof(cue_data[slot].hurtbox); ++i) cue_data[slot].hurtbox[i].state = state;
 }
 void TestCueCapsule(unsigned slot, unsigned index, int state) { cue_data[slot].hurtbox[index].state = state; }
+void TestCueBone(unsigned slot, unsigned index, int bone) { cue_data[slot].hurtbox[index].bone_index = bone; }
+/* The protection the engine counts down: the ledge and respawn timers, the
+ * 0x2221 0x80 hold, and starman (star < 0: none; 0: no timer; n: n frames). */
+void TestCueEngine(unsigned slot, int ledge, int respawn, int held, int star) {
+    FighterData *data = &cue_data[slot];
+    u8 *raw = (u8 *)data;
+    data->hurt.intang_frames.ledge = ledge; data->hurt.intang_frames.respawn = respawn;
+    raw[0x2221] = held ? raw[0x2221] | 0x80 : raw[0x2221] & ~0x80;
+    raw[0x221D] = star >= 0 ? raw[0x221D] | 2 : raw[0x221D] & ~2;
+    data->x2004 = star > 0 ? star : 0;
+}
+int TestCueProtectionLeft(unsigned slot) { return ActionCues_ProtectionLeft(&cue_objects[slot]); }
 void TestCuePlayer(unsigned ply, int accent, int cpu) {
     cue_players[ply].color_accent = accent; cue_players[ply].p_kind = cpu;
 }

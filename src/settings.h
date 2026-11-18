@@ -307,18 +307,22 @@ enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
 #define TM_ESC_GOAL_COUNT 2 /* Escape, Punish. */
 /* Grabs-ercise (T10): its timed best, then its saved menu rows, in word 76's
  * spare bits 16..30 and byte 51's bits 3-4 (Standing CPU), with no version
- * bump, and CPU Percent in word 80's bits 0-3, which version 23 appends. Every
+ * bump, and CPU Percent in word 80's bits 0-3, which version 23 appends, and
+ * CPU Movement in its bits 7-8, with no bump. Every
  * row is stored as its distance from its default, as the escape events' are,
  * so the zeros every record has there read as the defaults: no best yet, timed
  * mode, Throw, a Random percent, standing CPUs Random, every movement on,
- * Fighter Collision off. The IDs follow the menu; each row's bits are its own
+ * Fighter Collision off, CPU Movement Random. The IDs follow the menu but for
+ * CPU Movement, appended after; each row's bits are its own
  * (the two in-place dash dances came later, in bits 29 and 30, and Success
  * Criteria later still, in bit 22, the best's old top bit). */
 enum TMGrabercisePreference {
     TM_GRABS_BEST, TM_GRABS_FREE_PRACTICE, TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_STANDING,
     /* The movements, in menu order. */
     TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL,
-    TM_GRABS_COLLISION, TM_GRABS_PREF_COUNT
+    TM_GRABS_COLLISION,
+    TM_GRABS_MOVEMENT, /* CPU Movement (T10): its row sits above Standing CPU. */
+    TM_GRABS_PREF_COUNT
 };
 #define TM_GRABS_MOVES 6 /* Walk to Roll, from TM_GRABS_WALK. */
 /* The best is 6 bits. A timed minute can't reach 63: every grab takes a whole
@@ -332,6 +336,10 @@ enum TMGrabsSuccess { TM_GRABS_SUCCESS_THROW, TM_GRABS_SUCCESS_HIT, TM_GRABS_SUC
 #define TM_GRABS_PERCENT_STEP 10
 /* What a CPU that doesn't move does: stands, holds shield, or either. */
 enum TMGrabsStanding { TM_GRABS_STAND, TM_GRABS_SHIELD, TM_GRABS_STAND_RANDOM, TM_GRABS_STANDING_COUNT };
+/* Which CPUs move: half of them (Random), none, or all. */
+enum TMGrabsMovement {
+    TM_GRABS_MOVEMENT_RANDOM, TM_GRABS_MOVEMENT_STILL, TM_GRABS_MOVEMENT_MOVING, TM_GRABS_MOVEMENT_COUNT
+};
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
  * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
  * word 68 (version 20), and B0XX Angles (default Off, T10) in word 72 bit 28.

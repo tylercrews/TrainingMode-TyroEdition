@@ -28,12 +28,13 @@ INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 NEAR_END = 4  # A moving CPU's feet get this close to each end of its floor before it turns.
 GRAB_WINDOW = 30  # Frames a hit CPU stays, after the hitlag, for a follow-up grab.
 # Menu rows and saved preferences.
-(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_STANDING, OPT_WALK,
- OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS,
- OPT_EXIT) = range(17)
+(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_MOVEMENT, OPT_STANDING,
+ OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS,
+ OPT_EXIT) = range(18)
 (BEST, FREE_PRACTICE, SUCCESS, PERCENT, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF,
- PREF_ROLL, COLLISION) = range(12)
+ PREF_ROLL, COLLISION, MOVEMENT) = range(13)  # CPU Movement came last.
 STAND_STILL, STAND_SHIELD, STAND_RANDOM = range(3)  # Standing CPU's choices.
+MOVEMENT_RANDOM, MOVEMENT_STILL, MOVEMENT_MOVING = range(3)  # CPU Movement's.
 THROW, HIT = range(2)  # Success Criteria's.
 RANDOM_PERCENT = 0  # CPU Percent's first choice; choice n > 0 is (n - 1) * 10%.
 MOVE_ROWS = (OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL)
@@ -64,7 +65,7 @@ class Probe:
         self.m = fixtures.Machine()
         load_probe(self.m, 'grabercise-probe.elf', 'TestGrabsLoaded')
         defaults = {BEST: 0, FREE_PRACTICE: 0, SUCCESS: THROW, PERCENT: RANDOM_PERCENT, STANDING: STAND_RANDOM,
-                    COLLISION: 0, **{pref: 1 for pref in MOVE_PREFS}}
+                    COLLISION: 0, MOVEMENT: MOVEMENT_RANDOM, **{pref: 1 for pref in MOVE_PREFS}}
         defaults.update(prefs or {})
         for index, value in defaults.items():
             self.m.call('TestGrabsPref', index, value)
@@ -105,9 +106,9 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_the_menu_has_the_stage_and_character_selects(self):
         p = Probe()
-        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(17)]
+        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(18)]
         self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice',
-                                 'Success Criteria', 'CPU Percent', 'Standing CPU',
+                                 'Success Criteria', 'CPU Percent', 'CPU Movement', 'Standing CPU',
                                  'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
                                  'Full Dash Dance', 'Half Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
@@ -115,10 +116,11 @@ class GrabSettingsTests(unittest.TestCase):
     def test_timed_runs_grey_out_the_movement_rows_and_free_practice_opens_them(self):
         # The Free Practice row itself is never greyed out, and shows the saved mode.
         p = Probe()
-        self.assertEqual([p.row(row, 1) for row in (OPT_SUCCESS, OPT_STANDING) + MOVE_ROWS + (OPT_COLLISION,)], [1] * 9)
+        rows = (OPT_SUCCESS, OPT_MOVEMENT, OPT_STANDING) + MOVE_ROWS + (OPT_COLLISION,)
+        self.assertEqual([p.row(row, 1) for row in rows], [1] * 10)
         self.assertEqual((p.row(OPT_FREEPRACTICE), p.row(OPT_FREEPRACTICE, 1), p.info(12)), (0, 0, 0))
         p = Probe(prefs={FREE_PRACTICE: 1})
-        self.assertEqual([p.row(row, 1) for row in (OPT_SUCCESS, OPT_STANDING) + MOVE_ROWS + (OPT_COLLISION,)], [0] * 9)
+        self.assertEqual([p.row(row, 1) for row in rows], [0] * 10)
         self.assertEqual((p.row(OPT_FREEPRACTICE), p.row(OPT_FREEPRACTICE, 1), p.info(12)), (1, 0, 1))
 
     def test_the_free_practice_toggle_is_saved_and_restarts_either_way(self):
@@ -148,6 +150,59 @@ class GrabSettingsTests(unittest.TestCase):
     def test_a_save_with_every_movement_off_reads_as_all_on(self):
         p = Probe(prefs={FREE_PRACTICE: 1, **{pref: 0 for pref in MOVE_PREFS}})
         self.assertEqual([p.row(row) for row in MOVE_ROWS], [1] * 6)
+
+    def test_cpu_movement_is_random_still_only_or_moving_only_and_saved(self):
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        self.assertEqual([p.string(p.m.call('TestGrabsRowChoice', OPT_MOVEMENT, i)) for i in range(3)],
+                         ['Random', 'Still Only', 'Moving Only'])
+        self.assertEqual((p.row(OPT_MOVEMENT), p.row(OPT_MOVEMENT, 2)), (MOVEMENT_RANDOM, 1))  # OPTKIND_STRING
+        for choice in (MOVEMENT_STILL, MOVEMENT_MOVING, MOVEMENT_RANDOM):
+            p.menu(OPT_MOVEMENT, choice)
+            self.assertEqual(p.pref(MOVEMENT), choice)
+        self.assertEqual(Probe(prefs={FREE_PRACTICE: 1, MOVEMENT: MOVEMENT_MOVING}).row(OPT_MOVEMENT), MOVEMENT_MOVING)
+
+    def test_cpu_movement_picks_standing_moving_or_both_and_timed_runs_mix(self):
+        def moves(count, **prefs):
+            p = Probe(prefs={globals()[name]: value for name, value in prefs.items()})
+            return [p.m.call('TestGrabsChooseMove') for _ in range(count)]
+        self.assertEqual(set(moves(200, FREE_PRACTICE=1, MOVEMENT=MOVEMENT_STILL)), {STAND})
+        moving = moves(400, FREE_PRACTICE=1, MOVEMENT=MOVEMENT_MOVING)
+        self.assertEqual(set(moving), {WALK, RUN, DASH, DASH_FULL, DASH_HALF, ROLL})
+        only = moves(200, FREE_PRACTICE=1, MOVEMENT=MOVEMENT_MOVING, PREF_WALK=0, PREF_RUN=0, PREF_DASH=0, PREF_ROLL=0)
+        self.assertEqual(set(only), {DASH_FULL, DASH_HALF})  # Only the movements that are on.
+        # Random, and timed runs whatever's saved, stand half the time.
+        for prefs in ({'FREE_PRACTICE': 1}, {'MOVEMENT': MOVEMENT_STILL}, {'MOVEMENT': MOVEMENT_MOVING}):
+            picks = moves(600, **prefs)
+            self.assertEqual(set(picks), {STAND, WALK, RUN, DASH, DASH_FULL, DASH_HALF, ROLL})
+            self.assertAlmostEqual(picks.count(STAND) / len(picks), .5, delta=.08)
+
+    def test_a_cpu_spawned_after_a_cpu_movement_change_follows_it(self):
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        def spawned_moves():
+            moves = set()
+            for _ in range(30):
+                p.respawn()
+                moves.add(p.spot()[3])
+            return moves
+        p.menu(OPT_MOVEMENT, MOVEMENT_STILL)
+        self.assertEqual(spawned_moves(), {STAND})
+        p.menu(OPT_MOVEMENT, MOVEMENT_MOVING)
+        self.assertNotIn(STAND, spawned_moves())
+
+    def test_cpu_movement_greys_out_the_rows_it_makes_do_nothing(self):
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        greyed = lambda: (p.row(OPT_STANDING, 1), [p.row(row, 1) for row in MOVE_ROWS])
+        self.assertEqual(greyed(), (0, [0] * 6))
+        p.menu(OPT_MOVEMENT, MOVEMENT_STILL)  # Nothing moves: the movements do nothing.
+        self.assertEqual(greyed(), (0, [1] * 6))
+        p.menu(OPT_MOVEMENT, MOVEMENT_MOVING)  # Everything moves: Standing CPU does nothing.
+        self.assertEqual(greyed(), (1, [0] * 6))
+        p.menu(OPT_MOVEMENT, MOVEMENT_RANDOM)
+        self.assertEqual(greyed(), (0, [0] * 6))
+        p = Probe(prefs={FREE_PRACTICE: 1, MOVEMENT: MOVEMENT_STILL})  # From the save too.
+        self.assertEqual(greyed(), (0, [1] * 6))
+        p = Probe(prefs={MOVEMENT: MOVEMENT_RANDOM})  # Timed runs grey out every one.
+        self.assertEqual(greyed(), (1, [1] * 6))
 
     def test_timed_runs_mix_every_movement_and_free_practice_only_the_ones_on(self):
         p = Probe(prefs={**{pref: 0 for pref in MOVE_PREFS}, PREF_WALK: 1})
@@ -218,11 +273,11 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_reset_event_settings_restores_the_defaults_but_keeps_your_best(self):
         p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 9, PREF_WALK: 0, PREF_DASH: 0,
-                         COLLISION: 1})
+                         COLLISION: 1, MOVEMENT: MOVEMENT_STILL})
         p.menu(OPT_COUNTER, 3)
         p.select(OPT_DEFAULTS)
-        self.assertEqual([p.pref(i) for i in range(12)],
-                         [17, 0, THROW, RANDOM_PERCENT, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0])
+        self.assertEqual([p.pref(i) for i in range(13)],
+                         [17, 0, THROW, RANDOM_PERCENT, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0, MOVEMENT_RANDOM])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
         self.assertEqual(p.row(OPT_FREEPRACTICE), 0)
 

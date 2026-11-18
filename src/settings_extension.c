@@ -206,13 +206,21 @@ static int is_tech_followup(unsigned field,unsigned index) {
  * spare bits 3-4 (bits 27-28 of the word at 48, under Eggs-ercise's counter):
  * costume writes and repairs keep to the low 3 bits, so they're clear in every
  * record that owns the byte, and Random, the default, is stored as 0. CPU
- * Percent, added after, needed a version bump: it's word 80's bits 0..3. */
+ * Percent, added after, needed a version bump: it's word 80's bits 0..3. CPU
+ * Movement, added after that, is word 80's bits 7..8 (above the Stoplight's
+ * bit 6), with no bump: Random, its default, is stored as 0. */
+#define GRABS_MOVEMENT_SHIFT 7
 static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
     {16,6,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0}, {22,1,TM_GRABS_SUCCESS_COUNT,TM_GRABS_SUCCESS_THROW},
     {0,4,TM_GRABS_PERCENT_COUNT,TM_GRABS_PERCENT_RANDOM},
     {27,2,TM_GRABS_STANDING_COUNT,TM_GRABS_STAND_RANDOM},
     {24,1,2,1}, {25,1,2,1}, {26,1,2,1}, {29,1,2,1}, {30,1,2,1}, {27,1,2,1}, {28,1,2,0},
+    {GRABS_MOVEMENT_SHIFT,2,TM_GRABS_MOVEMENT_COUNT,TM_GRABS_MOVEMENT_RANDOM},
 };
+/* Word 80: CPU Percent 0..3, the followup's high bits 4..5, the Stoplight's 6,
+ * CPU Movement 7..8. */
+typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT)<ENDING_BIT &&
+    ENDING_BIT==1u<<6 && GRABS_MOVEMENT_SHIFT==7 && ENDING_BYTE==GRABS_OFFSET) ? 1 : -1];
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -306,11 +314,12 @@ typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIO
     TEAM_CHARACTERS_OFFSET+TEAM_CHARACTERS_SIZE<=ESCAPES_OFFSET &&
     ESCAPES_OFFSET+ESCAPES_SIZE<=GRABS_OFFSET && GRABS_OFFSET+GRABS_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
 /* Escape Samus Up-B's rows fill bits 0..10 and 31, and Escape IC Grab's 11..15. */
-/* Each Grabs-ercise row but Standing CPU and CPU Percent fills its bits
- * exactly, so none needs repairing; a stored 3 in Standing CPU, or 14 or 15 in
- * CPU Percent, reads as its default, Random. */
-typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<6 && TM_GRABS_PREF_COUNT==12 &&
-    TM_GRABS_STANDING_COUNT==3 && TM_GRABS_SUCCESS_COUNT==2 && TM_GRABS_PERCENT_COUNT<=16) ? 1 : -1];
+/* Each Grabs-ercise row but Standing CPU, CPU Percent and CPU Movement fills
+ * its bits exactly, so none needs repairing; a stored 3 in Standing CPU or CPU
+ * Movement, or 14 or 15 in CPU Percent, reads as its default, Random. */
+typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<6 && TM_GRABS_PREF_COUNT==13 &&
+    TM_GRABS_STANDING_COUNT==3 && TM_GRABS_SUCCESS_COUNT==2 && TM_GRABS_PERCENT_COUNT<=16 &&
+    TM_GRABS_MOVEMENT_COUNT==3) ? 1 : -1];
 typedef char TMExtension_EscapeBits[(TM_ESC_POSITION_COUNT<=4 && TM_ESC_DISTANCE_COUNT<=4 &&
     TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32 && TM_ESC_GOAL_COUNT==2 &&
     TM_ESC_SAMUS_PREF_COUNT==5) ? 1 : -1];
@@ -381,7 +390,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
-    if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_PERCENT) return GRABS_OFFSET;
+    if(field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) return GRABS_OFFSET;
     if(IS_ESCAPE(field)) return ESCAPES_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
         (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) return COSTUME_WORD_OFFSET;
@@ -586,7 +595,7 @@ int TMExtension_Prepare(uint8_t *r) {
         TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER,TM_SETTING_PASSING,
         TM_SETTING_ESCAPE_SAMUS,TM_SETTING_ESCAPE_IC};
     /* Grabs-ercise is left out: every value of each of its rows is valid but
-     * Standing CPU's 3 and CPU Percent's 14 and 15, which read as their
+     * Standing CPU's and CPU Movement's 3 and CPU Percent's 14 and 15, which read as their
      * defaults (see TMExtension_GrabsBits), so checking them would only cost
      * time. */
     for(unsigned f=0;f<sizeof(fields);++f) {

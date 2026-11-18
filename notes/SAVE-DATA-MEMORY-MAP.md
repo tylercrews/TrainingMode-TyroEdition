@@ -11,7 +11,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **26 spare bits** in word 80 (6-31), plus **6 loose bits**, all retired, in word 12 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **23 spare bits** in word 80 (9-31), plus **6 loose bits**, all retired, in word 12 |
 | **Unallocated spare score slots** | `0x1B34..0x1B37` | **4 bytes** | nothing | **4 bytes (32 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
@@ -141,9 +141,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot, Side-B Sweetspot | word 72 (table below) | — |
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
-| 80..83 | Grabs-ercise, Techchase | word 80 (table below) | bits 6-31 |
+| 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight | word 80 (table below) | bits 9-31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **26 spare bits** (6-31) and **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, and Grabs-ercise byte 51 bits 3-4. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **23 spare bits** (9-31) and **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, and Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -336,15 +336,17 @@ Every migration to version 22 zeroes this word, and each row is stored as its di
 
 Escape IC Grab's Handoff row is disabled and not saved.
 
-**Word 80: Grabs-ercise, Techchase** (T10, version 23)
+**Word 80: Grabs-ercise, Techchase, Invincibility Stoplight** (T10, version 23)
 
-Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way; bits 6-31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
+Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way, the Invincibility Stoplight bit 6 and Grabs-ercise's CPU Movement bits 7-8; bits 9-31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
 
 | Bits | Setting |
 | --- | --- |
 | 0-3 | Grabs-ercise: CPU Percent (Random, then 0% to 120% in steps of 10; default Random, stored as 0). 14 and 15 aren't choices and read as Random |
 | 4-5 | Techchase: CPU Followup Action's high bits (T10, no version bump), above word 9 bit 14: 0 None (default), 1 Spotdodge, 2 Roll Away, 3 Roll In, 4 Shine, 5 Random. A stored 6 or 7 repairs to None. Older records read word 9's bit alone |
-| 6-31 | Free | Both events' totals and session bests are RAM-only (below).
+| 6 | Global: Invincibility Stoplight (`TM_FLAG_INVINCIBILITY_ENDING`, T10, no version bump; Off is 0). Older records read Off |
+| 7-8 | Grabs-ercise: CPU Movement (T10, no version bump): 0 Random (default), 1 Still Only, 2 Moving Only. A stored 3 isn't a choice and reads as Random. Older records read Random |
+| 9-31 | Free | Both events' totals and session bests are RAM-only (below).
 
 ## Not saved
 

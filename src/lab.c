@@ -370,9 +370,11 @@ void Lab_ChangeOSDsOff(GOBJ *menu_gobj, int value) {
     LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
     Memcard_SaveIfChanged();
 }
-static const unsigned global_cue_flags[] = {
-    TM_FLAG_MISSED_LCANCEL, TM_FLAG_RUN_TURNAROUND, TM_FLAG_LAST_BLOCKED_FRAME, TM_FLAG_INFINITE_SHIELDS,
-    TM_FLAG_INVINCIBILITY,
+/* Each global cue toggle's LabOptions_OSDs row and flag. */
+static const struct { unsigned char row, flag; } global_cues[] = {
+    {TM_SETTINGS_OSDS + 5, TM_FLAG_MISSED_LCANCEL}, {TM_SETTINGS_OSDS + 6, TM_FLAG_RUN_TURNAROUND},
+    {TM_SETTINGS_OSDS + 7, TM_FLAG_LAST_BLOCKED_FRAME}, {TM_SETTINGS_OSDS + 8, TM_FLAG_INFINITE_SHIELDS},
+    {TM_SETTINGS_OSDS + 9, TM_FLAG_INVINCIBILITY}, {LABOSD_INVINCIBILITY_ENDING, TM_FLAG_INVINCIBILITY_ENDING},
 };
 static void Lab_ChangeOSDDisplay(GOBJ *menu, int value) {
     MenuData *data = menu->userdata;
@@ -390,12 +392,12 @@ void Lab_ChangeGlobalCue(GOBJ *menu_gobj, int value) {
     MenuData *menu = menu_gobj->userdata;
     EventOption *selected = EventMenu_SelectedOption(menu);
     unsigned cue;
-    for (cue = 0; cue < countof(global_cue_flags); ++cue)
-        if (selected == &LabOptions_OSDs[TM_SETTINGS_OSDS + 5 + cue]) break;
-    if (cue == countof(global_cue_flags)) return;
-    TM_SetSetting(TM_SETTING_FLAG, global_cue_flags[cue], value);
-    for (unsigned i = 0; i < countof(global_cue_flags); ++i)
-        LabOptions_OSDs[TM_SETTINGS_OSDS + 5 + i].val = TM_GetSetting(TM_SETTING_FLAG, global_cue_flags[i]);
+    for (cue = 0; cue < countof(global_cues); ++cue)
+        if (selected == &LabOptions_OSDs[global_cues[cue].row]) break;
+    if (cue == countof(global_cues)) return;
+    TM_SetSetting(TM_SETTING_FLAG, global_cues[cue].flag, value);
+    for (unsigned i = 0; i < countof(global_cues); ++i)
+        LabOptions_OSDs[global_cues[i].row].val = TM_GetSetting(TM_SETTING_FLAG, global_cues[i].flag);
     Lab_RefreshShieldOverride();
     Memcard_SaveIfChanged();
 }
@@ -6381,8 +6383,8 @@ void Event_Init(GOBJ *gobj)
     Lab_ChangeHitboxTrails(0, 0);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 1].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF);
-    for (unsigned i = 0; i < countof(global_cue_flags); ++i)
-        LabOptions_OSDs[TM_SETTINGS_OSDS + 5 + i].val = TM_GetSetting(TM_SETTING_FLAG, global_cue_flags[i]);
+    for (unsigned i = 0; i < countof(global_cues); ++i)
+        LabOptions_OSDs[global_cues[i].row].val = TM_GetSetting(TM_SETTING_FLAG, global_cues[i].flag);
     LabOptions_OSDDisplay[0].val = TM_GetSetting(TM_SETTING_OSD_LAYOUT, 0);
     LabOptions_OSDDisplay[1].val = TM_GetSetting(TM_SETTING_OSD_POSITION, 0);
     Lab_RefreshShieldOverride();

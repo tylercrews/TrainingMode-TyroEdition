@@ -99,11 +99,12 @@ GRABS = 51  # TM_SETTING_GRABERCISE
 # CPU, with no room left in word 76, in byte 51's bits 3-4 (bits 27-28 of the
 # word at 48), then Success Criteria in bit 22, the 7-bit best's top bit before
 # T10 shipped, then CPU Percent (Random, 0% to 120%) in word 80, which version
-# 23 appends. (offset, shift, width).
-GRABS_COUNTS, GRABS_DEFAULTS = (64, 2, 2, 14, 3, 2, 2, 2, 2, 2, 2, 2), (0, 0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0)
+# 23 appends, then CPU Movement (Random, Still Only, Moving Only), appended
+# after Fighter Collision, in word 80 bits 7-8. (offset, shift, width).
+GRABS_COUNTS, GRABS_DEFAULTS = (64, 2, 2, 14, 3, 2, 2, 2, 2, 2, 2, 2, 3), (0, 0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0, 0)
 GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (80, 0, 4), (48, 27, 2), (76, 24, 1), (76, 25, 1),
-                (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1))
-GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK = 2, 3, 4, 5
+                (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1), (80, 7, 2))
+GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3, 4, 5, 12
 # Bytes 24..83 appended by versions 15 to 23: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
@@ -706,7 +707,8 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', GRABS, GRABS_STANDING, 1)  # Shield
         m.call('Settings_Set', GRABS, 7, 0)
         m.call('Settings_Set', GRABS, 9, 0)
-        self.assertEqual(self.grabs(), (63, 0, 1, 13, 1, 1, 1, 0, 1, 0, 1, 0))
+        m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 2)  # Moving Only
+        self.assertEqual(self.grabs(), (63, 0, 1, 13, 1, 1, 1, 0, 1, 0, 1, 0, 2))
         self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
 
     def test_standing_cpu_shares_byte_51_with_the_cpu_costume_and_egg_counter(self):
@@ -811,6 +813,32 @@ class ExtensionTests(unittest.TestCase):
             m.cpu.mem_write(EXT + 80, (stored | 0xABCDE0).to_bytes(4, 'little'))
             self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)
             self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), stored | 0xABCDE0)
+
+    def test_cpu_movement_shares_word_80_and_reads_random_from_zeros_and_its_spare_value(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_MOVEMENT), 0)  # Random.
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # Bits 0-3.
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 4)  # Bits 4-5 (and word 9 bit 14).
+        m.call('Settings_Set', 11, 12, 1)  # TM_FLAG_INVINCIBILITY_ENDING: bit 6.
+        word = lambda: int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        for choice in (1, 2, 0):  # Still Only, Moving Only, Random: stored as themselves.
+            m.call('Settings_Set', GRABS, GRABS_MOVEMENT, choice)
+            self.assertEqual(word(), choice << 7 | 1 << 6 | 2 << 4 | 9)
+            self.assertEqual((m.call('Settings_Get', GRABS, GRABS_MOVEMENT), m.call('Settings_Get', GRABS, GRABS_PERCENT),
+                              m.call('Settings_Get', 27, TECH_FOLLOWUP), m.call('Settings_Get', 11, 12)), (choice, 9, 4, 1))
+        m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 2)
+        m.cpu.mem_write(EXT + 80, (word() | 3 << 7).to_bytes(4, 'little'))  # 3 isn't a choice: it reads as Random.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_MOVEMENT), 0)
+        self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP)), (9, 4))
+
+    def test_version_22_records_read_cpu_movement_as_random(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, GRABS, GRABS_MOVEMENT), 0)
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_MOVEMENT), 0)  # Migrated: word 80 zeroed.
 
     def test_tech_followup_keeps_spotdodge_punishs_bit_and_takes_word_80_bits_4_and_5(self):
         m = self.m

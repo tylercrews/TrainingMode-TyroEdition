@@ -944,6 +944,7 @@ static u8 LabOSD_ID[] = {
 static const char *LabOSD_ColorNames[] = { TM_OSD_COLOR_NAMES };
 // Appended after OSD Display so the existing TM_SETTINGS_OSDS + N rows keep their indices.
 #define LABOSD_ACT_OO_ATTACK (TM_SETTINGS_OSDS + 11)
+#define LABOSD_INVINCIBILITY_ENDING (TM_SETTINGS_OSDS + 12)
 static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_STRING,
@@ -1145,6 +1146,12 @@ static EventOption LabOptions_OSDs[] = {
         .kind = OPTKIND_STRING, .name = TM_GLOBAL_ACT_OO_ATTACK_NAME,
         .value_num = TM_COLOR_COUNT, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
         .desc = {"Frames to act once a grounded attack or throw is actionable.", "1f = first frame. Includes Wait after the animation ends."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = TM_GLOBAL_INVINCIBILITY_ENDING_NAME,
+        .desc = {"Last 4 invincible frames: red, red, then yellow, yellow.", "Same colors for everyone. Works with or without the Overlay.", "Ledge, respawn, dodges and techs; not counters or armor."},
+        .OnChange = Lab_ChangeGlobalCue,
     },
 };
 

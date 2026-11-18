@@ -165,7 +165,8 @@ LMENU(LabUI_Timing, "Action Timing OSDs", "Global action and interrupt OSD color
 static EventMenuRow LabUI_GlobalVisuals_rows[] = {
     LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 3, 1), LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 4, 1),
     LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 5, 3), LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 6, 3), LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 7, 3),
-    LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 9, 3), LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 8, 4),
+    LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 9, 3), LR(LabOptions_OSDs, LABOSD_INVINCIBILITY_ENDING, 3),
+    LR(LabOptions_OSDs, TM_SETTINGS_OSDS + 8, 4),
 };
 LMENU(LabUI_GlobalVisuals, "Global Visuals & Shields", "Shared trails, fighter cues and full shield refill.");
 static EventMenuRow LabUI_Stage_rows[] = {
