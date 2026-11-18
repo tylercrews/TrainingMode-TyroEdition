@@ -111,24 +111,52 @@ static void Shield_Draw(GOBJ *gobj, int pass) {
         saved[i].tev->tev0 = saved[i].tev0;
     }
 }
+/* Both swordsmen share ground/air counter stance states. The native counter
+ * script enables a special shield: 0x221B bits 7 + 6. Bit 6 can remain
+ * latched during recovery, so the live enable bit is essential. */
+static int countering(FighterData *data) {
+    return (data->kind == FTKIND_MARTH || data->kind == FTKIND_ROY) &&
+        (data->state_id == 369 || data->state_id == 371) &&
+        data->flags.shield_enable && data->flags.shield_x40;
+}
+static int yoshi_armor(FighterData *data) { return data->kind == FTKIND_YOSHI && data->dmg.armor > 0; }
 int ActionCues_IsProtected(GOBJ *gobj) {
     if (!gobj || !gobj->userdata) return 0;
     FighterData *data = gobj->userdata;
     if (data->flags.dead) return 0;
-    /* Both swordsmen share ground/air counter stance states. The native
-     * counter script enables a special shield: 0x221B bits 7 + 6. Bit 6 can
-     * remain latched during recovery, so the live enable bit is essential. */
-    if ((data->kind == FTKIND_MARTH || data->kind == FTKIND_ROY) &&
-        (data->state_id == 369 || data->state_id == 371) &&
-        data->flags.shield_enable && data->flags.shield_x40) return 1;
+    if (countering(data)) return 1;
     if (data->hurt.kind_script > 0 || data->hurt.kind_game > 0 ||
-        Fighter_GetIntangibleFrames(gobj) > 0 || (data->kind == FTKIND_YOSHI && data->dmg.armor > 0)) return 1;
+        Fighter_GetIntangibleFrames(gobj) > 0 || yoshi_armor(data)) return 1;
     /* SetAllHurtCapsules (script opcode 0x6C) does not set the aggregate status.
      * Include whole-body protection through that path, excluding a lone limb. */
     if (!data->hurt_num || data->hurt_num > countof(data->hurtbox)) return 0;
     for (unsigned i = 0; i < data->hurt_num; ++i)
         if (data->hurtbox[i].state <= 0) return 0;
     return 1;
+}
+/* Invincibility Stoplight's count: protected frames left, counting this one
+ * (see TMCue_ProtectionLeft). Counters and Yoshi's armor end on no countdown
+ * the game keeps, so while either is up it reads as five or more. */
+int ActionCues_ProtectionLeft(GOBJ *gobj) {
+    if (!ActionCues_IsProtected(gobj)) return 0;
+    FighterData *data = gobj->userdata;
+    if (countering(data) || yoshi_armor(data)) return TM_CUE_ENDING_FRAMES + 1;
+    TMCueScript script;
+    memcpy(&script, &data->script, sizeof(script));
+    TMCueHurt hurt = {.kind = data->hurt.kind_script, .count = data->hurt_num};
+    for (unsigned i = 0; i < hurt.count && i < countof(data->hurtbox); ++i) {
+        hurt.state[i] = data->hurtbox[i].state;
+        hurt.bone[i] = data->hurtbox[i].bone_index;
+    }
+    const u8 *raw = (const u8 *)data;
+    /* MexTK names 0x221D 0x02 ground_ignore; 0x8007B868 reads it as starman. */
+    TMCueEngine engine = {
+        .kind = data->hurt.kind_game, .ledge = data->hurt.intang_frames.ledge,
+        .respawn = data->hurt.intang_frames.respawn, .held = raw[0x2221] & 0x80,
+        .star = raw[0x221D] & 0x02, .star_frames = data->x2004,
+    };
+    /* The native gate for the script, unlike the timers, is the freeze bit. */
+    return TMCue_ProtectionLeft(&script, data->state.rate, data->flags.freeze, &hurt, &engine);
 }
 
 static CueFighter *get_fighter(GOBJ *gobj) {
@@ -156,7 +184,8 @@ static CueFighter *get_fighter(GOBJ *gobj) {
         (cpu_invincibility_option && cpu_fighter(data)) || Settings_Get(TM_SETTING_FLAG, TM_FLAG_LAST_BLOCKED_FRAME) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_MISSED_LCANCEL) ||
         Settings_Get(TM_SETTING_FLAG, TM_FLAG_RUN_TURNAROUND) ||
-        Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY);
+        Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY) ||
+        Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY_ENDING);
     if (gobj->gx_cb && gobj->gx_cb != Cue_Draw) {
         entry->draw = gobj->gx_cb;
         if (wrap) gobj->gx_cb = Cue_Draw;
@@ -359,7 +388,12 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
         ActionCues_IsProtected(gobj);
     int local = live && !data->flags.dead && entry->local_active;
     int timing_local = live && !data->flags.dead && entry->timing_active;
-    if (!cue && !protected && !local && !tangible && !timing_local) { entry->draw(gobj, pass); return; }
+    /* Invincibility Stoplight: its own setting, for everyone, whatever the
+     * protection tint's color, CPU palette or Ledgedash highlight. */
+    int ending = live && !data->flags.dead && ActionCues_IsProtected(gobj) &&
+        Settings_Get(TM_SETTING_FLAG, TM_FLAG_INVINCIBILITY_ENDING) ? ActionCues_ProtectionLeft(gobj) : 0;
+    if (ending < 1 || ending > TM_CUE_ENDING_FRAMES) ending = 0;
+    if (!cue && !protected && !local && !tangible && !timing_local && !ending) { entry->draw(gobj, pass); return; }
     /* Render-time composition: native/event colanim state survives byte-for-byte.
      * Timing explicitly replaces missed-cancel red, including Lab's own overlay. */
     ColorOverlay saved[3];
@@ -375,6 +409,12 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
     if (protected && cue != TM_CUE_YELLOW && cue != TM_CUE_GREEN) {
         uint32_t rgba = cpu_override ? cpu_color : protection_color(data);
         color = (GXColor){rgba >> 24, rgba >> 16, rgba >> 8, 112};
+    }
+    /* Red on the 4th and 3rd frames from the end, yellow on the last two.
+     * Actionable Yellow/Green keeps its priority, as over protection. */
+    if (ending && cue != TM_CUE_YELLOW && cue != TM_CUE_GREEN) {
+        static const GXColor stoplight[] = {TM_CUE_ENDING_YELLOW_COLOR, TM_CUE_ENDING_RED_COLOR};
+        color = stoplight[ending > 2];
     }
     /* Dropped invincibility must remain visible even over timing/local tints. */
     if (tangible) {

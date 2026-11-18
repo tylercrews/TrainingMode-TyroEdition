@@ -9,6 +9,11 @@ enum { TM_CUE_NONE, TM_CUE_YELLOW, TM_CUE_GREEN, TM_CUE_RED };
 #define TM_CUE_GREEN_COLOR {80,255,90,220}
 #define TM_CUE_RED_COLOR {255,40,40,180}
 #define TM_CUE_RED_PULSE {180,140,100,60,20,60,100,140}
+/* Invincibility Stoplight: the last four protected frames, red then yellow,
+ * the same for everyone. A little more opaque than the protection tint (112). */
+#define TM_CUE_ENDING_FRAMES 4
+#define TM_CUE_ENDING_RED_COLOR {255,40,40,150}
+#define TM_CUE_ENDING_YELLOW_COLOR {255,240,0,150}
 #define TM_CPU_INVINCIBILITY_NAMES "Off", "Red", "Blue", "Yellow", "Green", "Cyan", "Magenta", "Lavender"
 enum TMCPUInvincibilityColor {
     TM_CPU_INVINCIBILITY_OFF, TM_CPU_INVINCIBILITY_RED, TM_CPU_INVINCIBILITY_BLUE,
@@ -44,6 +49,23 @@ typedef struct TMCueState {
 /* -1 unknown; 0 actionable; 1/2 within the yellow window; 3 further away. */
 int TMCue_Remaining(float frame, float rate, float boundary);
 int TMCue_ScriptIASA(const TMCueScript *source, float rate);
+/* The body state the action script sets: hurt.kind_script and the hurtboxes. */
+typedef struct TMCueHurt {
+    int kind;
+    unsigned count;
+    int state[15], bone[15];
+} TMCueHurt;
+/* Protection the engine counts down itself (PlayerThink_Animation, 0x8006A360):
+ * hurt.kind_game with its ledge and respawn timers, the 0x2221 0x80 hold that
+ * no timer ends, and the starman flag (0x221D 0x02) with its timer (0x2004). */
+typedef struct TMCueEngine {
+    int kind, ledge, respawn, held, star, star_frames;
+} TMCueEngine;
+/* Protected frames left, counting this one: 0 not protected, 1..4, or 5 for
+ * five or more. -1 when the script can't be followed far enough to tell.
+ * Hitlag (frozen) holds the script but not the engine's timers. */
+int TMCue_ProtectionLeft(const TMCueScript *script, float rate, int frozen,
+                         const TMCueHurt *hurt, const TMCueEngine *engine);
 unsigned TMCue_Update(TMCueState *cue, int state, float frame, unsigned instance,
                       int remaining, int frozen, int timing, int red_active);
 unsigned TMCue_RedAlpha(unsigned phase);
