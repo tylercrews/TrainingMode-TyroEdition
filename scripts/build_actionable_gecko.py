@@ -62,7 +62,8 @@ def relocation_offsets(data):
             kind = info & 255
             if kind == 1:  # R_PPC_ADDR32: local pointer in GOT/data
                 result.append(offset)
-            elif kind not in (10, 18, 26):  # REL24 / resolved PLTREL24 / REL32
+            # REL24 / resolved PLTREL24 / LOCAL24PC (a bl to a static function) / REL32
+            elif kind not in (10, 18, 23, 26):
                 raise ValueError(f"Unsupported PPC relocation {kind} at {offset:x}")
     return sorted(set(result))
 

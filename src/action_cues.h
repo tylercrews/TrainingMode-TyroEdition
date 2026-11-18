@@ -57,9 +57,17 @@ typedef struct TMCueHurt {
 } TMCueHurt;
 /* Protection the engine counts down itself (PlayerThink_Animation, 0x8006A360):
  * hurt.kind_game with its ledge and respawn timers, the 0x2221 0x80 hold that
- * no timer ends, and the starman flag (0x221D 0x02) with its timer (0x2004). */
+ * no timer ends, and the starman flag (0x221D 0x02) with its timer (0x2004).
+ * counting: the timers seen going down by one since the last simulated frame.
+ * Only those predict an end; code can hold a timer instead, as Techchase
+ * re-arms a 1-frame ledge timer every frame. */
+#define TM_CUE_COUNTING_LEDGE 1u
+#define TM_CUE_COUNTING_RESPAWN 2u
+#define TM_CUE_COUNTING_STAR 4u
+#define TM_CUE_COUNTING_ALL 7u
 typedef struct TMCueEngine {
     int kind, ledge, respawn, held, star, star_frames;
+    unsigned counting;
 } TMCueEngine;
 /* Protected frames left, counting this one: 0 not protected, 1..4, or 5 for
  * five or more. -1 when the script can't be followed far enough to tell.

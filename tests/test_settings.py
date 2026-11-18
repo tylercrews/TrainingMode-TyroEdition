@@ -20,7 +20,7 @@ IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 # Global Settings pages, read down the left column then the right; 255 = gap.
 EDITOR = [
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
-    [2,4,7,17,11,25,255,23,255,35,31,255,34] + [255] * 16,
+    [2,4,7,17,11,25,36,255,23,255,35,31,255,34] + [255] * 15,
     # Fixed Grid OSD Positions: page one's OSD rows, then JC Shine (32) and Reset All (33).
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,32,33],
 ]
@@ -3011,7 +3011,7 @@ class OSDEditorTests(unittest.TestCase):
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
         rows = [id for page in EDITOR[:2] for id in page if id != 255]
-        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35]))
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35, 36]))
         self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
         # The positions page keeps every OSD row where page one has it.
         self.assertEqual(EDITOR[2][:27], EDITOR[0][:27])
@@ -3021,21 +3021,22 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(self.m.call("TMSettings_EditorIDFor", 3, 0), 255)
 
     def test_overlay_page_groups_character_overlays_gameplay_stage_and_timers(self):
-        character, gameplay, stage, timers = [2, 4, 7, 17, 11, 25], [23], [35, 31], [34]
-        self.assertEqual(EDITOR[1][:13], character + [255] + gameplay + [255] + stage + [255] + timers)
+        character, gameplay, stage, timers = [2, 4, 7, 17, 11, 25, 36], [23], [35, 31], [34]
+        self.assertEqual(EDITOR[1][:14], character + [255] + gameplay + [255] + stage + [255] + timers)
         m = self.m; open_editor(m, 1)
         m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
-        for row in (6, 8, 11): self.assertEqual(m.call("TestEditorHidden", row), 1)
-        for row, label in ((9, "Blast Zone Overlay"), (10, "Randall Overlay"), (12, "Don't Reset Timers")):
+        for row in (7, 9, 12): self.assertEqual(m.call("TestEditorHidden", row), 1)
+        for row, label in ((6, "Invincibility Stoplight"), (10, "Blast Zone Overlay"), (11, "Randall Overlay"),
+                           (13, "Don't Reset Timers")):
             self.assertEqual(self.label(m, row, len(label)), label)
 
     def test_checkboxes_are_posed_from_the_page_shown_not_the_previous_page(self):
         m = self.m
         frames = 0x804DB6A0 - 0x6AE8
         m.cpu.mem_write(frames, struct.pack(">ff", 3.0, 9.0))  # Off, On
-        m.write(14, 16, 7)  # Act OoWait On at page 1 row 9, where Blast Zone Overlay sits on page 2.
+        m.call("Settings_Set", 14, 27, 7)  # Act OoAttack On at page 1 row 10, where Blast Zone Overlay sits on page 2.
         m.call("TestEditorInit")
-        row = editor_row(16)[1]
+        row = editor_row(27)[1]
         self.assertEqual(m.call("TestEditorBoxFrame", row), 9)
         self.assertEqual(m.call("TestEditorBoxFrame", 7), 3)  # Gap rows are posed Off.
         m.call("TestEditorInput", MENU_L, 0); m.call("TestEditorInput", MENU_R, 0)
@@ -3200,7 +3201,7 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorReload")
         self.assertEqual(self.label(m, 0, 23), "Hitbox Trails Very Fast")
         self.assertEqual(m.call("TestEditorCache", 0), 1)
-        self.assertEqual(m.call("TestEditorHidden", 6), 1)
+        self.assertEqual(m.call("TestEditorHidden", 7), 1)  # The gap under Invincibility Stoplight.
         self.assertEqual(m.call("TestEditorLabelChar", master, 0), 0)
         # Exit saving through the native row hook now binds Global Overlays rows.
         m.call("TestSettingsEditorWrite", PHYSICAL[0], 0)
@@ -4671,10 +4672,16 @@ class InvincibilityStoplightTests(unittest.TestCase):
         return signed(self.m.call("TestCueProtectionLeft", slot))
 
     def ledge(self, frames, respawn=0, held=0, star=-1, kind=None):
-        """The engine's timers as they stand after this frame's update."""
+        """The engine's timers after this frame's update, counted down from the
+        frame before: two simulated frames. Read the result with draw()."""
         if kind is None: kind = 2 if frames else 1 if respawn else 0
-        self.m.call("TestCueProtection", 0, 0, kind, 0)
-        self.m.call("TestCueEngine", 0, frames, respawn, held, star)
+        m = self.m
+        m.call("TestCueProtection", 0, 0, kind, 0)
+        before = [value + 1 if value > 0 else value for value in (frames, respawn, star)]
+        m.call("TestCueEngine", 0, before[0], before[1], held, before[2])
+        self.frame += 1; m.call("TestCueTick", self.frame)
+        m.call("TestCueEngine", 0, frames, respawn, held, star)
+        self.frame += 1; m.call("TestCueTick", self.frame)
 
     def script(self, words, timer, frame=10, offset=0):
         """Point the script at words[offset] with timer frames to its next command."""
@@ -4686,8 +4693,35 @@ class InvincibilityStoplightTests(unittest.TestCase):
         for frames in range(8, -1, -1):
             self.ledge(frames)
             self.assertEqual(self.left(), min(frames, self.MORE))
-            colors.append(self.tick())
+            colors.append(self.draw())
         self.assertEqual(colors, [0, 0, 0, 0, self.RED, self.RED, self.YELLOW, self.YELLOW, 0])
+
+    def test_a_timer_event_code_holds_never_counts_down(self):
+        """Techchase re-arms a 1-frame ledge timer every frame it protects the CPU."""
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)
+        for _ in range(4):
+            m.call("TestCueProtection", 0, 0, 1, 0)
+            m.call("TestCueEngine", 0, 1, 0, 0, -1)
+            self.assertEqual((self.tick(), self.left()), (self.BLUE, self.MORE))
+        m.call("TestCueProtection", 0, 0, 0, 0)
+        m.call("TestCueEngine", 0, 0, 0, 0, -1)
+        self.assertEqual(self.tick(), 0)
+        # A new timer counts once the engine has taken a frame off it.
+        m.call("TestCueProtection", 0, 0, 2, 0)
+        m.call("TestCueEngine", 0, 3, 0, 0, -1)
+        self.assertEqual((self.tick(), self.left()), (self.BLUE, self.MORE))
+        m.call("TestCueEngine", 0, 2, 0, 0, -1)
+        self.assertEqual((self.tick(), self.left()), (self.YELLOW, 2))
+        m.call("TestCueTick", self.frame)  # Paused: the same frame again keeps the count.
+        self.assertEqual(self.draw(), self.YELLOW)
+        m.call("ActionCues_Clear")  # A restore forgets it.
+        self.assertEqual((self.draw(), self.left()), (self.BLUE, self.MORE))
+        # Starman's timer too.
+        m.call("TestCueProtection", 0, 0, 0, 0)
+        for _ in range(3):
+            m.call("TestCueEngine", 0, 0, 0, 0, 2)
+            self.assertEqual((self.tick(), self.left()), (self.BLUE, self.MORE))
 
     def test_overlay_colors_hold_until_the_stoplight_which_is_the_same_for_everyone(self):
         m = self.m
@@ -4697,17 +4731,17 @@ class InvincibilityStoplightTests(unittest.TestCase):
             m.call("TestCuePlayer", 0, accent, cpu)
             colors = []
             for frames in range(6, -1, -1):
-                self.ledge(frames); colors.append(self.tick())
+                self.ledge(frames); colors.append(self.draw())
             self.assertEqual(colors, expected(base))
         # An event's CPU palette, Off included, and the dropped-invincibility pulse leave it alone.
         option = 0x80407000
         m.cpu.mem_write(option, struct.pack(">hh", 0, 1))
         m.call("ActionCues_SetCPUInvincibilityOverlay", option)
-        self.ledge(3); self.assertEqual(self.tick(), self.RED)
+        self.ledge(3); self.assertEqual(self.draw(), self.RED)
         m.call("ActionCues_SetTangibilityOverlay", option + 2)
-        self.ledge(5); self.assertEqual(self.tick(), 0)
-        self.ledge(1); self.assertEqual(self.tick(), self.YELLOW)
-        self.ledge(0); self.assertEqual(self.tick(), 0xFF2828B4)  # Then the vulnerable pulse.
+        self.ledge(5); self.assertEqual(self.draw(), 0)
+        self.ledge(1); self.assertEqual(self.draw(), self.YELLOW)
+        self.ledge(0); self.assertEqual(self.draw() & 0xFFFFFF00, 0xFF282800)  # Then the vulnerable pulse.
 
     def test_respawn_and_ledge_timers_combine_as_the_native_countdown_does(self):
         for (ledge, respawn, held, kind), left in (
@@ -4723,9 +4757,9 @@ class InvincibilityStoplightTests(unittest.TestCase):
         for star, left, color in ((3, 3, self.RED), (1, 1, self.YELLOW), (9, self.MORE, 0), (0, self.MORE, 0)):
             self.ledge(0, star=star)
             self.assertEqual(self.left(), left)
-            self.assertEqual(self.tick(), color)
+            self.assertEqual(self.draw(), color)
         self.ledge(0)
-        self.assertEqual((self.left(), self.tick()), (0, 0))
+        self.assertEqual((self.left(), self.draw()), (0, 0))
 
     def test_script_intangibility_ends_on_its_body_state_command(self):
         m = self.m
@@ -4759,7 +4793,6 @@ class InvincibilityStoplightTests(unittest.TestCase):
             with self.subTest(words=words):
                 self.script(words, timer)
                 self.assertEqual(self.left(), left)
-        self.assertEqual([m.call("TestCueProtection", 0, 0, 0, 0)] and self.left(), self.MORE)
 
     def test_hitlag_holds_the_script_but_not_the_timers(self):
         m = self.m
@@ -4771,7 +4804,7 @@ class InvincibilityStoplightTests(unittest.TestCase):
         m.call("TestCueProtection", 0, 0, 0, 0)
         self.ledge(2)
         self.assertEqual(self.left(), 2)
-        self.assertEqual(self.tick(), self.YELLOW)
+        self.assertEqual(self.draw(), self.YELLOW)
 
     def test_unknown_ends_show_nothing(self):
         m = self.m
@@ -4790,11 +4823,11 @@ class InvincibilityStoplightTests(unittest.TestCase):
         self.ledge(2)
         m.call("TestCueKind", 0, 18); m.call("TestCueState", 0, 369, 10, 60, 100)
         m.cpu.mem_write(data + 0x221B, b"\xC0")
-        self.assertEqual((self.left(), self.tick()), (self.MORE, 0))
+        self.assertEqual((self.left(), self.draw()), (self.MORE, 0))
         m.cpu.mem_write(data + 0x221B, b"\x00")
         m.call("TestCueKind", 0, 14); m.call("TestCueState", 0, 27, 0, 40, 100)
         m.call("TestCueProtection", 0, 0, 2, 12000)
-        self.assertEqual((self.left(), self.tick()), (self.MORE, 0))
+        self.assertEqual((self.left(), self.draw()), (self.MORE, 0))
 
     def test_actionable_cue_keeps_priority_and_toggles_apply_while_paused(self):
         m = self.m
@@ -4802,8 +4835,9 @@ class InvincibilityStoplightTests(unittest.TestCase):
         m.cpu.mem_write(data + 0x408, bytes((i * 7 + 3) & 255 for i in range(384)))
         before = bytes(m.cpu.mem_read(data + 0x408, 384))
         self.ledge(2)
-        self.assertEqual(self.tick(), self.YELLOW)
+        self.assertEqual(self.draw(), self.YELLOW)
         self.assertEqual(bytes(m.cpu.mem_read(data + 0x408, 384)), before)
+        m.cpu.mem_write(data + 0x408, bytes(384))  # No native tint, so a plain draw reads 0.
         m.call("Settings_Set", 11, self.STOPLIGHT, 0)
         self.assertEqual(self.draw(), 0)
         m.call("Settings_Set", 11, self.STOPLIGHT, 1)
@@ -4811,7 +4845,8 @@ class InvincibilityStoplightTests(unittest.TestCase):
         m.call("Settings_Set", 11, 4, 1)  # Actionable Yellow>Green.
         m.call("TestCueLanding", 0, 5, 1)
         m.call("TestCueState", 0, 42, 3, 40, 100)
-        self.assertEqual(self.tick(), 0xFFF000DC)
+        self.ledge(2)
+        self.assertEqual((self.left(), self.draw()), (2, 0xFFF000DC))
 
 
 class LedgedashLogicTests(unittest.TestCase):

@@ -18,6 +18,10 @@ typedef struct CueFighter {
     unsigned tangible_red;
     GXColor timing_color;
     int timing_active;
+    /* Last simulated frame's ledge, respawn and starman timers, and which of
+     * them went down by one since the frame before (TMCueEngine.counting). */
+    int timers[3], timers_seen;
+    unsigned counting;
 } CueFighter;
 static CueFighter fighters[12];
 static GOBJ *manager;
@@ -149,11 +153,15 @@ int ActionCues_ProtectionLeft(GOBJ *gobj) {
         hurt.bone[i] = data->hurtbox[i].bone_index;
     }
     const u8 *raw = (const u8 *)data;
+    CueFighter *entry = 0;
+    for (unsigned i = 0; i < countof(fighters); ++i)
+        if (fighters[i].object == gobj) { entry = &fighters[i]; break; }
     /* MexTK names 0x221D 0x02 ground_ignore; 0x8007B868 reads it as starman. */
     TMCueEngine engine = {
         .kind = data->hurt.kind_game, .ledge = data->hurt.intang_frames.ledge,
         .respawn = data->hurt.intang_frames.respawn, .held = raw[0x2221] & 0x80,
         .star = raw[0x221D] & 0x02, .star_frames = data->x2004,
+        .counting = entry && live ? entry->counting : 0,
     };
     /* The native gate for the script, unlike the timers, is the freeze bit. */
     return TMCue_ProtectionLeft(&script, data->state.rate, data->flags.freeze, &hurt, &engine);
@@ -177,6 +185,7 @@ static CueFighter *get_fighter(GOBJ *gobj) {
         entry->spawn = data->spawn_num;
         entry->cue = (TMCueState){0}; entry->color = TM_CUE_NONE; entry->missed_entry = -1;
         entry->local_active = 0; entry->tangible_red = 0; entry->timing_active = 0;
+        entry->timers_seen = 0; entry->counting = 0;
     }
     /* Retain the wrapper even for local Off, so a paused palette edit is
      * visible immediately without waiting for the next simulation update. */
@@ -346,8 +355,17 @@ static void Cue_Think(GOBJ *gobj) {
             if (data->flags.dead) {
                 entry->cue = (TMCueState){0}; entry->color = TM_CUE_NONE; entry->missed_entry = -1;
                 entry->local_active = 0; entry->tangible_red = 0; entry->timing_active = 0;
+                entry->timers_seen = 0; entry->counting = 0;
                 continue;
             }
+            /* After event code, so a timer it re-arms every frame never counts. */
+            int timers[3] = {data->hurt.intang_frames.ledge, data->hurt.intang_frames.respawn, data->x2004};
+            entry->counting = 0;
+            for (unsigned i = 0; i < 3; ++i)
+                if (entry->timers_seen && timers[i] > 0 && entry->timers[i] == timers[i] + 1)
+                    entry->counting |= 1u << i;
+            memcpy(entry->timers, timers, sizeof(timers));
+            entry->timers_seen = 1;
             int frozen = data->flags.hitlag || data->flags.freeze;
             if (!tangibility_enabled() || ActionCues_IsProtected(ft)) entry->tangible_red = 0;
             else if (!entry->tangible_red) entry->tangible_red = 1;
@@ -438,6 +456,7 @@ void ActionCues_Clear(void) {
         fighters[i].color = TM_CUE_NONE; fighters[i].missed_entry = -1;
         fighters[i].local_active = 0; fighters[i].timing_active = 0;
         fighters[i].tangible_red = 0;
+        fighters[i].timers_seen = 0; fighters[i].counting = 0;
     }
     seen_frame = 0; /* Retain original draw callbacks while clearing tracking. */
 }

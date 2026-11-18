@@ -16,7 +16,7 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bits 6-31 (free for any setting whose stored 0 is its default, with no version bump) and scattered single bits. The core record is full.
+**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bits 9-31 (free for any setting whose stored 0 is its default, with no version bump) and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 

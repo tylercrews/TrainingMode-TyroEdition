@@ -8,7 +8,9 @@
 typedef char settings_overlay_capacity[(OVERLAY_COUNT <= TM_SETTINGS_OVERLAYS) ? 1 : -1];
 typedef char settings_overlay_effects[(countof(LabValues_OverlayColours) == TM_SETTINGS_OVERLAY_CHOICES) ? 1 : -1];
 typedef char settings_osd_capacity[(countof(LabOSD_ID) == TM_SETTINGS_OSDS) ? 1 : -1];
-typedef char lab_act_oo_attack_row[(countof(LabOptions_OSDs) == LABOSD_ACT_OO_ATTACK + 1) ? 1 : -1];
+/* Rows appended after OSD Display, in order: Act OoAttack, Invincibility Stoplight. */
+typedef char lab_appended_osd_rows[(LABOSD_INVINCIBILITY_ENDING == LABOSD_ACT_OO_ATTACK + 1 &&
+    countof(LabOptions_OSDs) == LABOSD_INVINCIBILITY_ENDING + 1) ? 1 : -1];
 
 // Static Variables
 static DIDraw didraws[6];

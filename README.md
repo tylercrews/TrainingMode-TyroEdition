@@ -108,6 +108,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - **Change Stage** and **Change Characters** in the pause menu restart without going back through the character and stage select.
 - **Globals and all events**
     - **Actionable Yellow>Green** now covers grab releases, on the ground and in the air.
+    - New **Invincibility Stoplight** (Global Overlays page, under Invincibility Overlay, and the Training Lab's Global Visuals): a fighter's last four invincible frames are red, red, then yellow, yellow, and then they're hittable. It's the same red and yellow for everyone, a little more opaque than the Invincibility Overlay, and works with or without it. It covers ledge, respawn and starman invincibility and dodges, techs and moves that end their own invincibility. It doesn't show for counters or Yoshi's armor, invincibility that ends because the action ends (like landing a waveland), invincibility an event keeps renewing (like the Techchase CPU's while it falls and stands), or a move's invincibility while it's in hitlag. Actionable Yellow>Green still shows over it. A [Slippi Gecko code](slippi-gecko-codes/invincibility-stoplight/README.md) does the same in any match and runs alongside the Invincibility Overlay and Actionable Yellow-Green codes (not tested in Dolphin yet).
 - **Event changes**
     - New **Doubles** page of events, after Character-specific Tech. **Grab Punish Practice** (was 2v1 Grab Punish Practice) moved there.
     - **Techchase**

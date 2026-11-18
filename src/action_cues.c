@@ -112,6 +112,10 @@ int TMCue_ProtectionLeft(const TMCueScript *source, float rate, int frozen,
     TMCueScript copy = *source;
     TMCueHurt body = *hurt;
     TMCueEngine timers = *engine;
+    /* A timer held by something else has no end to see: hold the protection. */
+    if (timers.kind > 0 && ((timers.ledge && !(timers.counting & TM_CUE_COUNTING_LEDGE)) ||
+        (timers.respawn && !(timers.counting & TM_CUE_COUNTING_RESPAWN)))) timers.held = 1;
+    if (!(timers.counting & TM_CUE_COUNTING_STAR)) timers.star_frames = 0;
     int script = source->depth > 5 || !(rate >= 0) ? STEP_BAD : frozen || rate == 0 ? STEP_DONE : STEP_OK;
     for (unsigned ahead = 0; ahead <= TM_CUE_ENDING_FRAMES; ++ahead) {
         if (ahead) {
