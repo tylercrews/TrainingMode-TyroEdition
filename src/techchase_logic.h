@@ -105,6 +105,20 @@ static int TC_WavelandDirection(int away, float room_away, float room_toward) {
     return 0;
 }
 
+/* The practice clock adds up the console's time base, which runs at a quarter
+ * of the bus clock whatever the game speed, so slow motion still counts real
+ * seconds. `delta` is the ticks since the last frame; whole seconds go to
+ * `seconds` and the rest stays in `ticks`. */
+static void TC_ClockAdd(unsigned *seconds, unsigned *ticks, unsigned delta, unsigned ticks_per_second) {
+    if (!ticks_per_second) return;
+    *seconds += delta / ticks_per_second;
+    *ticks += delta % ticks_per_second;
+    if (*ticks >= ticks_per_second) {
+        *ticks -= ticks_per_second;
+        ++*seconds;
+    }
+}
+
 /* DODGING is the followup under way, from its first state until the CPU
  * stands again. TC_STATE_DODGE is a state only the followup enters. */
 enum TCPunishPhase { TC_PUNISH_START, TC_PUNISH_TECH, TC_PUNISH_DODGING, TC_PUNISH_FINISHED };

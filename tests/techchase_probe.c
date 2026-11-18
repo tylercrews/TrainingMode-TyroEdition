@@ -330,3 +330,14 @@ int TestTCASID(int which) {
         ASID_DAMAGEFALL, ASID_GUARD, ASID_JUMPB, ASID_DAMAGEHI1};
     return ids[which];
 }
+
+/* Practice clock: the time base starts at `tick`, with the bus clock at
+ * `bus_clock` (the time base runs at a quarter of it). */
+int TestTCClockStart(int tick, int bus_clock) {
+    os_info->bus_clock = bus_clock;
+    clock_seconds = clock_ticks = 0;
+    clock_tick = tick;
+    return 1;
+}
+// One frame at time base tick `now`; returns the whole seconds counted.
+int TestTCClockFrame(int now, int paused) { AdvanceClock(now, paused); return clock_seconds; }

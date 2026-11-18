@@ -136,6 +136,21 @@ version 23 zeroes, and only a version 23 record reads them: an older record
 reads the low bit alone, which is all it ever held. A damaged 6 or 7 repairs to
 None without touching the rest of either word.
 
+## Practice clock
+
+A clock in the bottom left corner shows how long you've practiced since the
+event started: `MM:SS`, then `H:MM:SS` from an hour on. It's Low Laser Puff
+Practice's clock: white, full size, left-aligned at (50, 433) on the 640x480
+HUD canvas, where Eggs-ercise's Bottom Left counter goes. Techchase has no
+damage HUD, so the corner is free.
+
+It adds up real time on the console's time base (`OSGetTick`, a quarter of the
+bus clock), not frames, so Game Speed's slow motion still counts every second
+(`TC_ClockAdd`). It stops, and hides, while the pause menu is open. The match
+timer couldn't do this: every reset loads a savestate, which rewinds the match
+clock unless Don't Reset Timers is on. Resets, setting changes and moving the
+fighters leave the clock running; leaving the event starts it over next time.
+
 CPU Invincibility Overlay selects Off, Red, Blue, Yellow, Green, Cyan, Magenta
 or Lavender (default). It uses the shared natural-protection detector, including
 move and dodge invulnerability. This event-local choice overrides the global

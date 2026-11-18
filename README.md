@@ -113,6 +113,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - New **Player Side** setting (**Left**, **Right** or **Random**) picks which side of the CPU you start on. D-pad left/right picks it too.
         - New **Getup Attack Only** preset: the CPU always misses the tech and getup attacks.
         - **Spotdodge Punish** is now **CPU Followup Action**: right after its tech the CPU can **Spotdodge**, **Roll Away** or **Roll In** (from stage center), **Shine** (Fox and Falco: it jumps out and wavelands), or pick one at **Random** each reset. When it's done it's intangible again, like after a tech.
+        - A clock in the bottom left shows how long you've been practicing. The pause menu doesn't count, and slow motion still counts real time.
     - **Edgeguard Training:** D-pad left/right picks the **Side** ledge and restarts.
     - **Side-B Sweetspot:** new **Marth** setting turns off his down tilt, so you can practice shortens onto the stage.
     - **Up-B Sweetspot**

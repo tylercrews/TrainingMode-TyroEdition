@@ -907,14 +907,56 @@ static int RunFollowup(GOBJ *cpu) {
     return action;
 }
 
+/* Practice clock: how long you've practiced since the event started, in the
+ * bottom left corner. It counts real time, so slow motion still counts, but not
+ * the pause menu. Resets don't restart it: the savestate doesn't hold it. */
+static Text *practice_clock;
+static unsigned clock_seconds, clock_ticks;
+static int clock_tick;
+
+static void StartClock(void) {
+    clock_seconds = clock_ticks = 0;
+    clock_tick = OSGetTick();
+    /* Low Laser Puff Practice's clock: Eggs-ercise's Bottom Left counter spot
+     * and size. Full-size digits sit 4 to 22 into their 32 tall line, so at 433
+     * they end 25 above the bottom edge. The 2-player damage HUD (off here
+     * anyway) sits near the center, leaving the corner free. */
+    int canvas = Text_CreateCanvas(2, 0, 0, 0, 0, GXLINK_HUD, 81, 19);
+    Text *text = practice_clock = Text_CreateText(2, canvas);
+    if (!text) return;
+    GXColor white = {255, 255, 255, 255};
+    text->kerning = 1;
+    text->trans = (Vec3){50, 433, 0};
+    text->viewport_scale.X = text->viewport_scale.Y = 1;
+    Text_AddSubtext(text, 0, 0, "00:00");
+    Text_SetColor(text, 0, &white);
+}
+
+// `now` is this frame's time base tick. A paused frame only moves the mark.
+static void AdvanceClock(int now, bool paused) {
+    if (!paused) TC_ClockAdd(&clock_seconds, &clock_ticks, (unsigned)(now - clock_tick), os_info->bus_clock / 4);
+    clock_tick = now;
+}
+
+static void ShowClock(bool paused) {
+    if (!practice_clock) return;
+    practice_clock->hidden = paused; // Hidden with the pause menu, like Low Laser's.
+    unsigned s = clock_seconds;
+    if (s < 3600) Text_SetText(practice_clock, 0, "%02d:%02d", s / 60, s % 60);
+    else Text_SetText(practice_clock, 0, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60);
+}
+
 void Event_Update(GOBJ *menu) {
+    bool paused = Pause_CheckStatus(1) == 2 ||
+        ((MenuData *)event_vars->menu_gobj->userdata)->mode == MenuMode_Paused;
     if (Pause_CheckStatus(1) != 2) {
         float speed = GameSpeeds[Options_Main[OPT_SPEED].val];
         HSD_SetSpeedEasy(speed);
     } else {
         HSD_SetSpeedEasy(1.0);
     }
-
+    AdvanceClock(OSGetTick(), paused);
+    ShowClock(paused);
 }
 
 void MoveFighter(GOBJ *ft, Vec3 *pos, float *facing_direction) {
@@ -1220,6 +1262,7 @@ void Event_Init(GOBJ *gobj) {
     Options_Main[OPT_CPU_COLOR].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CPU_COLOR);
     event_vars->set_cpu_invincibility_overlay(&Options_Main[OPT_CPU_COLOR].val);
     Options_Main[OPT_CAM].val = TM_GetSetting(TM_SETTING_TECHCHASE, TM_TECHCHASE_CAMERA);
+    StartClock();
     ApplyStartingLocation();
     ChangeCam(0, Options_Main[OPT_CAM].val);
     for (unsigned i = 0; i < countof(Options_Main); ++i) Options_Main[i].val_prev = Options_Main[i].val;

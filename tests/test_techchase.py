@@ -771,6 +771,28 @@ class TechchaseTests(unittest.TestCase):
             self.assertEqual(m.tick(self.asid(DAMAGEHI1), GUARDON_IASA if followup == ROLL_AWAY else SHINE_LOOP_IASA), 0)
             self.assertEqual((m.call("TestTCEnterCalls"), m.call("TestTCRaw")), (1, 0))
 
+    def test_practice_clock_counts_real_unpaused_time_at_any_game_speed(self):
+        m = self.m
+        bus = 162000000  # The GameCube's bus clock; the time base runs at a quarter of it.
+        second = bus // 4
+        tick = 0xFFF00000  # Near the top, so the clock wraps on the way.
+        m.call("TestTCClockStart", tick, bus)
+        def frames(count, length, paused=0):
+            nonlocal tick
+            for _ in range(count):
+                tick = (tick + length) & 0xFFFFFFFF
+                seconds = m.call("TestTCClockFrame", tick, paused)
+            return seconds
+        self.assertEqual(frames(59, second // 60), 0)
+        self.assertEqual(frames(1, second // 60), 1)
+        self.assertEqual(frames(600, second // 60, paused=1), 1)  # The pause menu doesn't count.
+        self.assertEqual(frames(1, second // 60), 1)  # The next frame adds only its own sixtieth.
+        self.assertEqual(frames(59, second // 60), 2)
+        # Slow motion: half as many frames a second, each twice as long.
+        self.assertEqual(frames(30, second // 30), 3)
+        self.assertEqual(frames(1, 3 * second + second // 2), 6)  # A long frame counts in full,
+        self.assertEqual(frames(30, second // 60), 7)  # and its leftover half second carries.
+
     def test_cpu_palette_and_off_preserve_native_colors(self):
         self.assertEqual(self.m.call("TestTCMenuCPUColorCount"), 8)
         for value in range(8):
