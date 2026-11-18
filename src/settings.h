@@ -61,6 +61,8 @@
 #define TM_GLOBAL_DONT_RESET_TIMERS_NAME "Don't Reset Timers"
 #define TM_GLOBAL_BLAST_ZONES_ROW 35 /* Editor-only logical row. */
 #define TM_GLOBAL_BLAST_ZONES_NAME "Blast Zone Overlay"
+#define TM_GLOBAL_INVINCIBILITY_ENDING_ROW 36 /* Editor-only logical row. */
+#define TM_GLOBAL_INVINCIBILITY_ENDING_NAME "Invincibility Stoplight"
 #define TM_GLOBAL_MISSED_LCANCEL_NAME "Missed L Cancel"
 #define TM_GLOBAL_ACTION_CUES_NAME "Actionable Yellow>Green"
 #define TM_GLOBAL_RUN_TURN_NAME "Run Turnaround"
@@ -96,9 +98,11 @@ enum TMSettingsFlag {
     TM_FLAG_RANDALL = TM_FLAG_COUNT, /* TYEX byte 8 bit 3; routed by Settings_Get/Set. */
     TM_FLAG_DONT_RESET_TIMERS, /* TYEX byte 8 bit 7: savestate loads keep the match clock. */
     TM_FLAG_BLAST_ZONES, /* TYEX word 20 bit 23: red lines on every stage's blast zones. */
+    TM_FLAG_INVINCIBILITY_ENDING, /* TYEX word 80 bit 6 (T10): Invincibility Stoplight, red then yellow. */
 };
 /* Flags whose bit lives in the extension, not the full core record. */
-#define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS ||     (index) == TM_FLAG_BLAST_ZONES)
+#define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS || \
+    (index) == TM_FLAG_BLAST_ZONES || (index) == TM_FLAG_INVINCIBILITY_ENDING)
 
 /* These field numbers are mirrored in ASM/Globals.s. Append; never reorder. */
 enum TMSettingsField {

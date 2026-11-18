@@ -77,6 +77,8 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 - Edgeguard Training Beta Changes:
     - Luigi feels like they reset a little early
 
+- hints section of grabs-ercise where you talk about different ways you can grab like how you can shield grab (L+A) out of crouch instead of waiting out the standup animation to push Z. 
+
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
