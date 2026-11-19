@@ -105,6 +105,10 @@ GRABS_COUNTS, GRABS_DEFAULTS = (64, 2, 2, 14, 3, 2, 2, 2, 2, 2, 2, 2, 3), (0, 0,
 GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (80, 0, 4), (48, 27, 2), (76, 24, 1), (76, 25, 1),
                 (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1), (80, 7, 2))
 GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3, 4, 5, 12
+# Target Practice (T10): its timed best (8 bits), Free Practice and SH Double
+# Lasers in word 80 bits 10-17, 18 and 19, each stored as itself.
+TARGETS = 53  # TM_SETTING_TARGETS
+TARGETS_DEFAULTS = (0, 0, 0)
 # Bytes 24..83 appended by versions 15 to 23: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
@@ -833,6 +837,61 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT + 80, (word() | 3 << 7).to_bytes(4, 'little'))  # 3 isn't a choice: it reads as Random.
         self.assertEqual(m.call('Settings_Get', GRABS, GRABS_MOVEMENT), 0)
         self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP)), (9, 4))
+
+    # Target Practice (T10): word 80 bits 10-19, no version bump.
+    def test_target_practice_reads_its_defaults_from_word_80s_zeros(self):
+        m = self.m
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)  # No record.
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)
+
+    def test_target_practice_round_trips_in_word_80_bits_10_to_19_alone(self):
+        m = self.m
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # Bits 0-3.
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 4)  # Bits 4-5.
+        m.call('Settings_Set', 11, STOPLIGHT, 1)  # Bit 6.
+        m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 2)  # Bits 7-8.
+        m.call('Settings_Set', 11, DEBUG_OFF, 1)  # Bit 9.
+        word = lambda: int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        below = word()
+        self.assertEqual(below >> 10, 0)
+        for (best, free, shdl) in ((1, 0, 0), (255, 1, 0), (0, 0, 1), (137, 1, 1), (0, 0, 0)):
+            for index, value in enumerate((best, free, shdl)):
+                m.call('Settings_Set', TARGETS, index, value)
+            self.assertEqual(word(), below | best << 10 | free << 18 | shdl << 19)
+            self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), (best, free, shdl))
+        self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP),
+                          m.call('Settings_Get', 11, STOPLIGHT), m.call('Settings_Get', GRABS, GRABS_MOVEMENT),
+                          m.call('Settings_Get', 11, DEBUG_OFF)), (9, 4, 1, 2, 1))
+        # Bits 20-31 stay spare, and the neighbors' writes leave Target Practice alone.
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
+        m.cpu.mem_write(EXT + 80, (word() | 0xFFF00000).to_bytes(4, 'little'))
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 3); m.call('Settings_Set', 11, DEBUG_OFF, 0)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), (200, 0, 1))
+        self.assertEqual(word() >> 20, 0xFFF)
+
+    def test_target_practice_ignores_values_past_its_bits(self):
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 77); m.call('Settings_Set', TARGETS, 1, 1)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for index, value in ((0, 256), (1, 2), (2, 2), (3, 1)):
+            m.call('Settings_Set', TARGETS, index, value)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        self.assertEqual(m.call('Settings_Get', TARGETS, 3), 0)
+
+    def test_version_22_records_read_the_target_practice_defaults_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in it.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)
+        m.call('Settings_Set', TARGETS, 0, 12)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 12 << 10)
+        self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))
 
     def test_version_22_records_read_cpu_movement_as_random(self):
         m = self.m

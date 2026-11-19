@@ -124,8 +124,8 @@ class ScoreStorageAudit(unittest.TestCase):
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
         # Grab Punish moved from General Tech's end to the Doubles page in T10,
-        # and Grabs-ercise joined the end of Minigames.
-        self.assertEqual(counts, [7, 17, 11, 2])
+        # and Grabs-ercise, then Target Practice, joined the end of Minigames.
+        self.assertEqual(counts, [8, 17, 11, 2])
         self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
         self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)

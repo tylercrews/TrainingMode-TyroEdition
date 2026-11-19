@@ -159,6 +159,7 @@ enum TMSettingsField {
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
     TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 (T10); see TMGrabercisePreference. */
     TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
+    TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19 (T10); see TMTargetsPreference. */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 /* Event Select pages: Minigames, General Tech, Character-specific Tech and
@@ -350,6 +351,14 @@ enum TMGrabsStanding { TM_GRABS_STAND, TM_GRABS_SHIELD, TM_GRABS_STAND_RANDOM, T
 enum TMGrabsMovement {
     TM_GRABS_MOVEMENT_RANDOM, TM_GRABS_MOVEMENT_STILL, TM_GRABS_MOVEMENT_MOVING, TM_GRABS_MOVEMENT_COUNT
 };
+/* Target Practice (T10): its timed best, Free Practice and SH Double Lasers,
+ * in word 80's spare bits 10..19 with no version bump. Every migration to 23
+ * zeroes the word and every default is 0 (no best, timed runs, single
+ * targets), so each is stored as itself. Only a version 23 record owns them. */
+enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS_SHDL, TM_TARGETS_PREF_COUNT };
+/* The best is 8 bits. A target takes a laser's flight and usually a jump, so
+ * a minute is nowhere near 255. */
+#define TM_TARGETS_BEST_MAX 255
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
  * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
  * word 68 (version 20), and B0XX Angles (default Off, T10) in word 72 bit 28.

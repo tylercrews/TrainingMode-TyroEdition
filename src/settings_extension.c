@@ -226,6 +226,18 @@ static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
 typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT)<ENDING_BIT &&
     ENDING_BIT==1u<<6 && GRABS_MOVEMENT_SHIFT==7 && ENDING_BYTE==GRABS_OFFSET &&
     (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1==GRABS_MOVEMENT_SHIFT+2 && CONSOLE_OFF_BIT==1u<<1) ? 1 : -1];
+/* Target Practice (T10) takes word 80's bits 10..19 with no version bump: its
+ * timed best (8 bits, 10-17), Free Practice (18) and SH Double Lasers (19),
+ * above Disable TM Developer Debug Menu's bit 9. Each is stored as itself, so
+ * the zeros every migration to 23 writes read as the defaults, and every value
+ * fills its bits exactly, so none needs repairing. Only a version 23 record
+ * owns them. */
+#define TARGETS_SHIFT 10
+static const ExtensionPreference targets_preferences[TM_TARGETS_PREF_COUNT] = {
+    {TARGETS_SHIFT,8,TM_TARGETS_BEST_MAX+1,0}, {TARGETS_SHIFT+8,1,2,0}, {TARGETS_SHIFT+9,1,2,0},
+};
+typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 && TM_TARGETS_PREF_COUNT==3 &&
+    (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1<TARGETS_SHIFT && CONSOLE_OFF_BIT==1u<<1 && TARGETS_SHIFT+10<=32) ? 1 : -1];
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -364,7 +376,8 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_PASSING ? TM_PASS_PREF_COUNT :
         field==TM_SETTING_ESCAPE_SAMUS ? TM_ESC_SAMUS_PREF_COUNT :
         field==TM_SETTING_ESCAPE_IC ? TM_ESC_IC_PREF_COUNT :
-        field==TM_SETTING_GRABERCISE ? TM_GRABS_PREF_COUNT : 0;
+        field==TM_SETTING_GRABERCISE ? TM_GRABS_PREF_COUNT :
+        field==TM_SETTING_TARGETS ? TM_TARGETS_PREF_COUNT : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -386,6 +399,7 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_ESCAPE_SAMUS && index<TM_ESC_SAMUS_PREF_COUNT) return &escape_samus_preferences[index];
     if(field==TM_SETTING_ESCAPE_IC && index<TM_ESC_IC_PREF_COUNT) return &escape_ic_preferences[index];
     if(field==TM_SETTING_GRABERCISE && index<TM_GRABS_PREF_COUNT) return &grabercise_preferences[index];
+    if(field==TM_SETTING_TARGETS && index<TM_TARGETS_PREF_COUNT) return &targets_preferences[index];
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
@@ -395,7 +409,8 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
-    if(field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) return GRABS_OFFSET;
+    if((field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) ||
+        field==TM_SETTING_TARGETS) return GRABS_OFFSET;
     if(IS_ESCAPE(field)) return ESCAPES_OFFSET;
     if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
         (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) return COSTUME_WORD_OFFSET;
@@ -667,6 +682,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     /* Version 15 is the first to own byte 34. */
     if(field==TM_SETTING_LEDGEGRAB_RESET)
         return supported(r)||v15||v16||v17||v18||v19||v20||v21||v22?preference_value(r,field,index):p->initial;
+    /* Only a current record owns word 80: older ones read the defaults. */
+    if(field==TM_SETTING_TARGETS) return supported(r)?preference_value(r,field,index):p->initial;
     /* Version 22 records own word 76, and only version 23's word 80. */
     if(IS_ESCAPE(field)) {
         int owned=supported(r)||(v22 && preference_offset(field,index)!=GRABS_OFFSET);

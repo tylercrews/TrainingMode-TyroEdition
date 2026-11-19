@@ -17,7 +17,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
 
     def test_general_seventeenth_entry_preserves_existing_order(self):
         pages = self.functions[0]
-        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(4)], [7, 17, 11, 2])
+        self.assertEqual([self.word(self.word(pages + page * 4) + 4) for page in range(4)], [8, 17, 11, 2])
         general = self.word(pages + 4)
         events = self.word(general + 8)
         expected = ['Training Lab', 'L-Cancel Training', 'Ledgedash Training',
@@ -93,7 +93,7 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         machine.call(functions[28], 2, 0, 1)
         self.assertEqual(machine.call(functions[43], 0), reaction + 2 * 4)  # Slot 5 stays Training Lab's.
 
-    def test_grabercise_ends_the_minigames_page_with_a_cpu_stage_select_and_no_score_slot(self):
+    def test_grabercise_stays_seventh_on_the_minigames_page_with_a_cpu_stage_select_and_no_score_slot(self):
         functions, machine = self.functions, self.m
         minigames = self.word(self.word(functions[0]) + 8)
         descriptor = self.word(minigames + 6 * 4)
@@ -105,6 +105,20 @@ class LedgechaseCatalogueTests(unittest.TestCase):
         self.assertEqual(machine.call(functions[12], 0, 6), 0xFFFFFFFF)  # any CPU
         machine.call(functions[28], 2, 0, 0)  # TM_SETTING_EVENT_PAGE
         self.assertEqual(machine.call(functions[43], 6), 0)  # Its best is in TYEX, not a score slot.
+
+    def test_target_practice_ends_the_minigames_page_for_fox_and_falco_with_a_stage_select_and_no_score_slot(self):
+        functions, machine = self.functions, self.m
+        minigames = self.word(self.word(functions[0]) + 8)
+        descriptor = self.word(minigames + 7 * 4)
+        self.assertEqual(self.text(self.word(descriptor)).strip(), 'Target Practice')
+        self.assertEqual(self.text(self.word(descriptor + 8)), 'targets')
+        self.assertEqual(machine.call(functions[10], 0, 7), 14)  # SLCHRKIND_EVENT
+        self.assertEqual(machine.call(functions[11], 0, 7), 1)  # stage select
+        self.assertEqual(machine.call(functions[12], 0, 7), 0xFFFFFFFF)  # no CPU
+        whitelist = machine.call(functions[25], 7, 0)
+        self.assertEqual(struct.unpack('>iI', machine.cpu.mem_read(whitelist, 8)), (1 << 9 | 1 << 10, 0xFFFFFFFF))  # Falco, Fox
+        machine.call(functions[28], 2, 0, 0)  # TM_SETTING_EVENT_PAGE
+        self.assertEqual(machine.call(functions[43], 7), 0)  # Its best is in TYEX, not a score slot.
 
     def test_both_fighters_selectable_fixed_fd_and_percent_hud_enabled(self):
         functions = self.functions

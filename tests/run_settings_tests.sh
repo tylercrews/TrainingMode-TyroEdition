@@ -69,6 +69,7 @@ python tests/test_passing.py -v
 python tests/test_escapesamus.py -v
 python tests/test_escapeic.py -v
 python tests/test_grabercise.py -v
+python tests/test_targets.py -v
 python tests/test_upbsweetspot.py -v
 python tests/test_savestate.py -v
 python tests/test_stage_swap.py -v
