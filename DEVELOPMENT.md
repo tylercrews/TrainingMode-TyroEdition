@@ -251,6 +251,10 @@ The powershield event is the simplest and easiest to learn from.
     - Add your function logic to `src/osds.c`.
     - Add the OSD to the OSD list in `ASM/training-mode/Globals.s`. OSD ids are weird, I don't know exactly how to do this.
     - Add your OSD to the corresponding slot in `ASM/training-mode/Onscreen Display/Toggle UI/Load Alt Text When Loaded With L.asm`.
+- If you want an event to hold a stage's moving part (like Stadium's form or Fountain's platforms):
+    - Write the state the game's own controller would be in, and keep its think running so collision follows. Don't just overwrite its joints after it runs. See `src/fountain.c` and `src/stadium.c`.
+    - Find map gobjs by `MapData.index` and their back pointer, not by list order or `->previous`.
+    - Test it against the DOL's real controller, like `tests/test_fountain.py` and `tests/test_stadium.py`. The details are in [docs/FOUNTAIN-PLATFORMS.md](docs/FOUNTAIN-PLATFORMS.md) and [docs/STADIUM-TRANSFORMATIONS.md](docs/STADIUM-TRANSFORMATIONS.md).
 - If you want to draw graphics (easy):
     - Use the `GFX_Start` and `GFX_AddVtx` functions. Search around to see the specific usage.
     - You can use the `HUD_*` functions for higher level drawing.

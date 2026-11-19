@@ -47,6 +47,8 @@ Some details worth knowing:
 
 Fountain's three platform lines are stored in joint-local coordinates. In the DAT all three read as (−14.25, 1.12) → (14.25, 1.12), and they're placed and moved by the stage's joints at runtime. The side platforms rise and fall continuously, so a static table can't give their positions. The main floor is static at X = ±63.3476.
 
+The joints themselves are known. Unscaled, the lines are (−19, 1.5) → (19, 1.5), and each map model hangs under a root scaled by `grGroundParam` (0.75). A joint at height h therefore puts the surface at 0.75 × (h + 1.5). The top platform's joint is fixed at (0, 55.5), so its surface is at 42.75. The side joints sit at X ±47, and the game moves them between heights 15 and 35. Their surfaces span X −49.5..−21 and 21..49.5, at Y 12.375 to 27.375. The left starts at 16.125 and the right at 22.125, and both come back up at 19.875. See [the Fountain platforms doc](../docs/FOUNTAIN-PLATFORMS.md).
+
 Low Laser handles Fountain by reading the live line every frame. A Puff placed on a side platform rides it, and if the line is disabled or no longer under Puff, Puff uses the main floor until it returns. To get real numbers for Fountain, read `stc_collvert[...].pos_curr` in Dolphin's memory view. Alternatively, log the `FindPlatform` result from a debug build.
 
 ## Puff Height offsets

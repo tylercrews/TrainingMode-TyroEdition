@@ -354,7 +354,7 @@ Example: human Luigi / CPU Peach displays Luigi Misfire, Peach Turnip, Peach For
 | Stage | Rows, in current order | Choice order |
 | --- | --- | --- |
 | Pokemon Stadium | 1. Transformation | Normal, Fire, Grass, Rock, Water |
-| Fountain of Dreams | 1. Left Platform Height; 2. Right Platform Height | Random, Hidden, Lowest, Left Default, Average, Right Default, Highest |
+| Fountain of Dreams | 1. Left Platform Height; 2. Right Platform Height | Random, Hidden, then 12.375 to 27.375 in steps of 0.375 (T10, see [docs/FOUNTAIN-PLATFORMS.md](../docs/FOUNTAIN-PLATFORMS.md)) |
 | Other stages | No active submenu | Stage Options remains disabled. |
 
 Stadium's current description says it requires Stage Hazards and is experimental with issues. Keep that context in any restyle. A stage-hazards toggle is not an existing row in this Lab pause menu.

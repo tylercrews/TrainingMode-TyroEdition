@@ -290,6 +290,16 @@ void Lab_ChangeStadiumTransformation(GOBJ *menu_gobj, int value) {
     Stadium_Select(value);
 }
 
+static void Stage_ApplyFountain(void) {
+    Fountain_Apply(LabOptions_Stage_FOD[OPTSTAGE_FOD_PLAT_HEIGHT_LEFT].val,
+                   LabOptions_Stage_FOD[OPTSTAGE_FOD_PLAT_HEIGHT_RIGHT].val);
+}
+
+/* Move the platform now, so it shows behind the paused menu. */
+void Lab_ChangeFountainPlatform(GOBJ *menu_gobj, int value) {
+    Stage_ApplyFountain();
+}
+
 void Lab_ChangeRandallOverlay(GOBJ *menu_gobj, int value) {
     TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL, value);
 }
@@ -6045,37 +6055,8 @@ static void UpdateOverlays(GOBJ *character, EventOption *overlays) {
     }
 }
 
-static void Stage_SetFODPlatformHeight(int side) {
-    int option_idx = side == 0 ? OPTSTAGE_FOD_PLAT_HEIGHT_LEFT : OPTSTAGE_FOD_PLAT_HEIGHT_RIGHT;
-    int idx = LabOptions_Stage_FOD[option_idx].val;
-    if (idx == 0) return; // random default
-    float height = LabValues_FODPlatformHeights[idx];
-
-    GOBJ *platform_gobj = Stage_GetMapGObj(4);
-    if (side == 0)
-        platform_gobj = platform_gobj->previous;
-
-    GOBJ *stage_gobj = Stage_GetMapGObj(3);
-    JOBJ *stage_jobj = stage_gobj->hsd_object;
-    JOBJ *plat_jobj = stage_jobj->child->child;
-    if (side != 0)
-        plat_jobj = plat_jobj->sibling;
-
-    struct FODData { u16 mode, timer; } *data = (void*)((u8*)platform_gobj->userdata + 0xC4);
-
-    data->mode = 1;
-    data->timer = 0xFF;
-
-    plat_jobj->trans.Y = height;
-    JOBJ_SetMtxDirtySub(plat_jobj);
-}
-
 static void Stage_Think(void) {
-    GrExternal stage_kind = Stage_GetExternalID();
-    if (stage_kind == GRKINDEXT_IZUMI) {
-        Stage_SetFODPlatformHeight(0);
-        Stage_SetFODPlatformHeight(1);
-    }
+    Stage_ApplyFountain();
 }
 
 // Think Function that runs after the stage and character's think functions.

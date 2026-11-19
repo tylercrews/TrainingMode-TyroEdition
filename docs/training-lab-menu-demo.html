@@ -305,7 +305,7 @@
     option('Infinite Shields', 'Shield Rule', 'Global full-health refill overrides local shield choices.', ['Off', 'On'], 0, 'Global')
   ], 'Global — saved across events');
   add('stage-rng', 'Stage & RNG', 'Show controls relevant to the current stage and fighters.', [link('Stage Options', 'stage'), link('Character RNG', 'rng')]);
-  add('stage', 'Stage Options', 'Set platform heights on Fountain of Dreams.', named(['Left Platform Height', 'Right Platform Height'], 'Context', 'Choose this platform’s height.', 'Training Lab', ['Random', 'Hidden', 'Lowest', 'Left Default', 'Average', 'Right Default', 'Highest']));
+  add('stage', 'Stage Options', 'Set platform heights on Fountain of Dreams.', named(['Left Platform Height', 'Right Platform Height'], 'Context', 'Choose this platform’s height.', 'Training Lab', ['Random', 'Hidden', ...Array.from({length: 41}, (_, i) => (12.375 + 0.375 * i).toFixed(3))]));
   add('rng', 'Character RNG', 'Peach human / Fox CPU: only Peach’s RNG controls apply.', [
     option('Peach Turnip', 'Human', 'Choose Peach’s turnip behavior.', ['Random', 'Normal', 'Stitch']),
     option('Peach Forward Smash', 'Human', 'Choose Peach’s forward-smash weapon.', ['Random', 'Golf Club', 'Frying Pan', 'Tennis Racket'])

@@ -59,6 +59,7 @@ python tests/test_ledgechase.py -v
 python tests/test_event_trails.py -v
 python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
+python tests/test_fountain.py -v
 python tests/test_lowlaser.py -v
 python tests/test_ledgegrab.py -v
 python tests/test_eggs.py -v

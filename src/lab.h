@@ -1,5 +1,6 @@
 #include "lab_common.h"
 #include "osds.h"
+#include "fountain.h"
 
 // DECLARATIONS #############################################
 
@@ -796,23 +797,30 @@ enum stage_fod_option
     OPTSTAGE_FOD_COUNT,
 };
 
-static const char *LabValues_FODPlatform[] = {"Random", "Hidden", "Lowest", "Left Default", "Average", "Right Default", "Highest"};
-static const float LabValues_FODPlatformHeights[] = { 0.0f, -3.25f, 15.f, 20.f, 25.f, 28.f, 35.f };
-
+/* Random, Hidden, then every height the game can stop a platform at, in the Y
+ * you stand at on it (see src/fountain.h). */
 static EventOption LabOptions_Stage_FOD[OPTSTAGE_FOD_COUNT] = {
     {
         .kind = OPTKIND_STRING,
-        .value_num = sizeof(LabValues_FODPlatformHeights)/sizeof(*LabValues_FODPlatformHeights),
+        .value_num = FOUNTAIN_CHOICE_COUNT,
         .name = "Left Platform Height",
-        .desc = {"Adjust the left platform's distance from the ground."},
-        .values = LabValues_FODPlatform,
+        .desc = {"Hold the left platform at one height.",
+                 "Random moves it as in a match; Hidden sinks it.",
+                 "12.375 to 27.375, the Y you stand at on it.",
+                 "It starts at 16.125 and resurfaces at 19.875."},
+        .values = Fountain_Labels,
+        .OnChange = Lab_ChangeFountainPlatform,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = sizeof(LabValues_FODPlatformHeights)/sizeof(*LabValues_FODPlatformHeights),
+        .value_num = FOUNTAIN_CHOICE_COUNT,
         .name = "Right Platform Height",
-        .desc = {"Adjust the right platform's distance from the ground."},
-        .values = LabValues_FODPlatform,
+        .desc = {"Hold the right platform at one height.",
+                 "Random moves it as in a match; Hidden sinks it.",
+                 "12.375 to 27.375, the Y you stand at on it.",
+                 "It starts at 22.125 and resurfaces at 19.875."},
+        .values = Fountain_Labels,
+        .OnChange = Lab_ChangeFountainPlatform,
     }
 };
 
