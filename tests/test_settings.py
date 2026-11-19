@@ -20,7 +20,9 @@ IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 # Global Settings pages, read down the left column then the right; 255 = gap.
 EDITOR = [
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
-    [2,4,7,17,11,25,36,255,23,255,35,31,255,34] + [255] * 15,
+    # Row 15, the right column's first, is development builds' Disable TM
+    # Developer Debug Menu (37); the settings ELF is built with TM_DEBUG.
+    [2,4,7,17,11,25,36,255,23,255,35,31,255,34,255, 37] + [255] * 13,
     # Fixed Grid OSD Positions: page one's OSD rows, then JC Shine (32) and Reset All (33).
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,32,33],
 ]
@@ -3011,7 +3013,7 @@ class OSDEditorTests(unittest.TestCase):
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
         rows = [id for page in EDITOR[:2] for id in page if id != 255]
-        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35, 36]))
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35, 36, 37]))
         self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
         # The positions page keeps every OSD row where page one has it.
         self.assertEqual(EDITOR[2][:27], EDITOR[0][:27])
@@ -3029,6 +3031,39 @@ class OSDEditorTests(unittest.TestCase):
         for row, label in ((6, "Invincibility Stoplight"), (10, "Blast Zone Overlay"), (11, "Randall Overlay"),
                            (13, "Don't Reset Timers")):
             self.assertEqual(self.label(m, row, len(label)), label)
+
+    def test_debug_menu_row_follows_a_blank_row_and_saves_its_own_word_80_bit(self):
+        DEBUG_OFF = 13  # TM_FLAG_DEBUG_CONSOLE_OFF.
+        extension = 0x8045A6C0 + 0x1AE0
+        m = self.m
+        self.assertEqual(m.call("Settings_Get", 11, DEBUG_OFF), 0)  # Off by default.
+        self.assertEqual(editor_row(37), (1, 15))
+        open_editor(m, 1)
+        m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
+        self.assertEqual(m.call("TestEditorHidden", 14), 1)  # The blank row before it.
+        self.assertEqual(m.call("TestEditorHidden", 15), 0)
+        label = "Disable TM Developer Debug Menu (L/R + Z)"
+        self.assertEqual(self.label(m, 15, len(label) + 1), label + "\0")
+        self.assertEqual(self.choice(m, 15), "Off")
+        # Smaller as well as narrower than the other rows, so it fits the column.
+        self.assertEqual([m.call("TestEditorScale100", 15, axis) for axis in (0, 1)], [56, 80])
+        self.assertEqual([m.call("TestEditorScale100", 13, axis) for axis in (0, 1)], [78, 100])
+        m.call("Settings_Set", 11, 12, 0)  # Create the extension record.
+        core = m.record()
+        byte81 = m.cpu.mem_read(extension + 81, 1)[0]
+        m.call("TestEditorInput", MENU_A, 15)
+        self.assertEqual((m.call("Settings_Get", 11, DEBUG_OFF), self.choice(m, 15)), (1, "On"))
+        self.assertEqual(m.cpu.mem_read(extension + 81, 1)[0], byte81 | 0x02)  # Word 80 bit 9.
+        self.assertEqual(m.record(), core)  # Nothing in the core record.
+        m.call("TestEditorAnimate", 15)
+        # The native exit save writes the row back unchanged.
+        m.call("TestSettingsEditorWrite", PHYSICAL[15], m.call("TestEditorCache", 15))
+        self.assertEqual(m.call("Settings_Get", 11, DEBUG_OFF), 1)
+        for flag in (7, 9, 10, 11, 12):  # Its neighbors stay Off.
+            self.assertEqual(m.call("Settings_Get", 11, flag), 0)
+        m.call("TestEditorInput", MENU_B, 15)
+        self.assertEqual((m.call("Settings_Get", 11, DEBUG_OFF), self.choice(m, 15)), (0, "Off"))
+        self.assertEqual(m.cpu.mem_read(extension + 81, 1)[0], byte81)
 
     def test_checkboxes_are_posed_from_the_page_shown_not_the_previous_page(self):
         m = self.m

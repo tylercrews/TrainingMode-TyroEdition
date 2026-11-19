@@ -63,6 +63,15 @@
 #define TM_GLOBAL_BLAST_ZONES_NAME "Blast Zone Overlay"
 #define TM_GLOBAL_INVINCIBILITY_ENDING_ROW 36 /* Editor-only logical row. */
 #define TM_GLOBAL_INVINCIBILITY_ENDING_NAME "Invincibility Stoplight"
+#define TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW 37 /* Editor-only logical row. */
+#define TM_GLOBAL_DEBUG_CONSOLE_OFF_NAME "Disable TM Developer Debug Menu (L/R + Z)"
+/* Only development builds (TM_DEBUG) have the L/R + Z console, so release
+ * builds leave its editor row a gap. */
+#if TM_DEBUG
+#define TM_EDITOR_DEBUG_CONSOLE_OFF TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW
+#else
+#define TM_EDITOR_DEBUG_CONSOLE_OFF 255
+#endif
 #define TM_GLOBAL_MISSED_LCANCEL_NAME "Missed L Cancel"
 #define TM_GLOBAL_ACTION_CUES_NAME "Actionable Yellow>Green"
 #define TM_GLOBAL_RUN_TURN_NAME "Run Turnaround"
@@ -99,10 +108,11 @@ enum TMSettingsFlag {
     TM_FLAG_DONT_RESET_TIMERS, /* TYEX byte 8 bit 7: savestate loads keep the match clock. */
     TM_FLAG_BLAST_ZONES, /* TYEX word 20 bit 23: red lines on every stage's blast zones. */
     TM_FLAG_INVINCIBILITY_ENDING, /* TYEX word 80 bit 6 (T10): Invincibility Stoplight, red then yellow. */
+    TM_FLAG_DEBUG_CONSOLE_OFF, /* TYEX word 80 bit 9 (T10): L/R + Z never opens the development console. */
 };
 /* Flags whose bit lives in the extension, not the full core record. */
 #define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS || \
-    (index) == TM_FLAG_BLAST_ZONES || (index) == TM_FLAG_INVINCIBILITY_ENDING)
+    (index) == TM_FLAG_BLAST_ZONES || (index) == TM_FLAG_INVINCIBILITY_ENDING || (index) == TM_FLAG_DEBUG_CONSOLE_OFF)
 
 /* These field numbers are mirrored in ASM/Globals.s. Append; never reorder. */
 enum TMSettingsField {

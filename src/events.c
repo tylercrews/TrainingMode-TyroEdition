@@ -2525,8 +2525,24 @@ void TM_ConsoleToggle(GOBJ *gobj)
     text->show_background ^= 1;
 }
 
+/* Whether the console is open. It starts closed: TM_CreateConsole's own
+ * toggle closes it, so this follows toggles rather than reading the bits. */
+static int console_open;
+
 void TM_ConsoleThink(GOBJ *gobj)
 {
+    // Disable TM Developer Debug Menu (Global Overlays & Gameplay) closes the
+    // console and keeps L/R + Z from opening it.
+    if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_DEBUG_CONSOLE_OFF))
+    {
+        if (console_open)
+        {
+            TM_ConsoleToggle(gobj);
+            console_open = 0;
+        }
+        return;
+    }
+
     // Toggle console with L/R + Z
     for (int i = 0; i < 4; i++)
     {
@@ -2534,6 +2550,7 @@ void TM_ConsoleThink(GOBJ *gobj)
         if (pad->held & (HSD_TRIGGER_L | HSD_TRIGGER_R) && (pad->down & HSD_TRIGGER_Z))
         {
             TM_ConsoleToggle(gobj);
+            console_open ^= 1;
             break;
         }
     }
@@ -2556,6 +2573,7 @@ void TM_CreateConsole(void)
     DevelopText_StoreTextScale(text, 10, 12);
     stc_event_vars.db_console_text = text;
     TM_ConsoleToggle(gobj);
+    console_open = 0;
 }
 
 void OnFileLoad(HSD_Archive *archive) // this function is run right after TmDt is loaded into memory on boot

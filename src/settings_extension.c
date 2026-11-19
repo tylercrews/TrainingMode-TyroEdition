@@ -193,6 +193,10 @@ static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {
  * the same way: Off is 0. Older records read it Off. */
 #define ENDING_BYTE 80
 #define ENDING_BIT 0x40u
+/* So does Disable TM Developer Debug Menu, word 80 bit 9 (byte 81 bit 1),
+ * above CPU Movement. Older records read Off. */
+#define CONSOLE_OFF_BYTE 81
+#define CONSOLE_OFF_BIT 0x02u
 typedef char TMExtension_TechFollowupBits[(TM_TECHCHASE_FOLLOWUP_COUNT<=8) ? 1 : -1]; /* 1 + 2 bits. */
 static int is_tech_followup(unsigned field,unsigned index) {
     return field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_FOLLOWUP;
@@ -218,9 +222,10 @@ static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
     {GRABS_MOVEMENT_SHIFT,2,TM_GRABS_MOVEMENT_COUNT,TM_GRABS_MOVEMENT_RANDOM},
 };
 /* Word 80: CPU Percent 0..3, the followup's high bits 4..5, the Stoplight's 6,
- * CPU Movement 7..8. */
+ * CPU Movement 7..8, Disable TM Developer Debug Menu 9. */
 typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT)<ENDING_BIT &&
-    ENDING_BIT==1u<<6 && GRABS_MOVEMENT_SHIFT==7 && ENDING_BYTE==GRABS_OFFSET) ? 1 : -1];
+    ENDING_BIT==1u<<6 && GRABS_MOVEMENT_SHIFT==7 && ENDING_BYTE==GRABS_OFFSET &&
+    (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1==GRABS_MOVEMENT_SHIFT+2 && CONSOLE_OFF_BIT==1u<<1) ? 1 : -1];
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -642,6 +647,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     /* Only a current record owns word 80. */
     if(field==TM_SETTING_FLAG && index==TM_FLAG_INVINCIBILITY_ENDING)
         return supported(r)?!!(r[ENDING_BYTE]&ENDING_BIT):0;
+    if(field==TM_SETTING_FLAG && index==TM_FLAG_DEBUG_CONSOLE_OFF)
+        return supported(r)?!!(r[CONSOLE_OFF_BYTE]&CONSOLE_OFF_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 the rest
@@ -718,12 +725,13 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     int timers=field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS;
     int blast=field==TM_SETTING_FLAG && index==TM_FLAG_BLAST_ZONES;
     int ending=field==TM_SETTING_FLAG && index==TM_FLAG_INVINCIBILITY_ENDING;
+    int console=field==TM_SETTING_FLAG && index==TM_FLAG_DEBUG_CONSOLE_OFF;
     int extra=field==TM_SETTING_OSD_COLOR_EXTRA && index<TM_OSD_CATEGORIES;
     int grid=field==TM_SETTING_OSD_GRID_CELL && index<TM_OSD_GRID_SLOTS;
     int costume=field==TM_SETTING_COSTUME && index<2;
     const ExtensionPreference *p=preference(field,index);
-    if(!color && !attack && !randall && !timers && !blast && !ending && !extra && !grid && !costume && !p) return 0;
-    if(value >= (color||attack?8:randall||timers||blast||ending?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
+    if(!color && !attack && !randall && !timers && !blast && !ending && !console && !extra && !grid && !costume && !p) return 0;
+    if(value >= (color||attack?8:randall||timers||blast||ending||console?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
     if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r) && !version19(r) && !version20(r) && !version21(r) && !version22(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
     if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r) || version19(r) || version20(r) || version21(r) || version22(r)) TMExtension_Prepare(r);
@@ -734,6 +742,7 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     else if(timers) r[8]=(r[8]&~DONT_RESET_TIMERS_BIT)|(value?DONT_RESET_TIMERS_BIT:0);
     else if(blast) r[BLAST_ZONES_BYTE]=(r[BLAST_ZONES_BYTE]&~BLAST_ZONES_BIT)|(value?BLAST_ZONES_BIT:0);
     else if(ending) r[ENDING_BYTE]=(r[ENDING_BYTE]&~ENDING_BIT)|(value?ENDING_BIT:0);
+    else if(console) r[CONSOLE_OFF_BYTE]=(r[CONSOLE_OFF_BYTE]&~CONSOLE_OFF_BIT)|(value?CONSOLE_OFF_BIT:0);
     else if(extra) set_color_extra(r,index,value);
     else if(grid) set_grid_cell(r,index,value);
     else if(costume) r[COSTUME_OFFSET+index]=(r[COSTUME_OFFSET+index]&~COSTUME_MASK)|value;

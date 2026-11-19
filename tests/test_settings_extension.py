@@ -145,6 +145,7 @@ SWEETSPOT = 41  # TM_SETTING_SWEETSPOT: Success Criteria word 20 bit 26, Knockba
 SWEETSPOT_MARTH = 2  # TM_SWEETSPOT_MARTH: word 72 bit 31, 0 Down Tilt (the default) / 1 Off.
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
 STOPLIGHT = 12  # TM_FLAG_INVINCIBILITY_ENDING, a flag (field 11): word 80 bit 6, no version bump.
+DEBUG_OFF = 13  # TM_FLAG_DEBUG_CONSOLE_OFF, a flag (field 11): word 80 bit 9 (byte 81 bit 1), no version bump.
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -2078,6 +2079,48 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
         self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[80], 0x40)
         self.assertEqual(m.call('Settings_Get',11,STOPLIGHT), 1)
+
+    def test_debug_menu_flag_lives_in_word_80_bit_9_above_cpu_movement(self):
+        m = self.m
+        m.call('Settings_Set',GRABS,GRABS_MOVEMENT,2)  # Word 80 bits 7-8, just below it.
+        m.call('Settings_Set',GRABS,GRABS_PERCENT,13)  # Bits 0-3.
+        m.call('Settings_Set',11,STOPLIGHT,1)  # Bit 6.
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 0)
+        core = m.record()
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',11,DEBUG_OFF,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[81] |= 0x02
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(after[:8], HEADER)  # Still the current version.
+        self.assertEqual(m.record(), core)
+        self.assertEqual([m.call('Settings_Get',*key) for key in ((11,DEBUG_OFF), (GRABS,GRABS_MOVEMENT),
+            (GRABS,GRABS_PERCENT), (11,STOPLIGHT))], [1,2,13,1])
+        m.call('Settings_Set',GRABS,GRABS_MOVEMENT,0)  # Its neighbor's writes keep it.
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 1)
+        m.call('Settings_Set',GRABS,GRABS_MOVEMENT,2)
+        m.call('Settings_Set',11,DEBUG_OFF,2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        m.call('Settings_Set',16,37,0)  # Its logical editor row, as the native hooks write it.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set',16,37,1)
+        self.assertEqual((m.call('Settings_Get',16,37), m.call('Settings_Get',11,DEBUG_OFF)), (1,1))
+
+    def test_version_22_records_never_read_the_debug_menu_bit_and_migration_clears_it(self):
+        m = self.m
+        m.call('Settings_Set',11,DEBUG_OFF,1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((22,72)); old[81] = 0xFF  # Valid-looking spare score bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,11,DEBUG_OFF), 0)
+        m.call('Settings_Set',11,BLAST_ZONES,1)  # Any edit migrates and claims word 80.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 0)
+        m.cpu.mem_write(EXT, bytes(old))
+        m.call('Settings_Set',11,DEBUG_OFF,1)  # A write to an old record migrates it first.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[81], 0x02)
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 1)
 
     def test_records_before_version_11_never_read_the_blast_zone_overlay_bit(self):
         for version, payload in ((10,12), (6,8)):

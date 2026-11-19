@@ -35,7 +35,9 @@ esac
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction     -t MexTK/evFunction.txt -o build/ledgegrab-test.dat -i src/ledgegrab.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/powershield-test.dat -i src/powershield.c
-powerpc-eabi-gcc -O2 -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
+# TM_DEBUG, as in development builds: the Global Overlays page keeps its
+# development-only Disable TM Developer Debug Menu row (a gap in release).
+powerpc-eabi-gcc -O2 -DTM_DEBUG -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
     -nostdlib -Wa,-mregnames -Wl,-Ttext=0x101000,-e,TMSettings_Init \
     src/settings.c src/settings_extension.c src/settings_game.c src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c src/powershield_osd_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c src/ledgedash_logic.c tests/settings_support.c tests/settings_hooks.S \
     -o build/settings-test.elf

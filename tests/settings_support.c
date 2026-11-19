@@ -167,6 +167,7 @@ static const char *editor_choices[29];
 static const char *editor_labels[29];
 static JOBJ editor_roots[2], editor_joints[29];
 static uint32_t editor_colors[29];
+static float editor_scales[29][2];
 static int editor_row(Text *text, int subtext) {
     if (subtext < 1) return -1;
     if (text == &editor_left && subtext <= 15) return subtext - 1;
@@ -204,6 +205,8 @@ void Text_SetText(Text *text, int subtext, const char *format, ...) {
 void Text_SetScale(Text *text, int subtext, float x, float y) {
     int i=layout_text_index(text); if(i>=0 && (unsigned)subtext<9){layout_texts[i].scale[subtext][0]=x;layout_texts[i].scale[subtext][1]=y;}
     if (text == &style_text && (unsigned)subtext < 8) { style_scales[subtext][0] = x; style_scales[subtext][1] = y; }
+    int row = editor_row(text, subtext);
+    if (row >= 0) { editor_scales[row][0] = x; editor_scales[row][1] = y; }
 }
 void Text_SetPosition(Text *text, int subtext, float x, float y) {
     int i=layout_text_index(text); if(i>=0 && (unsigned)subtext<9){layout_texts[i].pos[subtext][0]=x;layout_texts[i].pos[subtext][1]=y;}
@@ -291,6 +294,8 @@ unsigned TestEditorChoiceChar(unsigned row, unsigned offset) { return editor_cho
 uint32_t TestEditorColor(unsigned row) { return editor_colors[row]; }
 unsigned TestEditorLabelChar(unsigned row, unsigned offset) { return editor_labels[row][offset]; }
 unsigned TestEditorHidden(unsigned row) { return !!(editor_joints[row].flags & JOBJ_HIDDEN); }
+/* A row's text scale in hundredths, axis 0 x / 1 y. */
+int TestEditorScale100(unsigned row, unsigned axis) { return (int)(editor_scales[row][axis & 1] * 100.0f + 0.5f); }
 
 static GOBJ cue_manager, cue_objects[12];
 static FighterData cue_data[12];
