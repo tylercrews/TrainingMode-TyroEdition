@@ -150,6 +150,7 @@ SWEETSPOT_MARTH = 2  # TM_SWEETSPOT_MARTH: word 72 bit 31, 0 Down Tilt (the defa
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
 STOPLIGHT = 12  # TM_FLAG_INVINCIBILITY_ENDING, a flag (field 11): word 80 bit 6, no version bump.
 DEBUG_OFF = 13  # TM_FLAG_DEBUG_CONSOLE_OFF, a flag (field 11): word 80 bit 9 (byte 81 bit 1), no version bump.
+RANDALL_TIMER = 14  # TM_FLAG_RANDALL_TIMER, a flag (field 11): word 80 bit 20 (byte 82 bit 4), no version bump.
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -864,7 +865,8 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP),
                           m.call('Settings_Get', 11, STOPLIGHT), m.call('Settings_Get', GRABS, GRABS_MOVEMENT),
                           m.call('Settings_Get', 11, DEBUG_OFF)), (9, 4, 1, 2, 1))
-        # Bits 20-31 stay spare, and the neighbors' writes leave Target Practice alone.
+        # Bits 20-31 (the Randall Timer's 20, then spare) keep what they hold, and
+        # the neighbors' writes leave Target Practice alone.
         m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
         m.cpu.mem_write(EXT + 80, (word() | 0xFFF00000).to_bytes(4, 'little'))
         m.call('Settings_Set', GRABS, GRABS_PERCENT, 3); m.call('Settings_Set', 11, DEBUG_OFF, 0)
@@ -2164,6 +2166,50 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
         m.call('Settings_Set',16,37,1)
         self.assertEqual((m.call('Settings_Get',16,37), m.call('Settings_Get',11,DEBUG_OFF)), (1,1))
+
+    def test_randall_timer_flag_lives_in_word_80_bit_20_above_target_practice(self):
+        m = self.m
+        m.call('Settings_Set',TARGETS,0,255); m.call('Settings_Set',TARGETS,2,1)  # Bits 10-17 and 19, just below it.
+        m.call('Settings_Set',11,DEBUG_OFF,1)  # Bit 9.
+        m.call('Settings_Set',11,9,1)  # Randall Overlay (flag 9), byte 8 bit 3.
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 0)
+        core = m.record()
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',11,RANDALL_TIMER,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[82] |= 0x10
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(after[:8], HEADER)  # Still the current version.
+        self.assertEqual(m.record(), core)
+        self.assertEqual([m.call('Settings_Get',*key) for key in ((11,RANDALL_TIMER), (TARGETS,0), (TARGETS,2),
+            (11,DEBUG_OFF), (11,9))], [1,255,1,1,1])
+        m.call('Settings_Set',TARGETS,2,0)  # Its neighbor's writes keep it.
+        m.call('Settings_Set',TARGETS,0,0)
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 1)
+        m.call('Settings_Set',TARGETS,0,255); m.call('Settings_Set',TARGETS,2,1)
+        m.call('Settings_Set',11,RANDALL_TIMER,2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        m.call('Settings_Set',16,38,0)  # Its logical editor row, as the native hooks write it.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set',16,38,1)
+        self.assertEqual((m.call('Settings_Get',16,38), m.call('Settings_Get',11,RANDALL_TIMER)), (1,1))
+        self.assertEqual(m.call('Settings_Get',11,9), 1)  # Independent of Randall Overlay.
+
+    def test_version_22_records_never_read_the_randall_timer_bit_and_migration_clears_it(self):
+        m = self.m
+        m.call('Settings_Set',11,RANDALL_TIMER,1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((22,72)); old[82] = 0xFF  # Valid-looking spare score bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,11,RANDALL_TIMER), 0)
+        m.call('Settings_Set',11,BLAST_ZONES,1)  # Any edit migrates and claims word 80.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 0)
+        m.cpu.mem_write(EXT, bytes(old))
+        m.call('Settings_Set',11,RANDALL_TIMER,1)  # A write to an old record migrates it first.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[82], 0x10)
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 1)
 
     def test_version_22_records_never_read_the_debug_menu_bit_and_migration_clears_it(self):
         m = self.m

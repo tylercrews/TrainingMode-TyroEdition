@@ -455,8 +455,9 @@ void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
 int ActionCues_ProtectionLeft(GOBJ *gobj); /* Invincibility Stoplight's count; see action_cues.h. */
 void ActionCues_SetTangibilityOverlay(const s16 *enabled);
-/* Global Blast Zone Overlay (every stage) and Randall Overlay (Yoshi's Story);
- * driven by TM_FLAG_BLAST_ZONES and TM_FLAG_RANDALL. */
+/* Global Blast Zone Overlay (every stage), Randall Overlay and Randall Timer
+ * (Yoshi's Story); driven by TM_FLAG_BLAST_ZONES, TM_FLAG_RANDALL and
+ * TM_FLAG_RANDALL_TIMER. */
 void StageOverlay_MatchStart(void);
 void StageOverlay_SceneChange(void);
 void ActionCues_SetCPUInvincibilityOverlay(const s16 *palette);

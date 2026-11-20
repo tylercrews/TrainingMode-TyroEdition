@@ -304,6 +304,10 @@ void Lab_ChangeRandallOverlay(GOBJ *menu_gobj, int value) {
     TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL, value);
 }
 
+void Lab_ChangeRandallTimer(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER, value);
+}
+
 void Lab_ChangeInputDisplay(GOBJ *menu_gobj, int value) {
     TM_SetSetting(TM_SETTING_INPUT_DISPLAY, 0, value);
 }
@@ -6400,6 +6404,9 @@ void Event_Init(GOBJ *gobj)
     EventMenu *stage_menu = stage_menus[Stage_GetExternalID()];
     LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val =
         LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val_prev = !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL);
+    LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_TIMER].val =
+        LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_TIMER].val_prev =
+            !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER);
     if (stage_menu != NULL) {
         LabOptions_Main[OPTLAB_STAGE].disable = 0;
         LabOptions_Main[OPTLAB_STAGE].menu = stage_menu;

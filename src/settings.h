@@ -65,6 +65,8 @@
 #define TM_GLOBAL_INVINCIBILITY_ENDING_NAME "Invincibility Stoplight"
 #define TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW 37 /* Editor-only logical row. */
 #define TM_GLOBAL_DEBUG_CONSOLE_OFF_NAME "Disable TM Developer Debug Menu (L/R + Z)"
+#define TM_GLOBAL_RANDALL_TIMER_ROW 38 /* Editor-only logical row. */
+#define TM_GLOBAL_RANDALL_TIMER_NAME "Randall Timer"
 /* Only development builds (TM_DEBUG) have the L/R + Z console, so release
  * builds leave its editor row a gap. */
 #if TM_DEBUG
@@ -109,10 +111,12 @@ enum TMSettingsFlag {
     TM_FLAG_BLAST_ZONES, /* TYEX word 20 bit 23: red lines on every stage's blast zones. */
     TM_FLAG_INVINCIBILITY_ENDING, /* TYEX word 80 bit 6 (T10): Invincibility Stoplight, red then yellow. */
     TM_FLAG_DEBUG_CONSOLE_OFF, /* TYEX word 80 bit 9 (T10): L/R + Z never opens the development console. */
+    TM_FLAG_RANDALL_TIMER, /* TYEX word 80 bit 20 (T10): Yoshi's Story's match timer shows Randall's side. */
 };
 /* Flags whose bit lives in the extension, not the full core record. */
 #define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS || \
-    (index) == TM_FLAG_BLAST_ZONES || (index) == TM_FLAG_INVINCIBILITY_ENDING || (index) == TM_FLAG_DEBUG_CONSOLE_OFF)
+    (index) == TM_FLAG_BLAST_ZONES || (index) == TM_FLAG_INVINCIBILITY_ENDING || (index) == TM_FLAG_DEBUG_CONSOLE_OFF || \
+    (index) == TM_FLAG_RANDALL_TIMER)
 
 /* These field numbers are mirrored in ASM/Globals.s. Append; never reorder. */
 enum TMSettingsField {

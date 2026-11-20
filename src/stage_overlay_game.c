@@ -9,10 +9,31 @@
  * passes behind the stage. Draw its live platform and a cloud silhouette on top
  * of everything so its position is always readable. The platform comes from the
  * moving collision group attached to Randall's joints; the joint's world
- * position is the fallback when no group is found. */
+ * position is the fallback when no group is found.
+ *
+ * Randall Timer: on Yoshi's Story, tints the match timer purple while Randall
+ * is out past the stage's left side and teal while it's out past the right.
+ * Randall's cloud joint (the map root's first child) rides a path animation
+ * that loops every 1200 frames, counter-clockwise: on each side it leaves the
+ * stage's wall low, swings out, rises and slides back in high. GrSt.dat's walls
+ * at both of Randall's heights are at X +/-75.25, which the map root's
+ * grGroundParam scale (0.7) puts at +/-52.675. The cloud is out while it's past
+ * that, about 5 seconds a side (see docs/RANDALL-TIMER.md). */
 #define RANDALL_MAP_GOBJ 2
+#define RANDALL_TIMER_OUT_X 52.675f
+/* TM_COLOR_PURPLE and TM_COLOR_TEAL (OSD_PaletteColor). */
+#define RANDALL_TIMER_LEFT {0xA0, 0x64, 0xFF, 0xFF}
+#define RANDALL_TIMER_RIGHT {0x00, 0xB4, 0xA0, 0xFF}
+#define RANDALL_TIMER_PARTS 16 /* The vanilla timer has 10 materials: 8 digits, 2 separators. */
 static GOBJ *manager;
 static int live;
+/* The timer the Randall Timer last saw, its materials' own colors (saved before
+ * the first tint), and the side it shows: 0 untinted, -1 left, 1 right. */
+static JOBJ *timer_root;
+static unsigned timer_parts;
+static HSD_Material *timer_materials[RANDALL_TIMER_PARTS];
+static GXColor timer_colors[RANDALL_TIMER_PARTS];
+static int timer_side;
 
 static int in_tree(JOBJ *joint, JOBJ *target) {
     for (; joint; joint = joint->sibling) {
@@ -133,17 +154,78 @@ static void Randall_Draw(void) {
         GFX_AddVtx(b.X, b.Y, 0, top);
     }
 }
+/* -1 while Randall's cloud is out past the stage's left side, 1 past its right,
+ * 0 otherwise (behind the stage, another stage, or hazards removed it). */
+static int randall_side(void) {
+    GOBJ *map = randall();
+    JOBJ *cloud = map ? ((JOBJ *)map->hsd_object)->child : 0;
+    if (!cloud) return 0;
+    Vec3 pos;
+    JOBJ_GetWorldPosition(cloud, 0, &pos);
+    return pos.X < -RANDALL_TIMER_OUT_X ? -1 : pos.X > RANDALL_TIMER_OUT_X ? 1 : 0;
+}
+/* Every material in the timer's joints, in tree order. */
+static void save_timer(JOBJ *joint) {
+    for (; joint; joint = joint->sibling) {
+        if (!(joint->flags & (JOBJ_SPLINE | JOBJ_PTCL))) /* Otherwise the union isn't a DObj. */
+            for (DOBJ *dobj = joint->dobj; dobj; dobj = dobj->next) {
+                HSD_Material *mat = dobj->mobj ? dobj->mobj->mat : 0;
+                if (!mat || timer_parts >= RANDALL_TIMER_PARTS) continue;
+                timer_materials[timer_parts] = mat;
+                timer_colors[timer_parts++] = mat->diffuse;
+            }
+        save_timer(joint->child);
+    }
+}
+/* The digits' textures are multiplied by their material's constant diffuse
+ * color, and no animation sets it, so it holds until changed. Each material
+ * keeps its own shading (the separators are gray): its color times the tint. */
+static void tint_timer(int side) {
+    static const GXColor tints[2] = {RANDALL_TIMER_LEFT, RANDALL_TIMER_RIGHT};
+    const GXColor *tint = &tints[side > 0];
+    for (unsigned i = 0; i < timer_parts; ++i) {
+        GXColor color = timer_colors[i];
+        if (side) {
+            color.r = color.r * tint->r / 255;
+            color.g = color.g * tint->g / 255;
+            color.b = color.b * tint->b / 255;
+        }
+        timer_materials[i]->diffuse = color;
+    }
+}
+static void forget_timer(void) {
+    timer_root = 0;
+    timer_parts = 0;
+    timer_side = 0;
+}
+static void RandallTimer_Update(void) {
+    GOBJ *timer = stc_matchhud->timer_gobj;
+    JOBJ *root = timer ? timer->hsd_object : 0;
+    if (root != timer_root) { /* A new timer, or none: the old one's materials went with it. */
+        forget_timer();
+        timer_root = root;
+    }
+    if (!root) return;
+    int side = Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER) ? randall_side() : 0;
+    if (side == timer_side) return; /* Off, or unchanged: leave the timer alone. */
+    if (!timer_parts) save_timer(root); /* Still untinted, so these are its own colors. */
+    timer_side = side;
+    tint_timer(side);
+}
 static void StageOverlay_GX(GOBJ *gobj, int pass) {
     if (!live || pass != 2) return;
     if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES)) BlastZones_Draw();
     if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL)) Randall_Draw();
+    RandallTimer_Update(); /* Also puts the colors back once it's turned off. */
 }
 void StageOverlay_SceneChange(void) {
     live = 0;
     manager = 0; /* Native scene cleanup owns the old GOBJ. */
+    forget_timer(); /* And the old timer. */
 }
 void StageOverlay_MatchStart(void) {
     if (manager) return;
+    forget_timer();
     live = 1;
     manager = GObj_Create(0, 7, 0);
     if (!manager) { live = 0; return; }

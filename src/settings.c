@@ -10,17 +10,17 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
  * escape, punish, ledge/items, and both overrides in the bottom-right corner.
  * Page 1, Global Overlays & Gameplay: character overlays (Invincibility
  * Stoplight under Invincibility Overlay), character gameplay (Infinite
- * Shields), stage overlays (Blast Zones, Randall), then the match clock
- * (Don't Reset Timers), separated by blank rows. After the left column's
- * blank last row, the right column starts with the development builds'
- * Disable TM Developer Debug Menu (a gap in release builds).
+ * Shields), stage overlays (Blast Zones, Randall, Randall Timer under Randall
+ * Overlay), then the match clock (Don't Reset Timers) in the left column's
+ * last row, separated by blank rows. The right column starts with the
+ * development builds' Disable TM Developer Debug Menu (a gap in release builds).
  * Page 2, Fixed Grid OSD Positions: page 0's OSD rows in the same places; JC
  * Shine and Reset All take the overrides' corner. Its rows edit positions, so
  * their native Booleans mirror each OSD's On/Off and saving them is a no-op. */
 const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS] = {
     { 0,1,20,19,5,8,30,255,3,16,27,18,28,255,255,
       9,10,24,12,255,21,22,255,26,13,14,255,29,6, },
-    { 2,4,7,17,11,25,TM_GLOBAL_INVINCIBILITY_ENDING_ROW,255,23,255,TM_GLOBAL_BLAST_ZONES_ROW,31,255,TM_GLOBAL_DONT_RESET_TIMERS_ROW,255,
+    { 2,4,7,17,11,25,TM_GLOBAL_INVINCIBILITY_ENDING_ROW,255,23,255,TM_GLOBAL_BLAST_ZONES_ROW,31,TM_GLOBAL_RANDALL_TIMER_ROW,255,TM_GLOBAL_DONT_RESET_TIMERS_ROW,
       TM_EDITOR_DEBUG_CONSOLE_OFF,255,255,255,255,255,255,255,255,255,255,255,255,255, },
     { 0,1,20,19,5,8,30,255,3,16,27,18,28,255,255,
       9,10,24,12,255,21,22,255,26,13,14,255,TM_GRID_JC_SHINE_ROW,TM_GRID_RESET_ROW, },
@@ -52,6 +52,7 @@ int TMSettings_NativeFlag(unsigned row) {
     case TM_GLOBAL_BLAST_ZONES_ROW: return TM_FLAG_BLAST_ZONES;
     case TM_GLOBAL_INVINCIBILITY_ENDING_ROW: return TM_FLAG_INVINCIBILITY_ENDING;
     case TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW: return TM_FLAG_DEBUG_CONSOLE_OFF;
+    case TM_GLOBAL_RANDALL_TIMER_ROW: return TM_FLAG_RANDALL_TIMER;
     default: return -1;
     }
 }

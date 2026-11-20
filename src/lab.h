@@ -835,6 +835,7 @@ static EventMenu LabMenu_Stage_FOD = {
 enum stage_story_option
 {
     OPTSTAGE_STORY_RANDALL,
+    OPTSTAGE_STORY_RANDALL_TIMER,
     OPTSTAGE_STORY_COUNT,
 };
 
@@ -845,6 +846,13 @@ static EventOption LabOptions_Stage_Story[OPTSTAGE_STORY_COUNT] = {{
              "even while it passes behind the stage.",
              "Shares the Global Overlays & Gameplay setting."},
     .OnChange = Lab_ChangeRandallOverlay,
+}, {
+    .kind = OPTKIND_TOGGLE,
+    .name = TM_GLOBAL_RANDALL_TIMER_NAME,
+    .desc = {"Color the match timer while Randall is out:",
+             "purple on the left, teal on the right.",
+             "Shares the Global Overlays & Gameplay setting."},
+    .OnChange = Lab_ChangeRandallTimer,
 }};
 
 static EventMenu LabMenu_Stage_Story = {

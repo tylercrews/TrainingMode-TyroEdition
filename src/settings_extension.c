@@ -238,6 +238,13 @@ static const ExtensionPreference targets_preferences[TM_TARGETS_PREF_COUNT] = {
 };
 typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 && TM_TARGETS_PREF_COUNT==3 &&
     (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1<TARGETS_SHIFT && CONSOLE_OFF_BIT==1u<<1 && TARGETS_SHIFT+10<=32) ? 1 : -1];
+/* The global Randall Timer flag takes word 80 bit 20 (byte 82 bit 4), just
+ * above Target Practice, the same way as the Stoplight: Off is 0, and every
+ * migration to 23 zeroes it. Older records read Off. */
+#define RANDALL_TIMER_BYTE 82
+#define RANDALL_TIMER_BIT 0x10u
+typedef char TMExtension_RandallTimerBit[((RANDALL_TIMER_BYTE-GRABS_OFFSET)*8+4==TARGETS_SHIFT+10 &&
+    RANDALL_TIMER_BIT==1u<<4) ? 1 : -1];
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -664,6 +671,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return supported(r)?!!(r[ENDING_BYTE]&ENDING_BIT):0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_DEBUG_CONSOLE_OFF)
         return supported(r)?!!(r[CONSOLE_OFF_BYTE]&CONSOLE_OFF_BIT):0;
+    if(field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL_TIMER)
+        return supported(r)?!!(r[RANDALL_TIMER_BYTE]&RANDALL_TIMER_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 the rest
@@ -743,12 +752,13 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     int blast=field==TM_SETTING_FLAG && index==TM_FLAG_BLAST_ZONES;
     int ending=field==TM_SETTING_FLAG && index==TM_FLAG_INVINCIBILITY_ENDING;
     int console=field==TM_SETTING_FLAG && index==TM_FLAG_DEBUG_CONSOLE_OFF;
+    int randall_timer=field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL_TIMER;
     int extra=field==TM_SETTING_OSD_COLOR_EXTRA && index<TM_OSD_CATEGORIES;
     int grid=field==TM_SETTING_OSD_GRID_CELL && index<TM_OSD_GRID_SLOTS;
     int costume=field==TM_SETTING_COSTUME && index<2;
     const ExtensionPreference *p=preference(field,index);
-    if(!color && !attack && !randall && !timers && !blast && !ending && !console && !extra && !grid && !costume && !p) return 0;
-    if(value >= (color||attack?8:randall||timers||blast||ending||console?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
+    if(!color && !attack && !randall && !timers && !blast && !ending && !console && !randall_timer && !extra && !grid && !costume && !p) return 0;
+    if(value >= (color||attack?8:randall||timers||blast||ending||console||randall_timer?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
     if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r) && !version19(r) && !version20(r) && !version21(r) && !version22(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
     if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r) || version19(r) || version20(r) || version21(r) || version22(r)) TMExtension_Prepare(r);
@@ -760,6 +770,7 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     else if(blast) r[BLAST_ZONES_BYTE]=(r[BLAST_ZONES_BYTE]&~BLAST_ZONES_BIT)|(value?BLAST_ZONES_BIT:0);
     else if(ending) r[ENDING_BYTE]=(r[ENDING_BYTE]&~ENDING_BIT)|(value?ENDING_BIT:0);
     else if(console) r[CONSOLE_OFF_BYTE]=(r[CONSOLE_OFF_BYTE]&~CONSOLE_OFF_BIT)|(value?CONSOLE_OFF_BIT:0);
+    else if(randall_timer) r[RANDALL_TIMER_BYTE]=(r[RANDALL_TIMER_BYTE]&~RANDALL_TIMER_BIT)|(value?RANDALL_TIMER_BIT:0);
     else if(extra) set_color_extra(r,index,value);
     else if(grid) set_grid_cell(r,index,value);
     else if(costume) r[COSTUME_OFFSET+index]=(r[COSTUME_OFFSET+index]&~COSTUME_MASK)|value;
