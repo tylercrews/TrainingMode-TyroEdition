@@ -2,10 +2,11 @@
  * CPU's stick and tilt timer; the Wait, Walk, Turn, Dash, Run, TurnRun,
  * Guard and roll transitions as the decomp has them (see src/grabercise.c);
  * ground speed; floors that end, with rolls and run turnarounds stopping at
- * the end and everything else falling off; and Battlefield's or Final
- * Destination's floors. Each frame runs the game's order around the event's
- * think: animation and scripts (s_link 1), then input and interrupts (3) and
- * physics (4). */
+ * the end and everything else falling off; a knockback landing's tech or
+ * knockdown and the getups, with the L/R and A timers they read; and
+ * Battlefield's or Final Destination's floors. Each frame runs the game's
+ * order around the event's think: animation and scripts (s_link 1), then input
+ * and interrupts (3) and physics (4). */
 #include "../src/grabercise.c"
 #include <stdarg.h>
 
@@ -129,7 +130,12 @@ static struct engine {
     int roll_dir, signed_timer;
     float pending;   // A new dash's push, applied by its first physics (xE8).
     int dash_entered;
+    int down_wait;   // DownWait's frames left before it stands up on its own (PlCo 0x424).
 } eng;
+/* Tech and getup lengths; techs and getup rolls move ROLL_SPEED a frame for
+ * their first ROLL_FRAMES, forward (F) or back (B) from the way they face. */
+enum { DOWNBOUND_LEN = 26, DOWNWAIT_LEN = 220, GETUP_LEN = 30, TECH_LEN = 40, ROLL_FRAMES = 20 };
+#define ROLL_SPEED 1.5f
 static struct stats {
     int frames, fell, runs, redashes, dash_starts, dash_turns, run_turns, rolls, walk_dashes;
     // Run mode's crouch turnaround: crouches, dashes out of a crouch, and
@@ -145,6 +151,9 @@ static struct stats {
     float farthest_after_first, nearest_after_first;
     int dir_changes, last_dir, inputs;
     float top_walk, top_run, top_dash, min_x, max_x, min_y, max_y;
+    // The tech chase: the first tech or knockdown, how far it moved, and its getup.
+    int chase_state, getup_state;
+    float chase_x, chase_last_x;
 } st;
 
 static void Enter(int state, int length) {
@@ -230,6 +239,33 @@ static int DashCheck(void) { // ftCo_Dash_CheckInput
 }
 static void RunEnter(void) { Enter(ASID_RUN, 20); st.runs++; }
 
+/* The stick's angle, atan2(y, |x|) (ftCo_GetLStickAngle), is under 50 degrees
+ * (PlCo 0x20): y under tan(50) |x|. */
+static int Level(float x, float y) { return y < 1.1918f * fabs(x); }
+static void GetupEnter(int state, int length) { Enter(state, length); st.getup_state = state; }
+/* ftCo_Down_CheckInput: a getup roll, forward or back from the way it faces. */
+static int DownRoll(void) {
+    FighterData *f = &ft[CPU_FT];
+    float x = f->input.lstick.X;
+    if (fabs(x) < .2f || !Level(x, f->input.lstick.Y)) return 0;
+    GetupEnter(x * f->facing_direction >= 0 ? ASID_DOWNFOWARDU : ASID_DOWNBACKU, GETUP_LEN);
+    return 1;
+}
+/* ftCo_80090184: a knockback landing techs (rolling with the stick out) if L/R
+ * was pressed under 20 frames ago, 40 or more after the press before it, and
+ * is knocked down otherwise. */
+static void KnockbackLanding(void) {
+    FighterData *f = &ft[CPU_FT];
+    float x = f->input.lstick.X;
+    if ((u8)f->input.timer_LR < 20 && (u8)f->input.since_rapid_lr >= 40) {
+        if (fabs(x) >= .2f) Enter(x * f->facing_direction >= 0 ? ASID_PASSIVESTANDF : ASID_PASSIVESTANDB, TECH_LEN);
+        else Enter(ASID_PASSIVE, TECH_LEN);
+    } else {
+        Enter(ASID_DOWNBOUNDU, DOWNBOUND_LEN);
+        f->input.timer_a = f->input.timer_b = 255;
+    }
+}
+
 /* s_link 0 and 1: hitlag, then animations and their scripts. */
 static void Animate(void) {
     FighterData *f = &ft[CPU_FT];
@@ -282,11 +318,31 @@ static void Animate(void) {
         case ASID_SQUAT: // Every character's Squat is 8 frames, then SquatWait.
             if (frame >= 8) Enter(ASID_SQUATWAIT, 100);
             break;
+        case ASID_DOWNBOUNDU: // ftCo_DownBound_Anim: A or B since it began, a roll, or DownWait.
+            if (frame < eng.anim_len) break;
+            if ((u8)f->input.timer_a < 60 || (u8)f->input.timer_b < 60) GetupEnter(ASID_DOWNATTACKU, GETUP_LEN);
+            else if (!DownRoll()) {
+                Enter(ASID_DOWNWAITU, 1000);
+                eng.down_wait = DOWNWAIT_LEN;
+            }
+            break;
+        case ASID_DOWNWAITU:
+            if (--eng.down_wait <= 0) GetupEnter(ASID_DOWNSTANDU, GETUP_LEN);
+            break;
+        case ASID_PASSIVE:
+        case ASID_PASSIVESTANDF:
+        case ASID_PASSIVESTANDB:
+        case ASID_DOWNSTANDU:
+        case ASID_DOWNATTACKU:
+        case ASID_DOWNFOWARDU:
+        case ASID_DOWNBACKU:
+            if (frame >= eng.anim_len) Enter(ASID_WAIT, 60);
+            break;
     }
 }
 
-/* s_link 3: the CPU_FT's stick becomes its input, then its interrupts run. */
-static void Interrupt(void) {
+/* s_link 3, first: the CPU_FT's stick and buttons become its input. */
+static void Input(void) {
     FighterData *f = &ft[CPU_FT];
     float x = f->cpu.lstickX / 127.f, prev = f->input.lstick.X;
     if (x > 1) x = 1;
@@ -308,10 +364,28 @@ static void Interrupt(void) {
     else timer_y = 254;
     f->input.timer_lstick_tilt_y = timer_y;
     f->input.lstick.Y = y;
+    // Newly pressed buttons, and the frames since A, B and L/R were (fighter.c's input proc).
+    int held_before = f->input.held;
     f->input.held = f->cpu.held;
+    f->input.down = f->input.held & ~held_before;
+    if (f->input.down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) {
+        f->input.since_rapid_lr = f->input.timer_LR;
+        f->input.timer_LR = 0;
+    } else if ((u8)f->input.timer_LR < 255) f->input.timer_LR++;
+    if (f->input.down & PAD_BUTTON_A) f->input.timer_a = 0;
+    else if ((u8)f->input.timer_a < 255) f->input.timer_a++;
+    if (f->input.down & PAD_BUTTON_B) f->input.timer_b = 0;
+    else if ((u8)f->input.timer_b < 255) f->input.timer_b++;
     if (f->cpu.lstickX || f->cpu.held) st.inputs++;
+}
+
+/* s_link 3, then: its interrupts. */
+static void Interrupt(void) {
+    FighterData *f = &ft[CPU_FT];
+    Input();
     if (Frozen(f)) return;
-    float toward = x * f->facing_direction;
+    float x = f->input.lstick.X, y = f->input.lstick.Y, toward = x * f->facing_direction;
+    u8 timer = f->input.timer_lstick_tilt_x, timer_y = f->input.timer_lstick_tilt_y;
     int shield = f->cpu.held & PAD_TRIGGER_R;
     switch (f->state_id) {
         case ASID_WAIT:
@@ -386,6 +460,10 @@ static void Interrupt(void) {
                 st.rolls++;
             }
             break;
+        case ASID_DOWNWAITU: // ftCo_DownWait_IASA: a fresh A or B, a roll, or the stick up.
+            if (f->input.down & (PAD_BUTTON_A | PAD_BUTTON_B)) GetupEnter(ASID_DOWNATTACKU, GETUP_LEN);
+            else if (!DownRoll() && y >= .2f && !Level(x, y)) GetupEnter(ASID_DOWNSTANDU, GETUP_LEN);
+            break;
     }
 }
 
@@ -430,7 +508,8 @@ static void Physics(void) {
                 f->phys.air_state = 0;
                 f->phys.self_vel = (Vec3){0};
                 f->coll_data.ground_index = i;
-                Enter(ASID_LANDING, 4);
+                if (KnockedBack(s)) KnockbackLanding();
+                else Enter(ASID_LANDING, 4);
                 return;
             }
         }
@@ -478,6 +557,14 @@ static void Physics(void) {
         case ASID_ESCAPEB:
             v = frame >= 4 && frame <= 24 ? eng.roll_dir * c->roll_speed : 0;
             break;
+        case ASID_PASSIVESTANDF:
+        case ASID_DOWNFOWARDU:
+            v = frame <= ROLL_FRAMES ? f->facing_direction * ROLL_SPEED : 0;
+            break;
+        case ASID_PASSIVESTANDB:
+        case ASID_DOWNBACKU:
+            v = frame <= ROLL_FRAMES ? -f->facing_direction * ROLL_SPEED : 0;
+            break;
         default: // Wait, Turn, Squat: friction, doubled above walk speed (ft_80084F3C).
             v = Brake(v, fabs(v) > c->walk_max ? c->friction * 2 : c->friction);
             break;
@@ -489,8 +576,9 @@ static void Physics(void) {
         f->phys.pos.X = next;
         f->phys.pos.Y = y;
         f->coll_data.ground_index = line;
-    } else if (s == ASID_ESCAPEF || s == ASID_ESCAPEB || s == ASID_TURNRUN) {
-        // Rolls and run turnarounds stop at the end of the floor.
+    } else if (s == ASID_ESCAPEF || s == ASID_ESCAPEB || s == ASID_TURNRUN || s == ASID_PASSIVESTANDF ||
+               s == ASID_PASSIVESTANDB || s == ASID_DOWNFOWARDU || s == ASID_DOWNBACKU) {
+        // Rolls (tech and getup rolls too) and run turnarounds stop at the end of the floor.
         for (int i = 0; i < 40; ++i) {
             float step = f->phys.pos.X + v * (39 - i) / 40;
             if (FloorAt(step, f->phys.pos.Y, &line, &y)) { f->phys.pos.X = step; break; }
@@ -548,6 +636,10 @@ static void Observe(void) {
     if (f->phys.pos.Y < st.min_y) st.min_y = f->phys.pos.Y;
     if (f->phys.pos.Y > st.max_y) st.max_y = f->phys.pos.Y;
     if (target.dir != st.last_dir) { st.dir_changes++; st.last_dir = target.dir; }
+    if (Chased(f->state_id)) {
+        if (!st.chase_state) { st.chase_state = f->state_id; st.chase_x = f->phys.pos.X; }
+        st.chase_last_x = f->phys.pos.X;
+    }
 }
 static void ResetStats(void) {
     FighterData *f = &ft[CPU_FT];
@@ -577,6 +669,8 @@ void TestGrabsInit(int stage_id, int character, int signed_timer) {
         ft[i].facing_direction = 1;
         ft[i].state_id = ASID_WAIT;
         ft[i].input.timer_lstick_tilt_x = 254;
+        // As a spawn leaves them (Fighter_ResetInputData): nothing pressed yet.
+        ft[i].input.timer_LR = ft[i].input.since_rapid_lr = ft[i].input.timer_a = ft[i].input.timer_b = 255;
     }
     nana_gobj.userdata = &nana;
     nana_gobj.hsd_object = &nana_joint;
@@ -710,6 +804,12 @@ int TestGrabsInfo(int key) {
         case 21: return target.hit;
         case 22: return total_hits;
         case 23: return target.juggle;
+        case 24: return target.chase;
+        case 25: return target.landing;
+        case 26: return target.getup;
+        case 27: return (u8)f->input.timer_LR;
+        case 28: return (u8)f->input.since_rapid_lr;
+        case 29: return f->cpu.lstickY;
     }
     return -1;
 }
@@ -748,6 +848,9 @@ int TestGrabsStat(int key) {
         case 29: return st.crouches;
         case 30: return st.squat_dashes;
         case 31: return st.passes;
+        case 32: return st.chase_state;
+        case 33: return (st.chase_last_x - st.chase_x) * 1000;
+        case 34: return st.getup_state;
     }
     return -1;
 }
@@ -759,4 +862,53 @@ int TestGrabsChar(int key) {
         case 3: return eng.c->dash_flag;
     }
     return -1;
+}
+
+// Hit mode's tech chase ----------------------------------------------------------
+
+void TestGrabsPlan(int landing, int getup) { target.landing = landing; target.getup = getup; }
+// The event's picks for a roll in [0, 100): techs, or getups.
+int TestGrabsPick(int getups, int roll) {
+    return getups ? TC_PresetGetup(TECH_PRESET, roll) : TC_PresetTech(TECH_PRESET, roll);
+}
+void TestGrabsFall(int vy1000, int hitstun) {
+    ft[CPU_FT].phys.self_vel.Y = vy1000 / 1000.f;
+    ft[CPU_FT].flags.hitstun = hitstun;
+}
+void TestGrabsHuman(int x1000) { ft[HMN_FT].phys.pos.X = x1000 / 1000.f; }
+void TestGrabsFace(int dir) { ft[CPU_FT].facing_direction = dir; }
+void TestGrabsResetStats(void) { ResetStats(); }
+/* A frame up to the native checks: animation, the event's think and the input
+ * proc, without the probe's own interrupts or physics. */
+void TestGrabsThinkInput(void) {
+    Animate();
+    Event_Think(&event);
+    Input();
+}
+unsigned TestGrabsCPU(void) { return (unsigned)&fighters[CPU_FT]; }
+/* Where the native checks' state entries go, and the stick angle they compare
+ * (ftCo_GetLStickAngle: atan2(y, |x|), to within .005). */
+static int native_entered = -1;
+void TestGrabsNativeEnter(GOBJ *fighter, int state) { native_entered = state; }
+void TestGrabsNativePassive(GOBJ *fighter) { native_entered = ASID_PASSIVE; }
+void TestGrabsNativeDownWait(GOBJ *fighter) { native_entered = ASID_DOWNWAITU; }
+float TestGrabsStickAngle(FighterData *f) {
+    float x = fabs(f->input.lstick.X), y = f->input.lstick.Y, half_pi = 1.5707964f;
+    if (x < 1e-6f) return y > 0 ? half_pi : y < 0 ? -half_pi : 0;
+    float t = y / x;
+    if (fabs(t) <= 1) return t / (1 + .28f * t * t);
+    return (t > 0 ? half_pi : -half_pi) - t / (t * t + .28f);
+}
+int TestGrabsNativeEntered(void) {
+    int state = native_entered;
+    native_entered = -1;
+    return state;
+}
+void TestGrabsDownBound(void) { // As a knockdown leaves it: its anim, and A and B unpressed since.
+    Enter(ASID_DOWNBOUNDU, DOWNBOUND_LEN);
+    ft[CPU_FT].input.timer_a = ft[CPU_FT].input.timer_b = 255;
+}
+void TestGrabsDownWait(void) {
+    Enter(ASID_DOWNWAITU, 1000);
+    eng.down_wait = DOWNWAIT_LEN;
 }

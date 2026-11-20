@@ -389,7 +389,8 @@ static EventMenu Menu_Chances = {
     .options = Options_Chances,
 };
 
-static const s16 DefaultChances[] = {40, 30, 30, 0, 0, 25, 25, 25, 25};
+static const s16 DefaultChances[] = {40, 30, 30, 0, 0, TC_DEFAULT_GETUP_CHANCE, TC_DEFAULT_GETUP_CHANCE,
+    TC_DEFAULT_GETUP_CHANCE, TC_DEFAULT_GETUP_CHANCE};
 static bool preset_set_getups; // The getups are Getup Attack Only's, not the defaults or edits.
 
 static void SetTechPresetChances(int preset) {

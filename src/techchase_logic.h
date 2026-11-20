@@ -145,6 +145,31 @@ static int TC_PresetGetupChance(int preset, int option)
     return option >= 0 && option < 4 ? attack[option] : 0;
 }
 
+/* The four tech chances' options and the four getups', in their chances' order. */
+enum TCTechOption { TC_TECH_IN_PLACE, TC_TECH_AWAY, TC_TECH_TOWARD, TC_TECH_MISS };
+enum TCGetupOption { TC_GETUP_STAND, TC_GETUP_AWAY, TC_GETUP_TOWARD, TC_GETUP_ATTACK };
+// Each getup's chance when the preset leaves the getups alone: Techchase's default.
+#define TC_DEFAULT_GETUP_CHANCE 25
+
+/* The tech option a roll in [0, 100) picks with a preset's chances. */
+static int TC_PresetTech(int preset, int roll)
+{
+    int option = TC_TECH_IN_PLACE;
+    while (option < TC_TECH_MISS && (roll -= TC_PresetChance(preset, option)) >= 0) ++option;
+    return option;
+}
+
+/* The getup a roll in [0, 100) picks: the preset's getups, or the defaults. */
+static int TC_PresetGetup(int preset, int roll)
+{
+    int option = TC_GETUP_STAND;
+    for (; option < TC_GETUP_ATTACK; ++option) {
+        int chance = TC_PresetGetupChance(preset, option);
+        if ((roll -= chance < 0 ? TC_DEFAULT_GETUP_CHANCE : chance) < 0) break;
+    }
+    return option;
+}
+
 /* Saves from before Getup Attack Only keep their numbers: it is saved as 9,
  * after Tyro setting, though the menu lists it after Miss Tech Only. */
 static int TC_PresetToSaved(int preset)

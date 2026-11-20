@@ -6,10 +6,13 @@ inputs walk, run, dash and roll at full speed the way the game would take
 them, and turn back before the end of their floor. None of this is Dolphin.
 """
 from pathlib import Path
+import struct
 import subprocess
 import unittest
 import test_settings as fixtures
 from test_lowlaser import load_probe
+from test_techchase import plco_common
+from unicorn import ppc_const as reg
 
 ROOT = Path(__file__).resolve().parents[1]
 BATTLEFIELD, FINAL_DESTINATION = 0, 1
@@ -45,7 +48,19 @@ ASID_CAPTUREPULLEDHI, ASID_CAPTUREWAITHI, ASID_THROWNF = 223, 224, 239
 ASID_DAMAGEN1, ASID_DAMAGEN2, ASID_DAMAGEFLYN, ASID_DOWNBOUNDU = 78, 79, 88, 183
 ASID_CAPTURECAPTAIN, ASID_SLEEP = 275, 11
 ASID_GUARDON, ASID_GUARD, ASID_GUARDSETOFF = 178, 179, 181
+ASID_DEADDOWN, ASID_DEADUP, ASID_DEADUPSTAR, ASID_DEADUPFALL, ASID_DEADUPFALLHITCAMERAICE = 0, 3, 4, 6, 10
+(ASID_DOWNWAITU, ASID_DOWNDAMAGEU, ASID_DOWNSTANDU, ASID_DOWNATTACKU, ASID_DOWNFOWARDU,
+ ASID_DOWNBACKU) = range(184, 190)
+ASID_DOWNBOUNDD = 191
+ASID_DOWNSTANDD, ASID_DOWNATTACKD, ASID_DOWNFOWARDD, ASID_DOWNBACKD = range(194, 198)
+ASID_PASSIVE, ASID_PASSIVESTANDF, ASID_PASSIVESTANDB = 199, 200, 201
 PAD_TRIGGER_R = 0x20
+# Hit mode's tech chase: the landings and getups, as techchase_logic.h numbers them.
+IN_PLACE, AWAY, TOWARD, MISS = range(4)
+STAND_UP, ROLL_AWAY, ROLL_TOWARD, GETUP_ATTACK = range(4)
+TECH_STICK = 40  # The stick a tech or getup roll holds, and how long ago its L/R press reads.
+TECH_PRESS_AGO = 10
+LAND_FRAMES = 4  # A tech roll's stick goes out this many frames of falling before the floor.
 
 
 def build():
@@ -787,8 +802,9 @@ class GrabHitModeTests(unittest.TestCase):
 
     def test_the_juggle_lasts_until_it_lands_then_half_a_second(self):
         p = self.thrown(high=True)
+        p.set_state(ASID_FALL, air=1)  # Out of hitstun without tumbling: it lands on its feet.
         frames = 0
-        while p.state() == ASID_DAMAGEFLYN:  # Falling, with no window running out.
+        while p.state() == ASID_FALL:  # Falling, with no window running out.
             self.assertEqual(p.info(23), 1)
             p.run(1)
             frames += 1
@@ -808,12 +824,46 @@ class GrabHitModeTests(unittest.TestCase):
         p.run(1)
         self.assertEqual((p.state(), p.info(23), p.info(0)), (ASID_WAIT, 0, 1))
 
-    def test_a_knockdown_ends_the_juggle(self):
+    def test_a_knockdown_doesnt_end_the_juggle(self):
         p = self.thrown()
         self.hit(p)
-        p.set_state(ASID_DOWNBOUNDU)
+        p.run(4)
+        p.m.call('TestGrabsDownBound')
         p.run(1)
-        self.assertEqual((p.state(), p.info(23), p.info(0), p.info(22)), (ASID_WAIT, 0, 1, 1))
+        # A tech chase: it stays down, for its getup (GrabTechChaseTests).
+        self.assertEqual((p.state(), p.info(23), p.info(24), p.info(0), p.info(22)), (ASID_DOWNBOUNDU, 1, 1, 1, 1))
+
+    def test_a_cpu_knocked_off_the_top_comes_back_at_once(self):
+        for state in range(ASID_DEADUP, ASID_DEADUPFALLHITCAMERAICE + 1):  # Star and screen KOs.
+            with self.subTest(state=state):
+                p = self.thrown(high=True)
+                self.hit(p)  # Up air, say: it counts,
+                p.run(5)
+                self.assertEqual((p.state(), p.info(23)), (ASID_DAMAGEFLYN, 1))
+                p.set_state(state, air=1)
+                p.run(1)  # and the next CPU is out.
+                self.assertEqual((p.state(), p.info(23), p.info(0), p.info(22)), (ASID_WAIT, 0, 1, 1))
+                x, y, line, *_ = p.spot()
+                self.assertIn(line, FLOORS)
+
+    def test_a_throw_off_the_top_comes_back_at_once_too(self):
+        p = self.thrown(high=True)
+        p.set_state(ASID_DEADUPSTAR, air=1)
+        p.run(1)
+        self.assertEqual((p.state(), p.info(23), p.info(0), p.info(22)), (ASID_WAIT, 0, 0, 0))
+
+    def test_a_hit_off_the_top_comes_back_at_once_in_any_mode(self):
+        for prefs in ({}, {FREE_PRACTICE: 1}, {FREE_PRACTICE: 1, SUCCESS: HIT}):
+            with self.subTest(prefs=prefs):
+                p = Probe(prefs=prefs)
+                p.place(-20, MAIN_LEFT, STAND, 1)
+                p.set_state(ASID_DAMAGEFLYN, hitlag=4, air=1)  # A hit before any grab,
+                p.m.call('TestGrabsMoveCPU', -20000, 100000)
+                p.run(10)
+                self.assertEqual((p.state(), p.info(21)), (ASID_DAMAGEFLYN, 1))
+                p.set_state(ASID_DEADUPFALL, air=1)  # off the top.
+                p.run(1)
+                self.assertEqual((p.state(), p.info(21), p.info(0)), (ASID_WAIT, 0, 0))
 
     def test_a_cpu_thrown_off_the_stage_comes_back(self):
         p = self.thrown(high=True)
@@ -848,6 +898,376 @@ class GrabHitModeTests(unittest.TestCase):
         p.set_state(ASID_DAMAGEFLYN, air=1)
         p.run(1)
         self.assertEqual((p.state(), p.info(0), p.info(23)), (ASID_WAIT, 0, 0))
+
+
+def juggled(landing=None, getup=-1, x=10, height=30, you=-40, facing=1):
+    """Hit mode: grabbed, thrown, and falling in knockback onto open ground
+    (under the top platform's right half), with its landing and a missed
+    tech's getup picked, or (None, -1) left to the event."""
+    p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT})
+    p.place(-20, MAIN_LEFT, STAND, 1)
+    p.set_state(ASID_CAPTUREPULLEDHI)
+    p.run(1)
+    p.set_state(ASID_THROWNF)
+    p.run(10)
+    p.set_state(ASID_DAMAGEFLYN, air=1)
+    p.m.call('TestGrabsMoveCPU', int(x * 1000), int(height * 1000))
+    p.m.call('TestGrabsHuman', int(you * 1000))
+    p.m.call('TestGrabsFace', facing)
+    p.run(1)
+    if landing is not None:
+        p.m.call('TestGrabsPlan', landing, getup)
+    p.m.call('TestGrabsResetStats')
+    return p
+
+
+class GrabTechChaseTests(unittest.TestCase):
+    """Hit mode's juggle: a knockback landing techs or misses with Techchase's
+    Tyro setting's chances, and the CPU stays for its tech or getup."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def land(self, p):
+        frames = 0
+        while p.state() == ASID_DAMAGEFLYN:
+            p.run(1)
+            frames += 1
+            self.assertLess(frames, 200)
+        return frames
+
+    def chase(self, p):
+        """Lands, then runs out the tech or the getup: the frames it stayed."""
+        self.land(p)
+        p.run(1)  # The event's think sees the landing.
+        frames = 1
+        while p.info(24):
+            self.assertEqual(p.info(23), 1)
+            p.run(1)
+            frames += 1
+            self.assertLess(frames, 400)
+        return frames
+
+    def test_the_landings_and_getups_follow_techchases_tyro_setting(self):
+        p = Probe()
+        landings = [p.m.call('TestGrabsPick', 0, roll) for roll in range(100)]
+        self.assertEqual([landings.count(i) for i in range(4)], [60, 15, 15, 10])
+        getups = [p.m.call('TestGrabsPick', 1, roll) for roll in range(100)]
+        self.assertEqual([getups.count(i) for i in range(4)], [25, 25, 25, 25])
+
+    def test_each_flight_picks_its_landing_once_and_each_hit_picks_again(self):
+        p = juggled()
+        picks = set()
+        while p.state() == ASID_DAMAGEFLYN:
+            picks.add(p.info(25))
+            p.run(1)
+        self.assertEqual(len(picks), 1)
+        self.assertIn(picks.pop(), range(4))
+        # Hit after hit, high up: each picks anew, with the Tyro setting's chances.
+        p = juggled(height=3000)
+        picks = []
+        for _ in range(400):
+            p.set_state(ASID_DAMAGEFLYN, hitlag=2, air=1)
+            p.run(1)
+            picks.append(p.info(25))
+            p.run(2)  # Its hitlag runs out.
+        self.assertEqual(p.info(22), 400)
+        for landing, chance in zip(range(4), (.6, .15, .15, .1)):
+            self.assertAlmostEqual(picks.count(landing) / len(picks), chance, delta=.06)
+
+    def test_each_landing_techs_as_picked_and_the_cpu_stays_for_it(self):
+        for you in (-40, 60):
+            for facing in (1, -1):
+                away = 1 if 10 > you else -1
+                for landing in (IN_PLACE, AWAY, TOWARD, MISS):
+                    with self.subTest(you=you, facing=facing, landing=landing):
+                        p = juggled(landing, you=you, facing=facing)
+                        frames = self.chase(p)
+                        first, moved = p.stat(32), p.stat(33) / 1000
+                        if landing == IN_PLACE:
+                            self.assertEqual((first, moved), (ASID_PASSIVE, 0))
+                        elif landing == MISS:
+                            self.assertEqual(first, ASID_DOWNBOUNDU)
+                        else:
+                            self.assertIn(first, (ASID_PASSIVESTANDF, ASID_PASSIVESTANDB))
+                            self.assertGreater(moved * (away if landing == AWAY else -away), 10)
+                        self.assertGreaterEqual(frames, 26)  # The whole tech or getup.
+                        # Up again, unhit: it's back somewhere else, uncounted.
+                        self.assertEqual((p.state(), p.info(23), p.info(0), p.info(22)), (ASID_WAIT, 0, 0, 0))
+
+    def test_a_missed_tech_gets_up_as_picked_right_away(self):
+        for facing in (1, -1):
+            for getup in (STAND_UP, ROLL_AWAY, ROLL_TOWARD, GETUP_ATTACK):
+                with self.subTest(facing=facing, getup=getup):
+                    p = juggled(MISS, getup, facing=facing)
+                    frames = self.chase(p)
+                    state, moved = p.stat(34), p.stat(33) / 1000
+                    if getup == STAND_UP:
+                        self.assertEqual(state, ASID_DOWNSTANDU)
+                    elif getup == GETUP_ATTACK:
+                        self.assertEqual(state, ASID_DOWNATTACKU)
+                    else:
+                        self.assertIn(state, (ASID_DOWNFOWARDU, ASID_DOWNBACKU))
+                        self.assertGreater(moved * (1 if getup == ROLL_AWAY else -1), 10)  # You're on the left.
+                    self.assertLessEqual(frames, 26 + 30 + 3)  # DownBound, then the getup.
+                    self.assertEqual((p.state(), p.info(23), p.info(0)), (ASID_WAIT, 0, 0))
+
+    def test_a_missed_tech_picks_its_getup_as_it_lands(self):
+        p = juggled(MISS)
+        self.land(p)
+        p.run(1)
+        self.assertIn(p.info(26), range(4))
+
+    def test_the_tech_reads_l_r_as_pressed_and_a_missed_tech_as_never(self):
+        for landing in (IN_PLACE, AWAY, TOWARD, MISS):
+            with self.subTest(landing=landing):
+                p = juggled(landing)
+                p.run(1)
+                # The input proc counts the frame since the press.
+                expect = (255,) if landing == MISS else (TECH_PRESS_AGO + 1, 255)
+                self.assertEqual((p.info(27), p.info(28))[:len(expect)], expect)
+
+    def test_a_tech_rolls_stick_goes_out_only_as_it_lands(self):
+        for landing, stick in ((AWAY, TECH_STICK), (TOWARD, -TECH_STICK), (IN_PLACE, 0), (MISS, 0)):
+            with self.subTest(landing=landing):
+                p = juggled(landing, height=40)
+                sticks = []
+                while p.state() == ASID_DAMAGEFLYN:
+                    p.run(1)
+                    sticks.append(p.info(11))
+                held = [i for i, s in enumerate(sticks) if s]
+                if not stick:
+                    self.assertEqual(held, [])
+                    continue
+                # Nothing on the way down, then away from you (on the left) or toward
+                # you for its last frames, right through the landing.
+                self.assertEqual({sticks[i] for i in held}, {stick})
+                self.assertEqual(held, list(range(len(sticks) - len(held), len(sticks))))
+                self.assertLessEqual(len(held), LAND_FRAMES + 1)
+
+    def test_a_tech_rolls_stick_stays_out_in_hitstun_but_never_in_hitlag(self):
+        p = juggled(AWAY, height=3000)
+        p.m.call('TestGrabsFall', 0, 1)  # In hitstun, which doesn't drift.
+        p.run(1)
+        self.assertEqual(p.info(11), TECH_STICK)
+        p.set_state(ASID_DAMAGEFLYN, hitlag=5, air=1)  # Another hit,
+        p.m.call('TestGrabsFall', 0, 1)
+        p.run(1)
+        p.m.call('TestGrabsPlan', AWAY, -1)  # with the same landing picked.
+        sticks = [p.info(11)]
+        for _ in range(4):
+            p.run(1)
+            sticks.append(p.info(11))
+        self.assertEqual(sticks, [0, 0, 0, 0, TECH_STICK])  # Its hitlag, then out again.
+
+    def test_a_hit_on_the_tech_or_the_knockdown_counts_and_the_juggle_goes_on(self):
+        for landing in (IN_PLACE, MISS):
+            with self.subTest(landing=landing):
+                p = juggled(landing)
+                self.land(p)
+                p.run(10)  # Partway into the tech, or still down.
+                self.assertEqual(p.info(24), 1)
+                p.set_state(ASID_DAMAGEN1, hitlag=4)
+                p.run(1)
+                self.assertEqual((p.info(0), p.info(22), p.info(24), p.info(23), p.info(25)), (1, 1, 0, 1, -1))
+                p.run(2 + GRAB_WINDOW)  # Then the window, as after any hit on the ground.
+                self.assertEqual((p.state(), p.info(23)), (ASID_DAMAGEN1, 1))
+                p.run(1)
+                self.assertEqual((p.state(), p.info(23), p.info(0)), (ASID_WAIT, 0, 1))
+
+    def test_a_hit_on_a_cpu_lying_down_counts_and_keeps_the_chase(self):
+        p = juggled(MISS)
+        self.land(p)
+        p.set_state(ASID_DOWNDAMAGEU, hitlag=4)  # A jab that keeps it down.
+        p.run(1)
+        self.assertEqual((p.info(0), p.info(22), p.info(24), p.info(23)), (1, 1, 1, 1))
+
+    def test_a_tech_regrabbed_starts_the_juggle_over_at_its_throw(self):
+        p = juggled(IN_PLACE)
+        self.land(p)
+        p.run(30)  # The tech's end, which a grab can catch.
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.run(1)
+        self.assertEqual((p.info(23), p.info(24), p.info(0)), (0, 0, 0))
+        p.set_state(ASID_THROWNF)
+        p.run(10)
+        p.set_state(ASID_DAMAGEFLYN, hitlag=3, air=1)  # Its throw lets go, with hitlag:
+        p.m.call('TestGrabsMoveCPU', 10000, 30000)
+        p.run(1)
+        self.assertEqual((p.info(23), p.info(22), p.info(0)), (1, 0, 0))  # not a hit.
+        self.assertIn(p.info(25), range(4))  # A new landing.
+
+    def test_throw_mode_and_hits_before_a_grab_never_tech(self):
+        for prefs in ({}, {FREE_PRACTICE: 1}, {FREE_PRACTICE: 1, SUCCESS: HIT}):
+            with self.subTest(prefs=prefs):
+                p = Probe(prefs=prefs)
+                p.place(10, MAIN_RIGHT, STAND, 1)
+                p.set_state(ASID_DAMAGEFLYN, hitlag=4, air=1)  # Hit, not grabbed.
+                p.m.call('TestGrabsMoveCPU', 10000, 20000)
+                p.m.call('TestGrabsResetStats')
+                while p.state() == ASID_DAMAGEFLYN:
+                    p.run(1)
+                    self.assertEqual((p.info(11), p.info(27)), (0, 255))
+                self.assertEqual(p.stat(32), ASID_DOWNBOUNDU)  # Knocked down,
+                p.run(1)
+                self.assertEqual((p.state(), p.info(21)), (ASID_WAIT, 0))  # and sent away at once.
+
+
+# The native tech and getup checks the event's inputs go through, run from the
+# local DOL (sizes from GTME01.map) with the game's r2 constants, r13 and
+# PlCo.dat's common data. Their state entries and the stick angle go to the
+# probe; every other call out of them is stubbed to return 0 (no hammer, no
+# C-stick, no animation frames left).
+R2, R13 = 0x804DF9E0, 0x804DB6A0
+NATIVE = {
+    0x800986B0: 0x7C,   # Tech_L/RCheck&FrameWindowCheck
+    0x8009872C: 0xA4,   # Interrupt_NeutralTech
+    0x80098928: 0xAC,   # Interrupt_TechRollF/B
+    0x80097DC0: 0x5C,   # AnimationInterrupt_DownBoundU/D
+    0x8009802C: 0x50,   # Interrupt_AS_DownWaitU/D
+    0x800980BC: 0xA4,   # Interrupt_DownStandU/D
+    0x80098214: 0x110,  # Interrupt_DownBack/ForwardU/D
+    0x80098400: 0xD4,   # Interrupt_DownAttackU/D_FromDownBound
+    0x800984D4: 0x98,   # Interrupt_DownAttackU/D_FromDownBoundWait
+}
+ENTRIES = {
+    0x800987D0: 'TestGrabsNativePassive',   # AS_199_Passive_NeutralTech
+    0x800989D4: 'TestGrabsNativeEnter',     # AS_200/201_PassiveStandF/B (r4: the state)
+    0x80098160: 'TestGrabsNativeEnter',     # DownStand's entry
+    0x80098324: 'TestGrabsNativeEnter',     # a getup roll's
+    0x8009856C: 'TestGrabsNativeEnter',     # DownAttack's
+    0x80097E8C: 'TestGrabsNativeDownWait',  # AS_184/192_DownWaitU/D
+    0x8007D964: 'TestGrabsStickAngle',      # Joystick_Angle_Retrieve_AbsX
+}
+
+
+class NativeChecks:
+    def __init__(self, p):
+        self.m = m = p.m
+        dol = (ROOT / 'build/Start.dol').read_bytes()
+        def native(address, size):
+            for i in range(18):
+                offset, base, length = [struct.unpack_from('>I', dol, at + i * 4)[0] for at in (0, 0x48, 0x90)]
+                if base <= address and address + size <= base + length:
+                    return dol[offset + address - base:offset + address - base + size]
+            raise AssertionError('Native routine missing from DOL')
+        def jump(address, target):
+            m.cpu.mem_write(address, struct.pack('>4I', 0x3D800000 | target >> 16,
+                0x618C0000 | target & 0xFFFF, 0x7D8903A6, 0x4E800420))
+        for address, size in NATIVE.items():
+            code = native(address, size)
+            for i in range(0, size, 4):
+                word = struct.unpack_from('>I', code, i)[0]
+                op, base, displacement = word >> 26, word >> 16 & 31, word & 0xFFFF
+                if op == 18 and word & 1:  # bl
+                    target = address + i + (word & 0x03FFFFFC) - (0x04000000 if word & 0x02000000 else 0)
+                    if target in ENTRIES:
+                        jump(target, m.symbols[ENTRIES[target]])
+                    elif target not in NATIVE:
+                        m.cpu.mem_write(target, bytes.fromhex('386000004e800020'))
+                elif op in (32, 48, 50) and base == 2:  # lwz/lfs/lfd from r2's constants
+                    constant = R2 + displacement - (0x10000 if displacement & 0x8000 else 0)
+                    m.cpu.mem_write(constant, native(constant, 8 if op == 50 else 4))
+        for address, size in NATIVE.items():
+            m.cpu.mem_write(address, native(address, size))
+        common = struct.unpack('>I', m.cpu.mem_read(R13 - 0x514C, 4))[0]  # stc_ftcommon
+        m.cpu.mem_write(common, plco_common())
+
+    def run(self, address):
+        """Runs a native check on the CPU: the state it entered, or None."""
+        m = self.m
+        m.call('TestGrabsNativeEntered')
+        cpu = m.call('TestGrabsCPU')
+        m.symbols['native'] = address
+        saved = m.cpu.reg_read(reg.UC_PPC_REG_2)
+        m.cpu.reg_write(reg.UC_PPC_REG_2, R2)
+        m.cpu.reg_write(reg.UC_PPC_REG_13, R13)
+        try:
+            m.call('native', cpu)
+        finally:
+            m.cpu.reg_write(reg.UC_PPC_REG_2, saved)
+        state = signed(m.call('TestGrabsNativeEntered'))
+        return None if state < 0 else state
+
+
+FORWARD, BACK = (ASID_DOWNFOWARDU, ASID_DOWNFOWARDD), (ASID_DOWNBACKU, ASID_DOWNBACKD)
+
+
+class GrabNativeChaseTests(unittest.TestCase):
+    """The event's tech and getup inputs, through the game's own checks."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def landing(self, landing, you, facing):
+        p = juggled(landing, you=you, facing=facing)
+        checks = NativeChecks(p)
+        p.m.call('TestGrabsMoveCPU', 10000, 2000)  # About to land.
+        p.m.call('TestGrabsFall', -2000, 0)
+        p.m.call('TestGrabsThinkInput')
+        # ftCo_80090184's order: a tech roll, a tech in place, or else a knockdown.
+        return checks.run(0x80098928) or checks.run(0x8009872C) or ASID_DOWNBOUNDU
+
+    def test_the_games_tech_check_takes_each_landing(self):
+        for you in (-40, 60):
+            for facing in (1, -1):
+                away = 1 if 10 > you else -1
+                for landing in (IN_PLACE, AWAY, TOWARD, MISS):
+                    with self.subTest(you=you, facing=facing, landing=landing):
+                        if landing in (AWAY, TOWARD):
+                            way = away if landing == AWAY else -away
+                            expect = ASID_PASSIVESTANDF if way == facing else ASID_PASSIVESTANDB
+                        else:
+                            expect = ASID_PASSIVE if landing == IN_PLACE else ASID_DOWNBOUNDU
+                        self.assertEqual(self.landing(landing, you, facing), expect)
+
+    def knockdown(self, getup, facing):
+        p = juggled(MISS, getup, facing=facing)
+        checks = NativeChecks(p)
+        while p.state() == ASID_DAMAGEFLYN:
+            p.run(1)
+        self.assertEqual(p.state(), ASID_DOWNBOUNDU)
+        return p, checks
+
+    def getup_ways(self, getup, facing):
+        """You're on the left: away is right."""
+        way = 1 if getup == ROLL_AWAY else -1
+        return FORWARD if way == facing else BACK
+
+    def test_the_games_getup_checks_take_each_getup_from_a_knockdown(self):
+        for facing in (1, -1):
+            for getup in (STAND_UP, ROLL_AWAY, ROLL_TOWARD, GETUP_ATTACK):
+                with self.subTest(facing=facing, getup=getup):
+                    p, checks = self.knockdown(getup, facing)
+                    for _ in range(3):
+                        p.m.call('TestGrabsThinkInput')
+                    entered = checks.run(0x80097DC0)  # DownBound's last frame.
+                    if getup == GETUP_ATTACK:
+                        self.assertEqual(entered, ASID_DOWNATTACKU)
+                    elif getup == STAND_UP:
+                        # Standing waits for DownWait, which takes it at once.
+                        self.assertEqual(entered, ASID_DOWNWAITU)
+                        p.m.call('TestGrabsDownWait')
+                        p.m.call('TestGrabsThinkInput')
+                        self.assertEqual(checks.run(0x8009802C), ASID_DOWNSTANDU)
+                    else:
+                        self.assertIn(entered, self.getup_ways(getup, facing))
+
+    def test_the_games_getup_checks_take_each_getup_from_down_wait(self):
+        # As after a jab that keeps it down: the getup comes from DownWait.
+        for facing in (1, -1):
+            for getup in (STAND_UP, ROLL_AWAY, ROLL_TOWARD, GETUP_ATTACK):
+                with self.subTest(facing=facing, getup=getup):
+                    p, checks = self.knockdown(getup, facing)
+                    p.m.call('TestGrabsDownWait')
+                    entered = None
+                    for _ in range(2):  # A comes afresh every other frame.
+                        p.m.call('TestGrabsThinkInput')
+                        entered = entered or checks.run(0x8009802C)
+                    if getup == STAND_UP:
+                        self.assertEqual(entered, ASID_DOWNSTANDU)
+                    elif getup == GETUP_ATTACK:
+                        self.assertEqual(entered, ASID_DOWNATTACKU)
+                    else:
+                        self.assertIn(entered, self.getup_ways(getup, facing))
 
 
 if __name__ == '__main__':

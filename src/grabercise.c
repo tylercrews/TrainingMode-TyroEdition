@@ -2,6 +2,7 @@
 #include "stage_points.h"
 #include "stage_swap.h"
 #include "fighter_swap.h"
+#include "techchase_logic.h"
 
 /* Grabs-ercise (Minigames): Eggs-ercise with a CPU to grab instead of eggs to
  * break. The CPU you picked appears somewhere on the stage you picked: on a
@@ -18,7 +19,10 @@
  * movements, whether they're used at all, and what counts: a grab, or (Hit)
  * a hit after the grab's throw,
  * while the CPU stays up to be juggled, with every hit counted apart, from a
- * percent you pick or a random one.
+ * percent you pick or a random one. A juggle that knocks it down is a tech
+ * chase: it techs in place, away or toward you, or misses and gets up, with
+ * Techchase's Tyro setting's chances, and comes back somewhere else if it's
+ * back on its feet unhit. Knocked off the top, it comes back at once.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
  * runs before the fighters' input proc. The rules below are the native
@@ -45,7 +49,17 @@
  *   (4) rolls. Rolls and run turnarounds stop at the edge of a floor; walks,
  *   dashes, runs and crouches go off it.
  * - Wait, Turn, Squat and SquatWait brake with ground friction, doubled above
- *   walk speed (ft_80084F3C, 0x6C). */
+ *   walk speed (ft_80084F3C, 0x6C).
+ * - A landing in knockback (DamageFly, DamageFall) techs if L/R was pressed
+ *   under 0x250 (20) frames ago (input.timer_LR) and at least 0x1C (40) after
+ *   the press before it (since_rapid_lr), rolling with the stick 0x254 (0.2)
+ *   out (ftCo_80090184, ftCo_800986B0, ftCo_80098928). Otherwise it's a
+ *   knockdown (DownBound), which ends in a getup attack if A or B was pressed
+ *   during it (0x24C, 60 frames), a getup roll with the stick 0x248 (0.2) out
+ *   to the side, or DownWait, which takes a fresh A or B, the stick to the side,
+ *   or the stick 0x244 (0.2) up (ftCo_DownBound_Anim, ftCo_DownWait_IASA).
+ * - Past the top blast zone with upward knockback, a fighter enters a star or
+ *   screen KO (DeadUpStar, DeadUpFall: ftCo_800D3158). */
 
 // The movement rows, in menu order, as the saved preferences number them.
 enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DASH_HALF, MOVE_ROLL };
@@ -81,6 +95,21 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 // An airborne CPU this long, or this far off the stage, comes back.
 #define AIR_FRAMES 120
 #define OFF_STAGE 10.f
+/* Hit mode's tech chase (ChaseInputs), with Techchase's Tyro setting's chances:
+ * 60% in place, 15% away, 15% toward and 10% missed, and its default getups. */
+#define TECH_PRESET TC_PRESET_TYRO
+/* input.timer_LR: L/R pressed this long ago is inside the tech's 20 frames
+ * (PlCo 0x250), and past the 2 (0x18C) in which a hit in the air would take 5%
+ * less knockback (0x190). */
+#define TECH_PRESS_AGO 10
+// .31: past a tech roll's and a getup roll's 0.2 (0x254, 0x248) and the stick's
+// 0.28 dead zone, as Techchase and the Training Lab press.
+#define TECH_STICK 40
+/* A tech roll's stick goes out this many frames of falling before the floor,
+ * so it doesn't drift the CPU on the way down. In the air the CPU's ECB is
+ * above its feet, which can pass the floor's height before it lands. */
+#define LAND_FRAMES 4
+#define LAND_BELOW 10.f
 
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
@@ -168,9 +197,9 @@ static EventOption Options_Main[OPT_COUNT] = {
         .name = "Success Criteria",
         .value_num = countof(SuccessText),
         .values = SuccessText,
-        .desc = {"Throw: a grab counts. Hit: grab and throw, then",
-                 "hit the CPU for it to count. It stays up to juggle:",
-                 "every hit adds to Hits. Changing it resets both.",
+        .desc = {"Throw: a grab counts. Hit: grab, throw and hit the",
+                 "CPU. It stays up to juggle and techs when knocked",
+                 "down. Every hit adds to Hits; a change resets both.",
                  "Free Practice only; timed runs are Throw."},
         .disable = 1,
         .OnChange = ChangeSuccess,
@@ -347,6 +376,9 @@ static struct target {
     float last_lag;    // Last frame's hitlag: more now is a new hit.
     bool hit;          // Hit: left where it is, for a follow-up grab, until
     int hit_frames;    // this many frames after the last hit's hitlag pass GRAB_WINDOW.
+    bool chase;        // Hit mode: knocked down or teching, until it's up again.
+    int landing;       // Hit mode: how its next knockback landing goes (TC_TECH_*),
+    int getup;         // and a missed tech's getup (TC_GETUP_*): -1 until picked.
     int air_frames;    // Airborne, not held.
     Vec3 spot;         // Where it last appeared.
     int ends_line;     // The floor FloorEnds last measured, and its ends.
@@ -690,7 +722,8 @@ static void Respawn(void) {
     target.last_state = ASID_WAIT;
     target.last_flag = false;
     target.run_phase = 0;
-    target.grabbed = target.held = target.juggle = target.scored = target.hit = false;
+    target.grabbed = target.held = target.juggle = target.scored = target.hit = target.chase = false;
+    target.landing = target.getup = -1;
     target.hit_frames = 0;
     target.air_frames = 0;
     target.spot = spot;
@@ -722,6 +755,15 @@ static bool Frozen(FighterData *ft) {
 }
 /* Knocked down, lying on the floor, where no grab can catch it. */
 static bool Down(int state) { return state >= ASID_DOWNBOUNDU && state <= ASID_DOWNSPOTD; }
+/* What a tech chase chases: a knockdown and its getup, or a tech. */
+static bool Chased(int state) { return state >= ASID_DOWNBOUNDU && state <= ASID_PASSIVESTANDB; }
+/* Knockback, which a landing techs out of or is knocked down by. */
+static bool KnockedBack(int state) {
+    return (state >= ASID_DAMAGEHI1 && state <= ASID_DAMAGEFLYROLL) || state == ASID_DAMAGEFALL;
+}
+/* A star or screen KO off the top. The sides and bottom never come to a KO:
+ * OFF_STAGE brings the CPU back first. */
+static bool OffTheTop(int state) { return state >= ASID_DEADUP && state <= ASID_DEADUPFALLHITCAMERAICE; }
 
 /* How far ground friction carries a fighter from speed v, frame by frame, for
  * up to `frames` frames: ft_80084F3C's friction, doubled above walk speed.
@@ -1057,6 +1099,65 @@ static void Move(GOBJ *cpu, FighterData *ft) {
     }
 }
 
+// Hit mode's tech chase --------------------------------------------------------
+
+// The way from you to the CPU, -1 or 1.
+static int AwayFromYou(FighterData *ft) {
+    return ft->phys.pos.X < ((FighterData *)Fighter_GetGObj(0)->userdata)->phys.pos.X ? -1 : 1;
+}
+/* Falling onto a floor within LAND_FRAMES frames at the speed it has now. */
+static bool LandingSoon(FighterData *ft) {
+    float fall = -(ft->phys.self_vel.Y + ft->phys.kb_vel.Y), y;
+    if (fall <= 0) return false;
+    for (int i = 0; i < LineCount(); ++i) {
+        if (!LineY(i, ft->phys.pos.X, &y)) continue;
+        float above = ft->phys.pos.Y - y;
+        if (above >= -LAND_BELOW && above <= fall * LAND_FRAMES) return true;
+    }
+    return false;
+}
+/* In knockback, the tech is picked once a landing needs it, and stands until
+ * the next hit or grab. L/R reads as pressed TECH_PRESS_AGO frames ago with no
+ * press before it, as Techchase and the Training Lab write it, so the landing
+ * techs whenever it comes, with no press to time to it. A missed tech reads as
+ * never pressed. A tech roll holds the stick away from you or toward you while
+ * it can't drift (in hitstun, ft_80084EEC) or is about to land, and never in
+ * hitlag, where it would DI. */
+static void TechInputs(FighterData *ft) {
+    if (target.landing < 0) target.landing = TC_PresetTech(TECH_PRESET, HSD_Randi(100));
+    if (target.landing == TC_TECH_MISS) {
+        ft->input.timer_LR = 255;
+        return;
+    }
+    ft->input.timer_LR = TECH_PRESS_AGO;
+    ft->input.since_rapid_lr = 255;
+    if (target.landing == TC_TECH_IN_PLACE || Frozen(ft) || !(ft->flags.hitstun || LandingSoon(ft))) return;
+    int away = AwayFromYou(ft);
+    ft->cpu.lstickX = (target.landing == TC_TECH_AWAY ? away : -away) * TECH_STICK;
+}
+/* A missed tech's getup, picked as it lands, held through DownBound, which
+ * gets up at its end, and DownWait, which gets up at once: the stick up or to
+ * the side, or A pressed afresh every other frame (DownWait takes only a new
+ * press). */
+static void GetupInputs(FighterData *ft) {
+    int state = ft->state_id;
+    if (state != ASID_DOWNBOUNDU && state != ASID_DOWNBOUNDD && state != ASID_DOWNWAITU && state != ASID_DOWNWAITD)
+        return;
+    if (target.getup < 0) target.getup = TC_PresetGetup(TECH_PRESET, HSD_Randi(100));
+    int away = AwayFromYou(ft);
+    switch (target.getup) {
+        case TC_GETUP_STAND: ft->cpu.lstickY = STICK_FULL; break;
+        case TC_GETUP_AWAY: ft->cpu.lstickX = away * TECH_STICK; break;
+        case TC_GETUP_TOWARD: ft->cpu.lstickX = -away * TECH_STICK; break;
+        default: ft->cpu.held = ft->input.held & PAD_BUTTON_A ? 0 : PAD_BUTTON_A; break;
+    }
+}
+/* Hit mode's juggle: how the CPU lands from knockback, and how it gets up. */
+static void ChaseInputs(FighterData *ft) {
+    if (ft->phys.air_state == 0) GetupInputs(ft);
+    else if (KnockedBack(ft->state_id)) TechInputs(ft);
+}
+
 static void Score(void) {
     if (grab_count < 999) grab_count++;
 }
@@ -1074,6 +1175,12 @@ static void UpdateTarget(void) {
         return;
     }
     int state = ft->state_id;
+    /* Knocked off the top, by a hit or a throw: it's back somewhere else at
+     * once, rather than after the KO and a respawn platform. */
+    if (OffTheTop(state)) {
+        Respawn();
+        return;
+    }
     if (Held(state)) {
         // A standard grab counts at once, or in Hit mode once a hit follows it.
         if (JustGrabbed(state) && !target.grabbed) {
@@ -1082,6 +1189,9 @@ static void UpdateTarget(void) {
         }
         target.held = true;
         target.hit = false; // A hit that led into the grab: its window is over.
+        // Hit mode: a grab in the juggle (a tech regrabbed) starts the juggle over at its throw.
+        target.juggle = target.chase = false;
+        target.landing = target.getup = -1;
         return;
     }
     if (ft->flags.dead) return;
@@ -1093,8 +1203,12 @@ static void UpdateTarget(void) {
         if (!target.juggle) {
             target.juggle = target.hit = true; // A window, as after a hit,
             target.hit_frames = target.air_frames = 0;
+            target.landing = target.getup = -1;
         } else if (ft->dmg.hitlag_frames > target.last_lag) {
             target.air_frames = 0;
+            // A hit on a tech or a getup: the juggle goes on, and its next landing is picked anew.
+            target.chase = false;
+            target.landing = target.getup = -1;
             if (total_hits < 999) total_hits++;
             if (!target.scored) {
                 target.scored = true;
@@ -1109,10 +1223,16 @@ static void UpdateTarget(void) {
      * GRAB_WINDOW frames after the hitlag, so a hit can lead into a grab, and
      * each new hit's hitlag starts the window over. A juggle's window starts
      * only once it lands. A knockdown, which no grab can catch, ends it then
-     * and there. */
+     * and there, but in a juggle, it's a tech chase: a tech, or a knockdown and
+     * its getup, holds the window, and once it's up unhit, it's gone. */
     if (!away && !Moving(state)) target.hit = true;
+    if (juggle && !away) {
+        if (Chased(state)) target.chase = true;
+        else if (target.chase && Moving(state)) away = true;
+        else target.chase = false;
+    }
     if (!away && target.hit) {
-        if (Frozen(ft) || (juggle && ft->phys.air_state != 0)) target.hit_frames = 0;
+        if (Frozen(ft) || (juggle && (ft->phys.air_state != 0 || target.chase))) target.hit_frames = 0;
         else if (++target.hit_frames > GRAB_WINDOW || Down(state)) away = true;
     }
     if (ft->phys.air_state != 0) {
@@ -1133,6 +1253,7 @@ static void UpdateTarget(void) {
         if (!Frozen(ft)) Respawn();
         return;
     }
+    if (juggle) ChaseInputs(ft);
     if (target.hit) return; // Left alone to be grabbed: back to its movement only at a new spot.
     Move(cpu, ft);
 }
