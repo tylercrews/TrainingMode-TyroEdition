@@ -12,38 +12,39 @@
     .macro character_data
     # Target: the ledge mid-grab-box, 7.07 out (ECB front 3.14 + snap
     # 11, halved) and 14 down.
+    # Snap: the top of the box, 6 above that.
     shape GX_LINESTRIP, 10, 31, 0x1C6C94FF    # least tilt that aims, 73.16 to 16.84 degrees
-    point 21.5097, 33.7139
-    point 22.4458, 31.3868
-    point 23.3716, 29.3869
-    point 24.2860, 27.6247
-    point 25.1881, 26.0386
-    point 26.0769, 24.5847
-    point 26.9515, 23.2309
-    point 27.8109, 21.9533
-    point 28.6542, 20.7340
-    point 29.4806, 19.5588
-    point 30.3620, 18.5190
-    point 31.4149, 17.7384
-    point 32.4417, 16.9237
-    point 33.4412, 16.0759
-    point 34.4124, 15.1958
-    point 35.3543, 14.2843
-    point 36.2658, 13.3424
-    point 37.1459, 12.3712
-    point 37.9937, 11.3717
-    point 38.8084, 10.3449
-    point 39.5890, 9.2920
-    point 40.6288, 8.4106
-    point 41.8040, 7.5842
-    point 43.0233, 6.7409
-    point 44.3009, 5.8815
-    point 45.6547, 5.0069
-    point 47.1086, 4.1181
-    point 48.6947, 3.2160
-    point 50.4569, 2.3016
-    point 52.4568, 1.3758
-    point 54.7839, 0.4397
+    point 21.5097, 39.7139
+    point 22.4458, 37.3868
+    point 23.3716, 35.3869
+    point 24.2860, 33.6247
+    point 25.1881, 32.0386
+    point 26.0769, 30.5847
+    point 26.9515, 29.2309
+    point 27.8109, 27.9533
+    point 28.6542, 26.7340
+    point 29.4806, 25.5588
+    point 30.3620, 24.5190
+    point 31.4149, 23.7384
+    point 32.4417, 22.9237
+    point 33.4412, 22.0759
+    point 34.4124, 21.1958
+    point 35.3543, 20.2843
+    point 36.2658, 19.3424
+    point 37.1459, 18.3712
+    point 37.9937, 17.3717
+    point 38.8084, 16.3449
+    point 39.5890, 15.2920
+    point 40.6288, 14.4106
+    point 41.8040, 13.5842
+    point 43.0233, 12.7409
+    point 44.3009, 11.8815
+    point 45.6547, 11.0069
+    point 47.1086, 10.1181
+    point 48.6947, 9.2160
+    point 50.4569, 8.3016
+    point 52.4568, 7.3758
+    point 54.7839, 6.4397
     shape GX_LINESTRIP, 10, 31, 0x1C6C94FF    # least tilt that aims, -16.84 to -73.16 degrees
     point 54.7839, -28.4397
     point 52.4568, -29.3758
@@ -77,9 +78,9 @@
     point 22.4458, -59.3868
     point 21.5097, -61.7139
     shape GX_LINESTRIP, 10, 3, 0x1C6C94FF    # least tilt through the 90 degree mark
-    point 5.6740, 25.9756
-    point 7.0700, 26.0000
-    point 8.4660, 25.9756
+    point 5.6740, 31.9756
+    point 7.0700, 32.0000
+    point 8.4660, 31.9756
     shape GX_LINESTRIP, 10, 3, 0x1C6C94FF    # least tilt through the 0 degree mark
     point 47.0456, -12.6040
     point 47.0700, -14.0000
@@ -88,23 +89,23 @@
     point 8.4660, -53.9756
     point 7.0700, -54.0000
     point 5.6740, -53.9756
-    shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 50.00, 73.16 to 16.84 degrees
-    point 21.5529, 33.8565
-    point 24.6559, 32.8053
-    point 27.6835, 31.5531
-    point 30.6225, 30.1053
-    point 33.4604, 28.4682
-    point 36.1850, 26.6487
-    point 38.7846, 24.6547
-    point 41.2480, 22.4947
-    point 43.5647, 20.1780
-    point 45.7247, 17.7146
-    point 47.7187, 15.1150
-    point 49.5382, 12.3904
-    point 51.1753, 9.5525
-    point 52.6231, 6.6135
-    point 53.8753, 3.5859
-    point 54.9265, 0.4829
+    shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 50.00, 73.16 to 16.84 degrees, around the snap
+    point 21.5529, 39.8565
+    point 24.6559, 38.8053
+    point 27.6835, 37.5531
+    point 30.6225, 36.1053
+    point 33.4604, 34.4682
+    point 36.1850, 32.6487
+    point 38.7846, 30.6547
+    point 41.2480, 28.4947
+    point 43.5647, 26.1780
+    point 45.7247, 23.7146
+    point 47.7187, 21.1150
+    point 49.5382, 18.3904
+    point 51.1753, 15.5525
+    point 52.6231, 12.6135
+    point 53.8753, 9.5859
+    point 54.9265, 6.4829
     shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 50.00, -16.84 to -73.16 degrees
     point 54.9265, -28.4829
     point 53.8753, -31.5859
@@ -123,9 +124,9 @@
     point 24.6559, -60.8053
     point 21.5529, -61.8565
     shape GX_LINESTRIP, 10, 3, 0x30C8FFFF    # ring through the 90 degree mark
-    point 5.3250, 35.9695
-    point 7.0700, 36.0000
-    point 8.8150, 35.9695
+    point 5.3250, 41.9695
+    point 7.0700, 42.0000
+    point 8.8150, 41.9695
     shape GX_LINESTRIP, 10, 3, 0x30C8FFFF    # ring through the 0 degree mark
     point 57.0395, -12.2550
     point 57.0700, -14.0000
@@ -135,12 +136,15 @@
     point 7.0700, -64.0000
     point 5.3250, -63.9695
     shape GX_LINES, 12, 6, 0xFFFFFFFF    # straight across, up and down: hold straight here
-    point 7.0700, 26.0000
-    point 7.0700, 36.0000
+    point 7.0700, 32.0000
+    point 7.0700, 42.0000
     point 47.0700, -14.0000
     point 57.0700, -14.0000
     point 7.0700, -54.0000
     point 7.0700, -64.0000
+    shape GX_LINES, 12, 2, 0xFFFFFFFF    # the snap: coming down, the up-B grabs here
+    point 4.5700, -8.0000
+    point 9.5700, -8.0000
     shape GX_LINES, 12, 4, 0xFFFFFFFF    # the target X
     point 4.5700, -16.5000
     point 9.5700, -11.5000

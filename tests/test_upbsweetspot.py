@@ -27,6 +27,8 @@ YELLOW = (0xff, 0xe0, 0x00, 0xff)
 BLUE = (0x30, 0xc8, 0xff, 0xff)
 DIM_BLUE = (0x1c, 0x6c, 0x94, 0xff)
 WHITE = (0xff, 0xff, 0xff, 0xff)
+GREEN = (0x00, 0xff, 0x00, 0xff)
+PINK = (0xff, 0x60, 0xe0, 0xff)
 
 
 def build():
@@ -344,10 +346,15 @@ class UpBLineTests(unittest.TestCase):
     FIXTURES = {FTKIND_FOX: ('fox', lambda tilt: 81.6), FTKIND_FALCO: ('falco', lambda tilt: 81.6),
                 FTKIND_SHEIK: ('sheik', lambda tilt: 20 * (tilt + 1))}
 
-    def generated(self, kind, b0xx):
-        """What the Gecko generator draws for the fixture: points by color, in order."""
+    def generated(self, kind, b0xx, box=None):
+        """What the Gecko generator draws for the fixture: points by color, in
+        order. box is a ledge-grab box (width, y offset, height); the fixture's
+        ECB is 0, so the X is half the width out."""
         slug, distance = self.FIXTURES[kind]
         n = {'target': (0, 0), 'distance': distance, 'threshold': .5, 'stick': numbers.stick(.28, .28)}
+        if box:
+            width, y_offset, height = box
+            n['target'], n['snap'] = (width / 2, -y_offset), (width / 2, -y_offset + height / 2)
         drawn = {}
         for _, _, color, points, _ in numbers.aimed_shapes(slug, n, b0xx):
             drawn.setdefault(tuple(color.to_bytes(4, 'big')), []).extend((-85 - x, y) for x, y in points)
@@ -356,10 +363,10 @@ class UpBLineTests(unittest.TestCase):
     def assert_dot(self, vertices, point):
         self.assertLess(min(math.hypot(x - point[0], y - point[1]) for x, y in vertices), .05)
 
-    def at_angle(self, degrees, radius):
+    def at_angle(self, degrees, radius, center=(-85, 0)):
         """A point on a ring around the X, by ring angle: 90 above it, 0 out past the ledge."""
         a = math.radians(degrees)
-        return (-85 - math.cos(a) * radius, math.sin(a) * radius)
+        return (center[0] - math.cos(a) * radius, center[1] + math.sin(a) * radius)
 
     def test_fox_and_falcos_ring_leaves_out_what_the_stick_cant_aim(self):
         gap = math.degrees(math.atan2(23, 76))  # The least tilted axis, with the most the circle allows.
@@ -429,7 +436,8 @@ class UpBLineTests(unittest.TestCase):
         self.m.call('TestUpBAimed', FTKIND_SHEIK)
         self.m.call('TestUpBB0XX', 1)
         generated = self.generated(FTKIND_SHEIK, True)
-        blue, dim, white = self.drawn(BLUE), self.drawn(DIM_BLUE), self.drawn(WHITE)[4:-4]
+        # After the ledge lines; before the bar over the X, then the X.
+        blue, dim, white = self.drawn(BLUE), self.drawn(DIM_BLUE), self.drawn(WHITE)[4:-6]
         self.assertEqual((len(blue), len(dim), len(white)), (25, 16, 5))
         self.assert_at(blue, generated[BLUE])
         self.assert_at(dim, generated[DIM_BLUE])
@@ -451,6 +459,124 @@ class UpBLineTests(unittest.TestCase):
         before = self.drawn(BLUE)
         self.m.call('TestUpBB0XX', 1)
         self.assertEqual(self.drawn(BLUE), before)
+
+    # Fox's ledge-grab box (TestUpBBox, in tenths): 11 out from his position (the
+    # fixture's ECB is 0), 9 tall, centered 13 up. The X is 5.5 out and 13 down,
+    # and the box's top, where coming down grabs, 4.5 above it.
+    FOX_BOX = (110, 130, 90)
+    X, SNAP = (-90.5, -13), (-90.5, -8.5)
+    GAP = math.degrees(math.atan2(23, 76))
+
+    def fox_box(self):
+        self.m.call('TestUpBAimed', FTKIND_FOX)
+        self.m.call('TestUpBBox', *self.FOX_BOX)
+
+    def test_the_ring_above_goes_around_where_coming_down_snaps_to_the_ledge(self):
+        self.fox_box()
+        ring, generated = self.drawn(BLUE), self.generated(FTKIND_FOX, False, (11, 13, 9))
+        self.assert_at(ring, generated[BLUE])
+        # Out and up around the snap, then out and down around the X.
+        self.assert_at([ring[0], ring[15], ring[16], ring[31]],
+                       [self.at_angle(90 - self.GAP, 81.6, self.SNAP), self.at_angle(self.GAP, 81.6, self.SNAP),
+                        self.at_angle(-self.GAP, 81.6, self.X), self.at_angle(self.GAP - 90, 81.6, self.X)])
+        # The bit through straight up, then across and down.
+        self.assert_at(ring[44:47], [self.at_angle(92 - 2 * i, 81.6, self.SNAP) for i in range(3)])
+        self.assert_at(ring[47:50], [self.at_angle(2 - 2 * i, 81.6, self.X) for i in range(3)])
+        # Straight down onto the snap, and across and up to the X.
+        ticks = self.drawn(WHITE)[4:10]
+        self.assert_at(ticks, [(-90.5, 67.1), (-90.5, 79.1), (-166.1, -13), (-178.1, -13), (-90.5, -88.6), (-90.5, -100.6)])
+        self.assert_at(ticks, generated[WHITE])
+
+    def test_a_bar_over_the_x_marks_the_snap(self):
+        self.fox_box()
+        white = self.drawn(WHITE)
+        self.assert_at(white[10:12], [(-93, -8.5), (-88, -8.5)])
+        self.assert_at(white[12:], self.cross(self.X))
+
+    def test_b0xx_dots_coming_down_start_from_the_snap(self):
+        self.fox_box()
+        self.m.call('TestUpBB0XX', 1)
+        generated = self.generated(FTKIND_FOX, True, (11, 13, 9))
+        dots, white = self.drawn(BLUE), self.drawn(WHITE)[4:10]
+        self.assert_at(dots, generated[BLUE])
+        self.assert_at(white, generated[WHITE])
+        self.assert_dot(white, (-90.5, -8.5 + 81.6))  # Straight down.
+        self.assert_dot(white, (-90.5 - 81.6, -13))  # Straight across.
+        self.assert_dot(white, (-90.5, -13 - 81.6))  # Straight up.
+
+    def charge(self, at, stick):
+        """Fox's charge from `at`, holding the stick (in thousandths); returns
+        the white line to aim along, after the ledge lines, ticks and bar."""
+        self.fox_box()
+        self.m.call('TestUpBStick', *stick)
+        self.move(*at)
+        return self.drawn(WHITE)[12:14]
+
+    def test_from_above_the_snap_the_white_line_aims_at_it(self):
+        self.assert_at(self.charge((-150, 40), (0, 1000)), [(-150, 40), self.SNAP])
+
+    def test_from_below_it_the_white_line_aims_at_the_x(self):
+        self.assert_at(self.charge((-150, -40), (0, 1000)), [(-150, -40), self.X])
+        self.assert_at(self.charge((-150, -10), (0, 1000)), [(-150, -10), self.X])  # Inside the box's height.
+
+    def test_coming_down_into_the_box_is_green(self):
+        # 76.8 from the snap, aimed at it: the travel reaches the box with 4.8 to spare.
+        self.charge((-150, 40), (775, -632))
+        line = self.drawn(GREEN)
+        self.assertEqual(len(line), 3)  # The line and its dot.
+        self.assertTrue(line[1][1] < -8.5)
+
+    def test_ending_just_above_the_box_is_yellow(self):
+        # 83.4 from the snap, aimed at it: the travel stops 1.8 short, above the
+        # box, and only falls into the grab after.
+        self.charge((-150, 50), (713, -701))
+        line = self.drawn(YELLOW)
+        self.assertEqual(len(line), 3)
+        self.assertTrue(-8.5 < line[1][1] < -6)
+
+    def landing(self, kind):
+        """What the Gecko generator's Landing Line draws for the fixture."""
+        slug, distance = self.FIXTURES[kind]
+        n = {'distance': distance, 'stick': numbers.stick(.28, .28), 'landing': numbers.LANDING_ECB[slug]}
+        return [(-85 - x, y) for _, _, _, points, _ in numbers.landing_shapes(n) for x, y in points]
+
+    def test_the_landing_line_is_off_until_you_turn_it_on(self):
+        self.m.call('TestUpBAimed', FTKIND_FOX)
+        self.assertEqual(self.drawn(PINK), [])
+
+    def test_the_landing_line_is_where_the_travel_just_clears_the_ledge(self):
+        for kind, bottom in ((FTKIND_FOX, 2.2), (FTKIND_FALCO, 2.5)):
+            with self.subTest(kind=kind):
+                self.m.call('TestUpBAimed', kind)
+                self.m.call('TestUpBLanding', 1)
+                line = self.drawn(PINK)
+                self.assertEqual(len(line), 16 + 3 + 2)
+                self.assert_at(line, self.landing(kind))
+                # From below and out, aimed up 16.84 degrees, through the ledge's x
+                # with the ECB's bottom just over it; straight across, with a tick.
+                a = math.radians(self.GAP)
+                self.assert_at([line[0]], [(-85 - 81.6 * math.cos(a), -bottom - 81.6 * math.sin(a))])
+                self.assert_at(line[-2:], [(-85 - 75.6, -bottom), (-85 - 87.6, -bottom)])
+                self.assertEqual(self.on_top(), 53 + 6 + 16 + 3 + 2)  # Over the stage, like the ring.
+
+    def test_steep_angles_need_the_ecbs_side_over_the_corner_too(self):
+        self.m.call('TestUpBAimed', FTKIND_FOX)
+        self.m.call('TestUpBLanding', 1)
+        steep = math.radians(90 - self.GAP)
+        self.assert_at([self.drawn(PINK)[15]],
+                       [(-85 - 81.6 * math.cos(steep), 2 * math.tan(steep) - 6.8 - 81.6 * math.sin(steep))])
+
+    def test_only_fox_and_falco_get_a_landing_line(self):
+        self.m.call('TestUpBAimed', FTKIND_SHEIK)
+        self.m.call('TestUpBLanding', 1)
+        self.assertEqual(self.drawn(PINK), [])
+        for kind, disabled in ((FTKIND_SHEIK, 1), (FTKIND_FOX, 0), (FTKIND_FALCON, 1), (FTKIND_FALCO, 0)):
+            with self.subTest(kind=kind):
+                self.m.call('TestUpBKind', kind)
+                self.m.call('TestUpBDown', DPAD_LEFT)
+                self.step()
+                self.m.call('TestUpBDown', 0)
+                self.assertEqual(self.m.call('TestUpBLandingDisabled'), disabled)
 
     def test_paths_still_draw_behind_the_stage(self):
         self.move(-100, -5)

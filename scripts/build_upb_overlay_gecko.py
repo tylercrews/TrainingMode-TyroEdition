@@ -1,5 +1,5 @@
 """Build the Up-B Overlay Gecko codes, one per character, plus a B0XX one for
-each aimed up-B.
+each aimed up-B and a Landing Line add-on for Fox and Falco.
 
 Assembles slippi-gecko-codes/up-b-overlay with bin/hgecko (which needs
 devkitPPC and DEVKITPPC set), then writes one paste-able text file per code.
@@ -24,6 +24,8 @@ NOTE = 'Legal stages, while this character is in the match. Visual only.'
 
 
 def description(code):
+    if code.landing:
+        return 'Add-on: up-B from above the pink line, aimed just over the ledge, to land on the stage.'
     if code.b0xx and code.slug in numbers.SPACIES:
         return 'Up-B from a dot with its B0XX angle (white: no modifier, blue: Mod X or Y).'
     if code.b0xx:
@@ -49,15 +51,14 @@ def main():
         address, end = 0x80000000 | (first & 0x1FFFFFF), at + 8 + count * 8
         code = by_hook[address]
         filename = f'{code.key}-up-b-overlay.txt'
-        title = f'{code.name} Up-B Overlay' + (' B0XX' if code.b0xx else '')
-        lines = [f'${title} (Slippi NTSC 1.02)', '*' + description(code), '*' + NOTE]
+        lines = [f'${numbers.title(code)} (Slippi NTSC 1.02)', '*' + description(code), '*' + NOTE]
         lines += [f'{data[i:i + 4].hex().upper()} {data[i + 4:i + 8].hex().upper()}' for i in range(at, end, 8)]
         with open(FOLDER / filename, 'wb') as f:
             f.write(('\n'.join(lines) + '\n').encode('utf-8'))
         print(f'wrote {filename} ({count} lines at {address:08X})')
         built.add(address)
         at = end
-    assert built == set(by_hook), 'expected one code per character and B0XX code'
+    assert built == set(by_hook), 'expected one code per character, B0XX and Landing Line code'
 
 
 if __name__ == '__main__':

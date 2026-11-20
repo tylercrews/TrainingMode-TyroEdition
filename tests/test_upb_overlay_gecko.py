@@ -233,7 +233,8 @@ class HookTests(unittest.TestCase):
     def test_hooks_are_distinct_and_outside_the_other_codes(self):
         hooks = [c.hook for c in numbers.CODES]
         self.assertEqual(len(hooks), len(set(hooks)))
-        taken = {0x8016E748, 0x8016E74C, 0x8016E904, 0x8016E8C0, 0x8016E8C8, 0x8016E8E0, 0x8016E8E8}
+        # Slippi's own, then the Randall Timer's, Blast Zone, Randall and Double-Jump codes.
+        taken = {0x8016E748, 0x8016E74C, 0x8016E904, 0x8016E750, 0x8016E8C0, 0x8016E8C8, 0x8016E8E0, 0x8016E8E8}
         self.assertFalse(taken & set(hooks))
         self.assertTrue(all(0x8016E730 <= hook < 0x8016E934 for hook in hooks), 'inside StartMelee')
 
@@ -319,64 +320,105 @@ class DrawTests(unittest.TestCase):
     def test_fox_on_final_destination_by_hand(self):
         # Target: (2 ECB + 11 snap) / 2 = 6.5 out, 13 down. Ring: 81.5, but for
         # the 16.84 degrees either side of straight the stick can't aim: the
-        # least tilted axis, 23/80, with the most the circle allows, 76/80.
+        # least tilted axis, 23/80, with the most the circle allows, 76/80. The
+        # quarter above, where Firefox comes down, is around the snap: the top
+        # of the 9-tall box, 4.5 above the X.
         m = self.m
         m.add_player(3, CODES['fox'].kind)
         m.stage, m.ledges = 32, ((-85.5657, 0.0), (85.5657, 0.0))
         m.draw('fox')
         batches = m.drawn()
         self.assertEqual([batch[:3] for batch in batches],
-                         [(0xB0, 10, 16), (0xB0, 10, 16), (0xB0, 10, 12)] + [(0xB0, 10, 3)] * 3 +
-                         [(0xA8, 12, 6), (0xA8, 12, 4)] * 1 +
-                         [(0xB0, 10, 16), (0xB0, 10, 16), (0xB0, 10, 12)] + [(0xB0, 10, 3)] * 3 +
-                         [(0xA8, 12, 6), (0xA8, 12, 4)])
+                         ([(0xB0, 10, 16), (0xB0, 10, 16), (0xB0, 10, 12)] + [(0xB0, 10, 3)] * 3 +
+                          [(0xA8, 12, 6), (0xA8, 12, 2), (0xA8, 12, 4)]) * 2)
         rounded = lambda v: (round(v[0], 2), round(v[1], 2), v[3])
-        left, right = batches[:8], batches[8:]
-        right = right[:3] + right[6:]  # The ring's stretches, ticks and X; the bits are below.
+        left, right = batches[:9], batches[9:]
+        right = right[:3] + right[6:]  # The ring's stretches, ticks, bar and X; the bits are below.
         gap = math.degrees(math.atan2(23, 76))
-        ring = lambda degrees: (round(92.0657 + 81.5 * math.cos(math.radians(degrees)), 2),
-                                round(-13 + 81.5 * math.sin(math.radians(degrees)), 2), 0x30C8FFFF)
-        # Out and up, out and down, and in under the stage to 30 degrees short of level.
+        ring = lambda degrees, y=-13: (round(92.0657 + 81.5 * math.cos(math.radians(degrees)), 2),
+                                       round(y + 81.5 * math.sin(math.radians(degrees)), 2), 0x30C8FFFF)
+        # Out and up around the snap, then out and down, and in under the stage
+        # to 30 degrees short of level, around the X.
         self.assertEqual([rounded(right[i][3][j]) for i in range(3) for j in (0, -1)],
-                         [ring(a) for a in (90 - gap, gap, -gap, gap - 90, -90 - gap, -150)])
-        self.assertEqual(rounded(right[0][3][0]), (115.67, 65.01, 0x30C8FFFF))
+                         [ring(90 - gap, -8.5), ring(gap, -8.5)] +
+                         [ring(a) for a in (-gap, gap - 90, -90 - gap, -150)])
+        self.assertEqual(rounded(right[0][3][0]), (115.67, 69.51, 0x30C8FFFF))
         self.assertEqual(rounded(right[2][3][-1]), (21.48, -53.75, 0x30C8FFFF))
-        self.assertEqual(rounded(left[0][3][0]), (-115.67, 65.01, 0x30C8FFFF))
-        # A tick across the ring above, level with and below the X: 6 each side of 81.5.
+        self.assertEqual(rounded(left[0][3][0]), (-115.67, 69.51, 0x30C8FFFF))
+        # A tick across the ring above the snap, and level with and below the X:
+        # 6 each side of 81.5.
         self.assertEqual([rounded(v)[:2] for v in right[3][3]],
-                         [(92.07, 62.5), (92.07, 74.5), (167.57, -13.0), (179.57, -13.0), (92.07, -88.5), (92.07, -100.5)])
+                         [(92.07, 67.0), (92.07, 79.0), (167.57, -13.0), (179.57, -13.0), (92.07, -88.5), (92.07, -100.5)])
         self.assertEqual([rounded(v)[:2] for v in left[6][3]][2:4], [(-167.57, -13.0), (-179.57, -13.0)])
-        self.assertEqual([rounded(v) for v in right[4][3]],
+        # The bar over the X where coming down snaps, as wide as the X.
+        self.assertEqual([rounded(v) for v in right[4][3]], [(89.57, -8.5, 0xFFFFFFFF), (94.57, -8.5, 0xFFFFFFFF)])
+        self.assertEqual([rounded(v) for v in right[5][3]],
                          [(89.57, -15.5, 0xFFFFFFFF), (94.57, -10.5, 0xFFFFFFFF),
                           (89.57, -10.5, 0xFFFFFFFF), (94.57, -15.5, 0xFFFFFFFF)])
-        self.assertEqual(rounded(left[7][3][0]), (-89.57, -15.5, 0xFFFFFFFF))
+        self.assertEqual(rounded(left[7][3][0]), (-89.57, -8.5, 0xFFFFFFFF))
+        self.assertEqual(rounded(left[8][3][0]), (-89.57, -15.5, 0xFFFFFFFF))
         # A bit of ring through each tick, 2 degrees either side, at 81.5.
-        bits = batches[11:14]
+        bits = batches[12:15]
         self.assertEqual([(rounded(bit[3][0]), rounded(bit[3][-1])) for bit in bits],
-                         [(ring(straight + 2), ring(straight - 2)) for straight in (90, 0, -90)])
+                         [(ring(92, -8.5), ring(88, -8.5)), (ring(2), ring(-2)), (ring(-88), ring(-92))])
         self.assertEqual(rounded(bits[1][3][0]), (173.52, -10.16, 0x30C8FFFF))
 
     def test_fox_b0xx_on_final_destination_by_hand(self):
-        # A dot 81.5 from the X (92.07, -13) for each of the B0XX's angles.
+        # A dot 81.5 from the X (92.07, -13) for each of the B0XX's angles, or
+        # from the snap 4.5 above it for the ones that come down.
         m = self.m
         m.add_player(3, CODES['fox-b0xx'].kind)
         m.stage, m.ledges = 32, ((-85.5657, 0.0), (85.5657, 0.0))
         m.draw('fox-b0xx')
         batches = m.drawn()
-        self.assertEqual([batch[:3] for batch in batches], [(0xB8, 30, 28), (0xB8, 30, 6), (0xA8, 12, 4)] * 2)
+        self.assertEqual([batch[:3] for batch in batches],
+                         [(0xB8, 30, 28), (0xB8, 30, 6), (0xA8, 12, 2), (0xA8, 12, 4)] * 2)
         rounded = lambda v: (round(v[0], 2), round(v[1], 2), v[3])
-        blue, white = batches[3][3], batches[4][3]
+        blue, white = batches[4][3], batches[5][3]
         # Mod X with B up toward the stage, (73, 31): 23 degrees, so from below and out.
         self.assertEqual(rounded(blue[0]), (167.08, -44.86, 0x30C8FFFF))
         # No modifier: straight across, then up and down, then the diagonals, the
-        # one up and away from the stage from in under it.
+        # one up and away from the stage from in under it. Straight down and the
+        # diagonal down come down onto the snap.
         self.assertEqual([rounded(v)[:2] for v in white],
-                         [(173.57, -13.0), (92.07, -94.5), (92.07, 68.5), (149.69, -70.63), (149.69, 44.63),
+                         [(173.57, -13.0), (92.07, -94.5), (92.07, 73.0), (149.69, -70.63), (149.69, 49.13),
                           (34.44, -70.63)])
         self.assertEqual(rounded(batches[1][3][0])[:2], (-173.57, -13.0))
-        # Every dot is on the ring.
+        # Every dot is on the ring: around the snap above it, else around the X.
         for x, y, _, _ in blue + white:
-            self.assertAlmostEqual(math.hypot(x - 92.0657, y + 13), 81.5, places=3)
+            self.assertAlmostEqual(math.hypot(x - 92.0657, y - (-8.5 if y > -8.5 else -13)), 81.5, places=3)
+
+    def test_fox_landing_line_on_final_destination_by_hand(self):
+        # The lowest Firefox lands from: 81.5 back along each angle from where it
+        # crosses the ledge's x 2.2 below it (the ECB's bottom then clears the
+        # corner), or on steep angles, where the side's 2 out at 6.8 up reaches
+        # the wall first, 2 tan(rise) - 6.8.
+        m = self.m
+        m.add_player(1, CODES['fox-landing'].kind)
+        m.stage, m.ledges = 32, ((-85.5657, 0.0), (85.5657, 0.0))
+        m.draw('fox-landing')
+        batches = m.drawn()
+        self.assertEqual([batch[:3] for batch in batches], [(0xB0, 10, 16), (0xB0, 10, 3), (0xA8, 12, 2)] * 2)
+        self.assertTrue(all(v[3] == 0xFF60E0FF for batch in batches for v in batch[3]))
+        rounded = lambda v: (round(v[0], 2), round(v[1], 2))
+        gap = math.degrees(math.atan2(23, 76))
+        line, level, tick = batches[3][3], batches[4][3], batches[5][3]
+        a, steep = math.radians(gap), math.radians(90 - gap)
+        self.assertEqual(rounded(line[0]), (round(85.5657 + 81.5 * math.cos(a), 2), round(-2.2 - 81.5 * math.sin(a), 2)))
+        self.assertEqual(rounded(line[-1]), (round(85.5657 + 81.5 * math.cos(steep), 2),
+                                             round(2 * math.tan(steep) - 6.8 - 81.5 * math.sin(steep), 2)))
+        self.assertEqual(rounded(line[-1]), (109.17, -78.2))
+        self.assertEqual(rounded(level[1]), (167.07, -2.2))
+        self.assertEqual([rounded(v) for v in tick], [(161.07, -2.2), (173.07, -2.2)])
+        self.assertEqual(rounded(batches[0][3][0]), (-163.57, -25.81))
+
+    def test_falco_landing_line_sits_lower_with_his_ecb(self):
+        m = self.m
+        m.add_player(1, CODES['falco-landing'].kind)
+        m.stage, m.ledges = 32, ((-85.5657, 0.0), (85.5657, 0.0))
+        m.draw('falco-landing')
+        tick = m.drawn()[5][3]
+        self.assertEqual([(round(v[0], 2), round(v[1], 2)) for v in tick], [(139.67, -2.5), (151.67, -2.5)])
 
     def test_mario_dots_by_hand(self):
         # Target 7.08 out, 15 down; Super Jump Punch peaks 40.4 up and 17.6 forward.

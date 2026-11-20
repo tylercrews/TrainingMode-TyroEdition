@@ -74,8 +74,10 @@ PASSING_HITSTUN, PASSING_FACING = 3, 6
 # (shift, width) in word 72, in menu order.
 PASSING_FIELDS = ((14, 3), (17, 5), (22, 1), (29, 1), (23, 3), (26, 2), (30, 1))
 PASSING_MASK = 0x3FFF << 14 | 3 << 29
-UPB_COUNTS, UPB_DEFAULTS = (2, 2, 3, 2), (1, 0, 0, 0)
-UPB_B0XX, UPB_MARTH, UPB_CAMERA = 1, 2, 3  # TMUpBSweetspotPreference, in menu order.
+UPB_COUNTS, UPB_DEFAULTS = (2, 2, 3, 2, 2), (1, 0, 0, 0, 0)
+# TMUpBSweetspotPreference. Landing Line (T10) was appended, in word 80 bit 28,
+# though the menu lists it third.
+UPB_B0XX, UPB_MARTH, UPB_CAMERA, UPB_LANDING = 1, 2, 3, 4
 MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 0, 1, 2
 EVENT_MENU_BYTES = bytes.fromhex('c0040100')
 # Word 76, appended by version 22 (T10): Escape Samus Up-B (Your Position,
@@ -486,6 +488,47 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_B0XX), 0)
             self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_CAMERA), 1)
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_up_b_landing_line_uses_only_word_80_bit_28(self):
+        m = self.m
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)  # Its row neighbors in words 68 and 72,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', 11, RANDALL_TIMER, 1)  # word 80 below it,
+        word = int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        m.cpu.mem_write(EXT + 80, (word | 0x7F << 21).to_bytes(4, 'little'))  # and All Events' bits 21-27.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, value)
+            self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            word, old = (int.from_bytes(record[80:84], 'little') for record in (after, before))
+            self.assertEqual((word >> 28 & 1, word & ~(1 << 28)), (value, old))
+            self.assertEqual(after[:80] + after[84:], before[:80] + before[84:])
+        self.assertEqual(tuple(m.call('Settings_Get', UPB_SWEETSPOT, i) for i in range(4)), (1, 1, 0, 1))
+        self.assertEqual((m.call('Settings_Get', TARGETS, 0), m.call('Settings_Get', 11, RANDALL_TIMER),
+                          m.call('Settings_Get', EVENT_LIST, 1)), (200, 1, 63))
+        # Bits 29-31 are still spare: what's there stays, and doesn't read as the row.
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 0)
+        word = int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        m.cpu.mem_write(EXT + 80, (word | 7 << 29).to_bytes(4, 'little'))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), 0)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little') >> 28, 0xF)
+
+    def test_version_22_records_read_the_landing_line_off_without_writing(self):
+        m = self.m
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_LANDING), 0)
+        self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_CAMERA), 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in bit 28 alone.
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 1 << 28)
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_CAMERA), 1)
 
     def test_side_b_marth_uses_only_word_72_bit_31(self):
         m = self.m
@@ -1099,13 +1142,15 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set', field, len(counts), 0)  # and so is another index.
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        # Only word 68 changes, but for Teammate Percent, the enemy's team and the top bits.
+        # Only word 68 changes, but for Teammate Percent, the enemy's team, the
+        # top bits and Up-B Sweetspot's Landing Line (word 80 bit 28).
         def others(record):
             record = bytearray(record)
-            record[23] &= 0x3F; record[34] &= 0x3F; record[35] &= 0x7F; record[50] &= 0x1F
+            record[23] &= 0x3F; record[34] &= 0x3F; record[35] &= 0x7F; record[50] &= 0x1F; record[83] &= 0xEF
             return bytes(record[:68] + record[76:])
         self.assertEqual(others(after), others(before))
-        self.assertEqual((after[23] >> 6, after[34] >> 6, after[35] >> 7, after[50] >> 5), (2, 3, 1, 2))
+        self.assertEqual((after[23] >> 6, after[34] >> 6, after[35] >> 7, after[50] >> 5, after[83] >> 4 & 1),
+                         (2, 3, 1, 2, 1))
         word = int.from_bytes(after[68:72], 'little')
         self.assertEqual(word & ~0x7FFFF, 0)  # Bits 19-31 stay spare.
         self.assertEqual(m.record(), core)
@@ -1115,7 +1160,7 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (15, with its top bit), CPU Mashing (7, with
         # its) and Teammate Facing (3) repair to their defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 9 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 10, 2, 0, 1, 2, 2, 26, 26), (1, 1, 2, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 10, 2, 0, 1, 2, 2, 26, 26), (1, 1, 2, 1, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'),
                          word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 2 << 9)
         self.assertEqual((m.cpu.mem_read(EXT + 34, 1)[0] >> 6, m.cpu.mem_read(EXT + 35, 1)[0] >> 7), (2, 0))

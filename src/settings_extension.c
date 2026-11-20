@@ -147,9 +147,12 @@ static unsigned top_bit(unsigned field,unsigned index) {
  * Off, so a saved Off keeps its 1 and Down Tilt takes the top bit. */
 #define UPB_MARTH_STORED(value) ((value)?3-(value):0)
 /* B0XX Angles (T10) takes word 72's spare bit 28 with no version bump: every
- * migration to 21 zeroed it, and its default, Off, is 0. */
+ * migration to 21 zeroed it, and its default, Off, is 0. Landing Line (T10)
+ * takes word 80's bit 28 the same way (every migration to 23 zeroes word 80),
+ * so only a version 23 record owns it. */
+#define UPB_LANDING_SHIFT 28
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
-    {16,1,2,1}, {28,1,2,0}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
+    {16,1,2,1}, {28,1,2,0}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0}, {UPB_LANDING_SHIFT,1,2,0},
 };
 /* Passing Practice's menu takes word 72's spare bits 14..27, then 29 and 30
  * for Reset If Hitstun Ends and Your Facing (bit 28 is Up-B Sweetspot's, and
@@ -257,6 +260,8 @@ static const ExtensionPreference event_list_preferences[TM_EVENT_LIST_PREF_COUNT
 };
 typedef char TMExtension_EventListBits[((RANDALL_TIMER_BYTE-GRABS_OFFSET)*8+5==EVENT_LIST_SHIFT &&
     RANDALL_TIMER_BIT==1u<<4 && TM_EVENT_LIST_PREF_COUNT==2 && EVENT_LIST_SHIFT+7<=32) ? 1 : -1];
+/* Up-B Sweetspot's Landing Line is the bit after All Events' cursor. */
+typedef char TMExtension_UpBLandingBit[(EVENT_LIST_SHIFT+7==UPB_LANDING_SHIFT && TM_UPB_LANDING==TM_UPB_PREF_COUNT-1) ? 1 : -1];
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
@@ -427,7 +432,8 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_GRAB_PUNISH)
         return index>=TM_GP_P3_CHARACTER?TEAM_CHARACTERS_OFFSET:
             index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
-    if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:EVENT_MENUS_OFFSET;
+    if(field==TM_SETTING_UPB_SWEETSPOT)
+        return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:index==TM_UPB_LANDING?GRABS_OFFSET:EVENT_MENUS_OFFSET;
     if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
     if((field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) ||
@@ -722,7 +728,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     }
     if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) {
         int team_word=field==TM_SETTING_GRAB_PUNISH?index>=TM_GP_P3_CHARACTER:index==TM_UPB_B0XX;
-        unsigned value=supported(r)||v21||v22||(v20 && !team_word)?preference_value(r,field,index):p->initial;
+        int word80=field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_LANDING;
+        unsigned value=supported(r)||(!word80 && (v21||v22||(v20 && !team_word)))?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
     if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22) return p->initial;

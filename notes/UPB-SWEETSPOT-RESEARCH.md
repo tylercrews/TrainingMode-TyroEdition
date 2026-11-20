@@ -22,7 +22,7 @@ Sources: the Melee decompilation (doldecomp/melee, `src/melee/ft/kinds/*/ft*spec
 
 From `mpcoll.c` (`mpColl_80044164` and the air collision that calls it) and `ftcliffcommon.c`:
 
-- **Box.** Relative to the fighter's position (TopN), facing the ledge: horizontally from the fighter out to `ecb.right + ledge_snap_x`, vertically `ledge_snap_y ± ledge_snap_height / 2`, swept over the frame's movement. The ledge must be inside it, and the ECB's bottom (the feet) must be below the ledge. TM already reads these as `coll_data.cliffgrab_width`, `cliffgrab_y_offset` and `cliffgrab_height` (Side-B's `LedgeGrabTop` uses them).
+- **Box.** Relative to the fighter's position (TopN), facing the ledge: horizontally from the fighter out to `ecb.right + ledge_snap_x`, vertically `ledge_snap_y ± ledge_snap_height / 2`, swept over the frame's movement. The ledge must be inside it, and the ECB's bottom (the feet) must be below the ledge. TM already reads these as `coll_data.cliffgrab_width`, `cliffgrab_y_offset` and `cliffgrab_height` (Side-B's `LedgeGrabTop` uses them). In `mpColl_80044164` the sweep is the box from the lower of the frame's two positions to the higher, so moving down it grabs on the first frame your position is `ledge_snap_y − ledge_snap_height / 2` or less below the ledge (Fox and Falco: 8.5), with the ECB's bottom still outside the ledge ([Coming down](#coming-down-where-the-ledge-snaps-t10)).
 - **Moving down.** The check only runs when `cur_pos.y < prev_pos.y`. A perfectly level travel frame doesn't count either.
 - **Holding down** past the drop threshold (`input.lstick.y <= -x480`) turns ledge grabs off.
 - **The move must ask for it.** Each up-B's collision callback decides when, and in which direction:
@@ -201,7 +201,7 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 - **Marth:** his attack starts as each attempt does and freezes with all four hitboxes out, on frame 13 for the forward smash and frame 7 for the down-tilt (`AttackLw3`, hitbox 3 is its 10% tipper), while you're still on the platform, so a hit doesn't depend on when you up-B. `AttackS4`'s script creates its hitboxes at 10 and clears them at 14, and `Fighter_IncrementStateFrameInfo` leaves `state.frame` on the next animation frame before the script runs (80073240), so a command at time t runs when `state.frame` reaches t and 13 is the last frame with them out. The freeze is set again every frame, as Side-B's is; nothing in the game is known to undo it, but that was the only difference left between the two. The forward smash's placement isn't computed ahead of time: its first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach. The down-tilt stands 15 in from the ledge, Side-B's spot, so its tip reaches past the ledge the same way.
     - The first Dolphin test had only the tipper on, 12 inland. It was too far back, and the whole forward smash was wanted.
 - **The white X** uses the ECB side facing the ledge (`ecb.right` facing right, `-ecb.left` facing left), like `mpColl_800443C4` and its mirror. The first version used `ecb.right` on both ledges.
-- **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card. The success rate is session-only, carried through Change Stage with `carry_store`.
+- **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card, and since T10 B0XX Angles and Landing Line (Fox and Falco; greyed out for everyone else). The success rate is session-only, carried through Change Stage with `carry_store`.
 - **Stages:** the first-frame guard from [Stages](#stages), option 1.
 
 ## The stick's dead zones and B0XX angles (T10)
@@ -316,6 +316,60 @@ With that, the old spots work for an up-B straight off the platform, but driftin
 
 Bowser keeps all the drift he carries into Whirling Fortress, so his window opens only once he has some (about 10 frames). Up-B straight off the platform comes up short. Dropping without drifting comes up short for all four.
 
+## Coming down: where the ledge snaps (T10)
+
+**The problem.** The white X is the middle of the ledge-grab box, so an up-B that ends there grabs. That's right for one that ends level or rising: the box is only checked moving down, so it grabs as it starts to fall, and the middle leaves the most room either way. Coming down, the travel grabs on its way to the X instead, the first frame the box holds the ledge. Aiming at the X then aims lower than the grab, and the ring above the X, at the travel's length from it, is closer in than the farthest you can start from and still grab in the travel.
+
+**The snap.** Moving down, the box holds the ledge once your position is at the top of its range: `ledge_snap_y − ledge_snap_height / 2` below the ledge, from the ledge out to the box's reach (`mpColl_80044164`; the sweep covers the frame's whole drop, so a fast travel can't skip it). The snap is that height, over the X:
+
+| Fighter | X, down from the ledge | Snap | Fighter | X | Snap |
+| --- | --- | --- | --- | --- | --- |
+| Fox, Falco | 13 | 8.5 (4.5 above the X) | Sheik | 15 | 9.5 |
+| Zelda | 10 | 4.5 | Mewtwo | 14 | 8 |
+| Pikachu | 11 | 6 | Pichu | 6 | 3 |
+
+The ECB's bottom has to be below the ledge too, and at the snap it is for all seven: posed through their travels, it's at most 3.5 above the position (Zelda's, against her box's 4.5) and Pichu's at most 2.5 (against 3).
+
+**What the guides draw.**
+
+- A **white bar** over the X, as wide as it, at the snap.
+- The ring's quarter from straight above the X out to level, its mark straight above, and the B0XX dots for the angles that come down are around the snap. Up-B from one, aim at the snap, and the travel grabs as it ends. Closer grabs sooner. A little farther ends just above the box, and you fall into the grab a frame or two later.
+- Level and rising are still around the X. The step between the two is inside the gap beside level, which isn't drawn.
+- During the charge, the white line aims at the snap when you launch from above it, else at the X, and Held / Need follows it. The live line is green when, coming down, it crosses the box (worked out against its rectangle), and yellow when it ends just above it.
+
+The X stays the grab spot for the fixed-path up-Bs: they grab as they start to fall from their peak, like a level travel.
+
+## The landing line (T10)
+
+**What it is.** For Fox and Falco, the **Landing Line** setting (and an add-on Gecko code each) draws a pink line for the lowest you can up-B from and still land on the stage. For each angle the stick can aim up toward the stage, and straight across, it's where up-B has to start for the travel, aimed back the other way, to cross the ledge's x just high enough to clear the corner. Start above it and aim just over the ledge, and the travel carries you onto the stage. Below it, the ledge is all that's in reach.
+
+**The corner.** Rising, the travel doesn't land on or grab anything until it's past the ledge, so what matters is that the ECB, a diamond around Fox's position, doesn't touch the corner on the way over. Moving along a straight line `rise` degrees above level, the corner stays clear of the diamond as long as the line passes it by the diamond's extent across the line. The two points that can reach it first are the bottom and the side facing the stage. As the travel crosses the ledge's x, the position has to be at least
+
+    max(−bottom, side_x · tan(rise) − side_y)
+
+above the ledge: the bottom's height for shallow angles, and for steep ones, where the side reaches the wall first, the side's. The farthest start is then the travel's length back along the angle from there. Ending exactly over the ledge's x is enough: the travel's last speed (1.3 a frame for Fox) carries on into SpecialHiFall, inward.
+
+**The ECB during the travel.** `ftFox_SpecialHi_RotateModel` pitches the whole skeleton at XRotN to the travel's angle, so the ECB depends on the angle. Posing SpecialHi with XRotN turned `2π − angle` (a scratch version of `scripts/fighter_ecb_pose.py`), over the travel's last 5 frames:
+
+| Rise | Fox bottom / side x / side y | Falco bottom / side x / side y |
+| --- | --- | --- |
+| 0 | 2.49 / 4.01 / 4.06 | 2.98 / 4.07 / 5.38 |
+| 16.84 | 1.96 / 3.81 / 4.22 | 2.31 / 3.57 / 5.54 |
+| 30 | 1.89 / 3.42 / 4.62 | 2.19 / 3.06 / 5.88 |
+| 45 | 2.21 / 2.76 / 5.38 | 2.50 / 2.60 / 6.47 |
+| 60 | 2.51 / 2.00 / 6.13 | 3.11 / 2.00 / 7.18 |
+| 73.16 | 2.86 / 2.00 / 6.79 | 3.42 / 2.00 / 7.62 |
+
+From 60 degrees up the sides are at the game's 2-unit minimum, which is also where they start to decide it. So the guides use two numbers each: bottom 2.2 and side height 6.8 for Fox, 2.5 and 7.6 for Falco (`LandingECB` in the event, `LANDING_ECB` in the script), with the side 2 out. That line is within 0.3 (Fox) and 0.6 (Falco) of what each angle's own ECB gives. Crossing the ledge's x, the position is then 2.2 below the ledge for Fox up to about 60 degrees, rising to 0.2 below at 73.16; Falco 2.5, rising to 1.0.
+
+**Left out, so the line is the safe one.**
+
+- **What's left of your speed after the travel.** It carries on up and in for a few frames, so you might make it from a unit or two lower. That depends on gravity and drift, so the line doesn't count on it.
+- **Wallriding.** Aimed into the stage's side below the ledge, Firefox can ride up the wall and over (`ftFx_SpecialAirHi_Coll` doesn't end the travel on a wall; the decompilation marks its match as fake, so the details aren't settled). That depends on each stage's wall and underside (Battlefield's undercut, Final Destination's and Yoshi's Story's slopes), so it isn't drawn. It's on the README's investigate list.
+- **Coming down onto the stage.** Starting above the line isn't the lowest, so the line stops at level.
+
+The other aimed up-Bs don't get it yet: their travels don't turn the model the same way, so their ECBs would need their own posing.
+
 ## Air up-Bs and the animation numbers
 
 `UpB_Info`'s rise and forward are the animation's whole root motion, and the air versions don't all follow it. Mario, Dr. Mario, Luigi, Marth, Roy and Peach only apply root motion once `cmd_var0` sets. Before that they fall (Mario, Dr. Mario and Peach at 0.5 a frame) and the root motion is lost, and after it the speed is scaled (0.95, or 1.1 for Marth and Roy). Falcon, Ganondorf and Game & Watch apply it from frame 1, unscaled, so their numbers are right.
@@ -341,7 +395,7 @@ An event's reset keeps you in the form you're in: `Savestate_KeepForms` calls `F
 
 ## Slippi Gecko codes
 
-[slippi-gecko-codes/up-b-overlay](../slippi-gecko-codes/up-b-overlay/README.md) has one code per character with a guide, and since T10 a B0XX code for each aimed up-B, which draws B0XX Angles' dots. They draw the blue guides and white X with fixed numbers that [scripts/upb_overlay_numbers.py](../scripts/upb_overlay_numbers.py) reads from the ISO. The only number the ISO can't give directly is the ECB's front, which the event reads live on the platform:
+[slippi-gecko-codes/up-b-overlay](../slippi-gecko-codes/up-b-overlay/README.md) has one code per character with a guide, and since T10 a B0XX code for each aimed up-B, which draws B0XX Angles' dots, and a Landing Line add-on for Fox and Falco (hooks `8016E754` and `8016E758`). They draw the blue guides, white X and bar with fixed numbers that [scripts/upb_overlay_numbers.py](../scripts/upb_overlay_numbers.py) reads from the ISO. The numbers the ISO can't give directly are the ECB's front, which the event reads live on the platform, and the travel's ECB behind the landing line ([above](#the-landing-line-t10)):
 
 - **How the game sizes it** (`mpColl_LoadECB_JObj`): the box around six joints from `ftData + 0x44`, relative to TopN. If that box is narrower than 10 (the minimum `10 × scale`), it's re-centered at half its width. Each side is then at least 2 out. (The +2 padding only applies when the ledge-grab flag is off. `mpColl_LoadECB` uses 6 and grounded collision 5, which both have it.)
 - **Measured** by posing each skeleton in Wait1 (`RebirthWait`'s motion) across its loop, with the melee-decomp-animations tools, at the model scale (common attribute 0x8C) and facing the ledge:
@@ -378,3 +432,6 @@ Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge 
 14. The ring's gaps: during Fox's charge, hold the stick a little off straight across, up or down. Held should stay at 0 or 90, and the live line straight, until the stick is about 16 degrees off.
 15. B0XX Angles with a B0XX (or a box on HayBox's Melee mode): up-B from a dot, hold its input, and the live line should end on the X and grab. Mod X with a diagonal should read 23 in Held / Need. For Sheik, check a blue dot with B held through the startup and a dim one without.
 16. [Start spots](#start-spots-t10): Donkey Kong, Link and Young Link should sweetspot if they drop holding toward the stage and up-B anywhere in the first 30 frames or so, and Bowser if he up-Bs after 10 to 30 frames of it, without jumping backwards first. Game & Watch on Yoshi's Story starts 35 above the blast zone, and Bowser there 20 inside the side one.
+17. [The snap](#coming-down-where-the-ledge-snaps-t10): a Firefox from the ring above the X, aimed at the bar, grabs as the travel ends (the live line green); from a few units farther it ends just over the box and grabs a frame or two later (yellow). The ledge should snap when Fox is about 8.5 below it, not at the X's 13.
+18. [The landing line](#the-landing-line-t10): Fox and Falco, from a little above the pink line, aimed just over the ledge, land on the stage without touching its side; from a little below, they hit the corner or the wall. Check a steep angle (Mod Y up) as well as a shallow one, and straight across from the tick. If the line is a couple of units low everywhere, the travel's leftover speed is helping more than counted; if it's off only at steep angles, check `side_y`.
+19. The Landing Line codes' hooks, `8016E754` and `8016E758`, run right after Slippi's two and the Randall Timer's (`8016E750`), earlier than any other Up-B code: check one shows.

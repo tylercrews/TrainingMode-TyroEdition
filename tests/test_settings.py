@@ -3583,7 +3583,9 @@ class EventMenuSaveTests:
     def word(self, address): return struct.unpack('>I', self.m.cpu.mem_read(address, 4))[0]
     def text(self, address): return bytes(self.m.cpu.mem_read(address, 80)).split(b'\0', 1)[0].decode()
     def shown(self): return [struct.unpack('>2h', self.m.cpu.mem_read(row+6, 4)) for row in self.rows]
-    def saved_values(self): return [self.m.call('Settings_Get', self.field, i) for i in range(len(self.saved))]
+    indices = None  # Each saved row's preference index, when the menu's order isn't the enum's.
+    def saved_values(self):
+        return [self.m.call('Settings_Get', self.field, i) for i in self.indices or range(len(self.saved))]
 
     def change(self, index, value):
         row = self.rows[index]
@@ -3667,7 +3669,9 @@ class EscapeICSaveTests(EventMenuSaveTests, unittest.TestCase):
 class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/upbsweetspot-test.dat'
     field = 43  # TM_SETTING_UPB_SWEETSPOT
-    saved = (('Enable Line Guides', 2, 1), ('B0XX Angles', 2, 0), ('Marth', 3, 0), ('Camera', 2, 0))
+    saved = (('Enable Line Guides', 2, 1), ('B0XX Angles', 2, 0), ('Landing Line', 2, 0), ('Marth', 3, 0),
+             ('Camera', 2, 0))
+    indices = (0, 1, 4, 2, 3)  # Landing Line was appended to TMUpBSweetspotPreference.
 
 
 class SweetspotDoubleJumpDrawTests(unittest.TestCase):

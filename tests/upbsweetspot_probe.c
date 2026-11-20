@@ -7,7 +7,7 @@ static FighterData ft[PLAYERS];
 static JOBJ joints[PLAYERS];
 static CmSubject subjects[PLAYERS];
 static ftCommonData common;
-static unsigned preferences[TM_UPB_PREF_COUNT] = {1, 0, TM_UPB_MARTH_FSMASH, 0};
+static unsigned preferences[TM_UPB_PREF_COUNT] = {1, 0, TM_UPB_MARTH_FSMASH, 0, 0};
 static int swings, dtilts, freezes, loads;
 static float marth_rate = 1;
 
@@ -187,6 +187,18 @@ void TestUpBAimed(int kind) {
     TestUpBKind(kind);
 }
 void TestUpBB0XX(int on) { Options_Main[OPT_B0XX].val = on; }
+void TestUpBLanding(int on) { Options_Main[OPT_LANDING].val = on; }
+int TestUpBLandingDisabled(void) { return Options_Main[OPT_LANDING].disable; }
+/* A ledge-grab box, in tenths (Fox's is 110, 130, 90), and the targets it
+ * gives, the way the platform settles them. */
+void TestUpBBox(int width, int y_offset, int height) {
+    ft[HMN].coll_data.cliffgrab_width = width / 10.f;
+    ft[HMN].coll_data.cliffgrab_y_offset = y_offset / 10.f;
+    ft[HMN].coll_data.cliffgrab_height = height / 10.f;
+    SetTargets(&ft[HMN]);
+}
+/* The processed stick, in thousandths. */
+void TestUpBStick(int x, int y) { ft[HMN].input.lstick = (Vec2){ x / 1000.f, y / 1000.f }; }
 void TestUpBBlastBottom(int y) { blast_bottom = y; }
 void TestUpBBlastSide(int x) { blast_side = x; }
 void TestUpBDraw(void) { on_top_vertices = 0; Draw_Guides(); }

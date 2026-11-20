@@ -1,6 +1,6 @@
 # Up-B Overlay (Slippi Gecko codes)
 
-Standalone versions of the line guides from Tyro Edition's **Up-B Sweetspot** event, for vanilla NTSC 1.02 Melee, including Slippi netplay. There is one code for each of the 17 characters the event has a guide for, and a **B0XX** code for each of the 7 that aim their up-B, which draws the event's **B0XX Angles** instead. Each draws its character's targets at both ledges on the six legal stages, while that character is in the match (any port). Enable the ones for the characters you play, the regular code or the B0XX one. All 24 can be on at once, and each stays hidden until its character is in the match, but a character's two codes draw over each other.
+Standalone versions of the line guides from Tyro Edition's **Up-B Sweetspot** event, for vanilla NTSC 1.02 Melee, including Slippi netplay. There is one code for each of the 17 characters the event has a guide for, a **B0XX** code for each of the 7 that aim their up-B, which draws the event's **B0XX Angles** instead, and a **Landing Line** add-on for Fox and Falco. Each draws its character's targets at both ledges on the six legal stages, while that character is in the match (any port). Enable the ones for the characters you play, the regular code or the B0XX one, plus the Landing Line if you want it (it goes with either). All 26 can be on at once, and each stays hidden until its character is in the match, but a character's regular and B0XX codes draw over each other.
 
 They only draw: they read the stage's ledges and which characters are playing, and never change game state, so they can't cause a desync. Your opponent doesn't need them.
 
@@ -8,19 +8,24 @@ They only draw: they read the stage's ledges and which characters are playing, a
 
 All of them are measured from the **white X**: where you are when the ledge sits in the middle of your ledge-grab box. Get there at the end of your up-B and you grab the ledge.
 
-- **Aimed up-Bs** (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a **blue ring** around the X at the up-B's travel distance. Up-B from on the ring and aim at the X. The ring is the offstage half, from straight above the X to straight below it, except for Fox's and Falco's, which carry on under the stage to 2/3 of a circle, because they can also recover from under it. It stops 30 degrees short of level under the stage, so it doesn't stick up into it, and leaves out the quarter over the stage. Everything draws over the stage.
+The aimed up-Bs also get a **white bar** over the X, at the top of the box. The game only checks for the ledge while you're moving down, and then grabs as soon as it can, so an up-B coming down grabs at the bar, on its way to the X. Coming down, aim at the bar.
+
+- **Aimed up-Bs** (Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu): a **blue ring** at the up-B's travel distance. Up-B from on the ring and aim at the X, or from above it, at the bar: the quarter of the ring above, where you come down, is around the bar, and the rest around the X. The ring is the offstage half, from straight above to straight below, except for Fox's and Falco's, which carry on under the stage to 2/3 of a circle, because they can also recover from under it. It stops 30 degrees short of level under the stage, so it doesn't stick up into it, and leaves out the quarter over the stage. Everything draws over the stage.
   - **Gaps:** the ring leaves out the 16.8 degrees either side of straight across, up and down. Melee reads a stick axis at or under 0.28 as 0, so near straight reads exactly straight, and the shallowest angle off it is 23/80 of the stick across with 76/80 along. No stick or controller can aim into a gap. A **white tick** on each straight direction marks where holding straight sweetspots, with 2 degrees of the ring either side running through it at the right distance.
   - The teleports and Quick Attack go farther the more you tilt the stick, so they also get a **dim edge** at the least tilt that still aims each way. That's the 0.5 threshold, curving out to meet the ring at the gaps, where only a near-full tilt reads off straight. Up-B from between the two and tilt the stick less the closer you are. Their white marks run from the dim edge to the ring, since straight works at any tilt that aims, with 2 degrees of each through their ends.
   - Fox and Falco go the same distance at any tilt, so they only get the one ring.
-- **B0XX codes** (the same seven): the white X, and a **dot** where each of the B0XX's up-B angles sweetspots, instead of the ring. Up-B from a dot and hold its input. **White** dots have no modifier: straight, or a diagonal. **Blue** ones are Mod X or Mod Y on a diagonal, alone or with a C-button, which step 4.4 degrees at a time from 23 to 67, plus Mod X or Mod Y straight. The teleports and Quick Attack go less far without B held, so their blue dots are with B (the B0XX's extended up-B angles), and they also get a **dim** dot for each without B, closer in. The coordinates are the B0XX V3's, as [HayBox's Melee mode](https://github.com/JonnyHaystack/HayBox/blob/master/src/modes/Melee20Button.cpp) has them.
+- **B0XX codes** (the same seven): the white X and bar, and a **dot** where each of the B0XX's up-B angles sweetspots, instead of the ring (from the bar for the ones that come down). Up-B from a dot and hold its input. **White** dots have no modifier: straight, or a diagonal. **Blue** ones are Mod X or Mod Y on a diagonal, alone or with a C-button, which step 4.4 degrees at a time from 23 to 67, plus Mod X or Mod Y straight. The teleports and Quick Attack go less far without B held, so their blue dots are with B (the B0XX's extended up-B angles), and they also get a **dim** dot for each without B, closer in. The coordinates are the B0XX V3's, as [HayBox's Melee mode](https://github.com/JonnyHaystack/HayBox/blob/master/src/modes/Melee20Button.cpp) has them.
 - **Fixed paths** (Mario, Dr. Mario, Luigi, Marth, Roy, Captain Falcon, Ganondorf, Peach, Kirby, Samus): a **blue dot** where to up-B from for the fastest grab, at the top of the up-B, and a line up from it to where it still grabs, more slowly, on the way back down.
   - Mario, Dr. Mario, Marth and Roy also get a **dim dot and line** for holding the stick toward the stage during the up-B.
+- **Landing Line codes** (Fox and Falco, an add-on to either of their codes): a **pink line** for the lowest you can up-B from and still land on the stage, for each angle the stick can aim up toward it, and a pink tick for straight across. From above it, aim just over the ledge and the travel carries you onto the stage without touching its side. Below it, only the ledge is in reach. It doesn't count on what's left of your speed after the travel, or on wallriding up the stage's side, so it's the safe line.
 
 What the event shows on top of this, and these codes leave out: the line out from each ledge, the lines for the angle you're holding and the angle you need, the Held / Need row, and the yellow X where your up-B started.
 
 ## The codes
 
 Every point is relative to the ledge, so the marks are the same on all six stages. "Out" is away from the stage, and "down" is below the ledge.
+
+For the aimed up-Bs, the bar is over the X at the top of the grab box: Fox and Falco 8.5 down, Sheik 9.5, Zelda 4.5, Mewtwo 8, Pikachu 6 and Pichu 3.
 
 | Character | Code | Hook | White X | Guide |
 | --- | --- | --- | --- | --- |
@@ -48,25 +53,29 @@ Every point is relative to the ledge, so the marks are the same on all six stage
 | Mewtwo B0XX | [mewtwo-b0xx-up-b-overlay.txt](mewtwo-b0xx-up-b-overlay.txt) | `8016E76C` | 7.07 out, 14 down | 46 dots |
 | Pikachu B0XX | [pikachu-b0xx-up-b-overlay.txt](pikachu-b0xx-up-b-overlay.txt) | `8016E764` | 5.50 out, 11 down | 46 dots |
 | Pichu B0XX | [pichu-b0xx-up-b-overlay.txt](pichu-b0xx-up-b-overlay.txt) | `8016E760` | 5.50 out, 6 down | 46 dots |
+| Fox Landing Line | [fox-landing-up-b-overlay.txt](fox-landing-up-b-overlay.txt) | `8016E754` | (none: add-on) | 81.5 back from crossing the ledge's x 2.2 below it, 0.2 at the steepest |
+| Falco Landing Line | [falco-landing-up-b-overlay.txt](falco-landing-up-b-overlay.txt) | `8016E758` | (none: add-on) | 60.1 back from crossing it 2.5 below, 1.0 at the steepest |
 
-There are no codes for Donkey Kong, Bowser, Link, Young Link, Ness, Game & Watch or the Ice Climbers, because the event has no guide for them yet. Yoshi and Jigglypuff don't recover with up-B. The B0XX codes' dot counts are after merging spots under a unit apart: holding B moves Fox's and Falco's angles under half a degree, so they get one dot per angle.
+There are no codes for Donkey Kong, Bowser, Link, Young Link, Ness, Game & Watch or the Ice Climbers, because the event has no guide for them yet. Yoshi and Jigglypuff don't recover with up-B. The B0XX codes' dot counts are after merging spots under a unit apart: holding B moves Fox's and Falco's angles under half a degree, so they get one dot per angle. Only Fox and Falco have a Landing Line: it needs their travel's ECB, posed at each angle.
 
 ## Install
 
 1. Open Slippi Launcher → Settings → Netplay → Manage Gecko Codes → Add.
-2. Use the code's first line, without the `$`, as the name (for example `Fox Up-B Overlay (Slippi NTSC 1.02)` or `Fox Up-B Overlay B0XX (Slippi NTSC 1.02)`), and paste the hex lines from its text file into the code field. Save and enable it. The `$` title and `*` description lines are metadata, not hex code. Repeat for each character you want.
+2. Use the code's first line, without the `$`, as the name (for example `Fox Up-B Overlay (Slippi NTSC 1.02)`, `Fox Up-B Overlay B0XX (Slippi NTSC 1.02)` or `Fox Up-B Overlay Landing Line (Slippi NTSC 1.02)`), and paste the hex lines from its text file into the code field. Save and enable it. The `$` title and `*` description lines are metadata, not hex code. Repeat for each character you want.
 3. Keep Slippi's standard required codes enabled and restart the game.
 
 On other stages they do nothing. Every code has its own hook, so they run alongside each other and alongside the other codes in this folder's parent: the [Randall Overlay](../randall-overlay/README.md) (`8016E8C8`), the [Blast Zone Overlay](../blast-zone-overlay/README.md) (`8016E8C0`), the [Double-Jump Height Indicators](../dj-height-indicator/README.md) (`8016E8E0` and `8016E8E8`), [Actionable Yellow-Green](../actionable/README.md) and the [Invincibility Overlay](../invincibility-overlay/README.md).
 
 ## How it works
 
-- **Hooks:** each code replaces one instruction in StartMelee, which runs once per match, and creates its own GObj with a GX link 5 draw callback. The 24 hooks are unconditional instructions that aren't branches, with no float register live across them: 11 near the end of StartMelee and 13 before it loads the stage, the B0XX codes' 7 earliest (`8016E760` to `8016E7D8`). Slippi's own codes use `8016E748`, `8016E74C` and `8016E904`, not these. The hook keeps every register the native code might still need, including `r0` and the link register, then runs the instruction it replaced.
+- **Hooks:** each code replaces one instruction in StartMelee, which runs once per match, and creates its own GObj with a GX link 5 draw callback. The 26 hooks are unconditional instructions that aren't branches, with no float register live across them: 11 near the end of StartMelee and 15 before it loads the stage, the B0XX codes' 7 (`8016E760` to `8016E7D8`) and the Landing Line codes' 2 (`8016E754` and `8016E758`) earliest. Those two are the last such instructions in StartMelee. Slippi's own codes use `8016E748`, `8016E74C` and `8016E904`, and the Randall Timer `8016E750`, not these. The hook keeps every register the native code might still need, including `r0` and the link register, then runs the instruction it replaced.
 - **Who's playing:** each frame the callback asks the game for each port's active fighter (`Player_GetEntity`, which follows Zelda and Sheik as they transform) and draws only if one of them is its character.
 - **Ledges:** it calls the game's `Stage_GetLeftOfLineCoordinates` and `Stage_GetRightOfLineCoordinates` with the line IDs the Tyro events use. The game walks to the end of the floor and returns the live ledge, already scaled for stages like Battlefield and Yoshi's Story.
 - **Drawing:** each code holds its shapes as a list of points for the right ledge, (out, up), and mirrors them for the left one. Depth testing is off through `HSD_StateSetZMode` (the same way as the Randall Overlay), so nothing hides them. Line widths, dot size and colors are the event's.
 - **Numbers:** [scripts/upb_overlay_numbers.py](../../scripts/upb_overlay_numbers.py) reads them from a vanilla ISO, the same way the event reads the live character data:
   - **White X:** out by half of (the ECB's front + the ledge-grab box's reach), down by the box's height above the feet. The event reads the ECB live while you stand on the platform. The codes use a fixed value, from posing each character's skeleton in its standing animation the way the game sizes the ECB. For most characters that's the game's 2-unit minimum, so the X lands within about a unit of the event's.
+  - **Bar:** half the box's height (`ftData + 0x44`, 0x18) above the X.
+  - **Landing Line:** Fox's and Falco's ECB at the end of the travel, posed with the skeleton pitched to the travel's angle (`LANDING_ECB` in the script). See [the research notes](../../notes/UPB-SWEETSPOT-RESEARCH.md#the-landing-line-t10).
   - **Rings:** the up-B's travel distance from its special attributes. `UNDER_STAGE` in the script lists who gets the 2/3 ring: Fox and Falco, as in the event.
   - **Gaps:** from the stick deadzones in PlCo.dat (`ftLoadCommonData` 0x0 and 0x4), the way the game reads the stick: in 80ths inside a circle of radius 80, with an axis at or under its deadzone read as 0. The dim edge is the least tilt with both axes past their deadzones and past the up-B's threshold.
   - **B0XX dots:** the B0XX's sticks (`B0XX_PLAIN`, `B0XX_MOD_B` and `B0XX_MOD` in the script) run through each up-B's own rule, as the event does: Fox and Falco go straight up below 0.5 of |x| + |y|, the rest below a 0.5 tilt, and the teleports' distance grows with the tilt.
@@ -87,14 +96,14 @@ The first rewrites the `.asm` files from the ISO. The second assembles them with
 
 ## Tests
 
-[tests/test_upb_overlay_gecko.py](../../tests/test_upb_overlay_gecko.py) runs all 24 text codes in a PowerPC emulator, installed together the way the Gecko handler installs them. It checks that:
+[tests/test_upb_overlay_gecko.py](../../tests/test_upb_overlay_gecko.py) runs all 26 text codes in a PowerPC emulator, installed together the way the Gecko handler installs them. It checks that:
 
 - Every hook creates its own GObj and then leaves every register as the instruction it replaced would have, compares included.
-- Each legal stage draws the code's shapes at both ledges, mirrored for the left, with Fox's ring, gaps and ticks, Fox's B0XX dots and Mario also worked out by hand.
+- Each legal stage draws the code's shapes at both ledges, mirrored for the left, with Fox's ring, gaps, ticks and bar, Fox's B0XX dots, Fox's and Falco's Landing Lines and Mario also worked out by hand.
 - A code draws nothing until its character is in the match, and nothing on other stages or render passes.
 - When `melee.iso` is at the repo root, each hook replaces exactly the instruction the vanilla DOL has there, the `.asm` files match what the ISO gives, and the stick deadzones are vanilla's 0.28.
 
-[tests/test_upbsweetspot.py](../../tests/test_upbsweetspot.py) checks that the event draws the same shapes as the script, gaps and B0XX dots included.
+[tests/test_upbsweetspot.py](../../tests/test_upbsweetspot.py) checks that the event draws the same shapes as the script, gaps, B0XX dots, the quarter around the bar and the Landing Line included.
 
 The game functions are stubbed and the GX writes are recorded, so it checks what the codes ask to draw, not the picture.
 
@@ -106,6 +115,7 @@ python tests/test_upb_overlay_gecko.py -v
 
 - **Untested in Dolphin and on Slippi.** They pass the emulator tests, but haven't been run in the real game yet.
 - **A fixed X.** The event moves the X with your ECB; these use a standing value, which can be a unit off for the widest characters.
+- **A posed Landing Line.** Its ECB comes from posing the skeleton, not from the game, and two numbers stand in for every angle's: within 0.3 of Fox's own and 0.6 of Falco's.
 - **B0XX V3 coordinates.** The B0XX codes use the B0XX V3's (HayBox's Melee mode). Older B0XX firmware, or a box with other coordinates, would need its own added to the script.
 - **Vanilla only.** The numbers are fixed, so a mod that changes a character's up-B or ledge grab would need them rebuilt.
 - **Possible hook conflict.** Another custom code that injects at one of these hooks would conflict with that character's code.

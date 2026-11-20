@@ -12,23 +12,24 @@
     .macro character_data
     # Target: the ledge mid-grab-box, 6.65 out (ECB front 2.30 + snap
     # 11, halved) and 13 down.
-    shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 60.10, 73.16 to 16.84 degrees
-    point 24.0584, 44.5235
-    point 27.7883, 43.2599
-    point 31.4274, 41.7548
-    point 34.9601, 40.0146
-    point 38.3713, 38.0467
-    point 41.6462, 35.8597
-    point 44.7709, 33.4629
-    point 47.7320, 30.8666
-    point 50.5166, 28.0820
-    point 53.1129, 25.1209
-    point 55.5097, 21.9962
-    point 57.6967, 18.7213
-    point 59.6646, 15.3101
-    point 61.4048, 11.7774
-    point 62.9099, 8.1383
-    point 64.1735, 4.4084
+    # Snap: the top of the box, 4.5 above that.
+    shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 60.10, 73.16 to 16.84 degrees, around the snap
+    point 24.0584, 49.0235
+    point 27.7883, 47.7599
+    point 31.4274, 46.2548
+    point 34.9601, 44.5146
+    point 38.3713, 42.5467
+    point 41.6462, 40.3597
+    point 44.7709, 37.9629
+    point 47.7320, 35.3666
+    point 50.5166, 32.5820
+    point 53.1129, 29.6209
+    point 55.5097, 26.4962
+    point 57.6967, 23.2213
+    point 59.6646, 19.8101
+    point 61.4048, 16.2774
+    point 62.9099, 12.6383
+    point 64.1735, 8.9084
     shape GX_LINESTRIP, 10, 16, 0x30C8FFFF    # ring at the full travel 60.10, -16.84 to -73.16 degrees
     point 64.1735, -30.4084
     point 62.9099, -34.1383
@@ -60,9 +61,9 @@
     point -43.2198, -46.5412
     point -45.3981, -43.0500
     shape GX_LINESTRIP, 10, 3, 0x30C8FFFF    # ring through the 90 degree mark
-    point 4.5525, 47.0634
-    point 6.6500, 47.1000
-    point 8.7475, 47.0634
+    point 4.5525, 51.5634
+    point 6.6500, 51.6000
+    point 8.7475, 51.5634
     shape GX_LINESTRIP, 10, 3, 0x30C8FFFF    # ring through the 0 degree mark
     point 66.7134, -10.9025
     point 66.7500, -13.0000
@@ -72,12 +73,15 @@
     point 6.6500, -73.1000
     point 4.5525, -73.0634
     shape GX_LINES, 12, 6, 0xFFFFFFFF    # straight across, up and down: hold straight here
-    point 6.6500, 41.1000
-    point 6.6500, 53.1000
+    point 6.6500, 45.6000
+    point 6.6500, 57.6000
     point 60.7500, -13.0000
     point 72.7500, -13.0000
     point 6.6500, -67.1000
     point 6.6500, -79.1000
+    shape GX_LINES, 12, 2, 0xFFFFFFFF    # the snap: coming down, the up-B grabs here
+    point 4.1500, -8.5000
+    point 9.1500, -8.5000
     shape GX_LINES, 12, 4, 0xFFFFFFFF    # the target X
     point 4.1500, -15.5000
     point 9.1500, -10.5000

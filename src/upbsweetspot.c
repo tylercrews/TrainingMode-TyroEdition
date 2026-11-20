@@ -100,6 +100,8 @@ static const StartSpot Start_Spots[FTKIND_ROY + 1] = {
 // moves Fox's and Falco's under half a degree.
 #define B0XX_DOT_SIZE 30
 #define B0XX_SAME_SPOT 1.0f
+// Half the width of the X, and of the bar over it where coming down snaps.
+#define TARGET_SIZE 2.5f
 
 // The side and the totals survive Change Stage's restart; the menu is saved.
 #define UPB_CARRY_TAG 0x55704273 /* "UpBs" */
@@ -388,6 +390,9 @@ static void ChangeGuides(GOBJ *menu, int value) {
 static void ChangeB0XX(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_B0XX, value);
 }
+static void ChangeLanding(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_LANDING, value);
+}
 static void ChangeMarth(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH, value);
 }
@@ -399,6 +404,7 @@ static void ChangeCamera(GOBJ *menu, int value) {
 enum menu_options {
     OPT_GUIDES,
     OPT_B0XX,
+    OPT_LANDING,
     OPT_MARTH,
     OPT_CAMERA,
 };
@@ -425,6 +431,15 @@ static EventOption Options_Main[] = {
                  "instead of the ring. White: no modifier. Blue: Mod",
                  "X or Mod Y, any C-button. Dim: teleports and Quick",
                  "Attack without B held, which don't go as far."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Landing Line",
+        .OnChange = ChangeLanding,
+        .desc = {"Fox and Falco: a pink line for the lowest you can",
+                 "up-B from and still land on the stage. From above",
+                 "it, aim just over the ledge to land. Below it, only",
+                 "the ledge is in reach."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -457,6 +472,7 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_INFO,
         .name = "Help",
         .desc = {"Leave the platform and recover with your up-B.",
+                 "Coming down, aim at the bar over the X: you grab there.",
                  "D-Pad left/right resets on that ledge.",
                  "A D-Pad reset doesn't count as an attempt."}
     },
@@ -497,6 +513,8 @@ static struct attempt {
     bool done;               // Counted; waiting for the reset.
     bool has_target;
     Vec2 target;             // Where your position grabs the ledge.
+    Vec2 snap;               // Where coming down onto the ledge first grabs it.
+    float reach;             // The grab box's reach out from the ledge.
 } attempt = { 0 };
 
 static struct upb {
@@ -548,14 +566,52 @@ static void CountAttempt(int result) {
     }
 }
 
-/* The fighter's position when the ledge sits in the middle of its ledge-grab
- * box: the box reaches cliffgrab_width past the ECB's side toward the ledge
- * (the side it faces), and is centered cliffgrab_y_offset above the feet. */
-static Vec2 LedgeTarget(FighterData *ft) {
+/* The ledge-grab box (mpColl_80044164) reaches cliffgrab_width past the ECB's
+ * side toward the ledge (the side it faces), and is cliffgrab_height tall,
+ * centered cliffgrab_y_offset above the feet. So it holds the ledge while your
+ * position is from the ledge out to that reach, and from cliffgrab_y_offset ±
+ * cliffgrab_height / 2 below it.
+ * - The X (target) is the middle of that: the most room for an up-B that ends
+ *   there, level or rising, and then falls into the grab.
+ * - The game checks the box only while you move down, and then grabs as soon as
+ *   you're in it. So coming down, the travel grabs at the top of the box, on its
+ *   way to the X: snap is that spot, above the X. */
+static void SetTargets(FighterData *ft) {
     Vec2 ledge = ledge_positions[side_idx];
     float front = ft->facing_direction > 0 ? ft->coll_data.ecbCurr_right.X : -ft->coll_data.ecbCurr_left.X;
-    float reach = front + ft->coll_data.cliffgrab_width;
-    return (Vec2) { ledge.X + Outward() * reach * 0.5f, ledge.Y - ft->coll_data.cliffgrab_y_offset };
+    CollData *coll = &ft->coll_data;
+    attempt.reach = front + coll->cliffgrab_width;
+    attempt.target = (Vec2) { ledge.X + Outward() * attempt.reach * 0.5f, ledge.Y - coll->cliffgrab_y_offset };
+    attempt.snap = (Vec2) { attempt.target.X, attempt.target.Y + coll->cliffgrab_height * 0.5f };
+    attempt.has_target = true;
+}
+
+/* Whether a travel from `from` to `to` goes through the grab box's positions
+ * (SetTargets). It only counts moving down, the only time the box is checked. */
+static bool CrossesGrabBox(FighterData *ft, Vec2 from, Vec2 to) {
+    Vec2 ledge = ledge_positions[side_idx];
+    float outward = Outward(), half = ft->coll_data.cliffgrab_height * 0.5f;
+    float bottom = attempt.target.Y - half, top = attempt.target.Y + half;
+    // Liang-Barsky, out from the ledge and up: where the segment is inside.
+    float x = (from.X - ledge.X) * outward, dx = (to.X - from.X) * outward, dy = to.Y - from.Y;
+    float p[4] = { -dx, dx, -dy, dy };
+    float q[4] = { x, attempt.reach - x, from.Y - bottom, top - from.Y };
+    float enter = 0, leave = 1;
+    if (dy >= 0)
+        return false;
+    for (int i = 0; i < 4; i++) {
+        if (p[i] == 0) {
+            if (q[i] < 0)
+                return false;
+            continue;
+        }
+        float t = q[i] / p[i];
+        if (p[i] < 0 && t > enter)
+            enter = t;
+        else if (p[i] > 0 && t < leave)
+            leave = t;
+    }
+    return enter <= leave;
 }
 
 // Marth -----------------------------------------------------------------
@@ -733,6 +789,7 @@ static const GXColor DimBlue = { 0x1c, 0x6c, 0x94, 0xff };
 static const GXColor Green = { 0x00, 0xff, 0x00, 0xff };
 static const GXColor Yellow = { 0xff, 0xe0, 0x00, 0xff };
 static const GXColor Red = { 0xff, 0x00, 0x00, 0xff };
+static const GXColor Pink = { 0xff, 0x60, 0xe0, 0xff };
 
 /* on_top draws over the stage, which is what Fox's and Falco's marks need to be
  * seen from under it. */
@@ -829,14 +886,16 @@ static void DrawRingArc(FighterData *ft, const Stick *stick, Vec2 center, float 
     }
 }
 
-/* The ring at the travel around center, sweep degrees from straight above it
+/* The ring at the travel around the X, sweep degrees from straight above it
  * out past the ledge and down, less the angles the stick can't aim: a gap
  * either side of straight across, up and down. A white mark on each straight
  * direction is where holding straight sweetspots, with a bit of ring through
  * it at its distance. The teleports and Quick Attack go farther with more
  * tilt, so a dim edge inside follows the least tilt that aims each way, and
- * their white marks run between the two, with a bit of each at its ends. */
-static void DrawAimedRing(FighterData *ft, Vec2 center, float sweep, bool on_top) {
+ * their white marks run between the two, with a bit of each at its ends.
+ * Above the X the up-B comes down, and grabs at the snap on its way to the X,
+ * so the quarter above it, and the mark straight above, go around the snap. */
+static void DrawAimedRing(FighterData *ft, Vec2 target, Vec2 snap, float sweep, bool on_top) {
     Stick stick = GetStick();
     bool spacie = IsSpacie(ft);
     float bottom = 90 - sweep, from, to;
@@ -845,10 +904,10 @@ static void DrawAimedRing(FighterData *ft, Vec2 center, float sweep, bool on_top
         GXColor color = full ? Blue : DimBlue;
         for (int top = 90; top > bottom; top -= 90)
             if (Quarter(&stick, top, bottom, &from, &to))
-                DrawRingArc(ft, &stick, center, from, to, travel, !full, color, on_top);
+                DrawRingArc(ft, &stick, top == 90 ? snap : target, from, to, travel, !full, color, on_top);
         for (int straight = 90; straight >= bottom; straight -= 90)
-            DrawRingArc(ft, &stick, center, straight + STRAIGHT_ARC, straight - STRAIGHT_ARC,
-                        full ? travel : least, false, color, on_top);
+            DrawRingArc(ft, &stick, straight == 90 ? snap : target, straight + STRAIGHT_ARC,
+                        straight - STRAIGHT_ARC, full ? travel : least, false, color, on_top);
     }
     float inner = spacie ? travel - LEVEL_TICK : least;
     float outer = spacie ? travel + LEVEL_TICK : travel;
@@ -859,6 +918,7 @@ static void DrawAimedRing(FighterData *ft, Vec2 center, float sweep, bool on_top
     float outward = Outward();
     for (int straight = 90; straight >= bottom; straight -= 90) {
         float a = straight * M_1DEGREE, x = outward * cos(a), y = sin(a);
+        Vec2 center = straight == 90 ? snap : target;
         GFX_AddVtx(center.X + x * inner, center.Y + y * inner, 0, White);
         GFX_AddVtx(center.X + x * outer, center.Y + y * outer, 0, White);
     }
@@ -883,9 +943,9 @@ static const s8 B0XX_Mod[][2] = {
 #define B0XX_SPOTS ((countof(B0XX_Plain) + countof(B0XX_ModB) + countof(B0XX_Mod)) * 4)
 
 /* Where up-B with the stick at (x, y) 80ths, toward the stage and up, has to
- * start to end at center, by the move's own rule (as AimFromStick has it).
- * False if that's outside the ring's sweep. */
-static bool B0XXSpot(FighterData *ft, const Stick *stick, Vec2 center, float x, float y,
+ * start to end at the X, or coming down, at the snap, by the move's own rule
+ * (as AimFromStick has it). False if that's outside the ring's sweep. */
+static bool B0XXSpot(FighterData *ft, const Stick *stick, Vec2 target, Vec2 snap, float x, float y,
                      float sweep, Vec2 *spot) {
     if (fabs(x) < stick->least_x)
         x = 0;
@@ -904,6 +964,7 @@ static bool B0XXSpot(FighterData *ft, const Stick *stick, Vec2 center, float x, 
     if (angle > 90.5f || angle < 89.5f - sweep)
         return false;
     float distance = AimedDistance(ft, tilt);
+    Vec2 center = up > 0 ? snap : target;
     *spot = (Vec2) { center.X + Outward() * out * distance, center.Y + up * distance };
     return true;
 }
@@ -921,7 +982,7 @@ static bool IsDrawn(Vec2 spot, const Vec2 *spots, int count) {
  * start: white with no modifier, blue with Mod X or Mod Y and B, and dim
  * without B where that's somewhere else (the teleports and Quick Attack go
  * less far). Spots that close together are one dot. */
-static void DrawB0XXGuide(FighterData *ft, Vec2 center, float sweep, bool on_top) {
+static void DrawB0XXGuide(FighterData *ft, Vec2 target, Vec2 snap, float sweep, bool on_top) {
     static const struct { const s8 (*sticks)[2]; int count; } sets[] = {
         { B0XX_Plain, countof(B0XX_Plain) },
         { B0XX_ModB, countof(B0XX_ModB) },
@@ -938,7 +999,7 @@ static void DrawB0XXGuide(FighterData *ft, Vec2 center, float sweep, bool on_top
                 for (int sy = 1; sy >= -1; sy -= 2) {
                     Vec2 spot;
                     float x = sx * sets[set].sticks[i][0], y = sy * sets[set].sticks[i][1];
-                    if (!B0XXSpot(ft, &stick, center, x, y, sweep, &spot) || IsDrawn(spot, spots, count))
+                    if (!B0XXSpot(ft, &stick, target, snap, x, y, sweep, &spot) || IsDrawn(spot, spots, count))
                         continue;
                     spots[count] = spot;
                     kinds[count++] = set;
@@ -957,12 +1018,25 @@ static void DrawB0XXGuide(FighterData *ft, Vec2 center, float sweep, bool on_top
     }
 }
 
-/* Green when the travel ends with the ledge in reach (or passes it on the way
- * down, when the travel itself can grab), yellow when close, red otherwise. */
-static GXColor AimColor(FighterData *ft, Vec2 target) {
+/* What to aim at from the launch: the snap when coming down onto the ledge from
+ * above it, else the X. */
+static Vec2 AimTarget(void) {
+    return upb.launch.Y > attempt.snap.Y ? attempt.snap : attempt.target;
+}
+
+/* Green when the travel crosses the grab box on its way down, or, level or
+ * rising, ends with the ledge in reach; yellow when close (coming down, that
+ * includes ending just above the box and falling into it); red otherwise. */
+static GXColor AimColor(FighterData *ft) {
+    Vec2 end = { upb.launch.X + upb.aim.X * upb.distance, upb.launch.Y + upb.aim.Y * upb.distance };
+    bool down = upb.aim.Y < 0;
+    if (down && CrossesGrabBox(ft, upb.launch, end))
+        return Green;
+    // Coming down, from what the white line aims at; else from the X.
+    Vec2 target = down ? AimTarget() : attempt.target;
     Vec2 to_target = { target.X - upb.launch.X, target.Y - upb.launch.Y };
     float along = upb.distance;
-    if (upb.aim.Y < 0) {
+    if (down) {
         along = to_target.X * upb.aim.X + to_target.Y * upb.aim.Y;
         if (along < 0) along = 0;
         if (along > upb.distance) along = upb.distance;
@@ -972,23 +1046,95 @@ static GXColor AimColor(FighterData *ft, Vec2 target) {
     float miss = sqrtf(miss_x * miss_x + miss_y * miss_y);
     float tolerance = ft->coll_data.cliffgrab_height * 0.5f;
     if (tolerance < 3) tolerance = 3;
-    return miss <= tolerance ? Green : miss <= tolerance * 3 ? Yellow : Red;
+    return !down && miss <= tolerance ? Green : miss <= tolerance * 3 ? Yellow : Red;
 }
 
-static void DrawAimedGuide(FighterData *ft, Vec2 target) {
+/* Fox's and Falco's ECB at the end of the Firefox and Firebird travel, from
+ * posing SpecialHi pitched to the travel angle, as ftFox_SpecialHi_RotateModel
+ * turns XRotN: its bottom, above their position, and the height of its sides,
+ * which are at the game's 2-unit minimum from about 60 degrees up, where they
+ * start to matter. The line they give is within 0.3 (Fox) and 0.6 (Falco) of
+ * every angle's own ECB. See "The landing line" in
+ * notes/UPB-SWEETSPOT-RESEARCH.md. */
+#define ECB_MIN_SIDE 2
+typedef struct LandingECB {
+    float bottom, side_y;
+} LandingECB;
+
+static const LandingECB *GetLandingECB(FighterData *ft) {
+    static const LandingECB fox = { 2.2f, 6.8f }, falco = { 2.5f, 7.6f };
+    return ft->kind == FTKIND_FOX ? &fox : ft->kind == FTKIND_FALCO ? &falco : 0;
+}
+
+/* How high above the ledge your position has to be as the travel crosses the
+ * ledge's x, `rise` degrees above level toward the stage, for it to carry you
+ * over the corner without touching it: the ECB's bottom clears it, and on steep
+ * angles its side, which reaches the wall first, has to as well. */
+static float LandingClearance(const LandingECB *ecb, float rise) {
+    float clearance = -ecb->bottom;
+    if (rise > 0) {
+        float a = rise * M_1DEGREE;
+        float side = ECB_MIN_SIDE * sin(a) / cos(a) - ecb->side_y;
+        if (side > clearance)
+            clearance = side;
+    }
+    return clearance;
+}
+
+/* The landing line from ring angle `from` down to `to` (ring angles as for the
+ * ring): where up-B has to start for the travel, aimed back the other way, to
+ * cross the ledge's x just high enough to clear it. */
+static void DrawLandingArc(FighterData *ft, const LandingECB *ecb, float from, float to) {
+    Vec2 ledge = ledge_positions[side_idx];
+    float travel = AimedDistance(ft, 1), outward = Outward();
+    int steps = (int)((from - to) / ARC_STEP) + 1;
+    event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10, .no_depth = true });
+    for (int i = 0; i <= steps; i++) {
+        float angle = from - (from - to) * i / steps, a = angle * M_1DEGREE;
+        float y = ledge.Y + LandingClearance(ecb, -angle);
+        GFX_AddVtx(ledge.X + outward * cos(a) * travel, y + sin(a) * travel, 0, Pink);
+    }
+}
+
+/* Landing Line, for Fox and Falco: the lowest you can up-B from and still land
+ * on the stage, for each angle the stick can aim up toward it, and straight
+ * across, with a tick. Above it, aim just over the ledge and the travel itself
+ * carries you over. That leaves out what's left of your speed after it and
+ * wallriding up the stage's side, so it's the safe line. */
+static void DrawLandingLine(FighterData *ft) {
+    const LandingECB *ecb = GetLandingECB(ft);
+    if (!ecb || !Options_Main[OPT_LANDING].val)
+        return;
+    Stick stick = GetStick();
+    float from, to;
+    if (Quarter(&stick, 0, -90, &from, &to))
+        DrawLandingArc(ft, ecb, from, to);
+    DrawLandingArc(ft, ecb, STRAIGHT_ARC, -STRAIGHT_ARC);
+    Vec2 ledge = ledge_positions[side_idx];
+    float travel = AimedDistance(ft, 1), outward = Outward(), y = ledge.Y + LandingClearance(ecb, 0);
+    event_vars->GFX_Start(2, (GFX_Params) { .shape = GX_LINES, .size = 12, .no_depth = true });
+    GFX_AddVtx(ledge.X + outward * (travel - LEVEL_TICK), y, 0, Pink);
+    GFX_AddVtx(ledge.X + outward * (travel + LEVEL_TICK), y, 0, Pink);
+}
+
+static void DrawAimedGuide(FighterData *ft) {
     // Fox and Falco can recover from under the stage, so their marks carry on
     // under it, drawn over the stage. The rest get the offstage half.
     bool spacie = IsSpacie(ft);
     float sweep = spacie ? UNDER_STAGE_SWEEP : 180;
+    Vec2 target = attempt.target, snap = attempt.snap;
+    DrawLandingLine(ft);
     if (Options_Main[OPT_B0XX].val)
-        DrawB0XXGuide(ft, target, sweep, spacie);
+        DrawB0XXGuide(ft, target, snap, sweep, spacie);
     else
-        DrawAimedRing(ft, target, sweep, spacie);
+        DrawAimedRing(ft, target, snap, sweep, spacie);
+    // A bar over the X where coming down snaps to the ledge.
+    DrawLine((Vec2) { snap.X - TARGET_SIZE, snap.Y }, (Vec2) { snap.X + TARGET_SIZE, snap.Y }, White, 12, false);
     if (!upb.aiming)
         return;
-    DrawLine(upb.launch, target, White, 8, spacie);
+    DrawLine(upb.launch, AimTarget(), White, 8, spacie);
     Vec2 end = { upb.launch.X + upb.aim.X * upb.distance, upb.launch.Y + upb.aim.Y * upb.distance };
-    GXColor color = AimColor(ft, target);
+    GXColor color = AimColor(ft);
     DrawLine(upb.launch, end, color, 12, spacie);
     DrawDot(end, color, spacie);
 }
@@ -1015,7 +1161,7 @@ static void DrawPathGuide(FighterData *ft, const UpBInfo *info, Vec2 target) {
         DrawLine(upb.start, upb.path_end, Yellow, 12, false);
         DrawDot(upb.path_end, Yellow, false);
     }
-    DrawCross(upb.start, 2.5f, Yellow);
+    DrawCross(upb.start, TARGET_SIZE, Yellow);
 }
 
 static void Draw_Guides(void) {
@@ -1036,10 +1182,10 @@ static void Draw_Guides(void) {
     GFX_AddVtx(ledge_positions[1].X + 100, ledge_positions[1].Y, 0, White);
 
     if (info && info->guide == GUIDE_AIMED)
-        DrawAimedGuide(ft, attempt.target);
+        DrawAimedGuide(ft);
     else if (info && info->guide == GUIDE_PATH)
         DrawPathGuide(ft, info, attempt.target);
-    DrawCross(attempt.target, 2.5f, White);
+    DrawCross(attempt.target, TARGET_SIZE, White);
 
     CObj_SetCurrent(cur_cam);
 }
@@ -1065,7 +1211,8 @@ static void DrawHUD(GOBJ *gobj, int pass) {
     const UpBInfo *upb_info = GetUpBInfo(ft);
     int rows = upb_info && upb_info->guide == GUIDE_AIMED ? 3 : 2;
     if (upb.aiming && attempt.has_target) {
-        Vec2 need = { attempt.target.X - upb.launch.X, attempt.target.Y - upb.launch.Y };
+        Vec2 at = AimTarget();
+        Vec2 need = { at.X - upb.launch.X, at.Y - upb.launch.Y };
         sprintf(angle_text, "%d / %d", Degrees(upb.aim), Degrees(need));
     } else {
         sprintf(angle_text, "-");
@@ -1085,6 +1232,7 @@ static void Reset(int new_side) {
 
     GOBJ *hmn = Fighter_GetGObj(0);
     FighterData *hmn_data = hmn->userdata;
+    Options_Main[OPT_LANDING].disable = !GetLandingECB(hmn_data); // Fox and Falco only.
 
     float outward = Outward();
     Vec2 spot = PlatformSpot(hmn_data, ledge_positions[side_idx], outward);
@@ -1128,6 +1276,8 @@ void Event_Init(GOBJ *gobj) {
         TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_GUIDES);
     Options_Main[OPT_B0XX].val = Options_Main[OPT_B0XX].val_prev =
         TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_B0XX);
+    Options_Main[OPT_LANDING].val = Options_Main[OPT_LANDING].val_prev =
+        TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_LANDING);
     Options_Main[OPT_MARTH].val = Options_Main[OPT_MARTH].val_prev =
         TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH);
     Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
@@ -1192,10 +1342,8 @@ void Event_Think(GOBJ *menu) {
 
     // The target settles while you stand on the platform, then stays put.
     int state = hmn_data->state_id;
-    if (state == ASID_REBIRTH || state == ASID_REBIRTHWAIT || !attempt.has_target) {
-        attempt.target = LedgeTarget(hmn_data);
-        attempt.has_target = true;
-    }
+    if (state == ASID_REBIRTH || state == ASID_REBIRTHWAIT || !attempt.has_target)
+        SetTargets(hmn_data);
     if (state == ASID_REBIRTH || state == ASID_REBIRTHWAIT)
         return;
     EndRespawnInvincibility(hmn_data);

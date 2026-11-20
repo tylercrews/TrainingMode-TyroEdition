@@ -374,9 +374,11 @@ enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS
 #define TM_TARGETS_BEST_MAX 255
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
  * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
- * word 68 (version 20), and B0XX Angles (default Off, T10) in word 72 bit 28.
- * The order is the menu's; each row's bits are its own, wherever it sits. */
-enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_B0XX, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
+ * word 68 (version 20), B0XX Angles (default Off, T10) in word 72 bit 28, and
+ * Landing Line (default Off, T10) in word 80 bit 28. Landing Line is appended,
+ * though the menu lists it third; each row's bits are its own, wherever it sits. */
+enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_B0XX, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_LANDING,
+                                TM_UPB_PREF_COUNT };
 enum TMUpBMarth { TM_UPB_MARTH_FSMASH, TM_UPB_MARTH_DTILT, TM_UPB_MARTH_OFF, TM_UPB_MARTH_COUNT };
 /* Edgeguard Side choices as saved: which ledge each attempt uses. The menu lists
  * them Left, Right, Random (edgeguard.h), but 0 stays Random for older saves. */
