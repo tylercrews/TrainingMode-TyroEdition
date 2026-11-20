@@ -51,6 +51,7 @@ unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     for (unsigned p = 0; p < page; ++p) index += p==1?16:counts[p];
     return index;
 }
+unsigned Events_HomeEvent(unsigned page, unsigned event) { (void)page; return event; } /* No All Events here. */
 unsigned test_character_steps; /* Each hook call's step + 1, a nibble each. */
 void TestEventCharacters(unsigned step) {
     test_character_steps = test_character_steps << 4 | (step + 1);

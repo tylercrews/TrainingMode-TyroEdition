@@ -164,11 +164,20 @@ enum TMSettingsField {
     TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 (T10); see TMGrabercisePreference. */
     TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
     TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19 (T10); see TMTargetsPreference. */
+    TM_SETTING_EVENT_LIST, /* Internal: All Events' place, TYEX word 80 bits 21-27 (T10); see TMEventListPreference. Use EVENT_PAGE and EVENT_SELECTION. */
+    TM_SETTING_EVENT_HOME, /* Runtime-only, read-only: index is an event on the page shown; returns its index on its own page (Events_HomeEvent). */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
 /* Event Select pages: Minigames, General Tech, Character-specific Tech and
- * Doubles (T10). The page is byte 5's low two bits, so four is the most. */
+ * Doubles (T10) are byte 5's low two bits, so four is the most there. All
+ * Events (Alphabetized) (T10) is page 4, after them; pages wrap, so it's the
+ * one left of Minigames. It's saved in TYEX (TMEventListPreference), and byte
+ * 5 keeps the categorized page and its cursor underneath, so each list keeps
+ * its own place. */
 #define TM_EVENT_PAGES 4
+#define TM_EVENT_PAGE_ALL TM_EVENT_PAGES
+/* TM_SETTING_EVENT_LIST's rows: 1 while All Events is the page shown, and its cursor. */
+enum TMEventListPreference { TM_EVENT_LIST_SHOWN, TM_EVENT_LIST_SELECTION, TM_EVENT_LIST_PREF_COUNT };
 
 /* Stable preference IDs, independent of either event's menu row order. */
 enum TMLedgedashPreference {
@@ -441,5 +450,8 @@ int Settings_EventCharacters(unsigned step);
 void Settings_ResetEventRecords(void *card);
 void *Settings_EventScoreSlot(unsigned event);
 unsigned Events_ScoreIndex(unsigned page, unsigned event);
+/* An event's index on its own page: itself on a categorized page, and on All
+ * Events the index its descriptor has on its own page. */
+unsigned Events_HomeEvent(unsigned page, unsigned event);
 
 #endif

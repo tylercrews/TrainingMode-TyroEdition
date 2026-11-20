@@ -289,37 +289,26 @@ EndHelpSubText:
     b exit
 
 SwitchPage:
-    # Get number of pages
+    # r5 is -1 for left, 1 for right. Pages wrap: left of Minigames is the
+    # last page, All Events (Alphabetized), so it plays as the first.
+    mr r25, r5
     rtocbl r12, TM_GetPageNum
-    mr r6, r3
-    # Change page
-    lwz r4, MemcardData(r13)
+    mr r26, r3                  # last page
     SettingsRead SettingsField_Page, 3
-    add r3, r3, r5
-    SettingsWrite SettingsField_Page, 3
-
-# Check if within page bounds
-SwitchPage_CheckHigh:
-    cmpw r3, r6
+    add r3, r3, r25
+    cmpw r3, r26
     ble SwitchPage_CheckLow
-    # Stay on current page
-    subi r3, r3, 1
-    SettingsWrite SettingsField_Page, 3
-    b exit
-
+    li r3, 0
 SwitchPage_CheckLow:
     cmpwi r3, 0
     bge SwitchPage_ChangePage
-    # Stay on current page
-    li r3, 0
-    SettingsWrite SettingsField_Page, 3
-    b exit
+    mr r3, r26
 
 SwitchPage_ChangePage:
-    li r3, 0
-    SettingsWrite SettingsField_EventSelection, 3
+    # The setter keeps each list's cursor: All Events' own, and that of the
+    # categorized page it was entered from. Any other page starts at the top.
+    SettingsWrite SettingsField_Page, 3
     # Get Page Name string
-    lwz r3, MemcardData(r13)
     SettingsRead SettingsField_Page, 3
     rtocbl r12, TM_GetPageName
     # Update Page Name
@@ -328,23 +317,40 @@ SwitchPage_ChangePage:
     li r4, 0
     branchl r12, Text_UpdateSubtextContents
 
-    # Reset cursor to 0, 0
+    # Put the cursor on the page's saved event, as the screen does when it
+    # opens (Remember Selected Event): in the top row unless that would scroll
+    # past the last event, and no scroll for nine events or fewer.
+    SettingsRead SettingsField_Page, 3
+    rtocbl r12, TM_GetPageEventNum
+    mr r24, r3                  # last event
+    SettingsRead SettingsField_EventSelection, 3
+    cmpw r3, r24
+    ble SwitchPage_Place
+    li r3, 0
+    SettingsWrite SettingsField_EventSelection, 3
+SwitchPage_Place:
+    subi r4, r24, 8             # the last scroll
+    li r25, 0                   # scroll
+    cmpwi r4, 0
+    ble SwitchPage_SetCursor
+    mr r25, r3
+    cmpw r3, r4
+    blt SwitchPage_SetCursor
+    mr r25, r4
+SwitchPage_SetCursor:
+    sub r26, r3, r25            # row
     lwz r5, -0x4A40(r13)
     lwz r5, 0x002C(r5)
-    li r3, 0
-    stw r3, 0x0004(r5)          # Selection Number
-    stb r3, 0(r5)               # Page Number
+    stw r25, 0x0004(r5)         # Scroll
+    stb r26, 0(r5)              # Row
 
 # Redraw Event Text
 SwitchPage_DrawEventTextInit:
-    li r29, 0                   # loop count
-    lwz r3, 0x0004(r5)          # Selection Number
-    lbz r4, 0(r5)               # Page Number
-    add r28, r3, r4
+    li r29, 0                   # row
 
 SwitchPage_DrawEventTextLoop:
     mr r3, r29
-    add r4, r29, r28
+    add r4, r29, r25            # its event
     branchl r12, 0x8024d15c
     addi r29, r29, 1
     cmpwi r29, 9
@@ -352,12 +358,12 @@ SwitchPage_DrawEventTextLoop:
 
     # Redraw Event Description
     lwz r3, -0x4A40(r13)
-    mr r4, r28
+    add r4, r25, r26
     branchl r12, 0x8024d7e0
 
-    # Update High Score
+    # Update High Score, the selected event's, as the native redraws pass
     lwz r3, -0x4A40(r13)
-    li r4, 0
+    add r4, r25, r26
     branchl r12, 0x8024d5b0
 
     # Update cursor position
@@ -369,10 +375,21 @@ SwitchPage_DrawEventTextLoop:
     li r6, -1
     crclr 6
     branchl r12, 0x80011e24
+    # Its Y offset is the row times -1.32, as the X and Y jumps set it.
+    lis r0, 0x4330
+    stw r0, 0xA8(sp)
+    stw r26, 0xAC(sp)
+    lfd f1, 0xA8(sp)
+    lfd f2, -0x3888(rtoc)
+    fsubs f1, f1, f2
+    bl SwitchPage_RowHeight
+    .float -1.32
+SwitchPage_RowHeight:
+    mflr r3
+    lfs f2, 0(r3)
+    fmuls f1, f1, f2
     lwz r3, 0x40(sp)
-    # Change Y offset?
-    li r0, 0
-    stw r0, 0x3C(r3)
+    stfs f1, 0x3C(r3)
     # DirtySub
     branchl r12, HSD_JObjSetMtxDirtySub
 

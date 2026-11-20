@@ -1047,21 +1047,91 @@ static EventPage Doubles_Page = {
     .events = Doubles_Events,
 };
 
+// Page 5, shown left of Minigames: every event again, by the name the screen
+// shows. Each is the same event as on its own page, with its own score and
+// settings. tests/test_all_events.py checks the order and that none is missing.
+static EventDesc *AllEvents_Events[] = {
+    &AmsahTech,
+    &AttackOnShield,
+    &Combo,
+    &Edgeguard,
+    &Eggs,
+    &EscapeDThrowKnee,
+    &EscapeIC,
+    &EscapeSamus,
+    &EscapeSheik,
+    &FloatCancel,
+    &GrabMash,
+    &GrabPunish,
+    &Grabercise,
+    &LCancel,
+    &LaserLand,
+    &LedgeChase,
+    &Ledgedash,
+    &LedgegrabSpeedrun,
+    &TechCounter,
+    &Ledgetech,
+    &LowLaser,
+    &Passing,
+    &Powershield,
+    &Reaction,
+    &Reversal,
+    &SDI,
+    &ShieldDrop,
+    &Multishine,
+    &Sweetspot,
+    &Slalom,
+    &SlideOff,
+    &TargetPractice,
+    &TechChase,
+    &Lab,
+    &Ledgestall,
+    &UpBSweetspot,
+    &Wavedash,
+    &WaveshineSDI,
+};
+static EventPage AllEvents_Page = {
+    .name = "All Events (Alphabetized)",
+    .eventNum = countof(AllEvents_Events),
+    .events = AllEvents_Events,
+};
+
 EventPage *EventPages[] = {
     &Minigames_Page,
     &General_Page,
     &CharacterSpecific_Page,
     &Doubles_Page,
+    &AllEvents_Page, // TM_EVENT_PAGE_ALL
 };
-typedef char event_pages_fit_the_save[(countof(EventPages) == TM_EVENT_PAGES) ? 1 : -1];
+typedef char event_pages_fit_the_save[(countof(EventPages) == TM_EVENT_PAGE_ALL + 1) ? 1 : -1];
+/* Every event once, and a cursor's six bits reach the last. */
+typedef char all_events_lists_each_event[(countof(AllEvents_Events) == countof(Minigames_Events) +
+    countof(General_Events) + countof(CharacterSpecific_Events) + countof(Doubles_Events) &&
+    countof(AllEvents_Events) <= 64) ? 1 : -1];
 /* Persisted score identities do not follow menu insertion order. The original
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
 typedef char event_score_map_matches[(countof(Minigames_Events) == 8 &&
     countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 11 &&
     countof(Doubles_Events) == 2) ? 1 : -1];
+/* Moves an All Events entry to where it sits on its own page. The caller has
+ * checked page and event. */
+static void Events_Home(unsigned *page, unsigned *event) {
+    if (*page != TM_EVENT_PAGE_ALL) return;
+    EventDesc *desc = EventPages[*page]->events[*event];
+    for (unsigned p = 0; p < TM_EVENT_PAGE_ALL; ++p)
+        for (unsigned e = 0; e < (unsigned)EventPages[p]->eventNum; ++e)
+            if (EventPages[p]->events[e] == desc) { *page = p; *event = e; return; }
+}
+unsigned Events_HomeEvent(unsigned page, unsigned event) {
+    if (page < countof(EventPages) && event < (unsigned)EventPages[page]->eventNum) Events_Home(&page, &event);
+    return event;
+}
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
+    /* All Events shares each event's own page's score. */
+    Events_Home(&page, &event);
+    if (page == TM_EVENT_PAGE_ALL) return UINT32_MAX;
     /* Ledgegrab Speedrun (5) only keeps session bests, in RAM, and Grabs-ercise
      * (6, T10) and Target Practice (7, T10) keep their bests in the TYEX
      * extension. */

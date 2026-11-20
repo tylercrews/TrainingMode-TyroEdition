@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **11 spare bits** in word 80 (21-31), plus **6 loose bits**, all retired, in word 12 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **4 spare bits** in word 80 (28-31), plus **6 loose bits**, all retired, in word 12 |
 | **Unallocated spare score slots** | `0x1B34..0x1B37` | **4 bytes** | nothing | **4 bytes (32 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bits 21-31 (free for any setting whose stored 0 is its default, with no version bump) and scattered single bits. The core record is full.
+**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bits 28-31 (free for any setting whose stored 0 is its default, with no version bump) and scattered single bits. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -46,8 +46,8 @@ The original Training Mode settings bytes, repacked by Tyro (format 3). Code: [s
 | --- | --- | --- |
 | 0..3 | 32 | OSD on/off mask, one bit per native OSD ID (big-endian). Bits 27 and 30 are kept in sync for older builds, but the real values live in `TYEX`. |
 | 4 | 8 | OSD position (HUD / Sides / Top Left / Top Right) |
-| 5 | 0-1 | Event menu page: Minigames, General Tech, Character-specific Tech, Doubles. Since T10 all four values are pages, so nothing here is ever invalid; the Event Select Screen resets a selection past the page's last event |
-| 5 | 2-7 | Selected event on that page |
+| 5 | 0-1 | Event menu page: Minigames, General Tech, Character-specific Tech, Doubles. Since T10 all four values are pages, so nothing here is ever invalid; the Event Select Screen resets a selection past the page's last event. The fifth page, All Events (Alphabetized), is `TYEX` word 80 bit 21: while it's shown, this keeps the categorized page it was entered from |
+| 5 | 2-7 | Selected event on that page (kept, under All Events, for when you come back to it) |
 | 6 | 0 | "Recommended OSDs" flag (legacy) |
 | 6 | 1-5 | Saved **Player character** (ID + 1, 0 = none) |
 | 6 | 6-7 | Marker `10` = the character fields are valid |
@@ -80,6 +80,8 @@ The original Training Mode settings bytes, repacked by Tyro (format 3). Code: [s
 ## Event score area (`0x1A68..0x1B3F`)
 
 Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't follow menu order, so adding or moving a menu row never moves an old score.
+
+`0x1A68..0x1A6F` is the game's 64-bit event-played field: the game sets bit N when the event at index N on its page finishes a run, record or not, and the Event Select Screen shows a high score only when its bit is set (a dash otherwise). The four categorized pages share each index's bit. All Events (Alphabetized) uses its events' own pages' bits (T10), so it shows a score exactly when that page does.
 
 | Slot | Offset | Event |
 | --- | --- | --- |
@@ -142,9 +144,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot, Side-B Sweetspot | word 72 (table below) | — |
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
-| 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable TM Developer Debug Menu, Target Practice, Randall Timer | word 80 (table below) | bits 21-31 |
+| 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable TM Developer Debug Menu, Target Practice, Randall Timer, All Events | word 80 (table below) | bits 28-31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **11 spare bits** (21-31) and **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable TM Developer Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, and the Randall Timer word 80 bit 20. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **4 spare bits** (28-31) and **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable TM Developer Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, and All Events (Alphabetized) word 80 bits 21-27. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -337,9 +339,9 @@ Every migration to version 22 zeroes this word, and each row is stored as its di
 
 Escape IC Grab's Handoff row is disabled and not saved.
 
-**Word 80: Grabs-ercise, Techchase, Invincibility Stoplight, Disable TM Developer Debug Menu, Target Practice, Randall Timer** (T10, version 23)
+**Word 80: Grabs-ercise, Techchase, Invincibility Stoplight, Disable TM Developer Debug Menu, Target Practice, Randall Timer, All Events** (T10, version 23)
 
-Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way, the Invincibility Stoplight bit 6, Grabs-ercise's CPU Movement bits 7-8, Disable TM Developer Debug Menu bit 9, Target Practice bits 10-19 and the Randall Timer bit 20; bits 21-31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
+Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way, the Invincibility Stoplight bit 6, Grabs-ercise's CPU Movement bits 7-8, Disable TM Developer Debug Menu bit 9, Target Practice bits 10-19, the Randall Timer bit 20 and All Events bits 21-27; bits 28-31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
 
 | Bits | Setting |
 | --- | --- |
@@ -352,7 +354,11 @@ Every migration to version 23 zeroes this word, and rows are stored as their dis
 | 18 | Target Practice: Free Practice (Off / On, default Off, so timed runs). Older records read Off |
 | 19 | Target Practice: SH Double Lasers (Off / On, default Off). Free Practice only, and only for Fox. Older records read Off |
 | 20 | Global: Randall Timer (`TM_FLAG_RANDALL_TIMER`, T10, no version bump; Off is 0). On Yoshi's Story, the match timer is purple while Randall is out on the left and teal while it's out on the right. Older records read Off |
-| 21-31 | Free | Both events' totals and session bests are RAM-only (below).
+| 21 | Event Select: All Events (Alphabetized) is the page shown (`TM_SETTING_EVENT_LIST` row 0, T10, no version bump; 0 is a categorized page, byte 5's). Read and written through `TM_SETTING_EVENT_PAGE` as page 4. Older records read 0 |
+| 22-27 | Event Select: All Events' selected event, 0 to 63 (`TM_SETTING_EVENT_LIST` row 1, T10, no version bump). `TM_SETTING_EVENT_SELECTION` reads and writes it while All Events is shown, so each list keeps its own place. Older records read 0, the top |
+| 28-31 | Free |
+
+Both events' totals and session bests are RAM-only (below).
 
 ## Not saved
 

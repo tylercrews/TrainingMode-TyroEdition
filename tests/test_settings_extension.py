@@ -109,6 +109,11 @@ GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3,
 # Lasers in word 80 bits 10-17, 18 and 19, each stored as itself.
 TARGETS = 53  # TM_SETTING_TARGETS
 TARGETS_DEFAULTS = (0, 0, 0)
+# All Events (Alphabetized) (T10): page 4. Word 80 bit 21 is 1 while it's the
+# page shown, and bits 22-27 are its cursor; byte 5 keeps the categorized page
+# and its cursor underneath.
+EVENT_PAGE, EVENT_SELECTION, EVENT_LIST = 2, 26, 54  # EVENT_LIST is TM_SETTING_EVENT_LIST.
+ALL_EVENTS = 4  # TM_EVENT_PAGE_ALL
 # Bytes 24..83 appended by versions 15 to 23: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
 # human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
@@ -865,8 +870,8 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP),
                           m.call('Settings_Get', 11, STOPLIGHT), m.call('Settings_Get', GRABS, GRABS_MOVEMENT),
                           m.call('Settings_Get', 11, DEBUG_OFF)), (9, 4, 1, 2, 1))
-        # Bits 20-31 (the Randall Timer's 20, then spare) keep what they hold, and
-        # the neighbors' writes leave Target Practice alone.
+        # Bits 20-31 (the Randall Timer's 20, All Events' 21-27, then spare) keep
+        # what they hold, and the neighbors' writes leave Target Practice alone.
         m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
         m.cpu.mem_write(EXT + 80, (word() | 0xFFF00000).to_bytes(4, 'little'))
         m.call('Settings_Set', GRABS, GRABS_PERCENT, 3); m.call('Settings_Set', 11, DEBUG_OFF, 0)
@@ -894,6 +899,59 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, 0, 12)
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 12 << 10)
         self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))
+
+    def test_all_events_keeps_its_own_cursor_in_word_80_and_leaves_byte_5_alone(self):
+        m = self.m
+        place = lambda: (m.call('Settings_Get', EVENT_PAGE, 0), m.call('Settings_Get', EVENT_SELECTION, 0))
+        word = lambda: int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        untouched = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        # The categorized pages alone never make the extension record.
+        m.call('Settings_Set', EVENT_PAGE, 0, 2); m.call('Settings_Set', EVENT_SELECTION, 0, 7)
+        m.call('Settings_Set', EVENT_PAGE, 0, 2)
+        self.assertEqual(place(), (2, 7))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), untouched)
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', 11, RANDALL_TIMER, 1)  # Bits 10-17 and 20.
+        neighbors = word()
+        core = bytes(m.cpu.mem_read(RECORD, 44))
+        m.call('Settings_Set', EVENT_PAGE, 0, ALL_EVENTS)
+        self.assertEqual(place(), (ALL_EVENTS, 0))
+        for selection in (37, 63, 1):
+            m.call('Settings_Set', EVENT_SELECTION, 0, selection)
+            self.assertEqual(place(), (ALL_EVENTS, selection))
+            self.assertEqual(word(), neighbors | 1 << 21 | selection << 22)
+            self.assertEqual(bytes(m.cpu.mem_read(RECORD, 44)), core)  # Byte 5 keeps Character-specific's 7.
+        m.call('Settings_Set', EVENT_SELECTION, 0, 64)  # Past its six bits: ignored.
+        self.assertEqual(place(), (ALL_EVENTS, 1))
+        # Back to the page it was entered from: both cursors are still there.
+        m.call('Settings_Set', EVENT_PAGE, 0, 2)
+        self.assertEqual((place(), word()), ((2, 7), neighbors | 1 << 22))
+        m.call('Settings_Set', EVENT_PAGE, 0, ALL_EVENTS)
+        self.assertEqual(place(), (ALL_EVENTS, 1))
+        # Any other page starts at the top, and that's what's remembered under All Events.
+        m.call('Settings_Set', EVENT_PAGE, 0, 3)
+        self.assertEqual(place(), (3, 0))
+        self.assertEqual(m.cpu.mem_read(RECORD + 5, 1)[0], 3)
+        m.call('Settings_Set', EVENT_PAGE, 0, 1)
+        self.assertEqual(place(), (1, 0))
+        m.call('Settings_Set', EVENT_PAGE, 0, 5)  # Not a page: ignored.
+        self.assertEqual(place(), (1, 0))
+        self.assertEqual((m.call('Settings_Get', TARGETS, 0), m.call('Settings_Get', 11, RANDALL_TIMER)), (200, 1))
+        # It's internal: only EVENT_PAGE and EVENT_SELECTION write it.
+        before = word()
+        m.call('Settings_Set', EVENT_LIST, 0, 1); m.call('Settings_Set', EVENT_LIST, 1, 9)
+        self.assertEqual(word(), before)
+        self.assertEqual(tuple(m.call('Settings_Get', EVENT_LIST, i) for i in range(2)), (0, 1))
+
+    def test_version_22_records_read_the_categorized_pages_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, EVENT_LIST, i) for i in range(2)), (0, 0))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        m.cpu.mem_write(RECORD + 5, bytes((5 << 2 | 1,)))  # General Tech, its sixth event.
+        self.assertEqual((m.call('Settings_Get', EVENT_PAGE, 0), m.call('Settings_Get', EVENT_SELECTION, 0)), (1, 5))
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)  # Migrated: word 80 zeroed.
 
     def test_version_22_records_read_cpu_movement_as_random(self):
         m = self.m
