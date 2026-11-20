@@ -1,4 +1,5 @@
 """Execute the production Target Practice event against the ISO's fighters and stages."""
+from collections import Counter
 from pathlib import Path
 import struct
 import subprocess
@@ -14,10 +15,21 @@ import laser_heights  # noqa: E402
 FOX, FALCO = 1, 22  # FTKIND_FOX, FTKIND_FALCO
 NAMES = {FOX: 'Fox', FALCO: 'Falco'}
 ITEM_FOXLASER, ITEM_FALCOLASER = 54, 55
-OPT_FREEPRACTICE, OPT_SHDL, OPT_COUNTER, OPT_DEFAULTS = 2, 3, 4, 5
+OPT_FREEPRACTICE, OPT_SHDL, OPT_COUNTER, OPT_DEFAULTS = 3, 4, 5, 6
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 MATCHGX_EFFECT = 7
 SIZE_SCALE_AT = 0x804DC790  # The item hitbox command's size scale, about 1/256.
+CKIND_FOX, CKIND_FALCO = 2, 20
+GRKINDEXT_IZUMI, GRKINDEXT_CASTLE, GRKINDEXT_KONGO, GRKINDEXT_BATTLE = 2, 4, 5, 31
+LEGAL_IDS = (32, 31, 28, 8, GRKINDEXT_IZUMI, 3)
+
+# Fountain's platform lines are joint-local in its DAT, so they go where the game
+# starts them (notes/LEGAL-STAGE-PLATFORMS.md): the fixed top at 42.75, the left
+# side at 16.125 and the right at 22.125. Its main floor is the DAT's own.
+FOUNTAIN = ('GrIz.dat', GRKINDEXT_IZUMI, None)
+FOUNTAIN_PLATFORMS = [(0, -49.5, 16.125, -21, 16.125, 0x100), (1, 21, 22.125, 49.5, 22.125, 0x100),
+                      (2, -14.25, 42.75, 14.25, 42.75, 0x100)]
+STAGES = LEGAL + [FOUNTAIN]
 
 
 def build():
@@ -188,6 +200,8 @@ class TargetPlacementTests(unittest.TestCase):
         import test_techchase
         cls.fighters = fighters()
         cls.floors = {name: test_techchase.native_floors(name) for name, _, _ in LEGAL}
+        cls.floors[FOUNTAIN[0]] = FOUNTAIN_PLATFORMS + [
+            line for line in test_techchase.native_floors(FOUNTAIN[0]) if not line[-1] & 0x100]
 
     def run_targets(self, kind, filename, stage_id, normal, count, free_practice=0, shdl=0, you=(0, 0)):
         m = TargetsMachine(kind, self.fighters[kind].attr)
@@ -205,7 +219,7 @@ class TargetPlacementTests(unittest.TestCase):
         for kind, fighter in self.fighters.items():
             c = fighter.constants()
             lowest = max(c['air'] - c['ecb_bottom'], 0)
-            for filename, stage_id, normal in LEGAL:
+            for filename, stage_id, normal in STAGES:
                 with self.subTest(fighter=NAMES[kind], stage=filename):
                     m, spawns = self.run_targets(kind, filename, stage_id, normal, 80)
                     ground = [l for l in m.lines if not l[4]]
@@ -236,27 +250,67 @@ class TargetPlacementTests(unittest.TestCase):
                 self.assertGreaterEqual(((x - last[0]) ** 2 + (y - last[1]) ** 2) ** .5, FROM_LAST - .01)
             last = (x, y)
 
-    def test_fox_pairs_sit_over_a_floor_at_one_short_hop_double_lasers_heights(self):
+    def pair_heights(self):
         c, y = self.fighters[FOX].constants(), short_hop(self.fighters[FOX].attr)
-        high, low = y[c['delay']] + c['air'], y[c['delay'] + c['loop']] + c['air']
-        for filename, stage_id, normal in LEGAL:
-            with self.subTest(stage=filename):
-                m, spawns = self.run_targets(FOX, filename, stage_id, normal, 120, free_practice=1, shdl=1)
+        return y[c['delay']] + c['air'], y[c['delay'] + c['loop']] + c['air']
+
+    def floor_kind(self, m, x, surface):
+        """The floor a pair is over, at least INSET from its ends: main, left, right or top."""
+        ground = [l for l in m.lines if not l[4]]
+        left, right = min(l[0] for l in ground), max(l[2] for l in ground)
+        if abs(surface - m.ground_y(x)) < .003 and left + INSET - .002 <= x <= right - INSET + .002:
+            return 'main'
+        for ax, ay, bx, by, platform in m.lines:
+            if platform and ax + INSET - .002 <= x <= bx - INSET + .002 and \
+                    abs(ay + (by - ay) * (x - ax) / (bx - ax) - surface) < .003:
+                return 'top' if ax < 0 < bx else 'left' if bx < 0 else 'right'
+        self.fail(f'no floor under the pair at ({x}, {surface})')
+
+    def test_fox_pairs_come_off_each_kind_of_floor_the_stage_has_evenly(self):
+        high, low = self.pair_heights()
+        # Fountain's side platforms move and Stadium has no top platform; FD has none at all.
+        offered = {'GrNLa.dat': {'main'}, 'GrPs.dat': {'main', 'left', 'right'}, 'GrIz.dat': {'main', 'top'}}
+        # Far below every floor, where keeping away from you never turns a spot down, and at
+        # stage center, where it turns down much of a narrow main floor (Yoshi's).
+        for (filename, stage_id, normal), you in [(s, y) for s in STAGES for y in ((0, -300), (0, 0))]:
+            with self.subTest(stage=filename, you=you):
+                m, spawns = self.run_targets(FOX, filename, stage_id, normal, 240, free_practice=1, shdl=1, you=you)
                 pairs = [s for s in spawns if len(s) == 2]
                 # About half: a mix, not every spawn.
-                self.assertGreater(len(pairs), 30)
-                self.assertLess(len(pairs), 90)
-                platforms = 0
+                self.assertGreater(len(pairs), 80)
+                self.assertLess(len(pairs), 160)
+                kinds = Counter()
                 for (ux, uy), (lx, ly) in pairs:
                     self.assertEqual(ux, lx)
-                    floors = [ay + (by - ay) * (ux - ax) / (bx - ax) for ax, ay, bx, by, platform in m.lines
-                              if ax + (INSET if platform else 0) <= ux <= bx - (INSET if platform else 0)]
                     surface = ly - low
                     self.assertAlmostEqual(uy - surface, high, delta=.003)
-                    self.assertTrue(any(abs(surface - f) < .003 for f in floors), (ux, surface, floors))
-                    platforms += abs(surface - m.ground_y(ux)) > .003
-                if filename != 'GrNLa.dat':
-                    self.assertGreater(platforms, 0)  # Some over a platform.
+                    kinds[self.floor_kind(m, ux, surface)] += 1
+                expected = offered.get(filename, {'main', 'left', 'right', 'top'})
+                self.assertEqual(set(kinds), expected, kinds)
+                # Main floor, side platforms and top platform each picked as often as the others.
+                # A small platform can't take two pairs in a row (every spot on it is within
+                # FROM_LAST of the last), so Fountain's top gets about a third, not half.
+                groups = [{'main'}, {'left', 'right'}, {'top'}]
+                groups = [g for g in groups if g & expected]
+                for group in groups:
+                    share = sum(kinds[k] for k in group) / len(pairs)
+                    self.assertGreater(share, .5 / len(groups), kinds)
+                    self.assertLess(share, 1.5 / len(groups), kinds)
+                if 'left' in expected:
+                    self.assertGreater(min(kinds['left'], kinds['right']), len(pairs) / len(groups) / 4, kinds)
+
+    def test_pairs_keep_away_from_you_too(self):
+        high, low = self.pair_heights()
+        # On Battlefield's top platform, every spot over it is within FROM_YOU of you.
+        m, spawns = self.run_targets(FOX, 'GrNBa.dat', GRKINDEXT_BATTLE, None, 120, free_practice=1, shdl=1,
+                                     you=(0, 54.4))
+        kinds = Counter()
+        for spawn in spawns:
+            for x, y in spawn:
+                self.assertGreaterEqual((x ** 2 + (y - 54.4) ** 2) ** .5, FROM_YOU - .01)
+            if len(spawn) == 2:
+                kinds[self.floor_kind(m, spawn[1][0], spawn[1][1] - low)] += 1
+        self.assertEqual(set(kinds), {'main', 'left', 'right'}, kinds)
 
     def test_no_pairs_for_falco_timed_runs_or_with_the_setting_off(self):
         for kind, free_practice, shdl in ((FALCO, 1, 1), (FOX, 0, 1), (FOX, 1, 0)):
@@ -465,6 +519,44 @@ class TargetEventTests(unittest.TestCase):
     def test_targets_draw_on_the_effect_link_over_everything(self):
         m = self.start()
         self.assertEqual((m.info(25), m.info(26), m.info(27)), (1, MATCHGX_EFFECT, 255))
+
+    def test_only_the_legal_stages_play_and_any_other_restarts_on_battlefield(self):
+        for stage_id in LEGAL_IDS + (GRKINDEXT_CASTLE, GRKINDEXT_KONGO):
+            legal = stage_id in LEGAL_IDS
+            with self.subTest(stage=stage_id):
+                m = TargetsMachine(FOX, self.fighters[FOX].attr)
+                m.stage(stage_id, [(0, -80, 0, 80, 0, 0)])
+                m.init()
+                m.you()
+                for _ in range(3): m.think()
+                restarts, stage = m.m.call('TestTargetsRestart', 0), signed(m.m.call('TestTargetsRestart', 1))
+                if legal:
+                    self.assertEqual((restarts, len(m.targets())), (0, 1))
+                else:
+                    # Once, before any target, and nothing else happens while it goes.
+                    self.assertEqual((restarts, stage, m.targets(), m.info(9)), (1, GRKINDEXT_BATTLE, [], 1))
+
+    def test_change_character_offers_fox_and_falco_and_restarts_with_the_pick(self):
+        for kind in (FOX, FALCO):
+            with self.subTest(fighter=NAMES[kind]):
+                m = self.start(kind)
+                swap = lambda key: signed(m.m.call('TestTargetsSwap', key))
+                # Its own submenu with the player's row only: there's no CPU to change.
+                self.assertEqual((swap(0), swap(1), swap(2)), (1, 1, 1))
+                self.assertEqual((swap(3), swap(4), swap(5)), (2, CKIND_FOX, CKIND_FALCO))
+                self.assertEqual((swap(6), swap(7), swap(8)), (int(kind == FALCO), 0, 1))
+                text = bytes(m.m.cpu.mem_read(m.m.call('TestTargetsSwapText', 2), 80)).split(b'\0', 1)[0].decode()
+                self.assertIn('Fox or Falco', text)
+                self.assertNotIn('both', text)
+                m.m.call('TestTargetsSwapPress', 0)  # A with nothing picked: no restart.
+                self.assertEqual((swap(9), swap(13)), (0, 4))
+                other = FALCO if kind == FOX else FOX
+                m.m.call('TestTargetsSwapPick', int(other == FALCO))
+                m.m.call('TestTargetsSwapPress', 1)  # X: the next costume.
+                self.assertEqual(swap(14), 1)
+                m.m.call('TestTargetsSwapPress', 0)
+                self.assertEqual((swap(9), swap(10), swap(11), swap(12), swap(13)),
+                                 (1, CKIND_FALCO if other == FALCO else CKIND_FOX, 1, -1, 1))
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ static const char *label_format;
 static GXColor *label_color;
 static unsigned prefs[TM_TARGETS_PREF_COUNT], counter;
 static int retries, ended, end_graphic, end_sfx, record_voice, sfx_count, gx_link, gx_priority, restarts;
+static int restart_stage = -1, fighter_restarts, restart_fighters[4], menu_sfx;
 static void *gx_callback;
 static int stage_id = GRKINDEXT_BATTLE, paused;
 static unsigned seed = 12345;
@@ -31,6 +32,20 @@ static int laser_cleared[LASERS], laser_life[LASERS];
 
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
 void memcpy(void *dest, const void *src, int size) { u8 *d = dest; const u8 *s = src; while (size--) *d++ = *s++; }
+int sprintf(char *out, const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    char *start = out;
+    for (; *format; ++format) {
+        if (format[0] == '%' && format[1] == 's') {
+            for (const char *s = va_arg(args, const char *); *s; ++s) *out++ = *s;
+            ++format;
+        } else *out++ = *format;
+    }
+    *out = 0;
+    va_end(args);
+    return out - start;
+}
 
 static u32 Read(unsigned field, unsigned index) {
     if (field == TM_SETTING_TARGETS && index < TM_TARGETS_PREF_COUNT) return prefs[index];
@@ -41,9 +56,19 @@ static void Write(unsigned field, unsigned index, u32 value) {
     if (field == TM_SETTING_EGGS_COUNTER) counter = value;
 }
 static const TMSettingsAPI api = {Read, Write, 0};
-static void RestartOnStage(int stage) { ++restarts; }
+static void RestartOnStage(int stage) { ++restarts; restart_stage = stage; }
+static int RestartOnFighters(int hmn_kind, int hmn_costume, int cpu_kind, int cpu_costume) {
+    ++fighter_restarts;
+    restart_fighters[0] = hmn_kind; restart_fighters[1] = hmn_costume;
+    restart_fighters[2] = cpu_kind; restart_fighters[3] = cpu_costume;
+    return 1;
+}
 
 GOBJ *Fighter_GetGObj(int ply) { return ply ? 0 : &you; }
+// The CSS slot: Fox or Falco in slot 0, and slot 1 empty (0x21), as CSS_InitPlayerData leaves it.
+int Fighter_GetExternalID(int ply) { return ply ? 0x21 : ft.kind == FTKIND_FALCO ? CKIND_FALCO : CKIND_FOX; }
+int Fighter_GetCostumeID(int ply) { return 0; }
+int SFX_PlayCommon(int sfx) { menu_sfx = sfx; return 0; }
 GOBJ *GObj_Create(int entity_class, int p_link, int p_priority) { return &drawer; }
 void GObj_AddGXLink(GOBJ *gobj, void *cb, int link, int priority) { gx_callback = cb; gx_link = link; gx_priority = priority; }
 CmSubject *CameraSubject_Alloc() { return &subject; }
@@ -103,6 +128,9 @@ void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_sa
     *stc_collvert = vertices;
     vars.settings = &api;
     vars.restart_on_stage = RestartOnStage;
+    vars.restart_on_fighters = RestartOnFighters;
+    restarts = fighter_restarts = 0;
+    restart_stage = -1;
     you.userdata = &ft;
     prefs[TM_TARGETS_FREE_PRACTICE] = free_practice;
     prefs[TM_TARGETS_SHDL] = shdl;
@@ -249,6 +277,36 @@ int TestTargetsInfo(int key) {
     return -1;
 }
 unsigned TestTargetsLabel(void) { return (unsigned)label_format; }
+int TestTargetsRestart(int key) { return key ? restart_stage : restarts; }
+/* Change Character: the submenu, its one row and what A asked for. */
+int TestTargetsSwap(int key) {
+    switch (key) {
+    case 0: return Options_Main[OPT_CHARACTER].menu == &Menu_Character;
+    case 1: return Menu_Character.option_num;
+    case 2: return Menu_Character.options == FighterSwap_Options && Menu_Character.row_hooks == &FighterSwap_RowHooks;
+    case 3: return FighterSwap_Options[0].value_num;
+    case 4: return FighterSwap_SlotKind(0, 0);
+    case 5: return FighterSwap_SlotKind(0, 1);
+    case 6: return FighterSwap_Options[0].val;
+    case 7: return FighterSwap_Options[0].disable;
+    case 8: return FighterSwap_Options[1].disable;
+    case 9: return fighter_restarts;
+    case 10: return restart_fighters[0];
+    case 11: return restart_fighters[1];
+    case 12: return restart_fighters[2];
+    case 13: return menu_sfx;
+    case 14: return FighterSwap_Pick[0].costume;
+    }
+    return -1;
+}
+unsigned TestTargetsSwapText(int line) { return (unsigned)FighterSwap_Options[0].desc[line]; }
+// Left/Right onto a character, as the menu does.
+void TestTargetsSwapPick(int index) {
+    FighterSwap_Options[0].val = index;
+    FighterSwap_Options[0].OnChange(0, index);
+}
+// A (0), or X (1) for the next costume, on the row.
+int TestTargetsSwapPress(int x) { return FighterSwap_Input(0, &FighterSwap_Options[0], x ? HSD_BUTTON_X : HSD_BUTTON_A); }
 void TestTargetsChoose(int row, int value) {
     Options_Main[row].val = value;
     Options_Main[row].OnChange(0, value);

@@ -1,12 +1,14 @@
 #include "events.h"
+#include "fighter_swap.h"
 #include "stage_points.h"
 #include "stage_swap.h"
 
-/* Target Practice (Minigames): Fox and Falco shoot targets with their blaster.
- * A target is a small bullseye somewhere over the main stage, centered on its
- * spot. Shoot it and the next one appears. A timed minute counts targets,
- * with the best saved; Free Practice has no clock, and its SH Double Lasers
- * makes about half the spawns a pair that one short hop double laser can hit.
+/* Target Practice (Minigames): Fox and Falco shoot targets with their blaster,
+ * on the six legal stages. A target is a small bullseye somewhere over the
+ * main stage, centered on its spot. Shoot it and the next one appears. A timed
+ * minute counts targets, with the best saved; Free Practice has no clock, and
+ * its SH Double Lasers makes about half the spawns a pair that one short hop
+ * double laser can hit, off the main floor, a side platform or the top one.
  *
  * Heights. Lasers fly flat, so a target's height is the height of the laser
  * that hits it. The lowest spot is the lowest laser that can be shot from the
@@ -44,7 +46,10 @@
  * fastfall (fastfalling only lands sooner) and finds the press frames whose
  * second shot comes before the landing. For Fox that's B on the first airborne
  * frame: shots at 17.8 and 5.5 above the floor. Falco's slower laser never
- * fits, so the row reads (N/A) for him. */
+ * fits, so the row reads (N/A) for him. A pair's floor is the main floor, a
+ * side platform or the top platform, each kind as likely as the others where
+ * the stage has one that holds still: Fountain's side platforms move, Stadium
+ * has no top platform and FD no platforms. */
 
 #define TIMED_FRAMES 3600     // The timed run's minute.
 #define TARGET_RADIUS 1.5f    // Under 2.72 - 1.17: see above.
@@ -72,7 +77,8 @@ static const Blaster Blasters[2] = {
 };
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_FREEPRACTICE, OPT_SHDL, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT,
+    OPT_COUNT
 };
 
 static void Retry(GOBJ *menu);
@@ -87,6 +93,16 @@ static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
 };
 static char DoubleLasersName[] = "SH Double Lasers";
 static char DoubleLasersUnavailable[] = "SH Double Lasers (N/A)";
+
+/* Fox or Falco, the only characters the event's CSS offers. There's no CPU,
+ * so the submenu lists only the player's row. */
+static const u8 Character_Kinds[] = {CKIND_FOX, CKIND_FALCO};
+static EventMenu Menu_Character = {
+    .name = "Change Character",
+    .option_num = 1,
+    .options = FighterSwap_Options,
+    .row_hooks = &FighterSwap_RowHooks,
+};
 
 static EventOption Options_Main[OPT_COUNT] = {
     {
@@ -104,6 +120,14 @@ static EventOption Options_Main[OPT_COUNT] = {
         .menu = &StageSwap_Menu,
     },
     {
+        .kind = OPTKIND_MENU,
+        .name = "Change Character",
+        .desc = {"Play as Fox or Falco in any costume, then restart.",
+                 "A timed run starts over; Free Practice stays on",
+                 "with its saved settings."},
+        .menu = &Menu_Character,
+    },
+    {
         .kind = OPTKIND_TOGGLE,
         .name = "Free Practice",
         .desc = {"Practice with no time limit. Off is the timed",
@@ -114,10 +138,10 @@ static EventOption Options_Main[OPT_COUNT] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = DoubleLasersName,
-        .desc = {"About half the targets come in pairs, one at a",
-                 "short hop's peak and one at a low laser's height,",
-                 "for one short hop double laser. Fox only: Falco's",
-                 "laser is too slow. Free Practice only. Saved."},
+        .desc = {"About half the targets come in pairs for one short",
+                 "hop double laser off the floor, a side platform or",
+                 "the top platform. Fox only: Falco's laser is too",
+                 "slow. Free Practice only. Saved."},
         .disable = 1,
         .OnChange = ChangeDoubleLasers,
     },
@@ -163,6 +187,7 @@ static bool checked;         // The fighter's been looked at (CheckFighter).
 static int pair_presses;     // Press frames that fit a short hop double laser.
 static int score, best;
 static bool reset_clock;
+static bool restarting;      // Leaving a stage that isn't legal.
 static CmSubject *cam;
 static Text *hud_score_text, *hud_best_text;
 static GXColor text_gold = {255, 211, 0, 255};
@@ -289,6 +314,7 @@ static void Exit(GOBJ *menu) {
 }
 // Everything this event keeps is saved, so a restart keeps it.
 static void StageSwap_BeforeRestart(void) { }
+static void FighterSwap_BeforeRestart(void) { }
 
 /* The saved choice is the mode: Event_Init enters it as every match starts,
  * so a change restarts the match, which gives a timed run its countdown back
@@ -358,36 +384,56 @@ static void PickSingle(FighterData *ft, Vec2 you, Vec2 *spot) {
     GroundPoint(0, &ground, &line);
     *spot = (Vec2){0, ground.Y + LowestLaser(blaster)};
 }
-/* A pair over a floor at some x, the main floor or a platform, at the heights
- * of one short hop double laser from it. */
+/* A spot on a floor, at least SPAWN_INSET from its ends: the main floor for
+ * line -1, else that platform's line. */
+static bool FloorSpot(int line, Vec2 *at) {
+    float left, right;
+    if (line < 0) {
+        GroundEdges(&left, &right);
+    } else {
+        Vec2 a, b;
+        int platform;
+        if (!FloorLine(line, &a, &b, &platform)) return false;
+        left = a.X;
+        right = b.X;
+    }
+    at->X = RandomRange(left + SPAWN_INSET, right - SPAWN_INSET);
+    if (line >= 0) return LineY(line, at->X, &at->Y);
+    Vec3 ground;
+    if (!FindSolidGround(at->X, &ground, &line)) return false;
+    at->Y = ground.Y;
+    return true;
+}
+/* A pair at the heights of one short hop double laser off a floor, over that
+ * floor. The floor is the main floor, a side platform (left or right) or the
+ * top platform, each kind as likely as the others where the stage has one
+ * that holds still: Fountain's side platforms move, so pairs leave them out,
+ * Stadium has no top platform and FD no platforms. The kind holds for half
+ * the tries, so it stays even wherever you stand, and then gives way when no
+ * spot on it is far enough from you (you're on the top platform, say). */
 static void PickPair(FighterData *ft, Vec2 you, Vec2 *upper, Vec2 *lower) {
-    float high, low, left, right;
+    float high, low;
+    int sides[2], side_count = 0, top_line, line;
+    Vec3 center;
     ShortHopShots(ft, BlasterOf(ft), 1 + HSD_Randi(pair_presses), &high, &low);
-    GroundEdges(&left, &right);
+    if (Stage_GetExternalID() != GRKINDEXT_IZUMI)
+        for (int side = -1; side <= 1; side += 2)
+            if (FindPlatform(side, &center, &line)) sides[side_count++] = line;
+    if (!FindPlatform(0, &center, &top_line)) top_line = -1;
+    // Kind 0 is the main floor, then the side platforms if any, then the top.
+    int kinds = 1 + (side_count > 0) + (top_line >= 0), kind = HSD_Randi(kinds);
     for (int tries = 0; tries < SPAWN_TRIES; ++tries) {
-        float floors[8], x = RandomRange(left + SPAWN_INSET, right - SPAWN_INSET);
-        int count = 0;
-        Vec3 ground;
-        int line;
-        if (FindSolidGround(x, &ground, &line)) floors[count++] = ground.Y;
-        for (int i = 0; i < LineCount() && count < 8; ++i) {
-            Vec2 a, b;
-            int platform;
-            float y;
-            if (!FloorLine(i, &a, &b, &platform) || !platform || x < a.X + SPAWN_INSET || x > b.X - SPAWN_INSET ||
-                !LineY(i, x, &y)) continue;
-            floors[count++] = y;
-        }
-        if (!count) continue;
-        float floor = floors[HSD_Randi(count)];
-        Vec2 top = {x, floor + high}, bottom = {x, floor + low};
+        if (tries >= SPAWN_TRIES / 2) kind = HSD_Randi(kinds);
+        line = !kind ? -1 : kind == 1 && side_count ? sides[HSD_Randi(side_count)] : top_line;
+        Vec2 spot;
+        if (!FloorSpot(line, &spot)) continue;
+        Vec2 top = {spot.X, spot.Y + high}, bottom = {spot.X, spot.Y + low};
         if (!Clear(top, you, tries) || !Clear(bottom, you, tries)) continue;
         *upper = top;
         *lower = bottom;
         return;
     }
     Vec3 ground;
-    int line;
     GroundPoint(0, &ground, &line);
     *upper = (Vec2){0, ground.Y + high};
     *lower = (Vec2){0, ground.Y + low};
@@ -580,7 +626,7 @@ void Event_Init(GOBJ *gobj) {
         targets[i].live = false;
         pops[i].age = 0;
     }
-    placed = checked = reset_clock = false;
+    placed = checked = reset_clock = restarting = false;
     pair_presses = score = 0;
     LoadSettings();
     // A retry may reuse the module: rebuild the gating from the saved mode.
@@ -588,6 +634,10 @@ void Event_Init(GOBJ *gobj) {
     Options_Main[OPT_SHDL].name = DoubleLasersName;
     if (Options_Main[OPT_FREEPRACTICE].val) EnterFreePractice();
     StageSwap_Init();
+    // No CPU: slot 1 is empty, so FighterSwap_Init greys out its row.
+    FighterSwap_Restrict(0, Character_Kinds, countof(Character_Kinds));
+    FighterSwap_Init();
+    FighterSwap_Options[0].desc[2] = "Left/Right: Fox or Falco. X/Y: costume color. A: restart the match.";
     cam = CameraSubject_Alloc();
     cam->boundleft_proj = cam->boundbottom_proj = -CAMERA_MARGIN;
     cam->boundright_proj = cam->boundtop_proj = CAMERA_MARGIN;
@@ -599,6 +649,13 @@ void Event_Init(GOBJ *gobj) {
     stc_match->end_kind = MATCHENDKIND_NONE;
 }
 void Event_Think(GOBJ *event) {
+    // Only the six legal stages: the stage select's others restart on Battlefield.
+    if (restarting) return;
+    if (!LegalStage()) {
+        restarting = true;
+        event_vars->restart_on_stage(GRKINDEXT_BATTLE);
+        return;
+    }
     // The match starts with the timed minute loaded; Free Practice counts up from 0:00.
     if (reset_clock) {
         stc_match->time_seconds = 0;
