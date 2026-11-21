@@ -236,10 +236,15 @@ typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOW
  * fills its bits exactly, so none needs repairing. Only a version 23 record
  * owns them. */
 #define TARGETS_SHIFT 10
+/* Hop Peak Lines (T10), appended, takes bit 29, after Up-B Sweetspot's
+ * Landing Line, the same way: Off is 0. */
+#define TARGETS_LINES_SHIFT 29
 static const ExtensionPreference targets_preferences[TM_TARGETS_PREF_COUNT] = {
     {TARGETS_SHIFT,8,TM_TARGETS_BEST_MAX+1,0}, {TARGETS_SHIFT+8,1,2,0}, {TARGETS_SHIFT+9,1,2,0},
+    {TARGETS_LINES_SHIFT,1,2,0},
 };
-typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 && TM_TARGETS_PREF_COUNT==3 &&
+typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 && TM_TARGETS_PREF_COUNT==4 &&
+    TM_TARGETS_LINES==TM_TARGETS_PREF_COUNT-1 &&
     (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1<TARGETS_SHIFT && CONSOLE_OFF_BIT==1u<<1 && TARGETS_SHIFT+10<=32) ? 1 : -1];
 /* The global Randall Timer flag takes word 80 bit 20 (byte 82 bit 4), just
  * above Target Practice, the same way as the Stoplight: Off is 0, and every
@@ -260,8 +265,10 @@ static const ExtensionPreference event_list_preferences[TM_EVENT_LIST_PREF_COUNT
 };
 typedef char TMExtension_EventListBits[((RANDALL_TIMER_BYTE-GRABS_OFFSET)*8+5==EVENT_LIST_SHIFT &&
     RANDALL_TIMER_BIT==1u<<4 && TM_EVENT_LIST_PREF_COUNT==2 && EVENT_LIST_SHIFT+7<=32) ? 1 : -1];
-/* Up-B Sweetspot's Landing Line is the bit after All Events' cursor. */
+/* Up-B Sweetspot's Landing Line is the bit after All Events' cursor, and
+ * Target Practice's Hop Peak Lines the one after that. */
 typedef char TMExtension_UpBLandingBit[(EVENT_LIST_SHIFT+7==UPB_LANDING_SHIFT && TM_UPB_LANDING==TM_UPB_PREF_COUNT-1) ? 1 : -1];
+typedef char TMExtension_TargetsLinesBit[(UPB_LANDING_SHIFT+1==TARGETS_LINES_SHIFT) ? 1 : -1];
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)

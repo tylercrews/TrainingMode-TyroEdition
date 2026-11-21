@@ -30,6 +30,24 @@ static GOBJ laser_gobjs[LASERS];
 static ItemData laser_items[LASERS];
 static int laser_cleared[LASERS], laser_life[LASERS];
 
+/* Drawing: each GFX_Start's shape, count, width and depth test. The vertices
+ * go to the GX FIFO, which the test records. */
+#define DRAWS 32
+static int draws, draw_info[DRAWS][4];
+static float blast_left = -224, blast_right = 224;
+static void GFXStart(u16 count, GFX_Params params) {
+    if (draws < DRAWS) {
+        draw_info[draws][0] = params.shape; draw_info[draws][1] = count;
+        draw_info[draws][2] = params.size; draw_info[draws][3] = params.no_depth;
+    }
+    ++draws;
+}
+float Stage_GetBlastzoneLeft() { return blast_left; }
+float Stage_GetBlastzoneRight() { return blast_right; }
+// Only the lines' batch is checked; a target's discs just need numbers.
+float sin(float x) { return x; }
+float cos(float x) { return 1 - x; }
+
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
 void memcpy(void *dest, const void *src, int size) { u8 *d = dest; const u8 *s = src; while (size--) *d++ = *s++; }
 int sprintf(char *out, const char *format, ...) {
@@ -45,6 +63,21 @@ int sprintf(char *out, const char *format, ...) {
     *out = 0;
     va_end(args);
     return out - start;
+}
+
+void TestTargetsBlast(int left, int right) { blast_left = left / 1000.f; blast_right = right / 1000.f; }
+// Run the draw callback; returns how many batches it started.
+int TestTargetsDraw(int pass) {
+    draws = 0;
+    Targets_GX(&drawer, pass);
+    return draws;
+}
+int TestTargetsDrawInfo(int draw, int key) { return draw < DRAWS ? draw_info[draw][key] : -1; }
+int TestTargetsPeak(int hop) { return peak_lasers[hop] * 10000; }
+// Move a line's ends, as a moving platform does, in thousandths.
+void TestTargetsMoveLine(int i, int ay, int by) {
+    vertices[2 * i].pos_curr.Y = ay / 1000.f;
+    vertices[2 * i + 1].pos_curr.Y = by / 1000.f;
 }
 
 static u32 Read(unsigned field, unsigned index) {
@@ -120,8 +153,10 @@ void TestTargetsFighter(int kind, int jump, int hop, int mult, int gravity, int 
     ft.attr.gravity = gravity / 10000.f;
     ft.attr.terminal_velocity = terminal / 10000.f;
 }
-void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved) {
+void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved, int peak_lines) {
     *event_vars_ptr_loc = &vars;
+    vars.GFX_Start = GFXStart;
+    prefs[TM_TARGETS_LINES] = peak_lines;
     *stc_gobj_lookup = lookup;
     *stc_colldata = &stage;
     *stc_collline = lines;
@@ -273,6 +308,9 @@ int TestTargetsInfo(int key) {
     case 33: return HighestFloor() * 1000;
     case 34: return pops[0].age;
     case 35: return pops[1].age;
+    case 36: return Options_Main[OPT_LINES].val;
+    case 37: return prefs[TM_TARGETS_LINES];
+    case 38: return Options_Main[OPT_LINES].val_prev;
     }
     return -1;
 }

@@ -108,9 +108,11 @@ GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (80, 0, 4), (48, 27, 2), 
                 (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1), (80, 7, 2))
 GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3, 4, 5, 12
 # Target Practice (T10): its timed best (8 bits), Free Practice and SH Double
-# Lasers in word 80 bits 10-17, 18 and 19, each stored as itself.
+# Lasers in word 80 bits 10-17, 18 and 19, and Hop Peak Lines, appended, in bit
+# 29, each stored as itself.
 TARGETS = 53  # TM_SETTING_TARGETS
-TARGETS_DEFAULTS = (0, 0, 0)
+TARGETS_LINES = 3  # TM_TARGETS_LINES
+TARGETS_DEFAULTS = (0, 0, 0, 0)
 # All Events (Alphabetized) (T10): page 4. Word 80 bit 21 is 1 while it's the
 # page shown, and bits 22-27 are its cursor; byte 5 keeps the categorized page
 # and its cursor underneath.
@@ -508,7 +510,8 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('Settings_Get', UPB_SWEETSPOT, i) for i in range(4)), (1, 1, 0, 1))
         self.assertEqual((m.call('Settings_Get', TARGETS, 0), m.call('Settings_Get', 11, RANDALL_TIMER),
                           m.call('Settings_Get', EVENT_LIST, 1)), (200, 1, 63))
-        # Bits 29-31 are still spare: what's there stays, and doesn't read as the row.
+        # Bits 29-31 (Target Practice's Hop Peak Lines, then spare) keep what's
+        # there, and it doesn't read as the row.
         m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 0)
         word = int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
         m.cpu.mem_write(EXT + 80, (word | 7 << 29).to_bytes(4, 'little'))
@@ -890,10 +893,10 @@ class ExtensionTests(unittest.TestCase):
     # Target Practice (T10): word 80 bits 10-19, no version bump.
     def test_target_practice_reads_its_defaults_from_word_80s_zeros(self):
         m = self.m
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)  # No record.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)  # No record.
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)
 
     def test_target_practice_round_trips_in_word_80_bits_10_to_19_alone(self):
         m = self.m
@@ -913,32 +916,67 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP),
                           m.call('Settings_Get', 11, STOPLIGHT), m.call('Settings_Get', GRABS, GRABS_MOVEMENT),
                           m.call('Settings_Get', 11, DEBUG_OFF)), (9, 4, 1, 2, 1))
-        # Bits 20-31 (the Randall Timer's 20, All Events' 21-27, then spare) keep
-        # what they hold, and the neighbors' writes leave Target Practice alone.
+        # Bits 20-28 (the Randall Timer's 20, All Events' 21-27 and Up-B's
+        # Landing Line 28) and 30-31 (spare) keep what they hold, and the
+        # neighbors' writes leave Target Practice alone.
         m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
-        m.cpu.mem_write(EXT + 80, (word() | 0xFFF00000).to_bytes(4, 'little'))
+        m.cpu.mem_write(EXT + 80, (word() | 0xDFF00000).to_bytes(4, 'little'))
         m.call('Settings_Set', GRABS, GRABS_PERCENT, 3); m.call('Settings_Set', 11, DEBUG_OFF, 0)
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), (200, 0, 1))
-        self.assertEqual(word() >> 20, 0xFFF)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), (200, 0, 1, 0))
+        self.assertEqual(word() >> 20, 0xDFF)
 
     def test_target_practice_ignores_values_past_its_bits(self):
         m = self.m
         m.call('Settings_Set', TARGETS, 0, 77); m.call('Settings_Set', TARGETS, 1, 1)
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        for index, value in ((0, 256), (1, 2), (2, 2), (3, 1)):
+        for index, value in ((0, 256), (1, 2), (2, 2), (TARGETS_LINES, 2), (4, 1)):
             m.call('Settings_Set', TARGETS, index, value)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
-        self.assertEqual(m.call('Settings_Get', TARGETS, 3), 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, 4), 0)
+
+    def test_hop_peak_lines_uses_only_word_80_bit_29(self):
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 255); m.call('Settings_Set', TARGETS, 2, 1)  # Its rows in bits 10-19,
+        m.call('Settings_Set', 11, RANDALL_TIMER, 1)  # bit 20,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)  # and the bit under it.
+        word = lambda record: int.from_bytes(record[80:84], 'little')
+        m.cpu.mem_write(EXT + 80, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 3 << 30).to_bytes(4, 'little'))  # Spare.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LINES), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', TARGETS, TARGETS_LINES, value)
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LINES), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> 29 & 1, word(after) & ~(1 << 29)), (value, word(before)))
+            self.assertEqual(after[:80] + after[84:], before[:80] + before[84:])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), (255, 0, 1, 1))
+        self.assertEqual((m.call('Settings_Get', 11, RANDALL_TIMER), m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING)),
+                         (1, 1))
+        # Its neighbors' writes keep it.
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 0); m.call('Settings_Set', TARGETS, 2, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LINES), 1)
+
+    def test_version_22_records_read_hop_peak_lines_off_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, TARGETS, TARGETS_LINES), 0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in bit 29 alone.
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 1 << 29)
 
     def test_version_22_records_read_the_target_practice_defaults_without_writing(self):
         m = self.m
         old = self.version_22_record()
         old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
         m.cpu.mem_write(EXT, bytes(old))
-        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
         # Migrating zeroes word 80, and a write lands in it.
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)
         m.call('Settings_Set', TARGETS, 0, 12)
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 12 << 10)
         self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))

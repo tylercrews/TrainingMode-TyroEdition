@@ -49,7 +49,17 @@
  * fits, so the row reads (N/A) for him. A pair's floor is the main floor, a
  * side platform or the top platform, each kind as likely as the others where
  * the stage has one that holds still: Fountain's side platforms move, Stadium
- * has no top platform and FD no platforms. */
+ * has no top platform and FD no platforms.
+ *
+ * Hop Peak Lines. A jump's highest laser is the one shot from its peak (the
+ * shot comes from where the fighter was the frame before, and the peak is the
+ * highest it gets), so each floor gets two lines: teal for a short hop's, purple
+ * for a full hop's, Rise + the aerial laser height above it. The main floor's
+ * and the top platform's go from blast zone to blast zone; a side platform's
+ * stop at the middle (x = 0), so the two sides' read apart (Dream Land's right
+ * platform is 0.1 higher). They're found from the live lines every frame, so
+ * Fountain's follow its side platforms, and go while one is sunk into the
+ * stage. */
 
 #define TIMED_FRAMES 3600     // The timed run's minute.
 #define TARGET_RADIUS 1.5f    // Under 2.72 - 1.17: see above.
@@ -62,6 +72,11 @@
 #define CIRCLE_STEPS 20
 #define HOP_FRAMES 64         // Longer than any short hop.
 #define CAMERA_MARGIN 10.f
+#define PEAK_LINE_WIDTH 12    // 2 pixels, in sixths.
+#define PEAK_FLOORS 4         // The main floor and up to three platforms.
+/* A side platform closer than this to the main floor is sunk: Fountain's
+ * settle 0.37 above it, inside the stage, while they're hidden. */
+#define SUNK_PLATFORM 1.f
 
 /* Laser heights above TopN, the airborne ECB bottom on the frame before the
  * aerial shot, and the frames from a B press to the aerial shot and between
@@ -77,14 +92,15 @@ static const Blaster Blasters[2] = {
 };
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT,
-    OPT_COUNT
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_LINES, OPT_COUNTER, OPT_DEFAULTS,
+    OPT_EXIT, OPT_COUNT
 };
 
 static void Retry(GOBJ *menu);
 static void Exit(GOBJ *menu);
 static void ChangeFreePractice(GOBJ *menu, int value);
 static void ChangeDoubleLasers(GOBJ *menu, int value);
+static void ChangePeakLines(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
@@ -146,6 +162,15 @@ static EventOption Options_Main[OPT_COUNT] = {
         .OnChange = ChangeDoubleLasers,
     },
     {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Hop Peak Lines",
+        .desc = {"Lines where a laser shot at the peak of a short",
+                 "hop (teal) or a full hop (purple) flies, off the",
+                 "floor, the top platform and each side platform",
+                 "(on that side of the middle). Saved."},
+        .OnChange = ChangePeakLines,
+    },
+    {
         .kind = OPTKIND_STRING,
         .value_num = countof(CounterPositionText),
         .name = "Counter Position",
@@ -185,6 +210,7 @@ static Vec2 last_spot;
 static bool placed;          // Targets have appeared this match.
 static bool checked;         // The fighter's been looked at (CheckFighter).
 static int pair_presses;     // Press frames that fit a short hop double laser.
+static float peak_lasers[2]; // A short hop's and a full hop's peak laser, above the floor.
 static int score, best;
 static bool reset_clock;
 static bool restarting;      // Leaving a stage that isn't legal.
@@ -271,12 +297,18 @@ static void LoadSettings(void) {
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FREE_PRACTICE);
     Options_Main[OPT_SHDL].val = Options_Main[OPT_SHDL].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL);
+    Options_Main[OPT_LINES].val = Options_Main[OPT_LINES].val_prev =
+        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
     best = TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_BEST);
 }
 // The next targets to appear follow it; the ones out stay.
 static void ChangeDoubleLasers(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL, value);
+}
+// The lines show or go on the next frame drawn, behind the paused menu too.
+static void ChangePeakLines(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, value);
 }
 
 /* Where the count goes for each Counter Position: Eggs-ercise's spots, with
@@ -331,6 +363,7 @@ static void EnterFreePractice(void) {
 static void ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FREE_PRACTICE, 0);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL, 0);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, 0);
     LoadSettings();
     Retry(menu);
 }
@@ -566,8 +599,40 @@ static void DrawPop(struct pop *pop) {
     GXColor color = {alpha, alpha, alpha, alpha}; // Premultiplied.
     Circle(pop->pos, TARGET_RADIUS + 6 * t, color, 18);
 }
+/* Training Mode's Purple (A064FF) and Teal (00B4A0) at alpha 230, premultiplied. */
+static const GXColor PeakColors[2] = {{0, 162, 144, 230}, {144, 90, 230, 230}}; // Short hop, full hop.
+
+/* Each floor's line, from left to right x at its height: the main floor at the
+ * middle, then each platform FindPlatform finds (left, top, right) above it,
+ * a side one only on its side of x = 0. */
+typedef struct PeakFloor { float left, right, y; } PeakFloor;
+static int PeakFloors(PeakFloor *floors) {
+    Vec3 ground, at;
+    int line, count = 0;
+    if (!FindSolidGround(0, &ground, &line)) return 0;
+    float left = Stage_GetBlastzoneLeft(), right = Stage_GetBlastzoneRight();
+    floors[count++] = (PeakFloor){left, right, ground.Y};
+    for (int side = -1; side <= 1; ++side)
+        if (FindPlatform(side, &at, &line) && at.Y >= ground.Y + SUNK_PLATFORM)
+            floors[count++] = (PeakFloor){side > 0 ? 0 : left, side < 0 ? 0 : right, at.Y};
+    return count;
+}
+static void DrawPeakLines(void) {
+    PeakFloor floors[PEAK_FLOORS];
+    int count = PeakFloors(floors);
+    if (!count) return;
+    event_vars->GFX_Start(count * 4, (GFX_Params){.shape = GX_LINES, .size = PEAK_LINE_WIDTH, .no_depth = true});
+    for (int i = 0; i < count; ++i)
+        for (int hop = 0; hop < 2; ++hop) {
+            float y = floors[i].y + peak_lasers[hop];
+            GFX_AddVtx(floors[i].left, y, 0, PeakColors[hop]);
+            GFX_AddVtx(floors[i].right, y, 0, PeakColors[hop]);
+        }
+}
 static void Targets_GX(GOBJ *gobj, int pass) {
     if (pass != 2) return;
+    // Under the targets. The heights are the fighter's, known from its first frame.
+    if (checked && Options_Main[OPT_LINES].val) DrawPeakLines();
     for (int i = 0; i < MAX_TARGETS; ++i)
         if (pops[i].age > 0) DrawPop(&pops[i]);
     for (int i = 0; i < MAX_TARGETS; ++i)
@@ -576,10 +641,14 @@ static void Targets_GX(GOBJ *gobj, int pass) {
 
 // Event -----------------------------------------------------------------------
 
-/* Pairs depend on the fighter, which isn't known until its first frame. */
+/* Pairs and the peak lines depend on the fighter, which isn't known until its
+ * first frame. */
 static void CheckFighter(FighterData *ft) {
+    const Blaster *blaster = BlasterOf(ft);
     checked = true;
-    pair_presses = ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO ? ShortHopPresses(ft, BlasterOf(ft)) : 0;
+    pair_presses = ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO ? ShortHopPresses(ft, blaster) : 0;
+    peak_lasers[0] = Rise(ft->attr.hop_v_initial_velocity, ft->attr.gravity) + blaster->air;
+    peak_lasers[1] = Rise(ft->attr.jump_v_initial_velocity, ft->attr.gravity) + blaster->air;
     GateDoubleLasers();
 }
 static void FinishTimedRun(void) {

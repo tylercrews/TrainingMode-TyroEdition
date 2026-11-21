@@ -365,10 +365,12 @@ enum TMGrabsMovement {
     TM_GRABS_MOVEMENT_RANDOM, TM_GRABS_MOVEMENT_STILL, TM_GRABS_MOVEMENT_MOVING, TM_GRABS_MOVEMENT_COUNT
 };
 /* Target Practice (T10): its timed best, Free Practice and SH Double Lasers,
- * in word 80's spare bits 10..19 with no version bump. Every migration to 23
- * zeroes the word and every default is 0 (no best, timed runs, single
- * targets), so each is stored as itself. Only a version 23 record owns them. */
-enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS_SHDL, TM_TARGETS_PREF_COUNT };
+ * in word 80's spare bits 10..19, and Hop Peak Lines, appended, in bit 29,
+ * all with no version bump. Every migration to 23 zeroes the word and every
+ * default is 0 (no best, timed runs, single targets, no lines), so each is
+ * stored as itself. Only a version 23 record owns them. */
+enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS_SHDL, TM_TARGETS_LINES,
+                           TM_TARGETS_PREF_COUNT };
 /* The best is 8 bits. A target takes a laser's flight and usually a jump, so
  * a minute is nowhere near 255. */
 #define TM_TARGETS_BEST_MAX 255

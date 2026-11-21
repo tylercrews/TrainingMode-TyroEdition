@@ -7,6 +7,7 @@ import sys
 import unittest
 import test_settings as fixtures
 from test_lowlaser import LEGAL, load_probe
+from unicorn import UC_HOOK_MEM_WRITE
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -15,7 +16,10 @@ import laser_heights  # noqa: E402
 FOX, FALCO = 1, 22  # FTKIND_FOX, FTKIND_FALCO
 NAMES = {FOX: 'Fox', FALCO: 'Falco'}
 ITEM_FOXLASER, ITEM_FALCOLASER = 54, 55
-OPT_FREEPRACTICE, OPT_SHDL, OPT_COUNTER, OPT_DEFAULTS = 3, 4, 5, 6
+OPT_FREEPRACTICE, OPT_SHDL, OPT_LINES, OPT_COUNTER, OPT_DEFAULTS = 3, 4, 5, 6, 7
+FIFO, GX_LINES = 0xCC008000, 0xA8
+# Hop Peak Lines: teal for a short hop, purple for a full hop, premultiplied.
+TEAL, PURPLE = (0, 162, 144, 230), (144, 90, 230, 230)
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 MATCHGX_EFFECT = 7
 SIZE_SCALE_AT = 0x804DC790  # The item hitbox command's size scale, about 1/256.
@@ -76,8 +80,28 @@ class TargetsMachine:
         self.m.call('TestTargetsSeed', seed)
         self.lines = []
 
-    def init(self, free_practice=0, shdl=0, best=0, counter=0):
-        self.m.call('TestTargetsInit', free_practice, shdl, best, counter)
+    def init(self, free_practice=0, shdl=0, best=0, counter=0, lines=0):
+        self.m.call('TestTargetsInit', free_practice, shdl, best, counter, lines)
+
+    def capture(self):
+        """Record the GX FIFO: GFX_AddVtx writes x, y, z, then the color's bytes."""
+        self.m.cpu.mem_map(FIFO, 0x1000)
+        self.fifo = []
+        self.m.cpu.hook_add(UC_HOOK_MEM_WRITE, lambda cpu, access, address, size, value, user:
+                            self.fifo.append((size, value & 0xFFFFFFFF)), begin=FIFO, end=FIFO + 3)
+
+    def draw(self, pass_=2):
+        """The batches one GX pass starts: (shape, count, width, no depth), and the vertices,
+        each (x, y, z, color)."""
+        self.fifo.clear()
+        count = self.m.call('TestTargetsDraw', pass_)
+        batches = [tuple(self.m.call('TestTargetsDrawInfo', i, k) for k in range(4)) for i in range(count)]
+        vertices = []
+        for at in range(0, len(self.fifo), 7):
+            sizes, values = zip(*self.fifo[at:at + 7])
+            assert sizes == (4, 4, 4, 1, 1, 1, 1), sizes
+            vertices.append((*struct.unpack('>3f', struct.pack('>3I', *values[:3])), tuple(values[3:])))
+        return batches, vertices
 
     def stage(self, stage_id, floors, normal=None):
         self.m.call('TestTargetsStage', stage_id)
@@ -319,6 +343,165 @@ class TargetPlacementTests(unittest.TestCase):
                 self.assertTrue(all(len(s) == 1 for s in spawns))
 
 
+BLAST = (-224, 224)  # The probe's blast zones.
+
+
+def peak_floors(lines):
+    """(left x, right x, y) of each floor's lines, in drawing order: the main floor at
+    the middle, then FindPlatform's left, top and right platforms, a side one only on
+    its side of x = 0, and none closer than 1 to the main floor."""
+    main = max(ay + (by - ay) * -ax / (bx - ax) for ax, ay, bx, by, platform in lines
+               if not platform and ax <= 0 <= bx)
+    platforms = [l for l in lines if l[4] and l[2] - l[0] >= 10]
+    center = lambda l: (l[0] + l[2]) / 2
+    height = lambda l: l[1] + (l[3] - l[1]) * (center(l) - l[0]) / (l[2] - l[0])
+    floors = [(BLAST[0], BLAST[1], main)]
+    for side in (-1, 0, 1):
+        if side:
+            found = [l for l in platforms if center(l) * side > 10]
+            pick = min(found, key=lambda l: abs(center(l)), default=None)
+        else:
+            pick = max((l for l in platforms if l[0] <= 0 <= l[2]), key=height, default=None)
+        if pick and height(pick) >= main + 1:
+            floors.append((0 if side > 0 else BLAST[0], 0 if side < 0 else BLAST[1], height(pick)))
+    return floors
+
+
+class TargetPeakLineTests(unittest.TestCase):
+    """Hop Peak Lines: a short hop's and a full hop's peak laser over each floor."""
+    @classmethod
+    def setUpClass(cls):
+        build()
+        import test_techchase
+        cls.fighters = fighters()
+        cls.floors = {name: test_techchase.native_floors(name) for name, _, _ in LEGAL}
+        cls.floors[FOUNTAIN[0]] = FOUNTAIN_PLATFORMS + [
+            line for line in test_techchase.native_floors(FOUNTAIN[0]) if not line[-1] & 0x100]
+
+    def start(self, kind=FOX, filename='GrNBa.dat', stage_id=GRKINDEXT_BATTLE, normal=None, lines=1, **kw):
+        m = TargetsMachine(kind, self.fighters[kind].attr)
+        m.stage(stage_id, self.floors[filename], normal)
+        m.init(lines=lines, **kw)
+        m.capture()
+        m.you(control=0)  # The fighter's first frame; targets wait for control, so only lines draw.
+        m.think()
+        return m
+
+    def peaks(self, kind):
+        """A short hop's and a full hop's peak laser above the floor, from the ISO."""
+        a, c = self.fighters[kind].attr, self.fighters[kind].constants()
+        return [laser_heights.rise(a[v], a['gravity']) + c['air'] for v in ('hop_v', 'jump_v')]
+
+    def lines(self, vertices):
+        """Each GX_LINES pair as (left x, right x, y, color)."""
+        for a, b in zip(vertices[::2], vertices[1::2]):
+            self.assertEqual((a[1], a[2], a[3]), (b[1], b[2], b[3]))
+        return [(a[0], b[0], a[1], a[3]) for a, b in zip(vertices[::2], vertices[1::2])]
+
+    def assertLines(self, got, floors, kind):
+        sh, fh = self.peaks(kind)
+        wanted = [(left, right, y + h, color) for left, right, y in floors for h, color in ((sh, TEAL), (fh, PURPLE))]
+        self.assertEqual(len(got), len(wanted))
+        for g, w in zip(got, wanted):
+            self.assertAlmostEqual(g[0], w[0], delta=.001)
+            self.assertAlmostEqual(g[1], w[1], delta=.001)
+            self.assertAlmostEqual(g[2], w[2], delta=.002)
+            self.assertEqual(g[3], w[3])
+
+    def test_heights_are_a_short_hops_and_a_full_hops_peak_laser(self):
+        # By hand: Fox's short hop rises 8.55 and his full hop 27.6, and his aerial laser
+        # is 9.28 over TopN; Falco's rise 9.68 and 47.4, with his laser 3.80 up.
+        for kind, by_hand in ((FOX, (17.833, 36.883)), (FALCO, (13.478, 51.198))):
+            with self.subTest(fighter=NAMES[kind]):
+                m = self.start(kind)
+                got = [m.m.call('TestTargetsPeak', hop) / 10000 for hop in (0, 1)]
+                for g, wanted, hand in zip(got, self.peaks(kind), by_hand):
+                    self.assertAlmostEqual(g, wanted, delta=.0005)
+                    self.assertAlmostEqual(g, hand, delta=.001)
+        # A short hop's peak laser is SH Double Lasers' first shot.
+        m = self.start(FOX)
+        self.assertAlmostEqual(m.m.call('TestTargetsPeak', 0), m.m.call('TestTargetsShots', 1, 1), delta=2)
+
+    def test_every_legal_stage_gets_lines_over_its_floor_and_platforms(self):
+        counts = {'GrNLa.dat': 1, 'GrPs.dat': 3}  # FD has no platforms; Stadium no top one.
+        for kind in (FOX, FALCO):
+            for filename, stage_id, normal in STAGES:
+                with self.subTest(fighter=NAMES[kind], stage=filename):
+                    m = self.start(kind, filename, stage_id, normal)
+                    batches, vertices = m.draw()
+                    floors = peak_floors(m.lines)
+                    self.assertEqual(len(floors), counts.get(filename, 4))
+                    self.assertEqual(batches, [(GX_LINES, 4 * len(floors), 12, 1)])  # Over everything.
+                    self.assertTrue(all(v[2] == 0 for v in vertices))
+                    self.assertLines(self.lines(vertices), floors, kind)
+
+    def test_side_platforms_stop_at_the_middle_so_dream_lands_read_apart(self):
+        m = self.start(FOX, 'GrOp.dat', 28)
+        got = self.lines(m.draw()[1])
+        sh, fh = self.peaks(FOX)
+        floors = [(-224, 224, 0.0088), (-224, 0, 30.1421), (-224, 224, 51.4253), (0, 224, 30.2425)]
+        self.assertLines(got, floors, FOX)
+        # The right platform's lines sit 0.1 over the left's, on their own half.
+        self.assertAlmostEqual(got[6][2] - got[2][2], 30.2425 - 30.1421, delta=.001)
+
+    def test_fountains_lines_follow_its_side_platforms_and_go_while_one_is_sunk(self):
+        m = self.start(FOX, 'GrIz.dat', GRKINDEXT_IZUMI)
+        main = 0.0028  # Its floor at the middle.
+        for left, right in ((12.375, 27.375), (27.375, 12.375), (19.875, 16.125), (1.5, 22.125)):
+            with self.subTest(left=left, right=right):
+                m.m.call('TestTargetsMoveLine', 0, round(left * 1000), round(left * 1000))
+                m.m.call('TestTargetsMoveLine', 1, round(right * 1000), round(right * 1000))
+                self.assertLines(self.lines(m.draw()[1]),
+                                 [(-224, 224, main), (-224, 0, left), (-224, 224, 42.75), (0, 224, right)], FOX)
+        # Hidden, the game leaves the left one 0.375 up, inside the stage: its lines go.
+        m.m.call('TestTargetsMoveLine', 0, 375, 375)
+        batches, vertices = m.draw()
+        self.assertEqual(batches, [(GX_LINES, 12, 12, 1)])
+        self.assertLines(self.lines(vertices), [(-224, 224, main), (-224, 224, 42.75), (0, 224, 22.125)], FOX)
+
+    def test_the_lines_reach_the_blast_zones(self):
+        m = self.start(FOX)
+        m.m.call('TestTargetsBlast', -230500, 198250)
+        got = self.lines(m.draw()[1])
+        self.assertEqual([(round(l, 3), round(r, 3)) for l, r, _, _ in got],
+                         [(-230.5, 198.25)] * 2 + [(-230.5, 0)] * 2 + [(-230.5, 198.25)] * 2 + [(0, 198.25)] * 2)
+
+    def test_the_row_saves_and_the_lines_show_at_once(self):
+        m = self.start(lines=0)
+        self.assertEqual((m.info(36), m.info(38)), (0, 0))
+        self.assertEqual(m.draw(), ([], []))
+        m.choose(OPT_LINES, 1)
+        self.assertEqual((m.info(37), m.info(4), m.info(29)), (1, 0, 0))  # Saved; no retry or restart.
+        self.assertEqual(m.draw()[0], [(GX_LINES, 16, 12, 1)])
+        m.choose(OPT_LINES, 0)
+        self.assertEqual((m.info(37), m.draw()), (0, ([], [])))
+        # A saved On loads into the row, its value and the menu's copy alike.
+        m = self.start(lines=1)
+        self.assertEqual((m.info(36), m.info(38)), (1, 1))
+        # Timed runs and Free Practice both draw them.
+        m = self.start(lines=1, free_practice=1)
+        self.assertEqual(len(m.draw()[0]), 1)
+
+    def test_nothing_before_the_fighters_first_frame_or_on_other_passes(self):
+        m = TargetsMachine(FOX, self.fighters[FOX].attr)
+        m.flat(((-50, -20, 27), (20, 50, 27)))
+        m.init(lines=1)
+        m.capture()
+        self.assertEqual(m.draw(), ([], []))  # Its heights aren't known yet.
+        m.you(control=0); m.think()
+        for pass_ in (0, 1, 3):
+            self.assertEqual(m.draw(pass_), ([], []))
+        self.assertEqual(m.draw()[0], [(GX_LINES, 12, 12, 1)])
+
+    def test_the_lines_go_under_the_targets(self):
+        m = self.start()
+        m.you(); m.think()
+        self.assertEqual(len(m.targets()), 1)
+        batches, _ = m.draw()
+        self.assertEqual(batches[0], (GX_LINES, 16, 12, 1))
+        self.assertGreater(len(batches), 1)  # The target, drawn after.
+
+
 class TargetEventTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -506,9 +689,11 @@ class TargetEventTests(unittest.TestCase):
         self.assertEqual((m.info(2), m.info(4)), (1, 1))
 
     def test_reset_keeps_the_best_and_the_counter_position(self):
-        m = self.start(free_practice=1, shdl=1, best=17, counter=3)
+        m = self.start(free_practice=1, shdl=1, best=17, counter=3, lines=1)
+        self.assertEqual(m.info(36), 1)
         m.m.call('TestTargetsSelect', OPT_DEFAULTS)
         self.assertEqual((m.info(2), m.info(3), m.info(1), m.info(20), m.info(4)), (0, 0, 17, 3, 1))
+        self.assertEqual((m.info(37), m.info(36)), (0, 0))  # Hop Peak Lines goes Off too.
 
     def test_counter_position_is_eggs_ercises_and_moves_the_count_at_once(self):
         m = self.start(counter=4)
