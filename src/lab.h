@@ -849,9 +849,9 @@ static EventOption LabOptions_Stage_Story[OPTSTAGE_STORY_COUNT] = {{
 }, {
     .kind = OPTKIND_TOGGLE,
     .name = TM_GLOBAL_RANDALL_TIMER_NAME,
-    .desc = {"Color the match timer while Randall is out:",
-             "purple on the left, teal on the right.",
-             "Shares the Global Overlays & Gameplay setting."},
+    .desc = {"A red arrow follows Randall around a track through",
+             "the match timer, behind the numbers while Randall",
+             "is behind the stage. Shares the Global setting."},
     .OnChange = Lab_ChangeRandallTimer,
 }};
 

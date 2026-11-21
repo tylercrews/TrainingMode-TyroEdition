@@ -1,6 +1,7 @@
 #include "events.h"
 
-/* Global stage overlays, drawn by one GX callback created at match start.
+/* Global stage overlays, drawn by GX callbacks created at match start: one in
+ * the match camera for the stage, one in the HUD camera for the timer.
  *
  * Blast Zone Overlay: on every stage, a crisp red line on the blast zones and
  * a red glow fading out past them.
@@ -11,29 +12,71 @@
  * moving collision group attached to Randall's joints; the joint's world
  * position is the fallback when no group is found.
  *
- * Randall Timer: on Yoshi's Story, tints the match timer purple while Randall
- * is out past the stage's left side and teal while it's out past the right.
- * Randall's cloud joint (the map root's first child) rides a path animation
- * that loops every 1200 frames, counter-clockwise: on each side it leaves the
- * stage's wall low, swings out, rises and slides back in high. GrSt.dat's walls
- * at both of Randall's heights are at X +/-75.25, which the map root's
- * grGroundParam scale (0.7) puts at +/-52.675. The cloud is out while it's past
- * that, about 5 seconds a side (see docs/RANDALL-TIMER.md). */
+ * Randall Timer: on Yoshi's Story, a small map of Randall's loop runs through
+ * the match timer, two dotted lines joined past each side of it, with a red
+ * arrow where Randall is, pointing the way it moves. Randall's cloud joint (the
+ * map root's first child) rides a path animation that loops every 1200 frames,
+ * counter-clockwise: right along the bottom, out past the stage's right wall,
+ * up, back left along the top, out past the left wall and down. GrSt.dat's
+ * walls at both of Randall's heights are at X +/-75.25, which the map root's
+ * grGroundParam scale (0.7) puts at +/-52.675. The map stretches the stage
+ * between its walls to the timer's width and keeps the scale past them, and
+ * Randall's speed is constant, so the arrow is behind the numbers exactly as
+ * long as Randall is behind the stage, and on the track past the timer exactly
+ * as long as it's out (see docs/RANDALL-TIMER.md). It's drawn from the live
+ * cloud, so it starts where Randall starts and never drifts. */
 #define RANDALL_MAP_GOBJ 2
 #define RANDALL_TIMER_OUT_X 52.675f
-/* TM_COLOR_PURPLE and TM_COLOR_TEAL (OSD_PaletteColor). */
-#define RANDALL_TIMER_LEFT {0xA0, 0x64, 0xFF, 0xFF}
-#define RANDALL_TIMER_RIGHT {0x00, 0xB4, 0xA0, 0xFF}
-#define RANDALL_TIMER_PARTS 16 /* The vanilla timer has 10 materials: 8 digits, 2 separators. */
+#define RANDALL_TIMER_TOP_Y (-18.9f)    /* Randall's two heights, in stage units. */
+#define RANDALL_TIMER_BOTTOM_Y (-38.5f)
+/* The game's HUD camera draws links 8, 10 and 11 (gxlink_prios 0xD00), and no
+ * other camera draws 8. The timer's joints are in 11, so link 8's pass 0 comes
+ * before them in every pass, and the numbers cover the map. */
+#define RANDALL_TIMER_GXLINK 8
+/* HUD camera units: 64 from the camera, it shows about 59 across and 48.5 up. */
+#define RANDALL_TIMER_LINE_Y 0.6f     /* Each line's distance from the timer's middle. */
+#define RANDALL_TIMER_DOT_SPACING 0.8f
+#define RANDALL_TIMER_DOTS_MAX 256
+#define RANDALL_TIMER_DOT_SIZE 12     /* Points, in sixths of a pixel: 2 pixels... */
+#define RANDALL_TIMER_DOT_EDGE 24     /* ...over a 4-pixel dark one. */
+#define RANDALL_TIMER_ARROW_LENGTH 1.3f /* Tail to tip. */
+#define RANDALL_TIMER_ARROW_HEAD 0.65f
+#define RANDALL_TIMER_ARROW_WIDTH 0.48f /* Half the head's width... */
+#define RANDALL_TIMER_ARROW_SHAFT 0.17f /* ...and the shaft's. */
+#define RANDALL_TIMER_ARROW_EDGE 0.13f  /* The dark outline. */
+/* Straight colors, with the alpha past the timer and behind it. */
+#define RANDALL_TIMER_ARROW_COLOR {235, 40, 40, 255}
+#define RANDALL_TIMER_ARROW_BEHIND 100
+#define RANDALL_TIMER_ARROW_EDGE_COLOR {0, 0, 0, 220}
+#define RANDALL_TIMER_ARROW_EDGE_BEHIND 35
+#define RANDALL_TIMER_DOT_COLOR {235, 235, 235, 230}
+#define RANDALL_TIMER_DOT_BEHIND 80
+#define RANDALL_TIMER_DOT_EDGE_COLOR {0, 0, 0, 160}
+#define RANDALL_TIMER_DOT_EDGE_BEHIND 55
+/* ScInfTim's ten joints, in the order ifTime keeps them: the hour and minute
+ * separators, then hours, minutes, centiseconds and seconds. The hours (and
+ * their separator) show only after an hour. Half of each one's quad's width. */
+#define RANDALL_TIMER_DIGITS 10
+#define TIMER_SEPARATOR_HALF 0.6015625f
+#define TIMER_DIGIT_HALF 1.30078125f
+#define TIMER_SMALL_HALF 0.98828125f /* The centiseconds. */
+static const float timer_half_widths[RANDALL_TIMER_DIGITS] = {
+    TIMER_SEPARATOR_HALF, TIMER_SEPARATOR_HALF, TIMER_DIGIT_HALF, TIMER_DIGIT_HALF, TIMER_DIGIT_HALF,
+    TIMER_DIGIT_HALF, TIMER_SMALL_HALF, TIMER_SMALL_HALF, TIMER_DIGIT_HALF, TIMER_DIGIT_HALF,
+};
+/* Randall's path in stage units: map GObj 2's spline (its root's second
+ * child), turned by its joint's 180 degrees, moved by (75.25, -101.5) and
+ * scaled by 0.7. Straight lines, from the bottom-left corner where the cloud
+ * starts, counter-clockwise and back. */
+#define RANDALL_PATH_POINTS 13
+static const Vec2 randall_path[RANDALL_PATH_POINTS] = {
+    {-95.725f, -38.5f}, {95.725f, -38.5f}, {96.95f, -37.975f}, {97.475f, -36.75f},
+    {97.475f, -20.475f}, {96.95f, -19.25f}, {95.725f, -18.9f}, {-95.725f, -18.9f},
+    {-96.95f, -19.425f}, {-97.475f, -20.475f}, {-97.475f, -36.75f}, {-96.95f, -37.8f},
+    {-95.725f, -38.5f},
+};
 static GOBJ *manager;
 static int live;
-/* The timer the Randall Timer last saw, its materials' own colors (saved before
- * the first tint), and the side it shows: 0 untinted, -1 left, 1 right. */
-static JOBJ *timer_root;
-static unsigned timer_parts;
-static HSD_Material *timer_materials[RANDALL_TIMER_PARTS];
-static GXColor timer_colors[RANDALL_TIMER_PARTS];
-static int timer_side;
 
 static int in_tree(JOBJ *joint, JOBJ *target) {
     for (; joint; joint = joint->sibling) {
@@ -154,80 +197,156 @@ static void Randall_Draw(void) {
         GFX_AddVtx(b.X, b.Y, 0, top);
     }
 }
-/* -1 while Randall's cloud is out past the stage's left side, 1 past its right,
- * 0 otherwise (behind the stage, another stage, or hazards removed it). */
-static int randall_side(void) {
-    GOBJ *map = randall();
-    JOBJ *cloud = map ? ((JOBJ *)map->hsd_object)->child : 0;
-    if (!cloud) return 0;
-    Vec3 pos;
-    JOBJ_GetWorldPosition(cloud, 0, &pos);
-    return pos.X < -RANDALL_TIMER_OUT_X ? -1 : pos.X > RANDALL_TIMER_OUT_X ? 1 : 0;
+/* Stage units to the HUD camera's: the stage between its walls becomes the
+ * timer's width, the same scale past them, and Randall's heights the lines. */
+typedef struct {
+    float x, y;   /* The timer's middle. */
+    float sx, sy; /* HUD units per stage unit. */
+} TimerMap;
+static Vec2 map_point(const TimerMap *m, Vec2 p) {
+    return (Vec2){m->x + p.X * m->sx, m->y + (p.Y - (RANDALL_TIMER_TOP_Y + RANDALL_TIMER_BOTTOM_Y) / 2) * m->sy};
 }
-/* Every material in the timer's joints, in tree order. */
-static void save_timer(JOBJ *joint) {
-    for (; joint; joint = joint->sibling) {
-        if (!(joint->flags & (JOBJ_SPLINE | JOBJ_PTCL))) /* Otherwise the union isn't a DObj. */
-            for (DOBJ *dobj = joint->dobj; dobj; dobj = dobj->next) {
-                HSD_Material *mat = dobj->mobj ? dobj->mobj->mat : 0;
-                if (!mat || timer_parts >= RANDALL_TIMER_PARTS) continue;
-                timer_materials[timer_parts] = mat;
-                timer_colors[timer_parts++] = mat->diffuse;
-            }
-        save_timer(joint->child);
-    }
-}
-/* The digits' textures are multiplied by their material's constant diffuse
- * color, and no animation sets it, so it holds until changed. Each material
- * keeps its own shading (the separators are gray): its color times the tint. */
-static void tint_timer(int side) {
-    static const GXColor tints[2] = {RANDALL_TIMER_LEFT, RANDALL_TIMER_RIGHT};
-    const GXColor *tint = &tints[side > 0];
-    for (unsigned i = 0; i < timer_parts; ++i) {
-        GXColor color = timer_colors[i];
-        if (side) {
-            color.r = color.r * tint->r / 255;
-            color.g = color.g * tint->g / 255;
-            color.b = color.b * tint->b / 255;
-        }
-        timer_materials[i]->diffuse = color;
-    }
-}
-static void forget_timer(void) {
-    timer_root = 0;
-    timer_parts = 0;
-    timer_side = 0;
-}
-static void RandallTimer_Update(void) {
+/* Where the timer is: its root's height, and the edges of the joints it shows.
+ * 0 with no timer (none this match, or the last 5 seconds' countdown replaced
+ * it) or while the game hides it. */
+static int timer_map(TimerMap *m) {
     GOBJ *timer = stc_matchhud->timer_gobj;
     JOBJ *root = timer ? timer->hsd_object : 0;
-    if (root != timer_root) { /* A new timer, or none: the old one's materials went with it. */
-        forget_timer();
-        timer_root = root;
+    if (!root || root->flags & JOBJ_HIDDEN) return 0;
+    float left = 1e9f, right = -1e9f;
+    JOBJ *digit = root->child;
+    for (int i = 0; digit && i < RANDALL_TIMER_DIGITS; ++i, digit = digit->sibling) {
+        if (digit->flags & JOBJ_HIDDEN) continue;
+        Vec3 pos;
+        JOBJ_GetWorldPosition(digit, 0, &pos);
+        if (pos.X - timer_half_widths[i] < left) left = pos.X - timer_half_widths[i];
+        if (pos.X + timer_half_widths[i] > right) right = pos.X + timer_half_widths[i];
     }
-    if (!root) return;
-    int side = Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER) ? randall_side() : 0;
-    if (side == timer_side) return; /* Off, or unchanged: leave the timer alone. */
-    if (!timer_parts) save_timer(root); /* Still untinted, so these are its own colors. */
-    timer_side = side;
-    tint_timer(side);
+    if (!(right > left)) return 0;
+    Vec3 pos;
+    JOBJ_GetWorldPosition(root, 0, &pos);
+    m->x = (left + right) / 2;
+    m->y = pos.Y;
+    m->sx = (right - left) / 2 / RANDALL_TIMER_OUT_X;
+    m->sy = RANDALL_TIMER_LINE_Y / ((RANDALL_TIMER_TOP_Y - RANDALL_TIMER_BOTTOM_Y) / 2);
+    return 1;
+}
+/* Premultiplied, as GFX_AddVtx expects. */
+static GXColor premultiply(GXColor color, u8 alpha) {
+    return (GXColor){color.r * alpha / 255, color.g * alpha / 255, color.b * alpha / 255, alpha};
+}
+static GXColor shade(GXColor color, u8 behind_alpha, int behind) {
+    return premultiply(color, behind ? behind_alpha : color.a);
+}
+static float distance(Vec2 a, Vec2 b) {
+    return sqrtf((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+}
+/* Dots evenly spaced around the loop, dimmer behind the timer. */
+static void draw_track(const TimerMap *m) {
+    static Vec2 dots[RANDALL_TIMER_DOTS_MAX];
+    static u8 behind[RANDALL_TIMER_DOTS_MAX];
+    Vec2 points[RANDALL_PATH_POINTS];
+    float length = 0;
+    for (int i = 0; i < RANDALL_PATH_POINTS; ++i) {
+        points[i] = map_point(m, randall_path[i]);
+        if (i) length += distance(points[i - 1], points[i]);
+    }
+    int count = length / RANDALL_TIMER_DOT_SPACING;
+    if (count < 1) return;
+    if (count > RANDALL_TIMER_DOTS_MAX) count = RANDALL_TIMER_DOTS_MAX;
+    float step = length / count, start = 0, seg_length = distance(points[0], points[1]);
+    int seg = 0;
+    for (int i = 0; i < count; ++i) {
+        float at = i * step;
+        while (at > start + seg_length && seg < RANDALL_PATH_POINTS - 2) {
+            start += seg_length;
+            ++seg;
+            seg_length = distance(points[seg], points[seg + 1]);
+        }
+        float t = seg_length > 0 ? (at - start) / seg_length : 0;
+        if (t > 1) t = 1;
+        Vec2 a = randall_path[seg], b = randall_path[seg + 1];
+        dots[i] = map_point(m, (Vec2){a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t});
+        behind[i] = fabs(a.X + (b.X - a.X) * t) <= RANDALL_TIMER_OUT_X;
+    }
+    static const GXColor edge = RANDALL_TIMER_DOT_EDGE_COLOR, dot = RANDALL_TIMER_DOT_COLOR;
+    begin(count, GX_POINTS, RANDALL_TIMER_DOT_EDGE);
+    for (int i = 0; i < count; ++i)
+        GFX_AddVtx(dots[i].X, dots[i].Y, 0, shade(edge, RANDALL_TIMER_DOT_EDGE_BEHIND, behind[i]));
+    begin(count, GX_POINTS, RANDALL_TIMER_DOT_SIZE);
+    for (int i = 0; i < count; ++i)
+        GFX_AddVtx(dots[i].X, dots[i].Y, 0, shade(dot, RANDALL_TIMER_DOT_BEHIND, behind[i]));
+}
+/* The path segment nearest the cloud: the way it's going. */
+static int nearest_segment(Vec2 p) {
+    int best = 0;
+    float best_distance = 1e30f;
+    for (int i = 0; i < RANDALL_PATH_POINTS - 1; ++i) {
+        Vec2 a = randall_path[i], b = randall_path[i + 1];
+        float dx = b.X - a.X, dy = b.Y - a.Y, t = ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / (dx * dx + dy * dy);
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        float x = a.X + dx * t - p.X, y = a.Y + dy * t - p.Y, d = x * x + y * y;
+        if (t > 0.999f) d += 1e-4f; /* On a corner, the segment leaving it wins (frame 0 heads right). */
+        if (d < best_distance) {
+            best_distance = d;
+            best = i;
+        }
+    }
+    return best;
+}
+/* An arrow centered on c, pointing along u, as a head and a shaft. grow moves
+ * every edge out that far, for the outline under it. */
+static void arrow(Vec2 c, Vec2 u, float grow, GXColor color) {
+    const float L = RANDALL_TIMER_ARROW_LENGTH, H = RANDALL_TIMER_ARROW_HEAD, W = RANDALL_TIMER_ARROW_WIDTH;
+    const float side = sqrtf(H * H + W * W), base = L / 2 - H - grow;
+    const float tip = L / 2 + grow * side / W, wide = (grow * side + (H + grow) * W) / H;
+    const float shaft = RANDALL_TIMER_ARROW_SHAFT + grow, tail = -L / 2 - grow;
+    const Vec2 v = {-u.Y, u.X};
+    const Vec2 local[9] = {{tip, 0}, {base, wide}, {base, -wide},
+                           {tail, -shaft}, {base, shaft}, {tail, shaft},
+                           {tail, -shaft}, {base, -shaft}, {base, shaft}};
+    begin(9, GX_TRIANGLES, 0);
+    for (int i = 0; i < 9; ++i)
+        GFX_AddVtx(c.X + u.X * local[i].X + v.X * local[i].Y, c.Y + u.Y * local[i].X + v.Y * local[i].Y, 0, color);
+}
+static void draw_arrow(const TimerMap *m, Vec2 cloud) {
+    int seg = nearest_segment(cloud);
+    Vec2 a = map_point(m, randall_path[seg]), b = map_point(m, randall_path[seg + 1]);
+    float length = distance(a, b);
+    if (!(length > 0)) return;
+    Vec2 u = {(b.X - a.X) / length, (b.Y - a.Y) / length}, c = map_point(m, cloud);
+    int behind = fabs(cloud.X) <= RANDALL_TIMER_OUT_X;
+    static const GXColor edge = RANDALL_TIMER_ARROW_EDGE_COLOR, fill = RANDALL_TIMER_ARROW_COLOR;
+    arrow(c, u, RANDALL_TIMER_ARROW_EDGE, shade(edge, RANDALL_TIMER_ARROW_EDGE_BEHIND, behind));
+    arrow(c, u, 0, shade(fill, RANDALL_TIMER_ARROW_BEHIND, behind));
+}
+static void RandallTimer_GX(GOBJ *gobj, int pass) {
+    if (!live || pass != 0 || !Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER)) return;
+    GOBJ *map = randall();
+    JOBJ *cloud = map ? ((JOBJ *)map->hsd_object)->child : 0;
+    TimerMap m;
+    if (!cloud || !timer_map(&m)) return;
+    Vec3 pos;
+    JOBJ_GetWorldPosition(cloud, 0, &pos);
+    if (!(fabs(pos.X) < 1000 && fabs(pos.Y) < 1000)) return; /* Not a real position. */
+    draw_track(&m);
+    draw_arrow(&m, (Vec2){pos.X, pos.Y});
 }
 static void StageOverlay_GX(GOBJ *gobj, int pass) {
     if (!live || pass != 2) return;
     if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES)) BlastZones_Draw();
     if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL)) Randall_Draw();
-    RandallTimer_Update(); /* Also puts the colors back once it's turned off. */
 }
 void StageOverlay_SceneChange(void) {
     live = 0;
-    manager = 0; /* Native scene cleanup owns the old GOBJ. */
-    forget_timer(); /* And the old timer. */
+    manager = 0; /* Native scene cleanup owns the old GOBJs. */
 }
 void StageOverlay_MatchStart(void) {
     if (manager) return;
-    forget_timer();
     live = 1;
     manager = GObj_Create(0, 7, 0);
     if (!manager) { live = 0; return; }
     GObj_AddGXLink(manager, StageOverlay_GX, 5, 0);
+    GOBJ *hud = GObj_Create(0, 7, 0); /* The Randall Timer, in the HUD camera. */
+    if (hud) GObj_AddGXLink(hud, RandallTimer_GX, RANDALL_TIMER_GXLINK, 0);
 }

@@ -111,7 +111,7 @@ enum TMSettingsFlag {
     TM_FLAG_BLAST_ZONES, /* TYEX word 20 bit 23: red lines on every stage's blast zones. */
     TM_FLAG_INVINCIBILITY_ENDING, /* TYEX word 80 bit 6 (T10): Invincibility Stoplight, red then yellow. */
     TM_FLAG_DEBUG_CONSOLE_OFF, /* TYEX word 80 bit 9 (T10): L/R + Z never opens the development console. */
-    TM_FLAG_RANDALL_TIMER, /* TYEX word 80 bit 20 (T10): Yoshi's Story's match timer shows Randall's side. */
+    TM_FLAG_RANDALL_TIMER, /* TYEX word 80 bit 20 (T10): Yoshi's Story's match timer maps Randall's loop. */
 };
 /* Flags whose bit lives in the extension, not the full core record. */
 #define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS || \

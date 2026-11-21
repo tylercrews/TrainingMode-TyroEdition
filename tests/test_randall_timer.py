@@ -1,16 +1,17 @@
-"""The Randall Timer: Yoshi's Story's match timer shows which side Randall is out on.
+"""The Randall Timer: a map of Randall's loop through Yoshi's Story's match timer.
 
 python tests/test_randall_timer.py -v
 Builds tests/randall_timer_probe.c, which includes the production
 src/stage_overlay_game.c, and runs it as PowerPC code. The stage, Randall's
-cloud joint, the settings and the timer's joints are fixtures. With melee.iso
-at the repo root, it also checks the research the overlay rests on: Randall's
-path and the stage walls in GrSt.dat, the timer's materials in IfAll.usd, and
-where the game keeps the timer's GObj.
+cloud joint, the settings and the timer's joints are fixtures, and the GX FIFO
+writes are recorded, so this checks what the overlay asks the GPU to draw, not
+the picture. With melee.iso at the repo root, it also checks the research the
+overlay rests on: Randall's path and the stage walls in GrSt.dat, the timer's
+joints and the HUD camera in IfAll.usd, and where the game keeps the timer.
+It drives the map through a whole lap of Randall's real path, frame by frame.
 """
 from pathlib import Path
 import math
-import re
 import struct
 import subprocess
 import sys
@@ -18,12 +19,21 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "build/test-deps"))
+from unicorn import UC_HOOK_MEM_WRITE
 from test_score_storage import NativeMachine
 
 ELF = ROOT / "build/randall-timer-test.elf"
-FLAGS, EXTERNAL, INTERNAL, MAP, TIMER, MAP_INDEX, CLOUD, REBUILD = range(8)
-WHITE, GRAY, PART0 = 0xFFFFFFFF, 0xB3B3B3FF, 0x8040207F
+FIFO = 0xCC008000
+GX_TRIANGLES, GX_POINTS = 0x90, 0xB8
+FLAGS, EXTERNAL, INTERNAL, MAP, TIMER, MAP_INDEX, CLOUD, TIMER_FLAGS = range(8)
 LEFT, RIGHT = -1, 1
+# IfAll's ScInfTim: the root at ScInfDmg's joint 13, and its ten joints in
+# ifTime's order (hour and minute separators, hours, minutes, centiseconds,
+# seconds). The hours and their separator are hidden until an hour.
+VANILLA_TIMER = (0.0, 17.65)
+VANILLA_DIGITS = [(-7.7, 0.0), (-1.3, 0.0), (-12.2, 0.0), (-9.6, 0.0), (-5.8, 0.0),
+                  (-3.2, 0.0), (6.1, -0.3), (8.05, -0.3), (0.6, 0.0), (3.2, 0.0)]
+HOURS = (0, 2, 3)
 
 
 def build():
@@ -34,6 +44,19 @@ def build():
         "-Wl,-Ttext=0x80600000,-e,TestInit,--unresolved-symbols=ignore-all",
         "tests/randall_timer_probe.c", "-o", str(ELF)
     ], cwd=ROOT, check=True)
+
+
+def bits(value):
+    return struct.unpack(">I", struct.pack(">f", value))[0]
+
+
+def f32(word):
+    return struct.unpack(">f", struct.pack(">I", word))[0]
+
+
+def premultiply(rgba, alpha):
+    r, g, b = rgba >> 24, rgba >> 16 & 255, rgba >> 8 & 255
+    return (r * alpha // 255, g * alpha // 255, b * alpha // 255, alpha)
 
 
 class Machine(NativeMachine):
@@ -53,47 +76,97 @@ class Machine(NativeMachine):
                 for index in range(0, size, entry):
                     name, value, *_ = struct.unpack_from(">IIIBBH", elf, at + index)
                     self.symbols[names[name:].split(b"\0", 1)[0].decode()] = value
+        self.cpu.mem_map(0xCC000000, 0x10000)
+        self.fifo = []
+        self.cpu.hook_add(UC_HOOK_MEM_WRITE, self.write, begin=FIFO, end=FIFO + 3)
         self.fn("TestInit")
-        self.parts = self.fn("TestInfo", 3)
+        self.timer(*VANILLA_TIMER)
+        self.out, self.top, self.bottom, self.line, self.spacing, self.length, self.edge = (
+            f32(self.fn("TestConstant", i)) for i in range(7))
+        self.halves = [f32(self.fn("TestHalfWidth", i)) for i in range(10)]
+
+    def write(self, uc, access, address, size, value, data):
+        self.fifo.append((size, value & 0xFFFFFFFF))
 
     def fn(self, name, *args):
         return self.call(self.symbols[name], *args)
 
     def info(self, what):
-        value = self.fn("TestInfo", what)
-        return value - (1 << 32) if value & 0x80000000 else value
+        return self.fn("TestInfo", what)
 
-    def colors(self, timer=0):
-        return [self.fn("TestColor", timer, part) for part in range(self.parts)]
+    def timer(self, x, y, digits=VANILLA_DIGITS, hours=False):
+        self.fn("TestTimer", bits(x), bits(y))
+        for i, (dx, dy) in enumerate(digits):
+            self.fn("TestDigit", i, bits(dx), bits(dy), int(i in HOURS and not hours))
 
-    def frame(self, x=None):
-        if x is not None:
-            self.fn("TestCloud", round(x * 100) & 0xFFFFFFFF)
-        self.fn("TestDraw", 2)
+    def cloud(self, x, y):
+        self.fn("TestCloud", bits(x), bits(y))
+
+    def draws(self, entry="TestDraw", *args):
+        """Each GXBegin's (shape, point size, depth compare, depth update, vertices)."""
+        self.fifo = []
+        self.fn(entry, *args)
+        stream, out = list(self.fifo), []
+        for i in range(self.fn("TestBegins")):
+            shape, count, size, compare, update = (self.fn("TestBegin", i, w) for w in range(5))
+            vertices = []
+            for _ in range(count):
+                (s0, x), (s1, y), (s2, z) = stream[:3]
+                rgba = tuple(value for _, value in stream[3:7])
+                assert (s0, s1, s2) == (4, 4, 4) and all(s == 1 for s, _ in stream[3:7])
+                vertices.append((f32(x), f32(y), f32(z), rgba))
+                stream = stream[7:]
+            out.append((shape, size, compare, update, vertices))
+        assert not stream, "every vertex belongs to a GXBegin"
+        return out
+
+    def draw(self, x, y, render_pass=0):
+        self.cloud(x, y)
+        return self.draws("TestDraw", render_pass)
+
+    def arrow(self, x, y):
+        """The fill's center, direction and color, and the outline's color."""
+        self.cloud(x, y)
+        draws = self.draws("TestArrow")
+        return arrow_of(draws, self.length)
 
 
-def untinted():
-    return [PART0] + [GRAY] * 2 + [WHITE] * 10
+def arrow_of(draws, length):
+    (_, _, _, _, edge), (_, _, _, _, fill) = draws[-2:]
+    tip = fill[0][:2]
+    tail = ((fill[3][0] + fill[5][0]) / 2, (fill[3][1] + fill[5][1]) / 2)
+    center = ((tip[0] + tail[0]) / 2, (tip[1] + tail[1]) / 2)
+    direction = ((tip[0] - tail[0]) / length, (tip[1] - tail[1]) / length)
+    return center, direction, fill[0][3], edge[0][3]
 
 
-def tinted(tint):
-    def times(color):
-        channels = [(color >> s & 255) * (tint >> s & 255) // 255 for s in (24, 16, 8)]
-        return channels[0] << 24 | channels[1] << 16 | channels[2] << 8 | (color & 255)
-    colors = [times(c) for c in untinted()]
-    colors[12] = WHITE  # The spline joint's "DObj" is never touched.
-    return colors
+def timer_edges(m, timer=VANILLA_TIMER, digits=VANILLA_DIGITS, hours=False):
+    shown = [i for i in range(10) if hours or i not in HOURS]
+    left = min(timer[0] + digits[i][0] - m.halves[i] for i in shown)
+    right = max(timer[0] + digits[i][0] + m.halves[i] for i in shown)
+    return left, right
 
 
-def f32(bits):
-    return struct.unpack(">f", struct.pack(">I", bits))[0]
+def mapping(m, timer=VANILLA_TIMER, **kw):
+    """Stage units to the HUD camera's, as the overlay should map them."""
+    left, right = timer_edges(m, timer, **kw)
+    cx, sx = (left + right) / 2, (right - left) / 2 / m.out
+    sy, mid = m.line / ((m.top - m.bottom) / 2), (m.top + m.bottom) / 2
+    return lambda x, y: (cx + x * sx, timer[1] + (y - mid) * sy)
 
 
-def palette():
-    """OSD_PaletteColor's table, from src/osd_style.c."""
-    source = (ROOT / "src/osd_style.c").read_text()
-    table = source[source.index("palette[] = {"):source.index("};", source.index("palette[] = {"))]
-    return [int(word, 16) for word in re.findall(r"0x([0-9A-Fa-f]{8})", table)]
+def path(m):
+    return [(f32(m.fn("TestPath", i, 0)), f32(m.fn("TestPath", i, 1))) for i in range(m.info(5))]
+
+
+def off_track(point, polyline):
+    """How far a point is from a polyline."""
+    best = math.inf
+    for a, b in zip(polyline, polyline[1:]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        t = max(0, min(1, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / (dx * dx + dy * dy)))
+        best = min(best, math.dist(point, (a[0] + dx * t, a[1] + dy * t)))
+    return best
 
 
 class RandallTimerTests(unittest.TestCase):
@@ -103,127 +176,173 @@ class RandallTimerTests(unittest.TestCase):
 
     def setUp(self):
         self.m = Machine()
-        self.left, self.right, out = (self.m.fn("TestConstant", i) for i in range(3))
-        self.out = f32(out)
+        self.colors = [self.m.fn("TestColor", i) for i in range(8)]
 
-    def test_colors_are_the_palettes_purple_and_teal(self):
-        colors = palette()
-        self.assertEqual((self.left, self.right), (colors[10], colors[11]))  # TM_COLOR_PURPLE, TM_COLOR_TEAL
-        self.assertEqual((self.left, self.right), (0xA064FFFF, 0x00B4A0FF))
-        self.assertEqual(self.m.info(5), 14)  # TM_FLAG_RANDALL_TIMER, the flag the settings tests save.
+    def assertNear(self, a, b, places=4):
+        for x, y in zip(a, b):
+            self.assertAlmostEqual(x, y, places=places)
 
-    def test_left_is_purple_right_is_teal_and_behind_the_stage_is_untinted(self):
-        m, out = self.m, self.out
-        for x, side in ((-97.5, LEFT), (-out - 0.01, LEFT), (-out + 0.01, 0), (0, 0), (out - 0.01, 0),
-                        (out + 0.01, RIGHT), (97.5, RIGHT), (-out - 0.01, LEFT), (0, 0)):
+    def test_it_draws_dots_under_an_outlined_arrow_with_depth_off(self):
+        m = self.m
+        draws = m.draw(0, m.bottom)
+        self.assertEqual([d[0] for d in draws], [GX_POINTS, GX_POINTS, GX_TRIANGLES, GX_TRIANGLES])
+        self.assertEqual([d[1] for d in draws[:2]], [m.info(9), m.info(8)])  # A dark dot under each light one.
+        self.assertEqual((m.info(9), m.info(8)), (24, 12))  # 4 and 2 pixels.
+        self.assertEqual(len(draws[0][4]), len(draws[1][4]))
+        self.assertEqual([len(d[4]) for d in draws[2:]], [9, 9])  # Head and shaft, outline then fill.
+        self.assertTrue(all(d[2] == 0 and d[3] == 0 for d in draws))  # No depth test or write.
+        self.assertTrue(all(v[2] == 0 for d in draws for v in d[4]))  # The timer's plane.
+
+    def test_the_timer_is_the_stage_between_its_walls(self):
+        m = self.m
+        left, right = timer_edges(m)
+        self.assertAlmostEqual(left, -5.8 - 1.30078125, places=5)  # Minutes' tens...
+        self.assertAlmostEqual(right, 8.05 + 0.98828125, places=5)  # ...to the small centiseconds.
+        to_hud = mapping(m)
+        for x, y in ((-m.out, m.bottom), (m.out, m.bottom), (m.out, m.top), (-m.out, m.top), (0, m.bottom),
+                     (97.475, -28.7), (-97.475, -28.7), (-95.725, m.bottom), (30, m.top)):
+            with self.subTest(x=x, y=y):
+                center, *_ = m.arrow(x, y)
+                self.assertNear(center, to_hud(x, y))
+        self.assertAlmostEqual(m.arrow(-m.out, m.bottom)[0][0], left, places=4)
+        self.assertAlmostEqual(m.arrow(m.out, m.top)[0][0], right, places=4)
+
+    def test_both_lines_run_through_the_numbers(self):
+        m = self.m
+        bottom = m.arrow(0, m.bottom)[0][1]
+        top = m.arrow(0, m.top)[0][1]
+        self.assertAlmostEqual(bottom, VANILLA_TIMER[1] - m.line, places=4)
+        self.assertAlmostEqual(top, VANILLA_TIMER[1] + m.line, places=4)
+        self.assertLess(m.line, 1.30078125)  # Inside the big digits' height.
+
+    def test_the_arrow_points_the_way_randall_moves(self):
+        m = self.m
+        for (x, y), want in (((0, m.bottom), (1, 0)), ((-90, m.bottom), (1, 0)), ((0, m.top), (-1, 0)),
+                             ((90, m.top), (-1, 0)), ((97.475, -28.7), (0, 1)), ((-97.475, -28.7), (0, -1))):
+            with self.subTest(x=x, y=y):
+                _, direction, *_ = m.arrow(x, y)
+                self.assertNear(direction, want, places=4)
+        # Rounding the bottom-right corner: right and up at once.
+        _, (dx, dy), *_ = m.arrow(97.2, -37.4)
+        self.assertGreater(dx, 0.05)
+        self.assertGreater(dy, 0.05)
+        self.assertAlmostEqual(math.hypot(dx, dy), 1, places=4)
+
+    def test_the_arrow_is_faint_behind_the_timer_and_solid_past_it(self):
+        m, c = self.m, self.colors
+        solid = (premultiply(c[0], c[0] & 255), premultiply(c[1], c[1] & 255))
+        faint = (premultiply(c[0], c[4]), premultiply(c[1], c[5]))
+        self.assertEqual(solid[0], (235, 40, 40, 255))  # Red.
+        self.assertLess(faint[0][3], solid[0][3] // 2)  # Much more see-through, but there.
+        self.assertGreater(faint[0][3], 0)
+        for x, want in ((-m.out - 0.01, solid), (-m.out + 0.01, faint), (0, faint), (m.out - 0.01, faint),
+                        (m.out + 0.01, solid), (-97.475, solid), (97.475, solid)):
             with self.subTest(x=x):
-                m.frame(x)
-                self.assertEqual(m.info(1), side)
-                want = untinted() if not side else tinted(self.left if side == LEFT else self.right)
-                self.assertEqual(m.colors(), want)
-        self.assertEqual(m.colors(1), untinted())  # The other timer isn't the match's.
+                _, _, fill, edge = m.arrow(x, m.bottom if abs(x) < 97 else -28.7)
+                self.assertEqual((fill, edge), want)
 
-    def test_white_digits_become_the_tint_and_gray_separators_keep_their_shading(self):
-        m = self.m
-        m.frame(-80)
-        colors = m.colors()
-        self.assertEqual(colors[3:11], [self.left] * 8)
-        self.assertEqual(colors[1], 0x70 << 24 | 0x46 << 16 | 0xB3 << 8 | 0xFF)  # 0xB3 times purple.
-        self.assertEqual(colors[0] & 255, 0x7F)  # Alpha is the material's own.
+    def test_the_dots_run_evenly_around_the_whole_loop(self):
+        m, c = self.m, self.colors
+        to_hud = mapping(m)
+        loop = [to_hud(*p) for p in path(m)]
+        length = sum(math.dist(a, b) for a, b in zip(loop, loop[1:]))
+        edges, dots = (d[4] for d in m.draw(0, m.bottom)[:2])
+        self.assertEqual(len(dots), int(length / m.spacing))
+        self.assertEqual([v[:2] for v in edges], [v[:2] for v in dots])
+        self.assertNear(dots[0][:2], loop[0])  # From where Randall starts.
+        for dot in dots:
+            self.assertLess(off_track(dot[:2], loop), 1e-3)
+        gaps = [math.dist(a[:2], b[:2]) for a, b in zip(dots, dots[1:] + dots[:1])]
+        # Evenly spaced along the loop; straight-line gaps only shrink across a corner.
+        self.assertAlmostEqual(max(gaps), length / len(dots), places=3)
+        self.assertGreater(min(gaps), 0.6 * length / len(dots))
+        # Both lines, and the joins past the timer.
+        ys = sorted({round(v[1], 3) for v in dots})
+        self.assertAlmostEqual(ys[0], VANILLA_TIMER[1] - m.line, places=3)
+        self.assertAlmostEqual(ys[-1], VANILLA_TIMER[1] + m.line, places=3)
+        left, right = timer_edges(m)
+        xs = [v[0] for v in dots]
+        self.assertLess(min(xs), left - 0.8 * (left - to_hud(-97.475, 0)[0]))
+        self.assertGreater(max(xs), right + 0.8 * (to_hud(97.475, 0)[0] - right))
+        # Dimmer behind the numbers.
+        for edge, dot in zip(edges, dots):
+            behind = left <= dot[0] <= right
+            self.assertEqual(dot[3], premultiply(c[2], c[6] if behind else c[2] & 255))
+            self.assertEqual(edge[3], premultiply(c[3], c[7] if behind else c[3] & 255))
+        self.assertTrue(any(left <= v[0] <= right for v in dots) and any(v[0] < left for v in dots))
 
-    def test_off_never_touches_the_timer_or_looks_for_randall(self):
+    def test_an_hour_widens_the_timer_and_the_map(self):
         m = self.m
-        m.fn("TestSet", FLAGS, 0)
-        for x in (-80, 0, 80):
-            m.frame(x)
-        self.assertEqual(m.colors(), untinted())
-        self.assertEqual((m.info(0), m.info(2)), (0, 0))  # No position read, nothing saved.
+        m.timer(*VANILLA_TIMER, hours=True)
+        left, right = timer_edges(m, hours=True)
+        self.assertAlmostEqual(left, -12.2 - 1.30078125, places=5)  # The hours' tens.
+        self.assertAlmostEqual(m.arrow(-m.out, m.bottom)[0][0], left, places=4)
+        self.assertAlmostEqual(m.arrow(m.out, m.bottom)[0][0], right, places=4)
 
-    def test_turning_it_off_puts_the_timers_own_colors_back(self):
+    def test_the_map_follows_the_timer(self):
         m = self.m
-        m.frame(80)
-        self.assertEqual(m.colors(), tinted(self.right))
-        m.fn("TestSet", FLAGS, 0)
-        m.frame()
-        self.assertEqual(m.colors(), untinted())
-        self.assertEqual(m.info(1), 0)
-        # And back on while Randall is still out.
-        m.fn("TestSet", FLAGS, 1 << 14)
-        m.frame()
-        self.assertEqual(m.colors(), tinted(self.right))
+        m.timer(5.0, 10.0)
+        to_hud = mapping(m, timer=(5.0, 10.0))
+        for x, y in ((-m.out, m.bottom), (60, m.top), (97.475, -28.7)):
+            self.assertNear(m.arrow(x, y)[0], to_hud(x, y))
 
-    def test_it_writes_only_when_the_side_changes(self):
+    def test_a_huge_timer_keeps_the_dots_in_their_buffer(self):
         m = self.m
-        m.frame(80)
-        m.fn("TestSetColor", 0, 5, 0x12345678)  # Something else colors a digit.
-        m.frame(81)
-        self.assertEqual(m.fn("TestColor", 0, 5), 0x12345678)
-        m.frame(-81)
-        self.assertEqual(m.colors(), tinted(self.left))
+        m.timer(0.0, 0.0, digits=[(-200.0 + 40 * i, 0.0) for i in range(10)], hours=True)
+        edges, dots = (d[4] for d in m.draw(0, m.bottom)[:2])
+        self.assertEqual(len(dots), m.info(7))
+        self.assertEqual(len(edges), m.info(7))
 
-    def test_other_stages_do_nothing(self):
-        m = self.m
-        m.fn("TestSet", EXTERNAL, m.info(8))  # Battlefield.
-        m.fn("TestSet", INTERNAL, 0)
-        for x in (-80, 80):
-            m.frame(x)
-        self.assertEqual(m.colors(), untinted())
-        self.assertEqual((m.info(0), m.info(1), m.info(2)), (0, 0, 0))
+    def test_nothing_draws_without_everything_it_needs(self):
+        cases = (
+            ("off", FLAGS, 0), ("Battlefield", EXTERNAL, None), ("no map GObj (hazards off)", MAP, 0),
+            ("not Randall's GObj", MAP_INDEX, 3), ("no cloud joint", CLOUD, 0), ("no timer", TIMER, 0),
+            ("hidden timer", TIMER_FLAGS, None),
+        )
+        for name, what, value in cases:
+            with self.subTest(name):
+                m = Machine()
+                if what == EXTERNAL:
+                    m.fn("TestSet", EXTERNAL, m.info(3))
+                    m.fn("TestSet", INTERNAL, 0)
+                else:
+                    m.fn("TestSet", what, m.info(10) if what == TIMER_FLAGS else value)
+                self.assertEqual(m.draw(80, m.bottom), [])
+                self.assertEqual(m.fifo, [])
+        with self.subTest("no digit showing"):
+            m = Machine()
+            for i in range(10):
+                m.fn("TestDigit", i, 0, 0, 1)
+            self.assertEqual(m.draw(80, m.bottom), [])
+        for render_pass in (1, 2):
+            with self.subTest(render_pass=render_pass):
+                m = Machine()
+                self.assertEqual(m.draw(80, m.bottom, render_pass), [])  # Pass 0 only, before the numbers.
+        with self.subTest("after a scene change"):
+            m = Machine()
+            m.fn("TestSceneChange")
+            self.assertEqual(m.draw(80, m.bottom), [])
+        with self.subTest("no real position"):
+            m = Machine()
+            m.fn("TestCloud", 0x7FC00000, bits(m.bottom))  # NaN.
+            self.assertEqual(m.draws("TestDraw", 0), [])
 
-    def test_no_randall_reads_as_behind_the_stage(self):
+    def test_match_start_adds_a_stage_callback_and_a_hud_one(self):
         m = self.m
-        for what, value in ((MAP, 0), (MAP_INDEX, 3), (CLOUD, 0)):
-            with self.subTest(what=what):
-                m.fn("TestInit")
-                m.frame(80)
-                self.assertEqual(m.colors(), tinted(self.right))
-                m.fn("TestSet", what, value)  # Hazards removed it, or it isn't Randall.
-                m.frame(80)
-                self.assertEqual(m.colors(), untinted())
-                self.assertEqual(m.info(1), 0)
-
-    def test_no_timer_does_nothing(self):
-        m = self.m
-        m.fn("TestSet", TIMER, -1 & 0xFFFFFFFF)
-        m.frame(80)
-        self.assertEqual((m.info(0), m.info(2)), (0, 0))
-        self.assertEqual(m.colors(), untinted())
-
-    def test_a_new_timer_saves_its_own_colors_and_forgets_the_old_one(self):
-        m = self.m
-        m.frame(80)
-        m.fn("TestSet", TIMER, 1)
-        m.fn("TestSetColor", 1, 3, 0x204060FF)  # The new timer's own color.
-        m.frame(80)
-        self.assertEqual(m.colors(0), tinted(self.right))  # The old one is left alone.
-        self.assertEqual(m.fn("TestColor", 1, 3), (0x20 * 0 // 255) << 24 | (0x40 * 0xB4 // 255) << 16 |
-                         (0x60 * 0xA0 // 255) << 8 | 0xFF)
-        m.frame(0)
-        self.assertEqual(m.fn("TestColor", 1, 3), 0x204060FF)
-
-    def test_a_scene_change_forgets_the_timer_even_at_the_same_address(self):
-        m = self.m
-        m.frame(-80)
         m.fn("TestSceneChange")
-        m.fn("TestSet", REBUILD, 0)  # A fresh timer where the old one was.
-        m.frame(-80)  # Still out on the left: it has to tint again.
-        self.assertEqual(m.colors(), tinted(self.left))
-        m.frame(0)
-        self.assertEqual(m.colors(), untinted())
+        m.fn("TestMatchStart")
+        self.assertEqual(m.fn("TestGObjs"), 2)
+        links = [tuple(m.fn("TestLink", i, w) for w in range(4)) for i in range(m.fn("TestLinks"))]
+        self.assertEqual(links, [(0, 1, 5, 0), (1, 2, m.info(6), 0)])  # StageOverlay_GX, RandallTimer_GX.
+        self.assertEqual(m.info(6), 8)
+        self.assertEqual(m.info(11), 1)
+        m.fn("TestMatchStart")  # Once per match.
+        self.assertEqual(m.fn("TestGObjs"), 2)
+        m.draws("TestStageGX", 2)  # The stage callback has nothing of the timer's.
+        self.assertEqual(m.fn("TestBegins"), 0)
 
-    def test_saves_every_material_in_the_tree_up_to_its_room(self):
-        m = self.m
-        m.frame(80)
-        self.assertEqual(m.info(2), 12)  # 10 joints, the nested child's two, not the spline.
-        self.assertLessEqual(12, m.info(4))
-
-    def test_only_the_last_render_pass_runs_it(self):
-        m = self.m
-        m.fn("TestCloud", 8000)
-        for render_pass in (0, 1, 3):
-            m.fn("TestDraw", render_pass)
-        self.assertEqual(m.colors(), untinted())
-        self.assertEqual(m.info(0), 0)
+    def test_the_flag_is_the_one_the_settings_tests_save(self):
+        self.assertEqual(self.m.info(0), 14)  # TM_FLAG_RANDALL_TIMER
 
 
 # --- melee.iso research checks ---------------------------------------------
@@ -257,6 +376,9 @@ class Dat:
 
     def word(self, at):
         return struct.unpack_from(">I", self.data, 32 + at)[0]
+
+    def half(self, at):
+        return struct.unpack_from(">H", self.data, 32 + at)[0]
 
     def floats(self, at, count):
         return struct.unpack_from(f">{count}f", self.data, 32 + at)
@@ -312,13 +434,14 @@ def randall_path():
     tx, ty = dat.floats(spline_joint + 0x2C, 2)
     scale = dat.floats(dat.roots["grGroundParam"], 1)[0]
 
+    def turn(x, y):
+        return (tx + x * math.cos(rz) - y * math.sin(rz), ty + x * math.sin(rz) + y * math.cos(rz))
+
     def place(u):
         for i in range(cv_count - 1):
             if lengths[i] <= u <= lengths[i + 1]:
                 t = (u - lengths[i]) / (lengths[i + 1] - lengths[i])
-                x = cvs[i][0] + (cvs[i + 1][0] - cvs[i][0]) * t
-                y = cvs[i][1] + (cvs[i + 1][1] - cvs[i][1]) * t
-                return (tx + x * math.cos(rz) - y * math.sin(rz), ty + x * math.sin(rz) + y * math.cos(rz))
+                return turn(cvs[i][0] + (cvs[i + 1][0] - cvs[i][0]) * t, cvs[i][1] + (cvs[i + 1][1] - cvs[i][1]) * t)
         raise AssertionError(u)
 
     def param(frame):
@@ -331,6 +454,7 @@ def randall_path():
     return {
         "dat": dat, "flags": flags, "end": end, "kind": kind, "keys": keys, "spline_kind": spline_kind,
         "cvs": cvs, "lengths": lengths, "scale": scale, "rest": rest, "start": place(0),
+        "points": [tuple(scale * c for c in turn(*cv)) for cv in cvs],
         "frames": [tuple(scale * c for c in place(param(f))) for f in range(int(end))],
     }
 
@@ -352,13 +476,35 @@ def windows(path, out):
     return [tuple(run) for run in runs]
 
 
+def quad_half_width(dat, joint):
+    """Half the X span of a joint's first PObj, read through its display list."""
+    pobj = dat.word(dat.word(joint + 0x10) + 0xC)
+    attrs, at = [], dat.word(pobj + 8)
+    while dat.word(at) != 0xFF:  # GX_VA_NULL ends the list.
+        attr, kind, count, comp = struct.unpack_from(">4I", dat.data, 32 + at)
+        attrs.append((attr, kind, count, comp, dat.data[32 + at + 0x10], dat.half(at + 0x12), dat.word(at + 0x14)))
+        at += 0x18
+    raw = dat.bytes(dat.word(pobj + 0x10), dat.half(pobj + 0xE) * 32)
+    count, at, xs = struct.unpack_from(">H", raw, 1)[0], 3, []
+    for _ in range(count):
+        for attr, kind, comps, comp, frac, stride, data in attrs:
+            assert kind == 2, "GX_INDEX8"
+            if attr == 9:  # GX_VA_POS, s16 fixed point
+                assert comp == 3
+                x = struct.unpack_from(">h", dat.data, 32 + data + raw[at] * stride)[0] / (1 << frac)
+                xs.append(x)
+            at += 1
+    return (max(xs) - min(xs)) / 2
+
+
 @unittest.skipUnless((ROOT / "melee.iso").exists(), "needs a vanilla melee.iso at the repo root")
 class IsoTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.path = randall_path()
         build()
-        cls.out = f32(Machine().fn("TestConstant", 2))
+        m = Machine()
+        cls.out = m.out
 
     def test_randall_loops_a_linear_path_at_constant_speed_every_20_seconds(self):
         p = self.path
@@ -373,6 +519,18 @@ class IsoTests(unittest.TestCase):
             self.assertAlmostEqual(length, sum(steps[:i]) / total, places=3)
         for axis in (0, 1):
             self.assertAlmostEqual(p["start"][axis], p["rest"][axis], places=3)  # The cloud's rest position.
+
+    def test_the_overlays_path_is_randalls_spline(self):
+        m = Machine()
+        table = path(m)
+        self.assertEqual(len(table), len(self.path["points"]))
+        for mine, real in zip(table, self.path["points"]):
+            for a, b in zip(mine, real):
+                self.assertAlmostEqual(a, b, places=4)
+        self.assertEqual(table[0], table[-1])  # A closed loop...
+        self.assertAlmostEqual(table[0][0], self.path["frames"][0][0], places=3)  # ...from where frame 0 is.
+        ys = {round(y, 3) for _, y in table}
+        self.assertEqual((min(ys), max(ys)), (round(m.bottom, 3), round(m.top, 3)))
 
     def test_randall_is_out_about_5_seconds_on_each_side_once_a_loop(self):
         runs = windows(self.path["frames"], self.out)
@@ -419,48 +577,84 @@ class IsoTests(unittest.TestCase):
                 y = frames[frame][1] / scale
                 self.assertAlmostEqual(wall(y, side) * scale, side * self.out, places=4)
 
-    def test_the_timer_digits_are_textures_times_their_materials_color(self):
+    def test_a_lap_on_the_map_takes_as_long_behind_the_timer_as_behind_the_stage(self):
+        m, frames = Machine(), self.path["frames"]
+        to_hud = mapping(m)
+        loop = [to_hud(*p) for p in path(m)]
+        left, right = timer_edges(m)
+        faint = premultiply(m.fn("TestColor", 0), m.fn("TestColor", 4))
+        arrows = [m.arrow(x, y) for x, y in frames]
+        where = []
+        for frame, ((cx, cy), direction, fill, _) in enumerate(arrows):
+            with self.subTest(frame=frame):
+                self.assertLess(off_track((cx, cy), loop), 1e-3)  # On the track the dots draw.
+                nxt = to_hud(*frames[(frame + 1) % len(frames)])
+                step = (nxt[0] - cx, nxt[1] - cy)
+                # It points the way Randall goes next, within 60 degrees: on a
+                # corner it turns one short segment at a time.
+                self.assertGreater(direction[0] * step[0] + direction[1] * step[1], 0.5 * math.hypot(*step))
+                inside = left <= cx <= right
+                self.assertEqual(fill == faint, inside)
+                where.append(0 if inside else LEFT if cx < left else RIGHT)
+        stage = [0 if abs(x) <= self.out else LEFT if x < 0 else RIGHT for x, _ in frames]
+        self.assertEqual(where, stage)  # Frame for frame.
+        self.assertEqual(stage.count(0), 2 * 297)
+        self.assertEqual((stage.count(LEFT), stage.count(RIGHT)), (303, 303))
+        # Frame 0: Randall's start, the bottom-left corner, heading right toward the stage.
+        (cx, cy), direction, *_ = arrows[0]
+        for a, b in zip((cx, cy), to_hud(*frames[0])):
+            self.assertAlmostEqual(a, b, places=4)
+        self.assertAlmostEqual(direction[0], 1, places=4)
+
+    def test_the_timer_joints_are_where_the_overlay_measures_them(self):
+        m = Machine()
         dat = Dat("IfAll.usd")
-        models = dat.roots["ScInfTim_scene_models"]
-        model = dat.word(models)
-        materials = []
+        root = dat.word(dat.word(dat.roots["ScInfTim_scene_models"]))
+        self.assertEqual(dat.floats(root + 0x2C, 3), (0.0, 0.0, 0.0))
+        joint, joints = dat.word(root + 8), []
+        while joint:
+            joints.append(joint)
+            joint = dat.word(joint + 0xC)
+        self.assertEqual(len(joints), m.info(4))
+        for i, joint in enumerate(joints):
+            with self.subTest(joint=i):
+                x, y, _ = dat.floats(joint + 0x2C, 3)
+                self.assertAlmostEqual(x, VANILLA_DIGITS[i][0], places=4)
+                self.assertAlmostEqual(y, VANILLA_DIGITS[i][1], places=4)
+                self.assertEqual(dat.floats(joint + 0x20, 3), (1.0, 1.0, 1.0))
+                self.assertEqual(quad_half_width(dat, joint), m.halves[i])
+        # The root goes where ScInfDmg's joint 13 is (ifAll_802F370C, ifTime_CreateTimers).
+        scene = dat.word(dat.word(dat.roots["ScInfDmg_scene_data"]))
+        order = []
 
-        def walk(joint):
-            while joint:
-                if not dat.word(joint + 4) & 0x4020:
-                    dobj = dat.word(joint + 0x10)
-                    while dobj:
-                        mobj = dat.word(dobj + 8)
-                        render, tobj, mat = dat.word(mobj + 4), dat.word(mobj + 8), dat.word(mobj + 0xC)
-                        colormaps = []
-                        while tobj:
-                            colormaps.append(dat.word(tobj + 0x40) >> 16 & 0xF)
-                            tev = dat.word(tobj + 0x58)
-                            self.assertEqual(dat.word(tev + 0x1C) if tev else 0, 0)  # Custom TEV inactive.
-                            tobj = dat.word(tobj + 4)
-                        materials.append((render & 3, colormaps, dat.word(mat + 4)))
-                        dobj = dat.word(dobj + 4)
-                walk(dat.word(joint + 8))
-                joint = dat.word(joint + 0xC)
+        def walk(j):
+            while j:
+                order.append(j)
+                walk(dat.word(j + 8))
+                j = dat.word(j + 0xC)
 
-        walk(dat.word(model))
-        self.assertEqual(len(materials), 10)
-        self.assertTrue(all(render == 1 for render, _, _ in materials))  # RENDER_CONSTANT: the material's color.
-        digits = [m for m in materials if m[1] == [4]]  # TEX_COLORMAP_MODULATE
-        self.assertEqual([m[2] for m in digits], [WHITE] * 8)
-        self.assertEqual(sorted(m[2] for m in materials if m not in digits), [GRAY, GRAY])
-        # Its material animations only change textures (the digits), never a color.
-        matanims = dat.word(dat.word(model + 8))
-        stack = [matanims]
-        while stack:
-            joint = stack.pop()
-            if not joint:
-                continue
-            stack += [dat.word(joint), dat.word(joint + 4)]
-            anim = dat.word(joint + 8)
-            while anim:
-                self.assertEqual(dat.word(anim + 4), 0)  # No material color AObj.
-                anim = dat.word(anim)
+        walk(dat.word(scene))
+        self.assertAlmostEqual(dat.floats(order[13] + 0x2C, 2)[1], VANILLA_TIMER[1], places=4)
+        self.assertEqual(dat.floats(order[13] + 0x2C, 1)[0], VANILLA_TIMER[0])
+
+    def test_the_hud_camera_shows_the_whole_map(self):
+        m = Machine()
+        dat = Dat("IfAll.usd")
+        cam = dat.word(dat.word(dat.roots["ScInfDmg_scene_data"] + 4))
+        self.assertEqual(dat.half(cam + 6), 1)  # Perspective.
+        eye, interest = dat.word(cam + 0x18), dat.word(cam + 0x1C)
+        self.assertEqual((dat.floats(eye + 4, 3), dat.floats(interest + 4, 3)), ((0, 0, 64.0), (0, 0, 0)))
+        fov, aspect = dat.floats(cam + 0x30, 2)
+        high = 64 * math.tan(math.radians(fov) / 2)
+        wide = high * aspect
+        self.assertAlmostEqual(high, 24.27, places=2)
+        for hours in (False, True):
+            with self.subTest(hours=hours):
+                m.timer(*VANILLA_TIMER, hours=hours)
+                points = [v[:2] for d in m.draw(97.475, -28.7) for v in d[4]]
+                points += [v[:2] for d in m.draw(-97.475, -28.7) for v in d[4]]
+                self.assertLess(max(abs(x) for x, _ in points), wide - 2)
+                self.assertLess(max(y for _, y in points), high - 2)
 
     def test_the_game_keeps_the_timers_gobj_where_the_overlay_reads_it(self):
         m = NativeMachine()
@@ -471,6 +665,16 @@ class IsoTests(unittest.TestCase):
         self.assertEqual(word(0x802F47F4), 0x93BF0000)  # stw r29, 0(r31)
         self.assertEqual(word(0x802F44AC), 0x901F0000)  # stw r0, 0(r31): no timer this match.
         self.assertEqual(0x804A1078 - 0x804A0FD8, 0xA0)
+
+    def test_the_hud_camera_draws_link_8_and_the_timer_is_in_link_11(self):
+        m = NativeMachine()
+        word = lambda at: struct.unpack(">I", m.cpu.mem_read(at, 4))[0]
+        # InitHUD's camera: gxlink_prios = 0xD00, links 8, 10 (its light) and 11.
+        self.assertEqual((word(0x802F39AC), word(0x802F39B0)), (0x38000D00, 0x901D0024))
+        # HUD_Timer_Initialize: GObj_AddGXLink(timer, HSD_GObj_JObjCallback, 11, 0).
+        self.assertEqual((word(0x802F45F8), word(0x802F45FC)), (0x38A0000B, 0x38C00000))
+        self.assertEqual(word(0x802F4600) >> 26, 18)  # bl
+        self.assertEqual((0x802F4600 + (word(0x802F4600) & 0x03FFFFFC)) & 0xFFFFFFFF, 0x8039069C)
 
 
 if __name__ == "__main__":

@@ -353,7 +353,7 @@ Every migration to version 23 zeroes this word, and rows are stored as their dis
 | 10-17 | Target Practice (T10, no version bump): timed best, 0 (none yet) to 255, stored as itself. Saved here rather than in a score slot, so Reset Records doesn't clear it. Older records read 0 |
 | 18 | Target Practice: Free Practice (Off / On, default Off, so timed runs). Older records read Off |
 | 19 | Target Practice: SH Double Lasers (Off / On, default Off). Free Practice only, and only for Fox. Older records read Off |
-| 20 | Global: Randall Timer (`TM_FLAG_RANDALL_TIMER`, T10, no version bump; Off is 0). On Yoshi's Story, the match timer is purple while Randall is out on the left and teal while it's out on the right. Older records read Off |
+| 20 | Global: Randall Timer (`TM_FLAG_RANDALL_TIMER`, T10, no version bump; Off is 0). On Yoshi's Story, a map of Randall's loop runs through the match timer, with an arrow where Randall is. Older records read Off |
 | 21 | Event Select: All Events (Alphabetized) is the page shown (`TM_SETTING_EVENT_LIST` row 0, T10, no version bump; 0 is a categorized page, byte 5's). Read and written through `TM_SETTING_EVENT_PAGE` as page 4. Older records read 0 |
 | 22-27 | Event Select: All Events' selected event, 0 to 63 (`TM_SETTING_EVENT_LIST` row 1, T10, no version bump). `TM_SETTING_EVENT_SELECTION` reads and writes it while All Events is shown, so each list keeps its own place. Older records read 0, the top |
 | 28 | Up-B Sweetspot: Landing Line (Off / On, default Off; T10, no version bump, `TM_UPB_LANDING`, appended to `TMUpBSweetspotPreference` though the menu lists it third). Fox and Falco only. Older records read Off |

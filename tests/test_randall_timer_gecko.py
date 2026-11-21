@@ -3,8 +3,9 @@
 python tests/test_randall_timer_gecko.py -v
 Requires Unicorn (the existing build/test-deps install is supported). The
 native functions the code calls are stubbed, and the timer, Randall's map GObj
-and their joints are fixtures in memory, the same ones the Training Mode test
-(tests/test_randall_timer.py) builds. With build/Start.dol and melee.iso, it
+and their joints are fixtures in memory. This is the code's original timer tint;
+Tyro's own Randall Timer now draws a map of the loop instead (see
+tests/test_randall_timer.py). With build/Start.dol and melee.iso, it
 also runs the game's own stage-ID lookup and checks the hook's instruction.
 """
 from pathlib import Path
@@ -220,16 +221,12 @@ class Machine:
             assert self.cpu.reg_read(gpr(n)) == value, f'r{n} preserved'
 
 
-def source_constants():
-    """RANDALL_TIMER_OUT_X and the two tints, as src/stage_overlay_game.c defines them."""
+def source_wall():
+    """RANDALL_TIMER_OUT_X, as src/stage_overlay_game.c defines it. Tyro's Randall
+    Timer now draws a map of Randall's loop instead of tinting, but its stage walls
+    are the same number."""
     source = (ROOT / "src/stage_overlay_game.c").read_text()
-    out = float(re.search(r"#define RANDALL_TIMER_OUT_X ([0-9.]+)f", source).group(1))
-    tints = []
-    for side in ("LEFT", "RIGHT"):
-        body = re.search(rf"#define RANDALL_TIMER_{side} \{{([^}}]*)\}}", source).group(1)
-        r, g, b, a = (int(v, 16) for v in body.split(","))
-        tints.append(r << 24 | g << 16 | b << 8 | a)
-    return out, tints
+    return float(re.search(r"#define RANDALL_TIMER_OUT_X ([0-9.]+)f", source).group(1))
 
 
 class HookTests(unittest.TestCase):
@@ -255,10 +252,10 @@ class HookTests(unittest.TestCase):
 
     def test_its_numbers_are_training_modes(self):
         _, words = code()
-        out, tints = source_constants()
-        self.assertEqual((out, tints), (OUT_X, [PURPLE, TEAL]))
+        out = source_wall()
+        self.assertEqual(out, OUT_X)
         data = struct.pack(f">{len(words)}I", *words)
-        self.assertIn(struct.pack(">f", out) + struct.pack(">2I", *tints), data)
+        self.assertIn(struct.pack(">f", out) + struct.pack(">2I", PURPLE, TEAL), data)
 
 
 class UpdateTests(unittest.TestCase):
