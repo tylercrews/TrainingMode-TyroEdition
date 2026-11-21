@@ -57,7 +57,9 @@
  * the ground release: 30 frames (20 for Donkey Kong), which nothing can cut
  * short, then Wait. Holding up as it ends, or pressing X or Y with under 16
  * left on the timer, makes it CaptureJump, the jump release, instead. This
- * event's mash does neither. */
+ * event's mash does neither. Nothing keeps a released fighter from being
+ * grabbed (only a captured one is grab immune), so you can regrab them in the
+ * release, and that counts like a hit there. */
 
 #define FD_EDGE 85.5656967f      // FD's main-stage edge; ground spots scale to each stage's.
 #define PLAYER_CLEARANCE 22.f    // Least room between you and the nearer of the pair.
@@ -216,9 +218,9 @@ static EventOption Options_Main[] = {
         .val_prev = 1,
         .OnChange = ChangeReleaseHits,
         .desc = {"The enemy can't act for 30 frames after the grab",
-                 "ends (20 for DK). On counts a hit in that window",
-                 "as an Enemy Hit. It always shows as a Release Hit.",
-                 "Changing this resets your totals."},
+                 "ends (20 for DK). On counts a hit or a grab then",
+                 "as an Enemy Hit. It always shows as a Release Hit",
+                 "or Regrab. Changing this resets your totals."},
     },
     {
         .kind = OPTKIND_INFO,
@@ -290,6 +292,7 @@ static struct attempt {
     int tries;        // Grabs tried this attempt; picks the gap.
     bool hit_enemy;   // In the grab; hit_release is in the release after it.
     bool hit_release, hit_mate;
+    bool regrab;      // Your release hit or late hit was a grab.
     bool free;        // Got away without a hit, and can act: shown red.
     int frames_left;  // Grab Time Left while the enemy is held or in the release.
     int let_go_left;  // The frames left when your hit on your teammate let go of the enemy.
@@ -669,6 +672,14 @@ static bool TookHit(int ply, float *last) {
     *last = percent;
     return hit;
 }
+/* You're holding the enemy. Every capture, command grabs too, points the
+ * victim's attacker (0x1A5C) at the grabber, and the release (800DC920) and
+ * throws clear it, so it's never your teammate's leftover. The enemy never
+ * grabs, so it never points at you the other way round. */
+static bool GrabbedByYou(FighterData *enemy) {
+    GOBJ *holder = enemy->grab.attacker;
+    return holder && (holder == Body(hmn_ply, 0) || holder == Body(hmn_ply, 1));
+}
 
 /* The timing overlay, so this red goes over every other overlay. */
 static void SetEnemyOverlay(const GXColor *color) {
@@ -703,9 +714,10 @@ static void DrawHUD(GOBJ *gobj, int pass) {
     else if (phase == PHASE_RELEASE)
         sprintf(time_text, "Release %df", attempt.frames_left);
     else if (attempt.time_left >= 0)
-        sprintf(time_text, "%s Hit %df", attempt.hit_release ? "Release" : "Grab", attempt.time_left);
+        sprintf(time_text, "%s %df", attempt.regrab ? "Regrab"
+            : attempt.hit_release ? "Release Hit" : "Grab Hit", attempt.time_left);
     else if (attempt.free)
-        sprintf(time_text, "%s %df", attempt.late_hit ? "Late Hit"
+        sprintf(time_text, "%s %df", attempt.late_hit ? (attempt.regrab ? "Late Regrab" : "Late Hit")
             : attempt.time_left == TIME_ESCAPED ? "Escaped" : "Let Go", attempt.late);
     else
         sprintf(time_text, "-");
@@ -824,11 +836,14 @@ void Event_Think(GOBJ *gobj) {
             break;
         case PHASE_RELEASE:
             attempt.hit_mate |= mate_hit;
-            if (enemy_hit) {
+            // A regrab takes them out of CaptureCut, so check it before the
+            // countdown reads that as being able to act.
+            if (enemy_hit || GrabbedByYou(enemy)) {
                 // Your hit on your teammate let go of the enemy, and the rest
                 // of that attack can still land: that hit is in the grab.
-                attempt.hit_enemy = attempt.let_go_left >= 0 && phase_timer <= GRACE_FRAMES;
+                attempt.hit_enemy = enemy_hit && attempt.let_go_left >= 0 && phase_timer <= GRACE_FRAMES;
                 attempt.hit_release = !attempt.hit_enemy;
+                attempt.regrab = !enemy_hit;
                 attempt.time_left = attempt.hit_enemy ? attempt.let_go_left : attempt.frames_left;
                 phase = PHASE_RESOLVE;
                 phase_timer = 0;
@@ -849,17 +864,23 @@ void Event_Think(GOBJ *gobj) {
                 CountAttempt();
             break;
         case PHASE_FOLLOWUP:
-            // A hit stops the count on last frame's, as with the time left.
+            // A hit or grab stops the count on last frame's, as with the time left.
             if (attempt.free && !attempt.late_hit) {
-                if (enemy_hit) attempt.late_hit = true;
-                else attempt.late++;
+                if (enemy_hit || GrabbedByYou(enemy)) {
+                    attempt.late_hit = true;
+                    attempt.regrab = !enemy_hit;
+                } else {
+                    attempt.late++;
+                }
             }
             if (enemy->flags.dead) {
                 if (++attempt.dead >= KO_WAIT)
                     Reset(0);
                 break;
             }
-            attempt.idle = enemy_hit || enemy->flags.hitstun || enemy->flags.hitlag ? 0 : attempt.idle + 1;
+            // Held or being thrown isn't settled either, so a regrab gets its throw.
+            attempt.idle = enemy_hit || enemy->flags.hitstun || enemy->flags.hitlag || enemy->grab.attacker
+                ? 0 : attempt.idle + 1;
             if ((attempt.idle >= FOLLOWUP_IDLE && phase_timer >= FOLLOWUP_MIN) || phase_timer >= FOLLOWUP_MAX)
                 Reset(0);
             break;
