@@ -3,9 +3,10 @@
 python tests/test_randall_timer.py -v
 Builds tests/randall_timer_probe.c, which includes the production
 src/stage_overlay_game.c, and runs it as PowerPC code. The stage, Randall's
-cloud joint, the settings and the timer's joints are fixtures, and the GX FIFO
+joints, the settings and the timer's joints are fixtures, and the GX FIFO
 writes are recorded, so this checks what the overlay asks the GPU to draw, not
-the picture. With melee.iso at the repo root, it also checks the research the
+the picture. The overlay finds the cloud with the game's own lookup, run from
+build/Start.dol on a joint tree shaped like the game's. With melee.iso at the repo root, it also checks the research the
 overlay rests on: Randall's path and the stage walls in GrSt.dat, the timer's
 joints and the HUD camera in IfAll.usd, and where the game keeps the timer.
 It drives the map through a whole lap of Randall's real path, frame by frame.
@@ -41,7 +42,8 @@ def build():
     subprocess.run([
         str(compiler) if compiler.exists() else "powerpc-eabi-gcc", "-O2", "-w",
         "-ffreestanding", "-fno-builtin", "-msdata=none", "-mcpu=750", "-nostdlib",
-        "-Wl,-Ttext=0x80600000,-e,TestInit,--unresolved-symbols=ignore-all",
+        "-Wl,-Ttext=0x80600000,-e,TestInit,--unresolved-symbols=ignore-all,"
+        "--defsym,Stage_GetMapGObjJObj=0x801C3FA4",
         "tests/randall_timer_probe.c", "-o", str(ELF)
     ], cwd=ROOT, check=True)
 
@@ -228,12 +230,25 @@ class RandallTimerTests(unittest.TestCase):
         self.assertGreater(dy, 0.05)
         self.assertAlmostEqual(math.hypot(dx, dy), 1, places=4)
 
+    def test_the_arrow_follows_the_cloud_the_game_keeps_for_randall(self):
+        m = self.m
+        # The game's lookup (801C3FA4) counts from GrSt.dat's root, under the
+        # scale joint the game adds, as 0: 1 is the cloud grStory_801E3370 keeps.
+        self.assertEqual([m.fn("TestMapJoint", i) for i in range(3)], [2, 3, 4])
+        # The whole draw, from the lookup on: the arrow moves with the cloud.
+        to_hud = mapping(m)
+        for x, y in ((-90, m.bottom), (0, m.bottom), (97.475, -28.7), (40, m.top), (-97.475, -28.7)):
+            with self.subTest(x=x, y=y):
+                center, *_ = arrow_of(m.draw(x, y), m.length)
+                self.assertNear(center, to_hud(x, y))
+
     def test_the_arrow_is_faint_behind_the_timer_and_solid_past_it(self):
         m, c = self.m, self.colors
         solid = (premultiply(c[0], c[0] & 255), premultiply(c[1], c[1] & 255))
         faint = (premultiply(c[0], c[4]), premultiply(c[1], c[5]))
         self.assertEqual(solid[0], (235, 40, 40, 255))  # Red.
-        self.assertLess(faint[0][3], solid[0][3] // 2)  # Much more see-through, but there.
+        self.assertLess(faint[0][3], solid[0][3] * 2 // 3)  # More see-through, but easy to see.
+        self.assertGreater(faint[0][3], solid[0][3] // 2)
         self.assertGreater(faint[0][3], 0)
         for x, want in ((-m.out - 0.01, solid), (-m.out + 0.01, faint), (0, faint), (m.out - 0.01, faint),
                         (m.out + 0.01, solid), (-97.475, solid), (97.475, solid)):

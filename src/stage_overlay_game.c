@@ -14,8 +14,8 @@
  *
  * Randall Timer: on Yoshi's Story, a small map of Randall's loop runs through
  * the match timer, two dotted lines joined past each side of it, with a red
- * arrow where Randall is, pointing the way it moves. Randall's cloud joint (the
- * map root's first child) rides a path animation that loops every 1200 frames,
+ * arrow where Randall is, pointing the way it moves. Randall's cloud joint
+ * (GrSt.dat's root's first child) rides a path animation, every 1200 frames,
  * counter-clockwise: right along the bottom, out past the stage's right wall,
  * up, back left along the top, out past the left wall and down. GrSt.dat's
  * walls at both of Randall's heights are at X +/-75.25, which the map root's
@@ -26,6 +26,12 @@
  * as long as it's out (see docs/RANDALL-TIMER.md). It's drawn from the live
  * cloud, so it starts where Randall starts and never drifts. */
 #define RANDALL_MAP_GOBJ 2
+/* The joint grStory_801E3370 keeps as Randall's, for its puffs. The map GObj's
+ * JObj is the scale joint the game puts over GrSt.dat's tree (801C1768), and
+ * Stage_GetMapGObjJObj counts from the file's root as 0, so 1 is the root's
+ * first child: the cloud. (The map GObj's JObj's own child is that root, which
+ * never moves.) */
+#define RANDALL_CLOUD_JOINT 1
 #define RANDALL_TIMER_OUT_X 52.675f
 #define RANDALL_TIMER_TOP_Y (-18.9f)    /* Randall's two heights, in stage units. */
 #define RANDALL_TIMER_BOTTOM_Y (-38.5f)
@@ -46,9 +52,9 @@
 #define RANDALL_TIMER_ARROW_EDGE 0.13f  /* The dark outline. */
 /* Straight colors, with the alpha past the timer and behind it. */
 #define RANDALL_TIMER_ARROW_COLOR {235, 40, 40, 255}
-#define RANDALL_TIMER_ARROW_BEHIND 100
+#define RANDALL_TIMER_ARROW_BEHIND 150
 #define RANDALL_TIMER_ARROW_EDGE_COLOR {0, 0, 0, 220}
-#define RANDALL_TIMER_ARROW_EDGE_BEHIND 35
+#define RANDALL_TIMER_ARROW_EDGE_BEHIND 55
 #define RANDALL_TIMER_DOT_COLOR {235, 235, 235, 230}
 #define RANDALL_TIMER_DOT_BEHIND 80
 #define RANDALL_TIMER_DOT_EDGE_COLOR {0, 0, 0, 160}
@@ -320,17 +326,24 @@ static void draw_arrow(const TimerMap *m, Vec2 cloud) {
     arrow(c, u, RANDALL_TIMER_ARROW_EDGE, shade(edge, RANDALL_TIMER_ARROW_EDGE_BEHIND, behind));
     arrow(c, u, 0, shade(fill, RANDALL_TIMER_ARROW_BEHIND, behind));
 }
-static void RandallTimer_GX(GOBJ *gobj, int pass) {
-    if (!live || pass != 0 || !Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER)) return;
-    GOBJ *map = randall();
-    JOBJ *cloud = map ? ((JOBJ *)map->hsd_object)->child : 0;
-    TimerMap m;
-    if (!cloud || !timer_map(&m)) return;
+/* Where Randall's cloud joint is, in stage units. 0 without one, or without a
+ * real position. */
+static int cloud_position(GOBJ *map, Vec2 *out) {
+    JOBJ *cloud = map ? Stage_GetMapGObjJObj(map, RANDALL_CLOUD_JOINT) : 0;
+    if (!cloud) return 0;
     Vec3 pos;
     JOBJ_GetWorldPosition(cloud, 0, &pos);
-    if (!(fabs(pos.X) < 1000 && fabs(pos.Y) < 1000)) return; /* Not a real position. */
+    if (!(fabs(pos.X) < 1000 && fabs(pos.Y) < 1000)) return 0;
+    *out = (Vec2){pos.X, pos.Y};
+    return 1;
+}
+static void RandallTimer_GX(GOBJ *gobj, int pass) {
+    if (!live || pass != 0 || !Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER)) return;
+    Vec2 cloud;
+    TimerMap m;
+    if (!cloud_position(randall(), &cloud) || !timer_map(&m)) return;
     draw_track(&m);
-    draw_arrow(&m, (Vec2){pos.X, pos.Y});
+    draw_arrow(&m, cloud);
 }
 static void StageOverlay_GX(GOBJ *gobj, int pass) {
     if (!live || pass != 2) return;

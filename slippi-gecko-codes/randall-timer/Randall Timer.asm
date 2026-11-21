@@ -7,7 +7,8 @@
     #
     # Match start (StartMelee) creates one GObj with a GX link 5 callback and
     # forgets the last match's timer. Each frame the callback reads where
-    # Randall's cloud joint is (map GObj 2's root's first child, which rides the
+    # Randall's cloud joint is (the first child of GrSt.dat's root, which the
+    # game puts under a scale joint as map GObj 2's JObj; the cloud rides the
     # stage's path animation). When the side it's out on changes, it sets every
     # timer material's diffuse color to the material's own color times the tint,
     # or back to its own color. The digits are textures multiplied by that color.
@@ -125,7 +126,10 @@ Update:
     lwz r4, 0x14(r4)                 # MapData index
     cmpwi r4, RANDALL_MAP_GOBJ
     bne Decide
-    lwz r3, 0x28(r3)                 # Root joint
+    lwz r3, 0x28(r3)                 # The game's scale joint (801C1768)
+    cmpwi r3, 0
+    beq Decide
+    lwz r3, 0x10(r3)                 # Its child: GrSt.dat's root, which never moves
     cmpwi r3, 0
     beq Decide
     lwz r3, 0x10(r3)                 # Its first child: the cloud

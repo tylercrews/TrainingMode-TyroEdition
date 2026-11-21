@@ -33,9 +33,11 @@ NATIVES = {
     0x80225194: 'Stage_GetExternalID', 0x8022519C: 'Stage_ExternalToInternal',
     0x801C2BA4: 'Stage_GetMapGObj', 0x8000B1CC: 'JOBJ_GetWorldPosition',
 }
-# Fixture addresses: two timers, Randall's map GObj and its joints.
+# Fixture addresses: two timers, Randall's map GObj and its joints. As in the
+# game, the map GObj's JObj is a scale joint over GrSt.dat's root (SCALE), and
+# the cloud is that root's first child.
 TIMERS = (0x80E10000, 0x80E80000)
-MAP, MAP_DATA, MAP_ROOT, CLOUD = 0x80F00000, 0x80F01000, 0x80F02000, 0x80F03000
+MAP, MAP_DATA, MAP_ROOT, CLOUD, SCALE = 0x80F00000, 0x80F01000, 0x80F02000, 0x80F03000, 0x80F04000
 PARTS = 13
 
 
@@ -102,10 +104,14 @@ class Machine:
         self.cpu.mem_write(MAP_DATA, bytes(0x100))
         self.cpu.mem_write(MAP_ROOT, bytes(0x100))
         self.cpu.mem_write(CLOUD, bytes(0x100))
-        self.word(MAP + 0x28, MAP_ROOT)
+        self.cpu.mem_write(SCALE, bytes(0x100))
+        self.word(MAP + 0x28, SCALE)
         self.word(MAP + 0x2C, MAP_DATA)
         self.word(MAP_DATA + 0x14, 2)
+        self.word(SCALE + 0x10, MAP_ROOT)
+        self.word(MAP_ROOT + 0x0C, SCALE)
         self.word(MAP_ROOT + 0x10, CLOUD)
+        self.word(CLOUD + 0x0C, MAP_ROOT)
 
     # A timer like IfAll's ScInfTim: ten joints of one DObj each under the
     # root (parts 1-10, the first two gray). Joint 11 has no DObj but a child
@@ -301,7 +307,7 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(m.colors(), untinted())
 
     def test_no_randall_reads_as_behind_the_stage(self):
-        for case in ('hazards', 'index', 'cloud', 'root'):
+        for case in ('hazards', 'index', 'cloud', 'stage root', 'scale joint'):
             with self.subTest(case=case):
                 m = Machine(); m.start_match()
                 m.draw(80.0)
@@ -312,6 +318,8 @@ class UpdateTests(unittest.TestCase):
                     m.word(MAP_DATA + 0x14, 3)
                 elif case == 'cloud':
                     m.word(MAP_ROOT + 0x10, 0)
+                elif case == 'stage root':
+                    m.word(SCALE + 0x10, 0)
                 else:
                     m.word(MAP + 0x28, 0)
                 m.draw(80.0)

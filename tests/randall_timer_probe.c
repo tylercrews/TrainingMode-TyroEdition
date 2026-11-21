@@ -1,8 +1,11 @@
 /* The Randall Timer from the production stage overlay. The stage, Randall's
- * map GObj and cloud joint, the settings and the match timer's joints are
- * fixtures; tests/test_randall_timer.py drives it. The GX state calls are
- * recorded here, and the test reads the vertices from the GX FIFO writes.
- * Blast Zone and Randall Overlay stay Off. Floats cross as their bits. */
+ * map GObj and joints, the settings and the match timer's joints are fixtures;
+ * tests/test_randall_timer.py drives it. Stage_GetMapGObjJObj is the game's
+ * own (linked to Start.dol's 801C3FA4), walking a tree shaped like the game's:
+ * the scale joint Ground_GetStageGObj puts over GrSt.dat's root, that root,
+ * then the cloud and its sibling, the spline. The GX state calls are recorded
+ * here, and the test reads the vertices from the GX FIFO writes. Blast Zone
+ * and Randall Overlay stay Off. Floats cross as their bits. */
 #include "../src/stage_overlay_game.c"
 
 static int test_external, test_internal;
@@ -10,7 +13,7 @@ static unsigned test_flags; /* TM_SETTING_FLAG bits that read On. */
 static int test_map_present;
 static GOBJ test_map, test_timer_gobj;
 static MapData test_map_data;
-static JOBJ test_root, test_cloud, test_timer, test_digits[RANDALL_TIMER_DIGITS];
+static JOBJ test_root, test_stage_root, test_cloud, test_spline, test_timer, test_digits[RANDALL_TIMER_DIGITS];
 
 /* Every GXBegin, with the point size, line width and depth mode set before it. */
 #define TEST_BEGINS 16
@@ -115,12 +118,18 @@ int TestInit(void) {
     TestClear(&test_map, sizeof(test_map));
     TestClear(&test_map_data, sizeof(test_map_data));
     TestClear(&test_root, sizeof(test_root));
+    TestClear(&test_stage_root, sizeof(test_stage_root));
     TestClear(&test_cloud, sizeof(test_cloud));
+    TestClear(&test_spline, sizeof(test_spline));
     test_map_data.index = RANDALL_MAP_GOBJ;
     test_map.userdata = &test_map_data;
     test_map.hsd_object = &test_root;
-    test_root.child = &test_cloud;
-    test_cloud.parent = &test_root;
+    test_root.child = &test_stage_root;
+    test_stage_root.parent = &test_root;
+    test_stage_root.child = &test_cloud;
+    test_cloud.parent = test_spline.parent = &test_stage_root;
+    test_cloud.sibling = &test_spline;
+    test_spline.flags = 0x4000; /* JOBJ_SPLINE */
     TestBuildTimer();
     stc_matchhud->timer_gobj = &test_timer_gobj;
     test_gobj_count = test_link_count = 0;
@@ -136,7 +145,7 @@ void TestSet(int what, int value) {
     case 3: test_map_present = value; break;
     case 4: stc_matchhud->timer_gobj = value ? &test_timer_gobj : 0; break;
     case 5: test_map_data.index = value; break;
-    case 6: test_root.child = value ? &test_cloud : 0; break;
+    case 6: test_stage_root.child = value ? &test_cloud : 0; break;
     case 7: test_timer.flags = value; break;
     }
 }
@@ -150,15 +159,21 @@ void TestDraw(int pass) {
     test_begins = 0;
     RandallTimer_GX(0, pass);
 }
-/* Only the arrow, for the frame-by-frame lap. */
+/* Only the arrow, for the frame-by-frame lap, from the joint the overlay reads. */
 int TestArrow(void) {
     test_begins = 0;
     TimerMap m;
-    Vec3 pos;
-    if (!timer_map(&m)) return 0;
-    JOBJ_GetWorldPosition(&test_cloud, 0, &pos);
-    draw_arrow(&m, (Vec2){pos.X, pos.Y});
+    Vec2 cloud;
+    if (!cloud_position(randall(), &cloud) || !timer_map(&m)) return 0;
+    draw_arrow(&m, cloud);
     return 1;
+}
+/* Which fixture joint the game's lookup returns: 1 the scale joint, 2 GrSt.dat's
+ * root, 3 the cloud, 4 the spline, 0 none. */
+int TestMapJoint(int index) {
+    JOBJ *joint = Stage_GetMapGObjJObj(&test_map, index);
+    return joint == &test_root ? 1 : joint == &test_stage_root ? 2 : joint == &test_cloud ? 3
+         : joint == &test_spline ? 4 : 0;
 }
 void TestStageGX(int pass) {
     test_begins = 0;
