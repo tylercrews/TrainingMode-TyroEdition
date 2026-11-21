@@ -3612,7 +3612,7 @@ class EventMenuSaveTests:
                 chosen[index] = value
                 self.assertEqual(self.saved_values(), chosen, name)
         self.assertEqual(m.record(), core)  # Both events live in TYEX,
-        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x17\x4C')  # on the card itself.
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x18\x4C')  # on the card itself.
         for row, (_, _, default) in zip(self.rows, self.saved):
             m.cpu.mem_write(row+6, struct.pack('>2h', default, default))
         m.call('DAT_EventInit', 0)

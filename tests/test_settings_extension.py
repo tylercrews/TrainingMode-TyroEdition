@@ -21,8 +21,8 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 23, 76  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x17\x4C\xA5\x5A'
+CURRENT, PAYLOAD = 24, 76  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x18\x4C\xA5\x5A'
 # Bytes 52..63 appended by version 18: Edgeguard's three words at their defaults
 # (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
 # CPU's default recovery toggles).
@@ -109,10 +109,15 @@ GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (80, 0, 4), (48, 27, 2), 
 GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3, 4, 5, 12
 # Target Practice (T10): its timed best (8 bits), Free Practice and SH Double
 # Lasers in word 80 bits 10-17, 18 and 19, and Hop Peak Lines, appended, in bit
-# 29, each stored as itself.
+# 29, each stored as itself. FH Multi Lasers, appended after (Off, All Combos and
+# five combos), is word 12's retired bits 6-8, which version 24 claims.
 TARGETS = 53  # TM_SETTING_TARGETS
-TARGETS_LINES = 3  # TM_TARGETS_LINES
-TARGETS_DEFAULTS = (0, 0, 0, 0)
+TARGETS_LINES, TARGETS_FULL_HOP = 3, 4  # TM_TARGETS_LINES, TM_TARGETS_FULL_HOP
+TARGETS_FH_COUNT = 7
+TARGETS_DEFAULTS = (0, 0, 0, 0, 0)
+# Word 12's six retired bits: Ledgechase's preset (6-8) and action (15-17) in
+# versions 2-8. Every migration to version 24 zeroes them.
+RETIRED_LEDGE_BITS = 7 << 6 | 7 << 15
 # All Events (Alphabetized) (T10): page 4. Word 80 bit 21 is 1 while it's the
 # page shown, and bits 22-27 are its cursor; byte 5 keeps the categorized page
 # and its cursor underneath.
@@ -137,6 +142,7 @@ def upgraded(raw):
     value[24:OWNED_SIZE] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
+    value[12:16] = (int.from_bytes(value[12:16], 'little') & ~RETIRED_LEDGE_BITS).to_bytes(4, 'little')
     value[14] = (value[14] & 0x3F) | 0x80
     value[15] &= 0x3F
     value[8] &= ~NEW_BITS
@@ -893,10 +899,11 @@ class ExtensionTests(unittest.TestCase):
     # Target Practice (T10): word 80 bits 10-19, no version bump.
     def test_target_practice_reads_its_defaults_from_word_80s_zeros(self):
         m = self.m
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)  # No record.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)  # No record.
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 12, 4), 'little') & RETIRED_LEDGE_BITS, 0)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)
 
     def test_target_practice_round_trips_in_word_80_bits_10_to_19_alone(self):
         m = self.m
@@ -929,10 +936,10 @@ class ExtensionTests(unittest.TestCase):
         m = self.m
         m.call('Settings_Set', TARGETS, 0, 77); m.call('Settings_Set', TARGETS, 1, 1)
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        for index, value in ((0, 256), (1, 2), (2, 2), (TARGETS_LINES, 2), (4, 1)):
+        for index, value in ((0, 256), (1, 2), (2, 2), (TARGETS_LINES, 2), (TARGETS_FULL_HOP, TARGETS_FH_COUNT), (5, 1)):
             m.call('Settings_Set', TARGETS, index, value)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
-        self.assertEqual(m.call('Settings_Get', TARGETS, 4), 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, 5), 0)
 
     def test_hop_peak_lines_uses_only_word_80_bit_29(self):
         m = self.m
@@ -973,13 +980,82 @@ class ExtensionTests(unittest.TestCase):
         old = self.version_22_record()
         old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
         m.cpu.mem_write(EXT, bytes(old))
-        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
         # Migrating zeroes word 80, and a write lands in it.
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)
         m.call('Settings_Set', TARGETS, 0, 12)
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 12 << 10)
         self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))
+
+    # Version 24 (T10): Target Practice's FH Multi Lasers in word 12's retired bits 6-8.
+    def version_23_record(self):
+        """A version 23 record with settings in words 80 and 12, and the retired bits of word
+        12 set, as a record that came up from versions 2-8 can have them."""
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 1); m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)
+        # Ledgechase's side, distance, CPU action and entry, all in word 12.
+        m.call('Settings_Set', 28, 0, 2); m.call('Settings_Set', 28, 4, 3)
+        m.call('Settings_Set', 28, 6, 5); m.call('Settings_Set', 28, 8, 1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4] = 23
+        old[12:16] = (int.from_bytes(old[12:16], 'little') | RETIRED_LEDGE_BITS).to_bytes(4, 'little')
+        return old
+
+    def word_80_and_12_settings(self, read):
+        return (read(TARGETS, 0), read(TARGETS, 2), read(TARGETS, TARGETS_LINES), read(GRABS, GRABS_PERCENT),
+                read(28, 0), read(28, 4), read(28, 6), read(28, 8))
+
+    def test_version_23_migration_claims_only_word_12s_retired_bits(self):
+        m = self.m
+        old = self.version_23_record()
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 0)  # Off, not the old bits' 7.
+        expected = bytearray(old); expected[4] = CURRENT
+        expected[12:16] = (int.from_bytes(old[12:16], 'little') & ~RETIRED_LEDGE_BITS).to_bytes(4, 'little')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(self.word_80_and_12_settings(lambda f, i: m.call('Settings_Get', f, i)),
+                         (200, 1, 1, 9, 2, 3, 5, 1))
+
+    def test_version_23_records_read_fh_multi_lasers_off_and_the_rest_without_writing(self):
+        m = self.m
+        old = self.version_23_record()
+        for retired in (RETIRED_LEDGE_BITS, 5 << 6):  # Old bits are never a combo.
+            word = int.from_bytes(old[12:16], 'little') & ~RETIRED_LEDGE_BITS | retired
+            old[12:16] = word.to_bytes(4, 'little')
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual(read(TARGETS, TARGETS_FULL_HOP), 0)
+            self.assertEqual(self.word_80_and_12_settings(read), (200, 1, 1, 9, 2, 3, 5, 1))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_fh_multi_lasers_uses_only_word_12_bits_6_to_8(self):
+        m = self.m
+        self.version_23_record()  # Word 12's settings around the bits.
+        m.call('Settings_Set', 29, 0, 1); m.call('Settings_Set', LOW_LASER, 1, 1)  # Under Fire's and Low Laser's.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[:8], HEADER)
+        word = lambda record: int.from_bytes(record[12:16], 'little')
+        self.assertEqual(word(before) & RETIRED_LEDGE_BITS, 0)
+        for value in (1, 6, 3, 0, 2):
+            m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual(word(after), word(before) | value << 6)
+            self.assertEqual(after[:12] + after[16:], before[:12] + before[16:])
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), value)
+        # A stored 7 isn't a choice: it reads as Off and stays.
+        m.cpu.mem_write(EXT + 12, (word(before) | 7 << 6).to_bytes(4, 'little'))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(before) | 7 << 6)
+        # Its neighbors' writes keep it.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 4)
+        m.call('Settings_Set', 28, 0, 1); m.call('Settings_Set', 28, 4, 0); m.call('Settings_Set', 28, 6, 9)
+        m.call('Settings_Set', TARGETS, 0, 7)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 4)
+        self.assertEqual((m.call('Settings_Get', 28, 0), m.call('Settings_Get', 28, 4), m.call('Settings_Get', 28, 6)),
+                         (1, 0, 9))
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 0)  # Bits 15-17 stay free.
 
     def test_all_events_keeps_its_own_cursor_in_word_80_and_leaves_byte_5_alone(self):
         m = self.m
@@ -1769,8 +1845,10 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(after[9], legacy[9])
             self.assertEqual(after[10], legacy[10] & 0x7F)  # Bit 15 is Player Distance's top bit; v2 had no distance.
             self.assertEqual(after[11], legacy[11] & 0x87)
-            mask = ~((15 << 18) | (3 << 22)) & 0xFFFFFF
+            mask = ~((15 << 18) | (3 << 22) | RETIRED_LEDGE_BITS) & 0xFFFFFF
             self.assertEqual(int.from_bytes(after[12:15], 'little') & mask, int.from_bytes(legacy[12:15], 'little') & mask)
+            # Version 24 claims the retired bits once the old action is read out of them.
+            self.assertEqual(int.from_bytes(after[12:16], 'little') & RETIRED_LEDGE_BITS, 0)
             self.assertEqual(after[15], (1,13,31,11)[action])
             self.assertEqual(after[16:20], PS_DEFAULT_BYTES)
             self.assertEqual(after[OWNED_SIZE:], b'\xE5' * (REGION_SIZE - OWNED_SIZE))
@@ -1900,6 +1978,8 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
             expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[24:OWNED_SIZE] = COLOR_BYTES; expected[19] = preset; expected[8] &= ~NEW_BITS
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
+            # The preset moved to byte 19, and version 24 claims the bits it came from.
+            expected[12:16] = (int.from_bytes(expected[12:16], 'little') & ~RETIRED_LEDGE_BITS).to_bytes(4, 'little')
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 0)
 

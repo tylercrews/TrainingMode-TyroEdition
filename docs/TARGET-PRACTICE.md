@@ -13,9 +13,10 @@ A timed minute counts your targets and saves your best, like Eggs-ercise. The fi
 - **Change Character:** a submenu with one row, **Player Character**: Left/Right picks Fox or Falco, X/Y the costume, and A restarts as them, skipping the character and stage select. It's `src/fighter_swap.h`, as in Grabs-ercise, limited to the two (`FighterSwap_Restrict`); there's no CPU row, since there's no CPU. Saved settings carry over.
 - **Free Practice:** Off (default) is the timed minute; On has no clock. Saved. Changing it restarts the event.
 - **SH Double Lasers:** Off (default) or On. Saved. On makes about half the targets come as [a pair](#sh-double-laser-pairs) off the main floor, a side platform or the top platform. Free Practice only, and Fox only: for Falco the row reads **SH Double Lasers (N/A)** and stays greyed out.
+- **FH Multi Lasers:** Off (default), **All Combos**, or one of five [full hop combos](#fh-multi-laser-combos): **Hi-Hi-Low**, **High-MedHigh**, **Peak-Low**, **High-Medium**, **High-Lowest**. Saved. All Combos makes about half the targets a combo, any of the five. One combo makes every target that combo, to drill it. Free Practice only, Fox and Falco both.
 - **Hop Peak Lines:** Off (default) or On. Saved. [Lines](#hop-peak-lines) where a laser shot at the peak of a short hop (teal) or a full hop (purple) flies, off the main floor and each platform. Timed runs and Free Practice alike. It shows or goes on the next frame, behind the paused menu too.
 - **Counter Position:** where the count and the label under it go. It's Eggs-ercise's Egg Counter Position, shared with Grabs-ercise.
-- **Reset Event Settings:** Free Practice, SH Double Lasers and Hop Peak Lines Off, then a restart in timed mode. Your best and the counter position stay.
+- **Reset Event Settings:** Free Practice, SH Double Lasers, FH Multi Lasers and Hop Peak Lines Off, then a restart in timed mode. Your best and the counter position stay.
 - **Exit:** back to the event select.
 
 ## Where targets go
@@ -74,6 +75,30 @@ With SH Double Lasers On in Free Practice, each spawn is a pair half the time. A
 
 A pair counts as two targets, and the next spawn waits until both are broken. Turning the setting off or on reaches the next spawn.
 
+## FH multi laser combos
+
+A full hop's lasers work the same way as a short hop's: B on airborne frame *p* shoots on *p* + 9 (Fox) or *p* + 12 (Falco), and again every Loop while B is pressed again in time. Each shot comes from where the fighter was the frame before. `FullHopCombos` walks a full hop with the live attributes and no fastfall, once, on the fighter's first frame. A shot counts only if the fighter is still in the air on the frame before it and the shot doesn't start under the floor. For both fighters every press's second shot comes after the apex, so a later press always makes a lower second shot, and the doubles run from press 1 to the last whose second shot comes before landing (Fox 15, Falco 22).
+
+Each combo is one press:
+
+| Combo | Press | Fox (frame: heights) | Falco (frame: heights) |
+| --- | --- | --- | --- |
+| **Hi-Hi-Low** | The first airborne frame, three shots | 1: 32.05, 35.50, 16.14 | 1: 39.74, 49.58, 16.29 |
+| **High-MedHigh** | Second shot nearest halfway from Peak-Low's up to the highest any double has (press 1's) | 5: 36.19, 30.44 | 9: 50.10, 38.18 |
+| **Peak-Low** | The first shot from the apex (Hop Peak Lines' purple) | 7: 36.88, 26.53 | 13: 51.20, 28.40 |
+| **High-Medium** | Second shot nearest halfway from Peak-Low's down to High-Lowest's | 11: 35.50, 16.14 | 18: 48.75, 13.19 |
+| **High-Lowest** | The last press that still gets the second shot before landing | 15: 30.44, 4.94 | 22: 43.73, 0.79 |
+
+The heights are above the floor the combo is shot from. The doubles' second lasers are each more than a target's reach (2.67) from the next one's, so each is its own timing. Fox's full hop fits three shots from B on frames 1 to 5, and Hi-Hi-Low is the first of them. Fox's apex holds two frames, 15 and 16, at 27.6; Peak-Low takes the first, and press 8's second shot (24.23) still breaks its lower target.
+
+A combo stacks its targets at one x over a floor, the same way an SH pair does (`PickGroup`, which pairs use too): the main floor, a side platform or the top platform, each kind as likely as the others, never Fountain's side platforms, and keeping 30 from you and 25 from the last target.
+
+- **All Combos:** each spawn is a single or a combo, half and half, and a combo is any of the five that fits the fighter.
+- **One combo:** every spawn is that combo. There are no singles between, so you can drill it over and over.
+- **With SH Double Lasers on too** (Fox): the spawns split evenly among the kinds that are on. All Combos gives a third singles, a third SH pairs and a third combos; one combo gives half SH pairs and half that combo.
+
+A combo counts as two or three targets, and the next spawn waits until all of them are broken. Changing the row reaches the next spawn. Timed runs are always singles.
+
 ## Hop Peak Lines
 
 A jump's highest laser is the one shot at its peak: a shot comes from where the fighter was the frame before, and the peak is the highest the fighter gets. So each floor gets two lines at that height above it, a jump's rise (`Rise`, from the live attributes, as SH Double Lasers' are) plus the aerial laser's height over TopN (the Blaster table):
@@ -94,19 +119,22 @@ The [Hop Peak Lines Gecko codes](../slippi-gecko-codes/hop-peak-lines/README.md)
 
 ## Persistence
 
-`TM_SETTING_TARGETS` (field 53) is `TYEX` word 80's bits 10-19, with no version bump: the timed best in bits 10-17 (0 to 255, `TM_TARGETS_BEST_MAX`), Free Practice in 18 and SH Double Lasers in 19. Hop Peak Lines, appended as `TM_TARGETS_LINES`, is bit 29 the same way. Every migration to version 23 zeroes word 80, and every default is 0, so each is stored as itself. Only a version 23 record owns them, so older records read no best, timed mode and Off. Every value fills its bits, so nothing needs repairing. The best isn't a score slot (`Events_ScoreIndex` gives page 0 event 7 none), so Reset Records doesn't clear it. See the [save map](../notes/SAVE-DATA-MEMORY-MAP.md).
+`TM_SETTING_TARGETS` (field 53) is `TYEX` word 80's bits 10-19, with no version bump: the timed best in bits 10-17 (0 to 255, `TM_TARGETS_BEST_MAX`), Free Practice in 18 and SH Double Lasers in 19. Hop Peak Lines, appended as `TM_TARGETS_LINES`, is bit 29 the same way. Every migration to version 23 zeroes word 80, and every default is 0, so each is stored as itself. Only a version 23 or later record owns them, so older records read no best, timed mode and Off. Every value fills its bits, so nothing needs repairing. The best isn't a score slot (`Events_ScoreIndex` gives page 0 event 7 none), so Reset Records doesn't clear it. See the [save map](../notes/SAVE-DATA-MEMORY-MAP.md).
+
+FH Multi Lasers, appended as `TM_TARGETS_FULL_HOP`, had no room in word 80. It's word 12's bits 6-8, which held Ledgechase's preset in versions 2-8 and haven't been read since. Those versions' migrations copied the preset out but never cleared the bits, so `TYEX` version 24 zeroes all six of word 12's retired bits (6-8 and 15-17) in every record it migrates, and only a version 24 record owns the row. It's stored as itself in `TMTargetsFullHop`'s order (Off 0, All Combos 1, then the combos as the menu lists them), so the cleared bits read as Off. A stored 7 isn't a choice and reads as Off.
 
 ## Tests
 
 `tests/test_targets.py` runs the production event through `tests/targets_probe.c` in Unicorn:
 
 - **Constants:** the Blaster table against `scripts/laser_heights.py` on `melee.iso`, the laser hitbox's size and the DOL's 1/256 scale, the lowest target out of a standing laser's reach, the full hop and double jump from live attributes, and which press frames fit two lasers (Fox's first frame only, none for Falco).
-- **Placement**, on each legal stage's native collision lines from the ISO (Stadium's base layout, Yoshi's without Randall), plus Fountain with its platforms where the game starts them (its DAT holds them joint-local), for both characters: every single target between the lowest laser and the highest, spread across that range, inside the floor's ends, away from you and the last target. Fox's pairs: about half the spawns, both at one x, at the short hop double laser's heights over a floor of the kinds in the table and no other (never Fountain's side platforms, Stadium's missing top or FD's platforms), each kind at least half its even share with you far away and at stage center, and both side platforms used. Standing on Battlefield's top platform, every target keeps 30 from you and pairs come off the other floors. No pairs for Falco, in timed runs, or with the setting off.
+- **FH combos:** each combo's press and heights for both fighters against a float32 walk of the ISO's full hop by the rules above, and against the table by hand; Peak-Low's first laser on the purple Hop Peak Line, High-Lowest's second no lower than the lowest laser, and the doubles' second lasers each more than a target's reach apart.
+- **Placement**, on each legal stage's native collision lines from the ISO (Stadium's base layout, Yoshi's without Randall), plus Fountain with its platforms where the game starts them (its DAT holds them joint-local), for both characters: every single target between the lowest laser and the highest, spread across that range, inside the floor's ends, away from you and the last target. Fox's pairs: about half the spawns, both at one x, at the short hop double laser's heights over a floor of the kinds in the table and no other (never Fountain's side platforms, Stadium's missing top or FD's platforms), each kind at least half its even share with you far away and at stage center, and both side platforms used. Standing on Battlefield's top platform, every target keeps 30 from you and pairs come off the other floors. No pairs for Falco, in timed runs, or with the setting off. FH combos, for both fighters: All Combos makes about half the spawns a combo, every combo turning up, over the same kinds of floor as pairs; one combo comes every spawn; SH pairs and combos share the spawns as above; standing on Battlefield's top platform, combos keep 30 from you and come off the other floors; and none in timed runs or with the row Off.
 - **Hop Peak Lines:** the heights from the ISO's jumps and lasers, and by hand. On each legal stage, for both characters, one batch of lines over everything, two a floor at the right heights and colors, the main floor's and top platform's from blast zone to blast zone and the side platforms' to the middle. Dream Land's sides apart, Fountain's lines following its side platforms and going while one is sunk, the live blast zones, the row saving and drawing at once in timed runs and Free Practice, nothing before the fighter's first frame or on other passes, and the lines under the targets.
-- **The event:** the first target waiting for control, breaking (score, chime, the laser ended, the ring's 12 frames, the next target), a sweep that passes through a target in one frame, the exact reach, other fighters' lasers, new hitboxes and other items never hitting, a standing laser missing the lowest target and a low laser hitting it, pairs waiting for both, the camera, pausing, the row's gating and (N/A), saving, the timed minute's end and best (capped at 255), Free Practice, Reset Event Settings, Counter Position and the draw link.
+- **The event:** the first target waiting for control, breaking (score, chime, the laser ended, the ring's 12 frames, the next target), a sweep that passes through a target in one frame, the exact reach, other fighters' lasers, new hitboxes and other items never hitting, a standing laser missing the lowest target and a low laser hitting it, pairs waiting for both, Hi-Hi-Low's three targets waiting for all three, the FH row's gating, loading, values and saving, the camera, pausing, the row's gating and (N/A), saving, the timed minute's end and best (capped at 255), Free Practice, Reset Event Settings, Counter Position and the draw link.
 - **Stages and characters:** each legal stage plays, and Peach's Castle and Kongo Jungle restart once on Battlefield with no target out. Change Character is its own one-row submenu with the swap's row hooks, offers Fox and Falco only, starts on the fighter in play with no CPU row, does nothing on A until a pick changes, and then restarts with the pick and costume and no CPU (-1).
 
-`tests/test_settings_extension.py` covers the field's bits, its neighbors in word 80, bad writes and version 22 records. `tests/test_ledgechase_catalogue.py` checks the descriptor (Fox and Falco only, stage select, no CPU or score slot), and `tests/test_score_storage.py` and `tests/test_menu_exit.py` the catalogue count and the DAT's exit callback.
+`tests/test_settings_extension.py` covers the field's bits, its neighbors in word 80, bad writes and version 22 records, and FH Multi Lasers: its bits in word 12 alone, a stored 7 reading as Off, version 23 records migrating (only the retired bits cleared) and read without writing. `tests/test_ledgechase_catalogue.py` checks the descriptor (Fox and Falco only, stage select, no CPU or score slot), and `tests/test_score_storage.py` and `tests/test_menu_exit.py` the catalogue count and the DAT's exit callback.
 
 ## Still to check in Dolphin
 
@@ -116,6 +144,7 @@ None of the tests render or run the real laser code. Still to check in game:
 - That the lowest targets really need a low laser (a standing laser passes over by only 0.05), and that a short hop low laser hits them, for both characters, especially Falco's floor-level targets.
 - That the highest targets are reachable with a full hop and double jump laser off the top platform, and the camera shows them.
 - Fox's pairs with a real short hop double laser (B on the first airborne frame, no fastfall), from the main floor, the side platforms and the top platform, on each stage, and that Fountain never puts one over a side platform.
+- Each FH combo with a real full hop for both fighters, at the table's press frames with no fastfall: that the lasers break their targets, Hi-Hi-Low's three shots fit (B pressed again within each Loop), Peak-Low's first laser flies along the purple line, and High-Lowest's last laser still comes out before landing (Falco's only 0.79 off the floor). The combos assume the aerial laser keeps the jump's gravity and fall speed, as the SH pairs do.
 - That picking a non-legal stage loads it, then restarts on Battlefield (the restart runs on the first frame, during Ready).
 - Change Character from Fox to Falco and back, with a costume change: the new fighter and its sounds load, the SH Double Lasers row turns (N/A) for Falco, and saved settings carry over.
 - The timed run's end, the new record voice, and the best saving to the card.

@@ -153,7 +153,7 @@ void TestTargetsFighter(int kind, int jump, int hop, int mult, int gravity, int 
     ft.attr.gravity = gravity / 10000.f;
     ft.attr.terminal_velocity = terminal / 10000.f;
 }
-void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved, int peak_lines) {
+void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved, int peak_lines, int full_hop) {
     *event_vars_ptr_loc = &vars;
     vars.GFX_Start = GFXStart;
     prefs[TM_TARGETS_LINES] = peak_lines;
@@ -169,6 +169,7 @@ void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_sa
     you.userdata = &ft;
     prefs[TM_TARGETS_FREE_PRACTICE] = free_practice;
     prefs[TM_TARGETS_SHDL] = shdl;
+    prefs[TM_TARGETS_FULL_HOP] = full_hop;
     prefs[TM_TARGETS_BEST] = best_saved;
     counter = counter_saved;
     stc_match->match.timer = MATCH_TIMER_COUNTDOWN;
@@ -239,8 +240,8 @@ void TestTargetsShootAll(void) {
 }
 /* Put a single target at (x, y), in thousandths, as a spawn would. */
 void TestTargetsPlace(int x, int y) {
+    for (int i = 1; i < MAX_TARGETS; ++i) targets[i].live = false;
     targets[0] = (struct target){{x / 1000.f, y / 1000.f}, true};
-    targets[1].live = false;
     placed = true;
 }
 int TestTargetsTarget(int i, int key) {
@@ -256,6 +257,12 @@ int TestTargetsShots(int press, int key) {
     float high = 0, low = 0;
     int fits = ShortHopShots(&ft, BlasterOf(&ft), press, &high, &low);
     return key == 0 ? fits : key == 1 ? high * 10000 : low * 10000;
+}
+/* FH Multi Lasers' combo `combo`: key 0 its shots (0 if it doesn't fit), 1
+ * its press frame, 2 on its heights in ten-thousandths. */
+int TestTargetsFullHop(int combo, int key) {
+    struct full_hop *c = &full_hops[combo];
+    return key == 0 ? c->shots : key == 1 ? c->press : c->heights[key - 2] * 10000;
 }
 int TestTargetsBlaster(int falco, int key) {
     const Blaster *b = &Blasters[falco];
@@ -311,6 +318,12 @@ int TestTargetsInfo(int key) {
     case 36: return Options_Main[OPT_LINES].val;
     case 37: return prefs[TM_TARGETS_LINES];
     case 38: return Options_Main[OPT_LINES].val_prev;
+    case 39: return Options_Main[OPT_FULL_HOP].disable;
+    case 40: return Options_Main[OPT_FULL_HOP].name == FullHopUnavailable;
+    case 41: return Options_Main[OPT_FULL_HOP].val;
+    case 42: return prefs[TM_TARGETS_FULL_HOP];
+    case 43: return Options_Main[OPT_FULL_HOP].val_prev;
+    case 44: return Options_Main[OPT_FULL_HOP].value_num;
     }
     return -1;
 }
@@ -350,3 +363,4 @@ void TestTargetsChoose(int row, int value) {
     Options_Main[row].OnChange(0, value);
 }
 void TestTargetsSelect(int row) { Options_Main[row].OnSelect(0); }
+unsigned TestTargetsFullHopText(int value) { return (unsigned)FullHopText[value]; }

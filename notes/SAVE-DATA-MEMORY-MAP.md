@@ -1,6 +1,6 @@
 # Save data memory map
 
-What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T10 (core settings format 3, `TYEX` extension version 23).
+What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T10 (core settings format 3, `TYEX` extension version 24).
 
 Everything here is inside Melee's existing main save entry, so it uses the game's own save, checksum and encryption. Tyro never adds a new file or grows the save. Offsets are from the start of the game-data object (`stc_memcard`), not raw GCI offsets.
 
@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **2 spare bits** in word 80 (30-31), plus **6 loose bits**, all retired, in word 12 |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **2 spare bits** in word 80 (30-31) and **3** in word 12 (15-17) |
 | **Unallocated spare score slots** | `0x1B34..0x1B37` | **4 bytes** | nothing | **4 bytes (32 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bits 30-31 (free for any setting whose stored 0 is its default, with no version bump) and scattered single bits. The core record is full.
+**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bits 30-31 and word 12's bits 15-17, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -37,6 +37,7 @@ The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37
 | 21 | T9 | 76 bytes | 2v1 Grab Punish's P3 and P4 characters |
 | 22 | T10 | 80 bytes | Escape Samus Up-B and Escape IC Grab settings |
 | 23 | T10 | 84 bytes | Grabs-ercise's CPU Percent. Version 22 never shipped, but T10 builds wrote it, so it migrates |
+| 24 | T10 | 84 bytes | Target Practice's FH Multi Lasers, in word 12's retired bits 6-8, which every migration to 24 zeroes (with 15-17). No bytes appended |
 
 ## Core settings record (`0x1F24..0x1F4F`)
 
@@ -128,10 +129,10 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 
 | Bytes | Owner | Contents | Free inside |
 | --- | --- | --- | --- |
-| 0..7 | Header | `TYEX`, version (23), payload size (76), marker `A5 5A` | — |
+| 0..7 | Header | `TYEX`, version (24), payload size (76), marker `A5 5A` | — |
 | 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
 | 9..11 | Techchase, Under Fire | word 9 bits 0-23, fully used (table below). Bit 15 (byte 10 bit 7) is Player Distance's top bit since T10, and bit 14 CPU Followup Action's low bit | — |
-| 12..15 | Ledgechase, Under Fire, Low Laser | word 12 (table below) | bits 6-8, 15-17 (retired) |
+| 12..15 | Ledgechase, Under Fire, Low Laser, Target Practice | word 12 (table below) | bits 15-17 |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
 | 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish | word 20, fully used (Side-B Sweetspot's Marth is word 72 bit 31) | — |
 | 24..34 | Global OSD colors, Ledgegrab Speedrun, 2v1 Grab Punish | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender. Byte 34 bits 4-5 are Ledgegrab Speedrun's Reset Speed (T9), stored as an offset from the default: 0 Short, 1 Linger, 2 Instant, and an invalid 3 reads as Short. Byte 34 bits 6-7 are the top bits of Grab Punish's Enemy Percent and Teammate Percent (T9). No version bump: every migration to version 15 zeroed this nibble and the color code keeps it. Read only from version 15 on, and Grab Punish's only from version 20 on | — |
@@ -146,7 +147,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
 | 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot | word 80 (table below) | bits 30-31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **2 spare bits** (30-31) and **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines word 80 bit 29. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **2 spare bits** (30-31) and word 12's **3 spare bits** (15-17). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines word 80 bit 29. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, so bits 15-17 are the ones left.
 
 ### Bit fields in the words
 
@@ -168,17 +169,19 @@ Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot'
 | 21-22 | Distance, low bits: 0 Right Next To, 1 Close, 2 Medium, 3 Past Tech Roll, 4 Random (T10, with bit 15). A stored 5-7 repairs to Right Next To |
 | 23 | Under Fire: Remove Fleshy Pillars (T9). No version bump: every record started with it zero and migrations only keep it |
 
-**Word 12: Ledgechase, Under Fire, Low Laser**
+**Word 12: Ledgechase, Under Fire, Low Laser, Target Practice**
+
+Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 9 moved both, and their migrations copied the old values out but never cleared them, so a record that came up from those versions can still hold them. Every migration to version 24 zeroes all six, after the version 2-8 migration has read them, so in a version 24 record they read 0. Target Practice's FH Multi Lasers took bits 6-8 that way; bits 15-17 are free for a setting whose stored 0 is its default, with no version bump. Only a version 24 record owns them.
 
 | Bits | Setting |
 | --- | --- |
 | 0-1 | Ledgechase side |
 | 2 | Ledgechase CPU 100% |
 | 3-5 | Ledgechase player percent |
-| 6-8 | *retired (old preset)* |
+| 6-8 | Target Practice: FH Multi Lasers (T10, version 24, `TM_TARGETS_FULL_HOP`): 0 Off (default), 1 All Combos, 2 Hi-Hi-Low, 3 High-MedHigh, 4 Peak-Low, 5 High-Medium, 6 High-Lowest. A stored 7 reads as Off. Version 2-8's old preset until version 24 zeroed them; older records read Off |
 | 9-11 | Ledgechase distance |
 | 12-14 | Ledgechase CPU invincibility color |
-| 15-17 | *retired (old action)* |
+| 15-17 | Free (zeroed by version 24; version 2-8's old action) |
 | 18 | Under Fire: disable attack particles |
 | 19 | Under Fire: score is a refresh count (format marker) |
 | 20 | Low Laser: event OSDs |

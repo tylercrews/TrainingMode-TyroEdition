@@ -9,6 +9,7 @@
  * minute counts targets, with the best saved; Free Practice has no clock, and
  * its SH Double Lasers makes about half the spawns a pair that one short hop
  * double laser can hit, off the main floor, a side platform or the top one.
+ * FH Multi Lasers does the same with two or three targets for one full hop.
  *
  * Heights. Lasers fly flat, so a target's height is the height of the laser
  * that hits it. The lowest spot is the lowest laser that can be shot from the
@@ -51,6 +52,15 @@
  * the stage has one that holds still: Fountain's side platforms move, Stadium
  * has no top platform and FD no platforms.
  *
+ * FH combos. FullHopCombos walks a full hop the same way and times one B
+ * press per combo: Hi-Hi-Low (the first airborne frame, three shots),
+ * Peak-Low (the first shot from the peak), High-Lowest (the last press whose
+ * second shot comes before landing), and High-MedHigh and High-Medium, whose
+ * second shots come halfway from Peak-Low's to the highest and the lowest. A
+ * combo stacks over a floor the way a pair does. All Combos makes about half
+ * the spawns a combo at random; one combo picked makes every spawn that
+ * combo, but for SH pairs if they're on too.
+ *
  * Hop Peak Lines. A jump's highest laser is the one shot from its peak (the
  * shot comes from where the fighter was the frame before, and the peak is the
  * highest it gets), so each floor gets two lines: teal for a short hop's, purple
@@ -67,10 +77,11 @@
 #define SPAWN_FROM_YOU 30.f
 #define SPAWN_FROM_LAST 25.f
 #define SPAWN_TRIES 40
-#define MAX_TARGETS 2
+#define MAX_SHOTS 3           // FH Multi Lasers' Hi-Hi-Low.
+#define MAX_TARGETS MAX_SHOTS
 #define POP_FRAMES 12         // A broken target's ring.
 #define CIRCLE_STEPS 20
-#define HOP_FRAMES 64         // Longer than any short hop.
+#define JUMP_FRAMES 96        // Longer than Fox's or Falco's full hop.
 #define CAMERA_MARGIN 10.f
 #define PEAK_LINE_WIDTH 12    // 2 pixels, in sixths.
 #define PEAK_FLOORS 4         // The main floor and up to three platforms.
@@ -92,14 +103,15 @@ static const Blaster Blasters[2] = {
 };
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_LINES, OPT_COUNTER, OPT_DEFAULTS,
-    OPT_EXIT, OPT_COUNT
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_COUNTER,
+    OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
 
 static void Retry(GOBJ *menu);
 static void Exit(GOBJ *menu);
 static void ChangeFreePractice(GOBJ *menu, int value);
 static void ChangeDoubleLasers(GOBJ *menu, int value);
+static void ChangeFullHop(GOBJ *menu, int value);
 static void ChangePeakLines(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
@@ -109,6 +121,12 @@ static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
 };
 static char DoubleLasersName[] = "SH Double Lasers";
 static char DoubleLasersUnavailable[] = "SH Double Lasers (N/A)";
+// In TMTargetsFullHop's order: the saved values.
+static const char *FullHopText[TM_TARGETS_FH_COUNT] = {
+    "Off", "All Combos", "Hi-Hi-Low", "High-MedHigh", "Peak-Low", "High-Medium", "High-Lowest"
+};
+static char FullHopName[] = "FH Multi Lasers";
+static char FullHopUnavailable[] = "FH Multi Lasers (N/A)";
 
 /* Fox or Falco, the only characters the event's CSS offers. There's no CPU,
  * so the submenu lists only the player's row. */
@@ -160,6 +178,18 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "slow. Free Practice only. Saved."},
         .disable = 1,
         .OnChange = ChangeDoubleLasers,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .value_num = TM_TARGETS_FH_COUNT,
+        .name = FullHopName,
+        .desc = {"Targets stacked for one full hop multi laser, no",
+                 "fastfall. All Combos: about half the targets, any",
+                 "combo. A combo: every target, to drill it. Free",
+                 "Practice only. Saved."},
+        .values = FullHopText,
+        .disable = 1,
+        .OnChange = ChangeFullHop,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -246,30 +276,42 @@ static float FullHopDoubleJump(FighterData *ft) {
     return Rise(jump, ft->attr.gravity) + Rise(jump * ft->attr.air_jump_v_multiplier, ft->attr.gravity);
 }
 
-/* Height after each airborne frame of a short hop with no fastfall, frame 1
- * the first. */
-static void ShortHop(FighterData *ft, float *y) {
-    float v = ft->attr.hop_v_initial_velocity, gravity = ft->attr.gravity, fall = ft->attr.terminal_velocity;
+/* Height after each airborne frame of a jump from `velocity` with no
+ * fastfall, frame 1 the first. */
+static void Jump(FighterData *ft, float velocity, float *y) {
+    float gravity = ft->attr.gravity, fall = ft->attr.terminal_velocity;
     y[0] = 0;
-    for (int frame = 1; frame < HOP_FRAMES; ++frame) {
-        v -= gravity;
-        if (v < -fall) v = -fall;
-        y[frame] = y[frame - 1] + v;
+    for (int frame = 1; frame < JUMP_FRAMES; ++frame) {
+        velocity -= gravity;
+        if (velocity < -fall) velocity = -fall;
+        y[frame] = y[frame - 1] + velocity;
     }
 }
-/* B on airborne frame `press` shoots on press + delay and, looped, a Loop
- * later, each from where the fighter was the frame before. 0 if it lands
- * before the second shot. */
+/* B on airborne frame `press` of a jump from `velocity` shoots on press +
+ * delay and, looped, every Loop after, each from where the fighter was the
+ * frame before. Fills `count` heights above the floor, or returns 0 if the
+ * fighter lands first or a shot would start under the floor (it dies at once,
+ * see LowestLaser). Past the apex each frame is lower than the last, so a shot
+ * from the air means every frame before it was in the air. */
+static int JumpShots(FighterData *ft, const Blaster *blaster, float velocity, int press, int count, float *heights) {
+    float y[JUMP_FRAMES];
+    if (press < 1) return 0;
+    Jump(ft, velocity, y);
+    for (int i = 0; i < count; ++i) {
+        int shot = press + blaster->delay + i * blaster->loop;
+        if (shot >= JUMP_FRAMES) return 0;
+        float from = y[shot - 1];
+        if (from + blaster->ecb_bottom <= 0 || from + blaster->air <= 0) return 0;
+        heights[i] = from + blaster->air;
+    }
+    return 1;
+}
+// A short hop double laser's two shots. 0 if it lands before the second.
 static int ShortHopShots(FighterData *ft, const Blaster *blaster, int press, float *high, float *low) {
-    float y[HOP_FRAMES];
-    int first = press + blaster->delay, second = first + blaster->loop;
-    if (press < 1 || second >= HOP_FRAMES) return 0;
-    ShortHop(ft, y);
-    /* Past the apex each frame is lower than the last, so the frame before
-     * the second shot decides whether it's still airborne. */
-    if (y[second - 1] + blaster->ecb_bottom <= 0) return 0;
-    *high = y[first - 1] + blaster->air;
-    *low = y[second - 1] + blaster->air;
+    float shots[2];
+    if (!JumpShots(ft, blaster, ft->attr.hop_v_initial_velocity, press, 2, shots)) return 0;
+    *high = shots[0];
+    *low = shots[1];
     return 1;
 }
 /* How many press frames from the first fit both shots. A later press is a
@@ -281,22 +323,106 @@ static int ShortHopPresses(FighterData *ft, const Blaster *blaster) {
     return count;
 }
 
+/* FH Multi Lasers' combos, each one B press in a full hop with no fastfall.
+ * A later press makes a lower second shot (it's past the apex for every
+ * press), so the doubles run from press 1 to the last whose second shot
+ * comes before landing:
+ *
+ * - Hi-Hi-Low: B on the first airborne frame, looped twice for three shots.
+ * - Peak-Low: the first shot from the jump's peak, Hop Peak Lines' purple.
+ * - High-Lowest: the last press, so the lowest second shot there is.
+ * - High-MedHigh: the second shot nearest halfway from Peak-Low's up to the
+ *   highest any double has; High-Medium: halfway down to High-Lowest's.
+ *
+ * A combo that doesn't fit the fighter has no shots. */
+static struct full_hop { int press, shots; float heights[MAX_SHOTS]; } full_hops[TM_TARGETS_FH_COUNT];
+
+static float FullHopVelocity(FighterData *ft) { return ft->attr.jump_v_initial_velocity; }
+static float SecondShot(FighterData *ft, const Blaster *blaster, int press) {
+    float shots[2];
+    return JumpShots(ft, blaster, FullHopVelocity(ft), press, 2, shots) ? shots[1] : 0;
+}
+static void SetCombo(FighterData *ft, const Blaster *blaster, int combo, int press, int shots) {
+    struct full_hop *c = &full_hops[combo];
+    c->press = press;
+    c->shots = JumpShots(ft, blaster, FullHopVelocity(ft), press, shots, c->heights) ? shots : 0;
+}
+// The press from `from` to `to` whose second shot comes nearest `height`.
+static int PressNear(FighterData *ft, const Blaster *blaster, int from, int to, float height) {
+    int best = from;
+    float best_off = -1;
+    for (int press = from; press <= to; ++press) {
+        float off = SecondShot(ft, blaster, press) - height;
+        if (off < 0) off = -off;
+        if (best_off < 0 || off < best_off) {
+            best = press;
+            best_off = off;
+        }
+    }
+    return best;
+}
+static void FullHopCombos(FighterData *ft, const Blaster *blaster) {
+    float y[JUMP_FRAMES], shots[2], top = 0;
+    int apex = 1, doubles = 0, highest = 1;
+    for (int i = 0; i < TM_TARGETS_FH_COUNT; ++i) full_hops[i].shots = 0;
+    while (JumpShots(ft, blaster, FullHopVelocity(ft), doubles + 1, 2, shots)) {
+        ++doubles;
+        if (shots[1] > top) {
+            top = shots[1];
+            highest = doubles;
+        }
+    }
+    if (!doubles) return;
+    Jump(ft, FullHopVelocity(ft), y);
+    for (int frame = 2; frame < JUMP_FRAMES; ++frame)
+        if (y[frame] > y[apex]) apex = frame;
+    int peak = apex + 1 - blaster->delay;
+    SetCombo(ft, blaster, TM_TARGETS_FH_HI_HI_LOW, 1, 3);
+    SetCombo(ft, blaster, TM_TARGETS_FH_HIGH_LOWEST, doubles, 2);
+    if (peak < 1 || peak > doubles) return; // The rest are timed around Peak-Low.
+    float middle = SecondShot(ft, blaster, peak);
+    SetCombo(ft, blaster, TM_TARGETS_FH_PEAK_LOW, peak, 2);
+    SetCombo(ft, blaster, TM_TARGETS_FH_HIGH_MEDHIGH,
+             PressNear(ft, blaster, highest < peak ? highest : peak, peak, (middle + top) * .5f), 2);
+    SetCombo(ft, blaster, TM_TARGETS_FH_HIGH_MEDIUM,
+             PressNear(ft, blaster, peak, doubles, (middle + SecondShot(ft, blaster, doubles)) * .5f), 2);
+}
+static bool FullHopFits(void) {
+    for (int c = TM_TARGETS_FH_HI_HI_LOW; c < TM_TARGETS_FH_COUNT; ++c)
+        if (full_hops[c].shots) return true;
+    return false;
+}
+
 // Settings --------------------------------------------------------------------
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 static bool PairsOn(void) { return FreePractice() && Options_Main[OPT_SHDL].val && pair_presses > 0; }
+/* The combo a full hop spawn uses: the row's, or for All Combos any that fits
+ * the fighter. -1 if there's none. Only All Combos draws a number. */
+static int FullHopCombo(bool pick) {
+    int value = Options_Main[OPT_FULL_HOP].val, fits[TM_TARGETS_FH_COUNT], count = 0;
+    if (!FreePractice() || value <= TM_TARGETS_FH_OFF || value >= TM_TARGETS_FH_COUNT) return -1;
+    if (value != TM_TARGETS_FH_ALL) return full_hops[value].shots ? value : -1;
+    for (int c = TM_TARGETS_FH_HI_HI_LOW; c < TM_TARGETS_FH_COUNT; ++c)
+        if (full_hops[c].shots) fits[count++] = c;
+    return !count ? -1 : pick ? fits[HSD_Randi(count)] : fits[0];
+}
 
-/* Free Practice only, and only for a fighter whose short hop fits two lasers,
- * which isn't known until its first frame. */
-static void GateDoubleLasers(void) {
+/* Free Practice only, and only for a fighter whose short hop fits two lasers
+ * (or full hop, a combo), which isn't known until its first frame. */
+static void GateLaserRows(void) {
     Options_Main[OPT_SHDL].disable = !FreePractice() || !pair_presses;
     Options_Main[OPT_SHDL].name = checked && !pair_presses ? DoubleLasersUnavailable : DoubleLasersName;
+    Options_Main[OPT_FULL_HOP].disable = !FreePractice() || !FullHopFits();
+    Options_Main[OPT_FULL_HOP].name = checked && !FullHopFits() ? FullHopUnavailable : FullHopName;
 }
 static void LoadSettings(void) {
     Options_Main[OPT_FREEPRACTICE].val = Options_Main[OPT_FREEPRACTICE].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FREE_PRACTICE);
     Options_Main[OPT_SHDL].val = Options_Main[OPT_SHDL].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL);
+    Options_Main[OPT_FULL_HOP].val = Options_Main[OPT_FULL_HOP].val_prev =
+        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP);
     Options_Main[OPT_LINES].val = Options_Main[OPT_LINES].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
@@ -305,6 +431,9 @@ static void LoadSettings(void) {
 // The next targets to appear follow it; the ones out stay.
 static void ChangeDoubleLasers(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL, value);
+}
+static void ChangeFullHop(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, value);
 }
 // The lines show or go on the next frame drawn, behind the paused menu too.
 static void ChangePeakLines(GOBJ *menu, int value) {
@@ -358,11 +487,12 @@ static void ChangeFreePractice(GOBJ *menu, int value) {
 static void EnterFreePractice(void) {
     reset_clock = true;
     stc_match->match.timer = MATCH_TIMER_COUNTUP;
-    GateDoubleLasers();
+    GateLaserRows();
 }
 static void ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FREE_PRACTICE, 0);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL, 0);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, TM_TARGETS_FH_OFF);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, 0);
     LoadSettings();
     Retry(menu);
@@ -437,18 +567,17 @@ static bool FloorSpot(int line, Vec2 *at) {
     at->Y = ground.Y;
     return true;
 }
-/* A pair at the heights of one short hop double laser off a floor, over that
- * floor. The floor is the main floor, a side platform (left or right) or the
- * top platform, each kind as likely as the others where the stage has one
- * that holds still: Fountain's side platforms move, so pairs leave them out,
- * Stadium has no top platform and FD no platforms. The kind holds for half
- * the tries, so it stays even wherever you stand, and then gives way when no
- * spot on it is far enough from you (you're on the top platform, say). */
-static void PickPair(FighterData *ft, Vec2 you, Vec2 *upper, Vec2 *lower) {
-    float high, low;
+/* Targets stacked at one x at the `count` heights of one multi laser off a
+ * floor, over that floor. The floor is the main floor, a side platform (left
+ * or right) or the top platform, each kind as likely as the others where the
+ * stage has one that holds still: Fountain's side platforms move, so groups
+ * leave them out, Stadium has no top platform and FD no platforms. The kind
+ * holds for half the tries, so it stays even wherever you stand, and then
+ * gives way when no spot on it is far enough from you (you're on the top
+ * platform, say). */
+static void PickGroup(Vec2 you, const float *heights, int count) {
     int sides[2], side_count = 0, top_line, line;
     Vec3 center;
-    ShortHopShots(ft, BlasterOf(ft), 1 + HSD_Randi(pair_presses), &high, &low);
     if (Stage_GetExternalID() != GRKINDEXT_IZUMI)
         for (int side = -1; side <= 1; side += 2)
             if (FindPlatform(side, &center, &line)) sides[side_count++] = line;
@@ -459,17 +588,17 @@ static void PickPair(FighterData *ft, Vec2 you, Vec2 *upper, Vec2 *lower) {
         if (tries >= SPAWN_TRIES / 2) kind = HSD_Randi(kinds);
         line = !kind ? -1 : kind == 1 && side_count ? sides[HSD_Randi(side_count)] : top_line;
         Vec2 spot;
+        bool clear = true;
         if (!FloorSpot(line, &spot)) continue;
-        Vec2 top = {spot.X, spot.Y + high}, bottom = {spot.X, spot.Y + low};
-        if (!Clear(top, you, tries) || !Clear(bottom, you, tries)) continue;
-        *upper = top;
-        *lower = bottom;
+        for (int i = 0; i < count && clear; ++i)
+            clear = Clear((Vec2){spot.X, spot.Y + heights[i]}, you, tries);
+        if (!clear) continue;
+        for (int i = 0; i < count; ++i) targets[i].pos = (Vec2){spot.X, spot.Y + heights[i]};
         return;
     }
     Vec3 ground;
     GroundPoint(0, &ground, &line);
-    *upper = (Vec2){0, ground.Y + high};
-    *lower = (Vec2){0, ground.Y + low};
+    for (int i = 0; i < count; ++i) targets[i].pos = (Vec2){0, ground.Y + heights[i]};
 }
 
 static void AimCamera(void) {
@@ -492,16 +621,35 @@ static void AimCamera(void) {
     cam->boundbottom_proj = -half - CAMERA_MARGIN;
 }
 
+static bool AnyLive(void) {
+    for (int i = 0; i < MAX_TARGETS; ++i)
+        if (targets[i].live) return true;
+    return false;
+}
+/* Each spawn is a single, a short hop pair or a full hop combo, evenly among
+ * those that are on. One FH combo picked (not All Combos) drops the singles,
+ * so it comes every spawn but the pairs'. */
+enum { SPAWN_SINGLE, SPAWN_PAIR, SPAWN_FULL_HOP };
 static void Spawn(FighterData *ft) {
     Vec2 you = {ft->phys.pos.X, ft->phys.pos.Y};
+    int kinds[3], count = 0, shots = 1;
+    bool full_hop = FullHopCombo(false) >= 0;
+    if (!full_hop || Options_Main[OPT_FULL_HOP].val == TM_TARGETS_FH_ALL) kinds[count++] = SPAWN_SINGLE;
+    if (PairsOn()) kinds[count++] = SPAWN_PAIR;
+    if (full_hop) kinds[count++] = SPAWN_FULL_HOP;
+    int kind = count > 1 ? kinds[HSD_Randi(count)] : kinds[0];
     for (int i = 0; i < MAX_TARGETS; ++i) targets[i].live = false;
-    if (PairsOn() && HSD_Randi(2)) {
-        PickPair(ft, you, &targets[0].pos, &targets[1].pos);
-        targets[1].live = true;
+    if (kind == SPAWN_PAIR) {
+        float pair[2];
+        ShortHopShots(ft, BlasterOf(ft), 1 + HSD_Randi(pair_presses), &pair[0], &pair[1]);
+        PickGroup(you, pair, shots = 2);
+    } else if (kind == SPAWN_FULL_HOP) {
+        struct full_hop *combo = &full_hops[FullHopCombo(true)];
+        PickGroup(you, combo->heights, shots = combo->shots);
     } else {
         PickSingle(ft, you, &targets[0].pos);
     }
-    targets[0].live = true;
+    for (int i = 0; i < shots; ++i) targets[i].live = true;
     last_spot = targets[0].pos;
     placed = true;
     AimCamera();
@@ -647,9 +795,10 @@ static void CheckFighter(FighterData *ft) {
     const Blaster *blaster = BlasterOf(ft);
     checked = true;
     pair_presses = ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO ? ShortHopPresses(ft, blaster) : 0;
+    if (ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO) FullHopCombos(ft, blaster);
     peak_lasers[0] = Rise(ft->attr.hop_v_initial_velocity, ft->attr.gravity) + blaster->air;
     peak_lasers[1] = Rise(ft->attr.jump_v_initial_velocity, ft->attr.gravity) + blaster->air;
-    GateDoubleLasers();
+    GateLaserRows();
 }
 static void FinishTimedRun(void) {
     Match_SetEndGraphic(MATCHENDKIND_VSGAME);
@@ -697,10 +846,12 @@ void Event_Init(GOBJ *gobj) {
     }
     placed = checked = reset_clock = restarting = false;
     pair_presses = score = 0;
+    for (int i = 0; i < TM_TARGETS_FH_COUNT; ++i) full_hops[i].shots = 0;
     LoadSettings();
     // A retry may reuse the module: rebuild the gating from the saved mode.
-    Options_Main[OPT_SHDL].disable = 1;
+    Options_Main[OPT_SHDL].disable = Options_Main[OPT_FULL_HOP].disable = 1;
     Options_Main[OPT_SHDL].name = DoubleLasersName;
+    Options_Main[OPT_FULL_HOP].name = FullHopName;
     if (Options_Main[OPT_FREEPRACTICE].val) EnterFreePractice();
     StageSwap_Init();
     // No CPU: slot 1 is empty, so FighterSwap_Init greys out its row.
@@ -739,7 +890,7 @@ void Event_Think(GOBJ *event) {
             if (pops[i].age > 0 && ++pops[i].age > POP_FRAMES) pops[i].age = 0;
         // The first targets wait for you to have control: Go, in a timed run.
         if (placed) ShootTargets(you);
-        if (ft->flags.input_enable && (!placed || (!targets[0].live && !targets[1].live))) Spawn(ft);
+        if (ft->flags.input_enable && (!placed || !AnyLive())) Spawn(ft);
         AimCamera();
     }
     UpdateHUD();
