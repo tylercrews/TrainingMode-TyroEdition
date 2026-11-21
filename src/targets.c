@@ -5,7 +5,8 @@
 
 /* Target Practice (Minigames): Fox and Falco shoot targets with their blaster,
  * on the six legal stages. A target is a small bullseye somewhere over the
- * main stage, centered on its spot. Shoot it and the next one appears. A timed
+ * main stage, centered on its spot, with four ticks pointing to it unless
+ * Target Pointers is off. Shoot it and the next one appears. A timed
  * minute counts targets, with the best saved; Free Practice has no clock, and
  * its SH Double Lasers makes about half the spawns a pair that one short hop
  * double laser can hit, off the main floor, a side platform or the top one.
@@ -129,7 +130,7 @@ static const Blaster Blasters[2] = {
 
 enum options_main {
     OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_SH_COLOR,
-    OPT_FH_COLOR, OPT_DOUBLE_JUMP, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
+    OPT_FH_COLOR, OPT_DOUBLE_JUMP, OPT_POINTERS, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
 
 static void Retry(GOBJ *menu);
@@ -141,6 +142,7 @@ static void ChangePeakLines(GOBJ *menu, int value);
 static void ChangeShortHopColor(GOBJ *menu, int value);
 static void ChangeFullHopColor(GOBJ *menu, int value);
 static void ChangeDoubleJump(GOBJ *menu, int value);
+static void ChangePointers(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
@@ -267,6 +269,14 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "have the jump, and stays at that jump's height",
                  "once you use it, until you land. Saved."},
         .OnChange = ChangeDoubleJump,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Target Pointers",
+        .desc = {"The four short lines around each target that",
+                 "point to it, so it's easy to spot zoomed out.",
+                 "Off shows just the bullseye. Saved."},
+        .OnChange = ChangePointers,
     },
     {
         .kind = OPTKIND_STRING,
@@ -535,6 +545,8 @@ static void LoadSettings(void) {
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_SH_COLOR);
     Options_Main[OPT_FH_COLOR].val = Options_Main[OPT_FH_COLOR].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR);
+    Options_Main[OPT_POINTERS].val = Options_Main[OPT_POINTERS].val_prev =
+        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_POINTERS);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
     best = TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_BEST);
 }
@@ -545,8 +557,8 @@ static void ChangeDoubleLasers(GOBJ *menu, int value) {
 static void ChangeFullHop(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, value);
 }
-/* The lines, their colors and the double jump's line change on the next
- * frame drawn, behind the paused menu too. */
+/* The lines, their colors, the double jump's line and the targets' pointers
+ * change on the next frame drawn, behind the paused menu too. */
 static void ChangePeakLines(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, value);
 }
@@ -558,6 +570,9 @@ static void ChangeFullHopColor(GOBJ *menu, int value) {
 }
 static void ChangeDoubleJump(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, value);
+}
+static void ChangePointers(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_POINTERS, value);
 }
 
 /* Where the count goes for each Counter Position: Eggs-ercise's spots, with
@@ -617,6 +632,7 @@ static void ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, 0);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SH_COLOR, TM_TARGETS_SH_COLOR_DEFAULT);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR, TM_TARGETS_FH_COLOR_DEFAULT);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_POINTERS, 1);
     LoadSettings();
     Retry(menu);
 }
@@ -852,9 +868,10 @@ static void Circle(Vec2 center, float radius, GXColor color, u8 width) {
         GFX_AddVtx(center.X + cos(angle) * radius, center.Y + sin(angle) * radius, 0, color);
     }
 }
-/* A bullseye the size of the target, with four ticks around it so it's easy to
- * spot zoomed out. With no depth test the stage never hides it. */
-static void DrawTarget(Vec2 c) {
+/* A bullseye the size of the target, with four ticks around it (Target
+ * Pointers, On unless it's turned off) so it's easy to spot zoomed out. With
+ * no depth test the stage never hides it. */
+static void DrawTicks(Vec2 c) {
     static const float ticks[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
     event_vars->GFX_Start(16, (GFX_Params){.shape = GX_LINES, .size = 18, .no_depth = true});
     for (int i = 0; i < 4; ++i)
@@ -867,6 +884,9 @@ static void DrawTarget(Vec2 c) {
             float r = TARGET_RADIUS + (end ? 3.2f : 1.3f);
             GFX_AddVtx(c.X + ticks[i][0] * r, c.Y + ticks[i][1] * r, 0, TargetWhite);
         }
+}
+static void DrawTarget(Vec2 c) {
+    if (Options_Main[OPT_POINTERS].val) DrawTicks(c);
     Disc(c, TARGET_RADIUS + .25f, TargetEdge);
     Disc(c, TARGET_RADIUS, TargetRed);
     Disc(c, TARGET_RADIUS * 2 / 3, TargetWhite);

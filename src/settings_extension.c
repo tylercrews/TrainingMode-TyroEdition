@@ -259,20 +259,25 @@ typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOW
  * distance from its default, Teal and Purple, the way Passing Practice's rows
  * are, so the zeros every migration to 25 writes read as the defaults, and a
  * stored 15, no color, reads as the default. Only a version 25 record owns
- * the word. Bits 8..31 are free for a setting whose stored 0 is its default,
- * with no version bump. */
+ * the word. Target Pointers (T10), appended after, is bit 8 with no version
+ * bump: On by default, stored the same way as its distance from On, so the
+ * zeros read as On. Bits 9..31 are free for a setting whose stored 0 is its
+ * default, with no version bump. IS_TARGETS_WORD_84 is every row in it. */
 #define TARGETS_COLOR_OFFSET 84
 #define TARGETS_COLOR_SIZE 4
-#define IS_TARGETS_COLOR(field,index) \
-    ((field)==TM_SETTING_TARGETS && ((index)==TM_TARGETS_SH_COLOR || (index)==TM_TARGETS_FH_COLOR))
+#define TARGETS_POINTERS_SHIFT 8
+#define IS_TARGETS_WORD_84(field,index) ((field)==TM_SETTING_TARGETS && \
+    ((index)==TM_TARGETS_SH_COLOR || (index)==TM_TARGETS_FH_COLOR || (index)==TM_TARGETS_POINTERS))
 static const ExtensionPreference targets_preferences[TM_TARGETS_PREF_COUNT] = {
     {TARGETS_SHIFT,8,TM_TARGETS_BEST_MAX+1,0}, {TARGETS_SHIFT+8,1,2,0}, {TARGETS_SHIFT+9,1,2,0},
     {TARGETS_LINES_SHIFT,1,2,0}, {TARGETS_FULL_HOP_SHIFT,3,TM_TARGETS_FH_COUNT,TM_TARGETS_FH_OFF},
     {TARGETS_DOUBLE_JUMP_SHIFT,1,2,0},
     {0,4,TM_TARGETS_COLOR_COUNT,TM_TARGETS_SH_COLOR_DEFAULT}, {4,4,TM_TARGETS_COLOR_COUNT,TM_TARGETS_FH_COLOR_DEFAULT},
+    {TARGETS_POINTERS_SHIFT,1,2,1},
 };
 typedef char TMExtension_TargetsColors[(TM_TARGETS_SH_COLOR==6 && TM_TARGETS_FH_COLOR==7 &&
-    TM_TARGETS_PREF_COUNT==8 && TM_TARGETS_COLOR_COUNT==15 && TM_TARGETS_SH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT &&
+    TM_TARGETS_POINTERS==8 && TM_TARGETS_PREF_COUNT==9 && TARGETS_POINTERS_SHIFT==4+4 &&
+    TM_TARGETS_COLOR_COUNT==15 && TM_TARGETS_SH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT &&
     TM_TARGETS_FH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT) ? 1 : -1];
 typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 &&
     TM_TARGETS_LINES==3 && TM_TARGETS_FULL_HOP==4 && TM_TARGETS_DOUBLE_JUMP==5 &&
@@ -480,7 +485,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_TARGETS && index==TM_TARGETS_FULL_HOP) return TARGETS_FULL_HOP_OFFSET;
-    if(IS_TARGETS_COLOR(field,index)) return TARGETS_COLOR_OFFSET;
+    if(IS_TARGETS_WORD_84(field,index)) return TARGETS_COLOR_OFFSET;
     if((field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) ||
         field==TM_SETTING_TARGETS || field==TM_SETTING_EVENT_LIST) return GRABS_OFFSET;
     if(IS_ESCAPE(field)) return ESCAPES_OFFSET;
@@ -514,7 +519,7 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_READ(value);
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_READ(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
-    if(field==TM_SETTING_PASSING || IS_ESCAPE(field) || IS_TARGETS_COLOR(field,index)) value=PASS_READ(p,value);
+    if(field==TM_SETTING_PASSING || IS_ESCAPE(field) || IS_TARGETS_WORD_84(field,index)) value=PASS_READ(p,value);
     unsigned top=top_bit(field,index);
     if(top) value|=((r[top/8]>>(top%8))&1)<<p->width;
     if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
@@ -529,7 +534,7 @@ static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned val
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_STORED(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
     if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
-    if(field==TM_SETTING_PASSING || IS_ESCAPE(field) || IS_TARGETS_COLOR(field,index)) value=PASS_STORED(p,value);
+    if(field==TM_SETTING_PASSING || IS_ESCAPE(field) || IS_TARGETS_WORD_84(field,index)) value=PASS_STORED(p,value);
     unsigned offset=preference_offset(field,index), mask=((1u<<p->width)-1)<<p->shift;
     unsigned bits=(read_bits(r,offset)&~mask)|((value<<p->shift)&mask);
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) bits=(bits&~(1u<<20))|((value>>4)<<20);

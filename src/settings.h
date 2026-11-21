@@ -163,7 +163,7 @@ enum TMSettingsField {
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
     TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 (T10); see TMGrabercisePreference. */
     TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
-    TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19, 29 and 30, word 12 bits 6-8 (v24) and word 84 bits 0-7 (v25) (T10); see TMTargetsPreference. */
+    TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19, 29 and 30, word 12 bits 6-8 (v24) and word 84 bits 0-8 (v25) (T10); see TMTargetsPreference. */
     TM_SETTING_EVENT_LIST, /* Internal: All Events' place, TYEX word 80 bits 21-27 (T10); see TMEventListPreference. Use EVENT_PAGE and EVENT_SELECTION. */
     TM_SETTING_EVENT_HOME, /* Runtime-only, read-only: index is an event on the page shown; returns its index on its own page (Events_HomeEvent). */
 };
@@ -375,10 +375,11 @@ enum TMGrabsMovement {
  * stored the way Hop Peak Lines is: 0 is Off. The Hop Peak Lines' colors,
  * appended after that, had no room left: version 25 appends word 84, and they
  * are its bits 0..3 (short hop) and 4..7 (full hop). Only a version 25 record
- * owns them. */
+ * owns them. Target Pointers, appended after, is word 84 bit 8, On by
+ * default, stored as its distance from On the way the colors are, so 0 is On. */
 enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS_SHDL, TM_TARGETS_LINES,
                            TM_TARGETS_FULL_HOP, TM_TARGETS_DOUBLE_JUMP, TM_TARGETS_SH_COLOR, TM_TARGETS_FH_COLOR,
-                           TM_TARGETS_PREF_COUNT };
+                           TM_TARGETS_POINTERS, TM_TARGETS_PREF_COUNT };
 /* A Hop Peak Line's base color: the OSD palette's White..Lavender, value v
  * being TM_COLOR_WHITE + v. Each is stored as its distance from its default,
  * Teal for the short hop's and Purple for the full hop's, so word 84's zeros

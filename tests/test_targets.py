@@ -18,8 +18,10 @@ FOX, FALCO = 1, 22  # FTKIND_FOX, FTKIND_FALCO
 NAMES = {FOX: 'Fox', FALCO: 'Falco'}
 ITEM_FOXLASER, ITEM_FALCOLASER = 54, 55
 OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_SH_COLOR, OPT_FH_COLOR = 3, 4, 5, 6, 7, 8
-OPT_DOUBLE_JUMP, OPT_COUNTER, OPT_DEFAULTS = 9, 10, 11
-FIFO, GX_LINES = 0xCC008000, 0xA8
+OPT_DOUBLE_JUMP, OPT_POINTERS, OPT_COUNTER, OPT_DEFAULTS = 9, 10, 11, 12
+FIFO, GX_LINES, GX_TRIANGLEFAN, GX_LINESTRIP = 0xCC008000, 0xA8, 0xA0, 0xB0
+# A target: its four ticks (Target Pointers) in one batch, then the bullseye's four discs.
+TARGET_BATCHES = [(GX_LINES, 16, 18, 1)] + [(GX_TRIANGLEFAN, 22, 0, 1)] * 4
 # Hop Peak Lines' colors: the OSD palette's White to Lavender (osd_style.c and .h), each line
 # its row's color, Teal and Purple by default, darker over the main floor, as picked over the
 # side platforms and lighter over the top platform, at alpha 230 premultiplied.
@@ -169,9 +171,12 @@ class TargetsMachine:
         self.m.call('TestTargetsSeed', seed)
         self.lines = []
 
-    def init(self, free_practice=0, shdl=0, best=0, counter=0, lines=0, full_hop=0, double_jump=0, colors=None):
-        """`colors`: the saved (short hop, full hop) line colors, or None for the defaults."""
+    def init(self, free_practice=0, shdl=0, best=0, counter=0, lines=0, full_hop=0, double_jump=0, colors=None,
+             pointers=1):
+        """`colors`: the saved (short hop, full hop) line colors, or None for the defaults.
+        `pointers`: the saved Target Pointers, packed into the same argument."""
         packed = 0 if colors is None else (colors[0] + 1) | (colors[1] + 1) << 8
+        packed |= (not pointers) << 16
         self.m.call('TestTargetsInit', free_practice, shdl, best, counter, lines, full_hop, double_jump, packed)
 
     def air(self, air=1, used=1, max_jumps=2, state=ASID_FALL, facing=1):
@@ -1203,14 +1208,56 @@ class TargetEventTests(unittest.TestCase):
 
     def test_reset_keeps_the_best_and_the_counter_position(self):
         m = self.start(free_practice=1, shdl=1, best=17, counter=3, lines=1, full_hop=FH_ALL, double_jump=1,
-                       colors=(1, 12))
-        self.assertEqual((m.info(36), m.info(41), m.info(45), m.info(50), m.info(51)), (1, FH_ALL, 1, 1, 12))
+                       colors=(1, 12), pointers=0)
+        self.assertEqual((m.info(36), m.info(41), m.info(45), m.info(50), m.info(51), m.info(60)),
+                         (1, FH_ALL, 1, 1, 12, 0))
         m.m.call('TestTargetsSelect', OPT_DEFAULTS)
         self.assertEqual((m.info(2), m.info(3), m.info(1), m.info(20), m.info(4)), (0, 0, 17, 3, 1))
         self.assertEqual((m.info(37), m.info(36)), (0, 0))  # Hop Peak Lines goes Off too,
         self.assertEqual((m.info(42), m.info(41)), (FH_OFF, FH_OFF))  # FH Multi Lasers,
         self.assertEqual((m.info(46), m.info(45)), (0, 0))  # Double Jump Height,
-        self.assertEqual((m.info(52), m.info(53), m.info(50), m.info(51)), (TEAL, PURPLE, TEAL, PURPLE))  # the colors.
+        self.assertEqual((m.info(52), m.info(53), m.info(50), m.info(51)), (TEAL, PURPLE, TEAL, PURPLE))  # the colors,
+        self.assertEqual((m.info(61), m.info(60)), (1, 1))  # and Target Pointers comes back On.
+
+    def test_target_pointers_are_on_by_default_save_and_show_or_go_at_once(self):
+        m = self.start()
+        m.capture()
+        self.assertEqual((m.info(60), m.info(62)), (1, 1))  # On by default.
+        m.place(30, 40)
+        batches, vertices = m.draw()
+        self.assertEqual(batches, TARGET_BATCHES)
+        # Four ticks on the axes through the target's center, outside the bullseye, black under white.
+        ticks = vertices[:16]
+        self.assertEqual([v[3] for v in ticks], [(0, 0, 0, 255)] * 8 + [(255, 255, 255, 255)] * 8)
+        for x, y, z, _ in ticks:
+            self.assertTrue(abs(x - 30) < .001 or abs(y - 40) < .001)
+            self.assertGreater(max(abs(x - 30), abs(y - 40)), 1.5)
+        self.assertEqual({(round(x - 30, 3), round(y - 40, 3)) for x, y, _, _ in ticks[:8]},
+                         {(2.5, 0), (5, 0), (-2.5, 0), (-5, 0), (0, 2.5), (0, 5), (0, -2.5), (0, -5)})
+        m.choose(OPT_POINTERS, 0)
+        self.assertEqual((m.info(61), m.info(4), m.info(29)), (0, 0, 0))  # Saved; no retry or restart.
+        batches, vertices = m.draw()
+        self.assertEqual(batches, TARGET_BATCHES[1:])  # Just the bullseye.
+        self.assertEqual(len(vertices), 4 * 22)
+        m.choose(OPT_POINTERS, 1)
+        self.assertEqual((m.info(61), m.draw()[0]), (1, TARGET_BATCHES))
+        # A saved Off loads into the row, its value and the menu's copy alike, in either mode.
+        for free_practice in (0, 1):
+            m = self.start(pointers=0, free_practice=free_practice)
+            m.capture()
+            self.assertEqual((m.info(60), m.info(62)), (0, 0))
+            m.place(-20, 30)
+            self.assertEqual(m.draw()[0], TARGET_BATCHES[1:])
+
+    def test_target_pointers_leave_the_break_ring_and_every_target_of_a_group(self):
+        m = self.start(pointers=0)
+        m.capture()
+        m.you(control=1); m.think()
+        m.shoot_all()
+        self.assertEqual(m.info(34), 1)  # The ring is out,
+        batches, _ = m.draw()
+        self.assertEqual(batches[0], (GX_LINESTRIP, 21, 18, 1))  # and drawn as it was,
+        self.assertNotIn(TARGET_BATCHES[0], batches)  # with no ticks on the next target.
 
     def test_counter_position_is_eggs_ercises_and_moves_the_count_at_once(self):
         m = self.start(counter=4)
