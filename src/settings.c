@@ -13,7 +13,7 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
  * Shields), stage overlays (Blast Zones, Randall, Randall Timer under Randall
  * Overlay), then the match clock (Don't Reset Timers) in the left column's
  * last row, separated by blank rows. The right column starts with the
- * development builds' Disable TM Developer Debug Menu (a gap in release builds).
+ * development builds' Disable Dev Debug Menu (a gap in release builds).
  * Page 2, Fixed Grid OSD Positions: page 0's OSD rows in the same places; JC
  * Shine and Reset All take the overrides' corner. Its rows edit positions, so
  * their native Booleans mirror each OSD's On/Off and saving them is a no-op. */

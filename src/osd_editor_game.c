@@ -153,9 +153,10 @@ static void refresh_row(void *data, unsigned row) {
     }
     Text_SetText(text, subtext, "%s: %s", row_name(row), choice);
     /* Fit long names plus the palette value into the existing two-column layout.
-     * The debug menu's label is about 1.45 times the widest other row, so it is
-     * smaller as well as narrower, to stay within the widest row's width. */
-    if (id == TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW) Text_SetScale(text, subtext, 0.56f, 0.8f);
+     * The debug menu's label is about 1.06 times the widest other row ("Item
+     * Throw Interrupts: Lavender"), so it is 0.9 times the usual size both ways
+     * to stay within that row's width. */
+    if (id == TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW) Text_SetScale(text, subtext, 0.7f, 0.9f);
     else Text_SetScale(text, subtext, 0.78f, 1.0f);
     GXColor color = {rgba >> 24, rgba >> 16, rgba >> 8, rgba};
     Text_SetColor(text, subtext, &color);

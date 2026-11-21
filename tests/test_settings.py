@@ -3071,11 +3071,11 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
         self.assertEqual(m.call("TestEditorHidden", 16), 1)  # The gap under it.
         self.assertEqual(m.call("TestEditorHidden", 15), 0)
-        label = "Disable TM Developer Debug Menu (L/R + Z)"
+        label = "Disable Dev Debug Menu L/R+Z"
         self.assertEqual(self.label(m, 15, len(label) + 1), label + "\0")
         self.assertEqual(self.choice(m, 15), "Off")
-        # Smaller as well as narrower than the other rows, so it fits the column.
-        self.assertEqual([m.call("TestEditorScale100", 15, axis) for axis in (0, 1)], [56, 80])
+        # 0.9 times the other rows' size both ways, so it fits the column.
+        self.assertEqual([m.call("TestEditorScale100", 15, axis) for axis in (0, 1)], [70, 90])
         self.assertEqual([m.call("TestEditorScale100", 14, axis) for axis in (0, 1)], [78, 100])
         m.call("Settings_Set", 11, 12, 0)  # Create the extension record.
         core = m.record()

@@ -196,7 +196,7 @@ static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {
  * the same way: Off is 0. Older records read it Off. */
 #define ENDING_BYTE 80
 #define ENDING_BIT 0x40u
-/* So does Disable TM Developer Debug Menu, word 80 bit 9 (byte 81 bit 1),
+/* So does Disable Dev Debug Menu, word 80 bit 9 (byte 81 bit 1),
  * above CPU Movement. Older records read Off. */
 #define CONSOLE_OFF_BYTE 81
 #define CONSOLE_OFF_BIT 0x02u
@@ -225,13 +225,13 @@ static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
     {GRABS_MOVEMENT_SHIFT,2,TM_GRABS_MOVEMENT_COUNT,TM_GRABS_MOVEMENT_RANDOM},
 };
 /* Word 80: CPU Percent 0..3, the followup's high bits 4..5, the Stoplight's 6,
- * CPU Movement 7..8, Disable TM Developer Debug Menu 9. */
+ * CPU Movement 7..8, Disable Dev Debug Menu 9. */
 typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT)<ENDING_BIT &&
     ENDING_BIT==1u<<6 && GRABS_MOVEMENT_SHIFT==7 && ENDING_BYTE==GRABS_OFFSET &&
     (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1==GRABS_MOVEMENT_SHIFT+2 && CONSOLE_OFF_BIT==1u<<1) ? 1 : -1];
 /* Target Practice (T10) takes word 80's bits 10..19 with no version bump: its
  * timed best (8 bits, 10-17), Free Practice (18) and SH Double Lasers (19),
- * above Disable TM Developer Debug Menu's bit 9. Each is stored as itself, so
+ * above Disable Dev Debug Menu's bit 9. Each is stored as itself, so
  * the zeros every migration to 23 writes read as the defaults, and every value
  * fills its bits exactly, so none needs repairing. Only a version 23 record
  * owns them. */

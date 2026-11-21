@@ -144,9 +144,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot, Side-B Sweetspot | word 72 (table below) | — |
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
-| 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable TM Developer Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot | word 80 (table below) | bits 29-31 |
+| 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot | word 80 (table below) | bits 29-31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **3 spare bits** (29-31) and **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable TM Developer Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, and Up-B Sweetspot's Landing Line word 80 bit 28. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **3 spare bits** (29-31) and **6 loose bits**: word 12's six retired bits. Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, and Up-B Sweetspot's Landing Line word 80 bit 28. The 6 "retired" bits in word 12 held the Ledgechase preset and action in versions 2..8. They're no longer read, but older versions migrate out of them, so reuse them only with care.
 
 ### Bit fields in the words
 
@@ -339,9 +339,9 @@ Every migration to version 22 zeroes this word, and each row is stored as its di
 
 Escape IC Grab's Handoff row is disabled and not saved.
 
-**Word 80: Grabs-ercise, Techchase, Invincibility Stoplight, Disable TM Developer Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot** (T10, version 23)
+**Word 80: Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot** (T10, version 23)
 
-Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way, the Invincibility Stoplight bit 6, Grabs-ercise's CPU Movement bits 7-8, Disable TM Developer Debug Menu bit 9, Target Practice bits 10-19, the Randall Timer bit 20, All Events bits 21-27 and Up-B Sweetspot's Landing Line bit 28; bits 29-31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
+Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way, the Invincibility Stoplight bit 6, Grabs-ercise's CPU Movement bits 7-8, Disable Dev Debug Menu bit 9, Target Practice bits 10-19, the Randall Timer bit 20, All Events bits 21-27 and Up-B Sweetspot's Landing Line bit 28; bits 29-31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
 
 | Bits | Setting |
 | --- | --- |
@@ -349,7 +349,7 @@ Every migration to version 23 zeroes this word, and rows are stored as their dis
 | 4-5 | Techchase: CPU Followup Action's high bits (T10, no version bump), above word 9 bit 14: 0 None (default), 1 Spotdodge, 2 Roll Away, 3 Roll In, 4 Shine, 5 Random. A stored 6 or 7 repairs to None. Older records read word 9's bit alone |
 | 6 | Global: Invincibility Stoplight (`TM_FLAG_INVINCIBILITY_ENDING`, T10, no version bump; Off is 0). Older records read Off |
 | 7-8 | Grabs-ercise: CPU Movement (T10, no version bump): 0 Random (default), 1 Still Only, 2 Moving Only. A stored 3 isn't a choice and reads as Random. Older records read Random |
-| 9 | Global: Disable TM Developer Debug Menu (`TM_FLAG_DEBUG_CONSOLE_OFF`, T10, no version bump; Off is 0). L/R + Z never opens the development builds' console. Older records read Off |
+| 9 | Global: Disable Dev Debug Menu (`TM_FLAG_DEBUG_CONSOLE_OFF`, T10, no version bump; Off is 0). L/R + Z never opens the development builds' console. Older records read Off |
 | 10-17 | Target Practice (T10, no version bump): timed best, 0 (none yet) to 255, stored as itself. Saved here rather than in a score slot, so Reset Records doesn't clear it. Older records read 0 |
 | 18 | Target Practice: Free Practice (Off / On, default Off, so timed runs). Older records read Off |
 | 19 | Target Practice: SH Double Lasers (Off / On, default Off). Free Practice only, and only for Fox. Older records read Off |

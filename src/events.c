@@ -2627,7 +2627,7 @@ static int console_open;
 
 void TM_ConsoleThink(GOBJ *gobj)
 {
-    // Disable TM Developer Debug Menu (Global Overlays & Gameplay) closes the
+    // Disable Dev Debug Menu (Global Overlays & Gameplay) closes the
     // console and keeps L/R + Z from opening it.
     if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_DEBUG_CONSOLE_OFF))
     {
