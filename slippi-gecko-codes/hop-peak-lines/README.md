@@ -68,7 +68,7 @@ The first rewrites the `.asm` files from the ISO. The second assembles them with
 - Each legal stage draws two lines per floor at the right heights and colors, worked out by hand for Fox on Battlefield and Falco on Final Destination. The main floor's and top platform's lines reach the live blast zones, and the side platforms' stop at the middle, Dream Land's included.
 - Fountain's lines follow its side platforms and go while one is sunk, and a platform whose line is off has none.
 - A code draws nothing until its character is in the match, and nothing on other stages (where it never asks about a line, since the game's check hangs on one the stage doesn't have) or render passes.
-- The line width, colors and sunk height are Target Practice's.
+- The line width, colors and sunk height are Target Practice's (its default Teal and Purple; the event also darkens the main floor's lines and lightens the top platform's, and lets you pick the colors, which the codes don't).
 - When `melee.iso` is at the repo root, the `.asm` files match what the script gives, the heights are Target Practice's, the platform lines are the stages', and each hook replaces exactly the instruction the vanilla DOL has there.
 
 The game functions are stubbed and the GX writes are recorded, so it checks what the codes ask to draw, not the picture.

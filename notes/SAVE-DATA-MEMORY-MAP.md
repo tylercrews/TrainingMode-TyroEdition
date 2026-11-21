@@ -1,6 +1,6 @@
 # Save data memory map
 
-What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T10 (core settings format 3, `TYEX` extension version 24).
+What Tyro stores in the memory card save, where it lives, and how much room is left. Current as of T10 (core settings format 3, `TYEX` extension version 25).
 
 Everything here is inside Melee's existing main save entry, so it uses the game's own save, checksum and encryption. Tyro never adds a new file or grows the save. Offsets are from the start of the game-data object (`stc_memcard`), not raw GCI offsets.
 
@@ -11,14 +11,13 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **1 spare bit** in word 80 (31) and **3** in word 12 (15-17) |
-| **Unallocated spare score slots** | `0x1B34..0x1B37` | **4 bytes** | nothing | **4 bytes (32 bits)** |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b37) | `0x1AE0..0x1B37` | 88 bytes | 88 bytes | **1 spare bit** in word 80 (31), **3** in word 12 (15-17) and **24** in word 84 (8-31) |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bit 31 and word 12's bits 15-17, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
+**Bottom line:** no whole bytes are free. Version 25 (T10) took the last 4, `0x1B34..0x1B37`, for Target Practice's line colors in word 84. What's left is 28 spare bits: word 80's bit 31, word 12's bits 15-17 and word 84's bits 8-31, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
 
-The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
+The `TYEX` record fills 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
 ### Growth of the `TYEX` record
 
@@ -38,6 +37,7 @@ The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37
 | 22 | T10 | 80 bytes | Escape Samus Up-B and Escape IC Grab settings |
 | 23 | T10 | 84 bytes | Grabs-ercise's CPU Percent. Version 22 never shipped, but T10 builds wrote it, so it migrates |
 | 24 | T10 | 84 bytes | Target Practice's FH Multi Lasers, in word 12's retired bits 6-8, which every migration to 24 zeroes (with 15-17). No bytes appended |
+| 25 | T10 | 88 bytes | Target Practice's line colors, in word 84, the region's last 4 bytes. Migrating version 24 keeps FH Multi Lasers' bits; only versions 23 and older have the retired bits cleared |
 
 ## Core settings record (`0x1F24..0x1F4F`)
 
@@ -114,14 +114,13 @@ Each high score is a 4-byte slot at `0x1A70 + slot × 4`. Score slots don't foll
 | 25 | `0x1AD4` | Escape Sheik Techchase |
 | 26 | `0x1AD8` | Escape DThrow Knee |
 | 27 | `0x1ADC` | Float Cancel Training |
-| 28..48 | `0x1AE0..0x1B33` | `TYEX` record (next section) |
-| 49 | `0x1B34..0x1B37` | **Free (4 bytes)** |
+| 28..49 | `0x1AE0..0x1B37` | `TYEX` record (next section). Slot 49 was the last free one until version 25 |
 | 50 | `0x1B38` | Ledgechase Training |
 | — | — | Low Laser Puff Practice is free practice and has no score |
 | — | — | Grabs-ercise (T10) keeps its timed best in `TYEX` word 76 bits 16-21, not a score slot |
 | — | — | Target Practice (T10) keeps its timed best in `TYEX` word 80 bits 10-17, not a score slot |
 
-## `TYEX` extension record (`0x1AE0..0x1B33`)
+## `TYEX` extension record (`0x1AE0..0x1B37`)
 
 Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_extension.c). Byte numbers are relative to `0x1AE0`. Multi-byte words are little-endian, and "word N" means the 4 bytes starting at byte N.
 
@@ -129,7 +128,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 
 | Bytes | Owner | Contents | Free inside |
 | --- | --- | --- | --- |
-| 0..7 | Header | `TYEX`, version (24), payload size (76), marker `A5 5A` | — |
+| 0..7 | Header | `TYEX`, version (25), payload size (80), marker `A5 5A` | — |
 | 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
 | 9..11 | Techchase, Under Fire | word 9 bits 0-23, fully used (table below). Bit 15 (byte 10 bit 7) is Player Distance's top bit since T10, and bit 14 CPU Followup Action's low bit | — |
 | 12..15 | Ledgechase, Under Fire, Low Laser, Target Practice | word 12 (table below) | bits 15-17 |
@@ -146,8 +145,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot, Side-B Sweetspot | word 72 (table below) | — |
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
 | 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot | word 80 (table below) | bit 31 |
+| 84..87 | Target Practice | word 84: the Hop Peak Lines' colors (table below) | bits 8-31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **1 spare bit** (31) and word 12's **3 spare bits** (15-17). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines and Double Jump Height word 80 bits 29 and 30. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, so bits 15-17 are the ones left.
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **1 spare bit** (31) and word 12's **3 spare bits** (15-17). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines and Double Jump Height word 80 bits 29 and 30. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, so bits 15-17 are the ones left. Version 25 appended word 84 for Target Practice's line colors, which take bits 0-7, leaving its **24 spare bits** (8-31).
 
 ### Bit fields in the words
 
@@ -171,7 +171,7 @@ Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot'
 
 **Word 12: Ledgechase, Under Fire, Low Laser, Target Practice**
 
-Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 9 moved both, and their migrations copied the old values out but never cleared them, so a record that came up from those versions can still hold them. Every migration to version 24 zeroes all six, after the version 2-8 migration has read them, so in a version 24 record they read 0. Target Practice's FH Multi Lasers took bits 6-8 that way; bits 15-17 are free for a setting whose stored 0 is its default, with no version bump. Only a version 24 record owns them.
+Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 9 moved both, and their migrations copied the old values out but never cleared them, so a record that came up from those versions can still hold them. Every migration to version 24 zeroes all six, after the version 2-8 migration has read them, so in a version 24 record they read 0. Target Practice's FH Multi Lasers took bits 6-8 that way; bits 15-17 are free for a setting whose stored 0 is its default, with no version bump. Only a version 24 or later record owns them. Migrating version 24 to 25 leaves them alone, so FH Multi Lasers carries over.
 
 | Bits | Setting |
 | --- | --- |
@@ -366,6 +366,16 @@ Every migration to version 23 zeroes this word, and rows are stored as their dis
 
 Both events' totals and session bests are RAM-only (below).
 
+**Word 84: Target Practice's line colors** (T10, version 25)
+
+The region's last 4 bytes, appended by version 25. Every migration to 25 zeroes the word, and each color is stored as its distance from its default, `(value + 15 - default) % 15`, the way Passing Practice's rows are, so those zeros read as the defaults. Bits 8-31 can take a setting whose stored 0 is its default with no version bump. Version 24 and older records read the defaults.
+
+| Bits | Setting |
+| --- | --- |
+| 0-3 | Target Practice: Short Hop Line Color (`TM_TARGETS_SH_COLOR`): the OSD palette's White (0) to Lavender (14), `TM_COLOR_WHITE` + the value; default Teal (10), stored as 0. A stored 15 isn't a color and reads as Teal |
+| 4-7 | Target Practice: Full Hop Line Color (`TM_TARGETS_FH_COLOR`), the same way; default Purple (9), stored as 0 |
+| 8-31 | Free |
+
 ## Not saved
 
 These live in RAM only and reset when the game closes:
@@ -375,10 +385,10 @@ These live in RAM only and reset when the game closes:
 - The Global Settings page, the manual OSD page, Techchase/Ledgechase manual chances, and custom camera coordinates.
 - Passing Practice's Session Best and Previous counts for each Percent Mode, and what it has measured of the teammate's aerial and jumps. The event's `.dat` reloads with every match, which clears them.
 - Escape Samus Up-B's escape and SDI totals, and Escape IC Grab's fastest escape at each percent (its Session Bests). Both events' `.dat`s reload with every match, which clears them.
-- All Training Lab menu options. Saving them was estimated at about 100 bytes, more than the 4 left.
+- All Training Lab menu options. Saving them was estimated at about 100 bytes, and no whole bytes are left.
 
 ## Adding something new
 
-1. **A few bits:** use one of the free bits above, if the setting is small and fits next to related settings. Old records must already have 0 there, or the migration must clear it.
-2. **Whole bytes:** append to `TYEX`, taking bytes from the free 4-byte block in order. Bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version, and zero the new bytes in `TMExtension_Prepare` when migrating. The static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if the record outgrows the 88-byte region.
-3. **More than 4 bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.
+1. **A few bits:** use one of the free bits above, if the setting is small and fits next to related settings. Old records must already have 0 there, or the migration must clear it. Word 84's bits 8-31 are the most room left.
+2. **Whole bytes:** none are left. The record fills the 88-byte region since version 25, and the static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if it outgrows it. Version 25 shows how the last append went: bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version (and to every "this version or later" list in `settings_extension.c`), and zero the new bytes in `TMExtension_Prepare` when migrating.
+3. **More bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.

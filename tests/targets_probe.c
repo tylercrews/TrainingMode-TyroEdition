@@ -184,12 +184,16 @@ void TestTargetsFighter(int kind, int jump, int hop, int mult, int gravity, int 
     ft.attr.gravity = gravity / 10000.f;
     ft.attr.terminal_velocity = terminal / 10000.f;
 }
+/* `colors` is the saved short hop color plus 1, and the full hop's plus 1
+ * times 256; 0 is the defaults. */
 void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved, int peak_lines, int full_hop,
-                     int double_jump_saved) {
+                     int double_jump_saved, int colors) {
     *event_vars_ptr_loc = &vars;
     vars.GFX_Start = GFXStart;
     prefs[TM_TARGETS_LINES] = peak_lines;
     prefs[TM_TARGETS_DOUBLE_JUMP] = double_jump_saved;
+    prefs[TM_TARGETS_SH_COLOR] = colors & 0xFF ? (colors & 0xFF) - 1 : TM_TARGETS_SH_COLOR_DEFAULT;
+    prefs[TM_TARGETS_FH_COLOR] = colors >> 8 ? (colors >> 8) - 1 : TM_TARGETS_FH_COLOR_DEFAULT;
     *stc_gobj_lookup = lookup;
     *stc_colldata = &stage;
     *stc_collline = lines;
@@ -292,10 +296,11 @@ int TestTargetsShots(int press, int key) {
     return key == 0 ? fits : key == 1 ? high * 10000 : low * 10000;
 }
 /* FH Multi Lasers' combo `combo`: key 0 its shots (0 if it doesn't fit), 1
- * its press frame, 2 on its heights in ten-thousandths. */
+ * its press frame, 2 to 4 its heights and 5 to 7 its offsets across, in
+ * ten-thousandths. */
 int TestTargetsFullHop(int combo, int key) {
     struct full_hop *c = &full_hops[combo];
-    return key == 0 ? c->shots : key == 1 ? c->press : c->heights[key - 2] * 10000;
+    return key == 0 ? c->shots : key == 1 ? c->press : key < 5 ? c->heights[key - 2] * 10000 : c->offsets[key - 5] * 10000;
 }
 int TestTargetsBlaster(int falco, int key) {
     const Blaster *b = &Blasters[falco];
@@ -362,6 +367,17 @@ int TestTargetsInfo(int key) {
     case 47: return Options_Main[OPT_DOUBLE_JUMP].val_prev;
     case 48: return double_jump * 10000;
     case 49: return head_lookups;
+    case 50: return Options_Main[OPT_SH_COLOR].val;
+    case 51: return Options_Main[OPT_FH_COLOR].val;
+    case 52: return prefs[TM_TARGETS_SH_COLOR];
+    case 53: return prefs[TM_TARGETS_FH_COLOR];
+    case 54: return Options_Main[OPT_SH_COLOR].val_prev;
+    case 55: return Options_Main[OPT_FH_COLOR].val_prev;
+    case 56: return Options_Main[OPT_SH_COLOR].value_num == TM_TARGETS_COLOR_COUNT &&
+                    Options_Main[OPT_FH_COLOR].value_num == TM_TARGETS_COLOR_COUNT;
+    case 57: return dj_frozen;
+    case 58: return subject.boundleft_proj * 1000;
+    case 59: return subject.boundright_proj * 1000;
     }
     return -1;
 }
@@ -402,3 +418,4 @@ void TestTargetsChoose(int row, int value) {
 }
 void TestTargetsSelect(int row) { Options_Main[row].OnSelect(0); }
 unsigned TestTargetsFullHopText(int value) { return (unsigned)FullHopText[value]; }
+unsigned TestTargetsColorText(int row, int value) { return (unsigned)Options_Main[row].values[value]; }

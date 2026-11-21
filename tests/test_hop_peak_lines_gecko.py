@@ -29,7 +29,7 @@ TEXT = {'Fox': 'fox-hop-peak-lines.txt', 'Falco': 'falco-hop-peak-lines.txt'}
 STOP, RETURN, R13, FIFO, SCRATCH = 0x80004000, 0x80004100, 0x804DB6A0, 0xCC008000, 0x80F00000
 LINES_AT, DESCS_AT, VERTS_AT = 0x80B00000, 0x80B10000, 0x80B20000
 GX_LINES, WIDTH = 0xA8, 12
-TEAL, PURPLE = 0x00A290E6, 0x905AE6E6  # Premultiplied RGBA, as src/targets.c's PeakColors.
+TEAL, PURPLE = 0x00A290E6, 0x905AE6E6  # Premultiplied RGBA: Target Practice's default Teal and Purple.
 SUNK = 1.0
 # External stage ID: line count, the platform lines' live ends (as the game
 # starts them), and the main floor at x = 0. From notes/LEGAL-STAGE-PLATFORMS.md;
@@ -373,9 +373,17 @@ class DrawTests(unittest.TestCase):
         source = (ROOT / 'src/targets.c').read_text()
         self.assertIn('#define SUNK_PLATFORM 1.f', source)
         self.assertIn('#define PEAK_LINE_WIDTH 12', source)
-        colors = re.search(r'PeakColors\[2\] = \{\{(\d+), (\d+), (\d+), (\d+)\}, \{(\d+), (\d+), (\d+), (\d+)\}\}', source)
-        rgba = [int(v) for v in colors.groups()]
-        self.assertEqual((TEAL, PURPLE), tuple(int.from_bytes(bytes(rgba[i:i + 4]), 'big') for i in (0, 4)))
+        # The codes draw one color a hop: the event's defaults, Teal and Purple, as it draws them
+        # over the side platforms (its base shade), at its alpha, premultiplied.
+        self.assertIn('#define PEAK_ALPHA 230', source)
+        names = re.findall(r'"([^"]+)"', re.search(r'LineColorText\[TM_TARGETS_COLOR_COUNT\] = \{(.*?)\};', source, re.S)[1])
+        rgbs = re.findall(r'\{(\d+), (\d+), (\d+)\}',
+                          re.search(r'LineColors\[TM_TARGETS_COLOR_COUNT\]\[3\] = \{(.*?)\n\};', source, re.S)[1])
+        premultiplied = lambda name: int.from_bytes(bytes([int(v) * 230 // 255 for v in rgbs[names.index(name)]] + [230]), 'big')
+        self.assertEqual((TEAL, PURPLE), (premultiplied('Teal'), premultiplied('Purple')))
+        settings = (ROOT / 'src/settings.h').read_text()
+        self.assertIn('#define TM_TARGETS_SH_COLOR_DEFAULT (TM_COLOR_TEAL - TM_COLOR_WHITE)', settings)
+        self.assertIn('#define TM_TARGETS_FH_COLOR_DEFAULT (TM_COLOR_PURPLE - TM_COLOR_WHITE)', settings)
         # Both codes list the same stages, the six legal ones.
         self.assertEqual(stage_table('Fox'), stage_table('Falco'))
         self.assertEqual(set(stage_table('Fox')), set(STAGES))

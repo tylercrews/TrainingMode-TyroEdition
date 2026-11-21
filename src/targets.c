@@ -53,36 +53,38 @@
  * has no top platform and FD no platforms.
  *
  * FH combos. FullHopCombos walks a full hop the same way and times one B
- * press per combo: Hi-Hi-Low (the first airborne frame, three shots),
- * Peak-Low (the first shot from the peak), High-Lowest (the last press whose
- * second shot comes before landing), and High-MedHigh and High-Medium, whose
- * second shots come halfway from Peak-Low's to the highest and the lowest. A
- * combo stacks over a floor the way a pair does. All Combos makes about half
- * the spawns a combo at random; one combo picked makes every spawn that
- * combo, but for SH pairs if they're on too.
+ * press per combo: Hi-Hi-Low (three shots, the first two either side of the
+ * apex at about the same height), Peak-Low (the first shot from the peak),
+ * High-Lowest (the last press whose second shot comes before landing), and
+ * High-MedHigh and High-Medium, whose second shots come halfway from
+ * Peak-Low's to the highest and the lowest. A combo stacks over a floor the
+ * way a pair does, but for Hi-Hi-Low's two high targets, side by side either
+ * side of the low one. All Combos makes about half the spawns a combo at
+ * random; one combo picked makes every spawn that combo, but for SH pairs if
+ * they're on too.
  *
  * Hop Peak Lines. A jump's highest laser is the one shot from its peak (the
  * shot comes from where the fighter was the frame before, and the peak is the
- * highest it gets), so each floor gets two lines: teal for a short hop's, purple
- * for a full hop's, Rise + the aerial laser height above it. The main floor's
- * and the top platform's go from blast zone to blast zone; a side platform's
- * stop at the middle (x = 0), so the two sides' read apart (Dream Land's right
- * platform is 0.1 higher). They're found from the live lines every frame, so
- * Fountain's follow its side platforms, and go while one is sunk into the
- * stage.
+ * highest it gets), so each floor gets two lines, a short hop's and a full
+ * hop's, Rise + the aerial laser height above it. Each hop has a base color
+ * (Teal and Purple unless picked otherwise), darker over the main floor and
+ * lighter over the top platform. The main floor's and the top platform's go
+ * from blast zone to blast zone; a side platform's stop at the middle (x = 0),
+ * so the two sides' read apart (Dream Land's right platform is 0.1 higher).
+ * They're found from the live lines every frame, so Fountain's follow its side
+ * platforms, and go while one is sunk into the stage.
  *
  * Double Jump Height. A double jump sets the vertical speed to the full hop's
  * times air_jump_v_multiplier whatever it was (ftCo_JumpAerial_Enter_Basic),
  * then falls the way a jump does, so from anywhere it rises the same Rise. So
- * while the fighter is in the air with its double jump, a white T runs from
- * TopN (the feet), up through the head's x (HeadN), to that Rise above: a
- * dashed stem and a solid bar where the feet would peak. Red goes on above it,
- * to the aerial laser height over that bar, and an arm out the way the fighter
- * faces: where a laser shot at the double jump's peak flies, as Hop Peak Lines
- * mark a hop's. Together they read as an F on the T. It goes once the jump is
- * spent (Fox's and Falco's up-B uses it up on launch, ftFx_SpecialHi) or
- * can't come: helpless, air dodging, on the ledge, dead, and during side-B and
- * up-B, which end helpless or on the ground. */
+ * while the fighter is in the air with its double jump, a red line across the
+ * head's x (HeadN) marks where a laser shot at the double jump's peak flies:
+ * Rise and the aerial laser height over TopN, as Hop Peak Lines mark a hop's.
+ * It can't come while helpless, air dodging, on the ledge, dead, or during
+ * side-B and up-B, which end helpless or on the ground. When the double jump
+ * comes (JumpAerialF or B), the line stays at the height it showed the frame
+ * before, the jump's own peak laser, until the fighter lands, grabs the ledge
+ * or dies. Up-B spends the jump too (ftFx_SpecialHi), and the line just goes. */
 
 #define TIMED_FRAMES 3600     // The timed run's minute.
 #define TARGET_RADIUS 1.5f    // Under 2.72 - 1.17: see above.
@@ -101,13 +103,11 @@
 /* A side platform closer than this to the main floor is sunk: Fountain's
  * settle 0.37 above it, inside the stage, while they're hidden. */
 #define SUNK_PLATFORM 1.f
-/* Double Jump Height's T: its stem's dashes and gaps, counted down from the
- * bar so a whole dash meets it, the bar's reach each side, and the red laser
- * arm's length. Drawn PEAK_LINE_WIDTH wide. */
-#define DJ_DASH 2.5f
-#define DJ_GAP 1.5f
+// Double Jump Height's line: its reach each side. Drawn PEAK_LINE_WIDTH wide.
 #define DJ_BAR 6.f
-#define DJ_ARM 10.f
+/* Hi-Hi-Low's two high targets, each this far left and right of the low one,
+ * so they sit side by side, their ticks apart. */
+#define HHL_SPREAD 6.f
 /* Fox's and Falco's side-B and up-B, from SpecialSStart to SpecialHiBound
  * (the decomp's ftFox_MotionState, after the common states' 341): each ends
  * helpless or on the ground, so the double jump can't come. */
@@ -128,8 +128,8 @@ static const Blaster Blasters[2] = {
 };
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_DOUBLE_JUMP,
-    OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_SH_COLOR,
+    OPT_FH_COLOR, OPT_DOUBLE_JUMP, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
 
 static void Retry(GOBJ *menu);
@@ -138,6 +138,8 @@ static void ChangeFreePractice(GOBJ *menu, int value);
 static void ChangeDoubleLasers(GOBJ *menu, int value);
 static void ChangeFullHop(GOBJ *menu, int value);
 static void ChangePeakLines(GOBJ *menu, int value);
+static void ChangeShortHopColor(GOBJ *menu, int value);
+static void ChangeFullHopColor(GOBJ *menu, int value);
 static void ChangeDoubleJump(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
@@ -152,6 +154,17 @@ static const char *FullHopText[TM_TARGETS_FH_COUNT] = {
     "Off", "All Combos", "Hi-Hi-Low", "High-MedHigh", "Peak-Low", "High-Medium", "High-Lowest"
 };
 static char FullHopName[] = "FH Multi Lasers";
+/* The Hop Peak Lines' colors: the OSD palette's (osd_style.c) White to
+ * Lavender, TM_COLOR_WHITE + the value, and each one's RGB. */
+static const char *LineColorText[TM_TARGETS_COLOR_COUNT] = {
+    "White", "Red", "Green", "Blue", "Yellow", "Cyan", "Magenta", "Orange", "Pink", "Purple", "Teal", "Lime",
+    "Gold", "Sky Blue", "Lavender"
+};
+static const u8 LineColors[TM_TARGETS_COLOR_COUNT][3] = {
+    {255, 255, 255}, {255, 70, 70}, {141, 255, 110}, {70, 145, 255}, {255, 240, 0}, {0, 255, 255},
+    {255, 80, 255}, {255, 150, 40}, {255, 140, 200}, {160, 100, 255}, {0, 180, 160}, {200, 255, 50},
+    {255, 200, 50}, {120, 200, 255}, {200, 160, 255},
+};
 static char FullHopUnavailable[] = "FH Multi Lasers (N/A)";
 
 /* Fox or Falco, the only characters the event's CSS offers. There's no CPU,
@@ -221,18 +234,38 @@ static EventOption Options_Main[OPT_COUNT] = {
         .kind = OPTKIND_TOGGLE,
         .name = "Hop Peak Lines",
         .desc = {"Lines where a laser shot at the peak of a short",
-                 "hop (teal) or a full hop (purple) flies, off the",
-                 "floor, the top platform and each side platform",
-                 "(on that side of the middle). Saved."},
+                 "hop or a full hop flies, off the floor, the top",
+                 "platform and each side platform (on that side of",
+                 "the middle). Saved."},
         .OnChange = ChangePeakLines,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .value_num = TM_TARGETS_COLOR_COUNT,
+        .name = "Short Hop Line Color",
+        .desc = {"The short hop's Hop Peak Lines: this color over",
+                 "the side platforms, darker over the main floor",
+                 "and lighter over the top platform. Saved."},
+        .values = LineColorText,
+        .OnChange = ChangeShortHopColor,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .value_num = TM_TARGETS_COLOR_COUNT,
+        .name = "Full Hop Line Color",
+        .desc = {"The full hop's Hop Peak Lines: this color over",
+                 "the side platforms, darker over the main floor",
+                 "and lighter over the top platform. Saved."},
+        .values = LineColorText,
+        .OnChange = ChangeFullHopColor,
     },
     {
         .kind = OPTKIND_TOGGLE,
         .name = "Double Jump Height",
-        .desc = {"In the air with a double jump left: a white T from",
-                 "your feet to where they'd peak if you double jumped",
-                 "now, and red where a laser shot at that peak",
-                 "flies, the way you face. Saved."},
+        .desc = {"A red line where a laser shot at the peak of your",
+                 "double jump would fly. It follows you while you",
+                 "have the jump, and stays at that jump's height",
+                 "once you use it, until you land. Saved."},
         .OnChange = ChangeDoubleJump,
     },
     {
@@ -277,6 +310,11 @@ static bool checked;         // The fighter's been looked at (CheckFighter).
 static int pair_presses;     // Press frames that fit a short hop double laser.
 static float peak_lasers[2]; // A short hop's and a full hop's peak laser, above the floor.
 static float double_jump;    // A double jump's rise, from wherever it starts.
+/* Double Jump Height's line: whether the double jump could come last frame,
+ * the height of its peak laser then, and whether the line holds there now,
+ * the jump having come. */
+static bool dj_ready, dj_frozen;
+static float dj_laser;
 static int score, best;
 static bool reset_clock;
 static bool restarting;      // Leaving a stage that isn't legal.
@@ -367,14 +405,19 @@ static int ShortHopPresses(FighterData *ft, const Blaster *blaster) {
  * press), so the doubles run from press 1 to the last whose second shot
  * comes before landing:
  *
- * - Hi-Hi-Low: B on the first airborne frame, looped twice for three shots.
+ * - Hi-Hi-Low: looped twice for three shots, the press whose first two come
+ *   nearest the same height, either side of the apex, the earliest of any
+ *   that tie within .01. Its two high targets go side by side (offsets).
  * - Peak-Low: the first shot from the jump's peak, Hop Peak Lines' purple.
  * - High-Lowest: the last press, so the lowest second shot there is.
  * - High-MedHigh: the second shot nearest halfway from Peak-Low's up to the
  *   highest any double has; High-Medium: halfway down to High-Lowest's.
  *
  * A combo that doesn't fit the fighter has no shots. */
-static struct full_hop { int press, shots; float heights[MAX_SHOTS]; } full_hops[TM_TARGETS_FH_COUNT];
+static struct full_hop {
+    int press, shots;
+    float heights[MAX_SHOTS], offsets[MAX_SHOTS]; // Above the floor, and across from the group's x.
+} full_hops[TM_TARGETS_FH_COUNT];
 
 static float FullHopVelocity(FighterData *ft) { return ft->attr.jump_v_initial_velocity; }
 static float SecondShot(FighterData *ft, const Blaster *blaster, int press) {
@@ -400,10 +443,32 @@ static int PressNear(FighterData *ft, const Blaster *blaster, int from, int to, 
     }
     return best;
 }
+/* Each press that fits three shots, from the first: a later one only lands
+ * sooner. The two high targets sit side by side; a laser at either height
+ * reaches both, so it breaks the nearer one. */
+static void HiHiLow(FighterData *ft, const Blaster *blaster) {
+    float shots[MAX_SHOTS], best_gap = 0;
+    int best = 0;
+    for (int press = 1; JumpShots(ft, blaster, FullHopVelocity(ft), press, 3, shots); ++press) {
+        float gap = shots[0] - shots[1];
+        if (gap < 0) gap = -gap;
+        if (!best || gap < best_gap - .01f) {
+            best = press;
+            best_gap = gap;
+        }
+    }
+    if (!best) return;
+    SetCombo(ft, blaster, TM_TARGETS_FH_HI_HI_LOW, best, 3);
+    full_hops[TM_TARGETS_FH_HI_HI_LOW].offsets[0] = -HHL_SPREAD;
+    full_hops[TM_TARGETS_FH_HI_HI_LOW].offsets[1] = HHL_SPREAD;
+}
 static void FullHopCombos(FighterData *ft, const Blaster *blaster) {
     float y[JUMP_FRAMES], shots[2], top = 0;
     int apex = 1, doubles = 0, highest = 1;
-    for (int i = 0; i < TM_TARGETS_FH_COUNT; ++i) full_hops[i].shots = 0;
+    for (int i = 0; i < TM_TARGETS_FH_COUNT; ++i) {
+        full_hops[i].shots = 0;
+        for (int s = 0; s < MAX_SHOTS; ++s) full_hops[i].offsets[s] = 0;
+    }
     while (JumpShots(ft, blaster, FullHopVelocity(ft), doubles + 1, 2, shots)) {
         ++doubles;
         if (shots[1] > top) {
@@ -416,7 +481,7 @@ static void FullHopCombos(FighterData *ft, const Blaster *blaster) {
     for (int frame = 2; frame < JUMP_FRAMES; ++frame)
         if (y[frame] > y[apex]) apex = frame;
     int peak = apex + 1 - blaster->delay;
-    SetCombo(ft, blaster, TM_TARGETS_FH_HI_HI_LOW, 1, 3);
+    HiHiLow(ft, blaster);
     SetCombo(ft, blaster, TM_TARGETS_FH_HIGH_LOWEST, doubles, 2);
     if (peak < 1 || peak > doubles) return; // The rest are timed around Peak-Low.
     float middle = SecondShot(ft, blaster, peak);
@@ -466,6 +531,10 @@ static void LoadSettings(void) {
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES);
     Options_Main[OPT_DOUBLE_JUMP].val = Options_Main[OPT_DOUBLE_JUMP].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP);
+    Options_Main[OPT_SH_COLOR].val = Options_Main[OPT_SH_COLOR].val_prev =
+        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_SH_COLOR);
+    Options_Main[OPT_FH_COLOR].val = Options_Main[OPT_FH_COLOR].val_prev =
+        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
     best = TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_BEST);
 }
@@ -476,9 +545,16 @@ static void ChangeDoubleLasers(GOBJ *menu, int value) {
 static void ChangeFullHop(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, value);
 }
-// The lines and the T show or go on the next frame drawn, behind the paused menu too.
+/* The lines, their colors and the double jump's line change on the next
+ * frame drawn, behind the paused menu too. */
 static void ChangePeakLines(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, value);
+}
+static void ChangeShortHopColor(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SH_COLOR, value);
+}
+static void ChangeFullHopColor(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR, value);
 }
 static void ChangeDoubleJump(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, value);
@@ -539,6 +615,8 @@ static void ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, TM_TARGETS_FH_OFF);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, 0);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, 0);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SH_COLOR, TM_TARGETS_SH_COLOR_DEFAULT);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR, TM_TARGETS_FH_COLOR_DEFAULT);
     LoadSettings();
     Retry(menu);
 }
@@ -612,15 +690,20 @@ static bool FloorSpot(int line, Vec2 *at) {
     at->Y = ground.Y;
     return true;
 }
+/* Target i of a group over a floor spot: `heights` above it, and `offsets`
+ * (none for 0) across. */
+static Vec2 GroupSpot(Vec2 floor, const float *heights, const float *offsets, int i) {
+    return (Vec2){floor.X + (offsets ? offsets[i] : 0), floor.Y + heights[i]};
+}
 /* Targets stacked at one x at the `count` heights of one multi laser off a
- * floor, over that floor. The floor is the main floor, a side platform (left
+ * floor, over that floor, but for `offsets` (Hi-Hi-Low's side by side). The floor is the main floor, a side platform (left
  * or right) or the top platform, each kind as likely as the others where the
  * stage has one that holds still: Fountain's side platforms move, so groups
  * leave them out, Stadium has no top platform and FD no platforms. The kind
  * holds for half the tries, so it stays even wherever you stand, and then
  * gives way when no spot on it is far enough from you (you're on the top
  * platform, say). */
-static void PickGroup(Vec2 you, const float *heights, int count) {
+static void PickGroup(Vec2 you, const float *heights, const float *offsets, int count) {
     int sides[2], side_count = 0, top_line, line;
     Vec3 center;
     if (Stage_GetExternalID() != GRKINDEXT_IZUMI)
@@ -636,32 +719,36 @@ static void PickGroup(Vec2 you, const float *heights, int count) {
         bool clear = true;
         if (!FloorSpot(line, &spot)) continue;
         for (int i = 0; i < count && clear; ++i)
-            clear = Clear((Vec2){spot.X, spot.Y + heights[i]}, you, tries);
+            clear = Clear(GroupSpot(spot, heights, offsets, i), you, tries);
         if (!clear) continue;
-        for (int i = 0; i < count; ++i) targets[i].pos = (Vec2){spot.X, spot.Y + heights[i]};
+        for (int i = 0; i < count; ++i) targets[i].pos = GroupSpot(spot, heights, offsets, i);
         return;
     }
     Vec3 ground;
     GroundPoint(0, &ground, &line);
-    for (int i = 0; i < count; ++i) targets[i].pos = (Vec2){0, ground.Y + heights[i]};
+    for (int i = 0; i < count; ++i) targets[i].pos = GroupSpot((Vec2){0, ground.Y}, heights, offsets, i);
 }
 
+// The live targets' middle, with CAMERA_MARGIN around them.
 static void AimCamera(void) {
-    float bottom = 0, top = 0;
+    float bottom = 0, top = 0, left = 0, right = 0;
     int found = 0;
     for (int i = 0; i < MAX_TARGETS; ++i) {
         if (!targets[i].live) continue;
-        if (!found || targets[i].pos.Y < bottom) bottom = targets[i].pos.Y;
-        if (!found || targets[i].pos.Y > top) top = targets[i].pos.Y;
-        cam->cam_pos.X = targets[i].pos.X;
+        Vec2 at = targets[i].pos;
+        if (!found || at.Y < bottom) bottom = at.Y;
+        if (!found || at.Y > top) top = at.Y;
+        if (!found || at.X < left) left = at.X;
+        if (!found || at.X > right) right = at.X;
         found = 1;
     }
     if (!found) return;
-    float half = (top - bottom) * .5f;
+    float half = (top - bottom) * .5f, across = (right - left) * .5f;
+    cam->cam_pos.X = left + across;
     cam->cam_pos.Y = bottom + half;
     cam->cam_pos.Z = 0;
-    cam->boundleft_proj = -CAMERA_MARGIN;
-    cam->boundright_proj = CAMERA_MARGIN;
+    cam->boundleft_proj = -across - CAMERA_MARGIN;
+    cam->boundright_proj = across + CAMERA_MARGIN;
     cam->boundtop_proj = half + CAMERA_MARGIN;
     cam->boundbottom_proj = -half - CAMERA_MARGIN;
 }
@@ -687,10 +774,10 @@ static void Spawn(FighterData *ft) {
     if (kind == SPAWN_PAIR) {
         float pair[2];
         ShortHopShots(ft, BlasterOf(ft), 1 + HSD_Randi(pair_presses), &pair[0], &pair[1]);
-        PickGroup(you, pair, shots = 2);
+        PickGroup(you, pair, 0, shots = 2);
     } else if (kind == SPAWN_FULL_HOP) {
         struct full_hop *combo = &full_hops[FullHopCombo(true)];
-        PickGroup(you, combo->heights, shots = combo->shots);
+        PickGroup(you, combo->heights, combo->offsets, shots = combo->shots);
     } else {
         PickSingle(ft, you, &targets[0].pos);
     }
@@ -792,22 +879,40 @@ static void DrawPop(struct pop *pop) {
     GXColor color = {alpha, alpha, alpha, alpha}; // Premultiplied.
     Circle(pop->pos, TARGET_RADIUS + 6 * t, color, 18);
 }
-/* Training Mode's Purple (A064FF) and Teal (00B4A0) at alpha 230, premultiplied. */
-static const GXColor PeakColors[2] = {{0, 162, 144, 230}, {144, 90, 230, 230}}; // Short hop, full hop.
+/* A Hop Peak Line's color: its hop's row's color, at alpha 230,
+ * premultiplied. Darker over the main floor (3/5 of each channel), as picked
+ * over the side platforms, and lighter over the top platform (halfway to
+ * white). Teal (00B4A0) and Purple (A064FF) unless picked otherwise. */
+#define PEAK_ALPHA 230
+enum { SHADE_DARK, SHADE_BASE, SHADE_LIGHT };
+static GXColor PeakColor(int hop, int shade) {
+    int value = Options_Main[hop ? OPT_FH_COLOR : OPT_SH_COLOR].val;
+    if (value < 0 || value >= TM_TARGETS_COLOR_COUNT)
+        value = hop ? TM_TARGETS_FH_COLOR_DEFAULT : TM_TARGETS_SH_COLOR_DEFAULT;
+    u8 rgb[3];
+    for (int i = 0; i < 3; ++i) {
+        int v = LineColors[value][i];
+        v = shade == SHADE_DARK ? v * 3 / 5 : shade == SHADE_LIGHT ? v + (255 - v) / 2 : v;
+        rgb[i] = v * PEAK_ALPHA / 255;
+    }
+    return (GXColor){rgb[0], rgb[1], rgb[2], PEAK_ALPHA};
+}
 
-/* Each floor's line, from left to right x at its height: the main floor at the
- * middle, then each platform FindPlatform finds (left, top, right) above it,
- * a side one only on its side of x = 0. */
-typedef struct PeakFloor { float left, right, y; } PeakFloor;
+/* Each floor's line, from left to right x at its height, and its shade: the
+ * main floor at the middle (dark), then each platform FindPlatform finds
+ * (left, top, right) above it, a side one (base) only on its side of x = 0,
+ * the top one light. */
+typedef struct PeakFloor { float left, right, y; int shade; } PeakFloor;
 static int PeakFloors(PeakFloor *floors) {
     Vec3 ground, at;
     int line, count = 0;
     if (!FindSolidGround(0, &ground, &line)) return 0;
     float left = Stage_GetBlastzoneLeft(), right = Stage_GetBlastzoneRight();
-    floors[count++] = (PeakFloor){left, right, ground.Y};
+    floors[count++] = (PeakFloor){left, right, ground.Y, SHADE_DARK};
     for (int side = -1; side <= 1; ++side)
         if (FindPlatform(side, &at, &line) && at.Y >= ground.Y + SUNK_PLATFORM)
-            floors[count++] = (PeakFloor){side > 0 ? 0 : left, side < 0 ? 0 : right, at.Y};
+            floors[count++] = (PeakFloor){side > 0 ? 0 : left, side < 0 ? 0 : right, at.Y,
+                                          side ? SHADE_BASE : SHADE_LIGHT};
     return count;
 }
 static void DrawPeakLines(void) {
@@ -818,13 +923,13 @@ static void DrawPeakLines(void) {
     for (int i = 0; i < count; ++i)
         for (int hop = 0; hop < 2; ++hop) {
             float y = floors[i].y + peak_lasers[hop];
-            GFX_AddVtx(floors[i].left, y, 0, PeakColors[hop]);
-            GFX_AddVtx(floors[i].right, y, 0, PeakColors[hop]);
+            GXColor color = PeakColor(hop, floors[i].shade);
+            GFX_AddVtx(floors[i].left, y, 0, color);
+            GFX_AddVtx(floors[i].right, y, 0, color);
         }
 }
-/* Double Jump Height's white T and red F arm, at alpha 230, premultiplied as
- * the peak lines are. */
-static const GXColor DoubleJumpWhite = {230, 230, 230, 230}, DoubleJumpRed = {230, 30, 30, 230};
+// Double Jump Height's red, at alpha 230, premultiplied as the peak lines are.
+static const GXColor DoubleJumpRed = {230, 30, 30, 230};
 
 /* In the air with the double jump left, and able to use it later: not
  * helpless, air dodging (it ends helpless), on the ledge, dead or on the
@@ -837,7 +942,7 @@ static bool DoubleJumpReady(FighterData *ft) {
         return false;
     return state < FX_SPECIAL_S_FIRST || state > FX_SPECIAL_HI_LAST;
 }
-// The stem's x: the head's (HeadN), or TopN's if there's no such bone.
+// The line's middle: the head's x (HeadN), or TopN's if there's no such bone.
 static float HeadX(FighterData *ft) {
     int bone = Fighter_BoneLookup(ft, HeadN);
     Vec3 head;
@@ -845,26 +950,32 @@ static float HeadX(FighterData *ft) {
     JOBJ_GetWorldPosition(ft->bones[bone].joint, 0, &head);
     return head.X;
 }
-/* A dashed white stem from the feet up through the head to a double jump's
- * rise, a white bar there, then red on up to the aerial laser's height above
- * the bar and an arm out the way the fighter faces. One GX_LINES batch. */
-static void DrawDoubleJump(FighterData *ft) {
-    float x = HeadX(ft), feet = ft->phys.pos.Y, top = feet + double_jump, period = DJ_DASH + DJ_GAP;
-    float laser = top + BlasterOf(ft)->air, arm = x + (ft->facing_direction < 0 ? -DJ_ARM : DJ_ARM);
-    int dashes = 0;
-    while (dashes * period < double_jump) ++dashes;
-    event_vars->GFX_Start(dashes * 2 + 6, (GFX_Params){.shape = GX_LINES, .size = PEAK_LINE_WIDTH, .no_depth = true});
-    for (int i = 0; i < dashes; ++i) {
-        float end = top - i * period, start = end - DJ_DASH;
-        GFX_AddVtx(x, start > feet ? start : feet, 0, DoubleJumpWhite);
-        GFX_AddVtx(x, end, 0, DoubleJumpWhite);
-    }
-    GFX_AddVtx(x - DJ_BAR, top, 0, DoubleJumpWhite);
-    GFX_AddVtx(x + DJ_BAR, top, 0, DoubleJumpWhite);
-    GFX_AddVtx(x, top, 0, DoubleJumpRed);
-    GFX_AddVtx(x, laser, 0, DoubleJumpRed);
-    GFX_AddVtx(x, laser, 0, DoubleJumpRed);
-    GFX_AddVtx(arm, laser, 0, DoubleJumpRed);
+// Where a laser shot at the peak of a double jump started now flies.
+static float DoubleJumpLaser(FighterData *ft) { return ft->phys.pos.Y + double_jump + BlasterOf(ft)->air; }
+/* Each frame, after the fighters move: the double jump comes on the frame its
+ * JumpAerial state starts, the frame after it was last ready, and the line
+ * holds at last frame's height, the one the jump peaks under, until the
+ * fighter lands, grabs the ledge or dies. The jump coming back (it does on the
+ * ledge) shows the line live again. */
+static void TrackDoubleJump(FighterData *ft) {
+    int state = ft->state_id;
+    bool ready = DoubleJumpReady(ft);
+    if (ready)
+        dj_frozen = false;
+    else if (dj_ready && (state == ASID_JUMPAERIALF || state == ASID_JUMPAERIALB))
+        dj_frozen = true;
+    else if (!ft->phys.air_state || state <= ASID_REBIRTHWAIT ||
+             (state >= ASID_CLIFFCATCH && state <= ASID_CLIFFESCAPEQUICK))
+        dj_frozen = false;
+    if (ready) dj_laser = DoubleJumpLaser(ft);
+    dj_ready = ready;
+}
+// A red line DJ_BAR each side of the head's x at `laser`. One GX_LINES batch.
+static void DrawDoubleJump(FighterData *ft, float laser) {
+    float x = HeadX(ft);
+    event_vars->GFX_Start(2, (GFX_Params){.shape = GX_LINES, .size = PEAK_LINE_WIDTH, .no_depth = true});
+    GFX_AddVtx(x - DJ_BAR, laser, 0, DoubleJumpRed);
+    GFX_AddVtx(x + DJ_BAR, laser, 0, DoubleJumpRed);
 }
 
 static void Targets_GX(GOBJ *gobj, int pass) {
@@ -872,8 +983,11 @@ static void Targets_GX(GOBJ *gobj, int pass) {
     // Under the targets. The heights are the fighter's, known from its first frame.
     if (checked && Options_Main[OPT_LINES].val) DrawPeakLines();
     GOBJ *you = Fighter_GetGObj(0);
-    if (checked && Options_Main[OPT_DOUBLE_JUMP].val && you && DoubleJumpReady(you->userdata))
-        DrawDoubleJump(you->userdata);
+    if (checked && Options_Main[OPT_DOUBLE_JUMP].val && you) {
+        FighterData *ft = you->userdata;
+        if (DoubleJumpReady(ft)) DrawDoubleJump(ft, DoubleJumpLaser(ft));
+        else if (dj_frozen) DrawDoubleJump(ft, dj_laser);
+    }
     for (int i = 0; i < MAX_TARGETS; ++i)
         if (pops[i].age > 0) DrawPop(&pops[i]);
     for (int i = 0; i < MAX_TARGETS; ++i)
@@ -882,7 +996,7 @@ static void Targets_GX(GOBJ *gobj, int pass) {
 
 // Event -----------------------------------------------------------------------
 
-/* Pairs, the peak lines and the double jump's T depend on the fighter, which
+/* Pairs, the peak lines and the double jump's line depend on the fighter, which
  * isn't known until its first frame. */
 static void CheckFighter(FighterData *ft) {
     const Blaster *blaster = BlasterOf(ft);
@@ -938,7 +1052,7 @@ void Event_Init(GOBJ *gobj) {
         targets[i].live = false;
         pops[i].age = 0;
     }
-    placed = checked = reset_clock = restarting = false;
+    placed = checked = reset_clock = restarting = dj_ready = dj_frozen = false;
     pair_presses = score = 0;
     for (int i = 0; i < TM_TARGETS_FH_COUNT; ++i) full_hops[i].shots = 0;
     LoadSettings();
@@ -980,6 +1094,7 @@ void Event_Think(GOBJ *event) {
     if (you && Pause_CheckStatus(1) != 2) {
         FighterData *ft = you->userdata;
         if (!checked) CheckFighter(ft);
+        TrackDoubleJump(ft);
         for (int i = 0; i < MAX_TARGETS; ++i)
             if (pops[i].age > 0 && ++pops[i].age > POP_FRAMES) pops[i].age = 0;
         // The first targets wait for you to have control: Go, in a timed run.
