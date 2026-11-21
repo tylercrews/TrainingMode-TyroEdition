@@ -110,11 +110,12 @@ GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3,
 # Target Practice (T10): its timed best (8 bits), Free Practice and SH Double
 # Lasers in word 80 bits 10-17, 18 and 19, and Hop Peak Lines, appended, in bit
 # 29, each stored as itself. FH Multi Lasers, appended after (Off, All Combos and
-# five combos), is word 12's retired bits 6-8, which version 24 claims.
+# five combos), is word 12's retired bits 6-8, which version 24 claims. Double
+# Jump Height, appended after that, is word 80 bit 30, stored as itself.
 TARGETS = 53  # TM_SETTING_TARGETS
-TARGETS_LINES, TARGETS_FULL_HOP = 3, 4  # TM_TARGETS_LINES, TM_TARGETS_FULL_HOP
+TARGETS_LINES, TARGETS_FULL_HOP, TARGETS_DOUBLE_JUMP = 3, 4, 5  # TM_TARGETS_LINES, _FULL_HOP, _DOUBLE_JUMP
 TARGETS_FH_COUNT = 7
-TARGETS_DEFAULTS = (0, 0, 0, 0, 0)
+TARGETS_DEFAULTS = (0, 0, 0, 0, 0, 0)
 # Word 12's six retired bits: Ledgechase's preset (6-8) and action (15-17) in
 # versions 2-8. Every migration to version 24 zeroes them.
 RETIRED_LEDGE_BITS = 7 << 6 | 7 << 15
@@ -516,8 +517,8 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(tuple(m.call('Settings_Get', UPB_SWEETSPOT, i) for i in range(4)), (1, 1, 0, 1))
         self.assertEqual((m.call('Settings_Get', TARGETS, 0), m.call('Settings_Get', 11, RANDALL_TIMER),
                           m.call('Settings_Get', EVENT_LIST, 1)), (200, 1, 63))
-        # Bits 29-31 (Target Practice's Hop Peak Lines, then spare) keep what's
-        # there, and it doesn't read as the row.
+        # Bits 29-31 (Target Practice's Hop Peak Lines and Double Jump Height,
+        # then spare) keep what's there, and they don't read as the row.
         m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 0)
         word = int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
         m.cpu.mem_write(EXT + 80, (word | 7 << 29).to_bytes(4, 'little'))
@@ -899,11 +900,11 @@ class ExtensionTests(unittest.TestCase):
     # Target Practice (T10): word 80 bits 10-19, no version bump.
     def test_target_practice_reads_its_defaults_from_word_80s_zeros(self):
         m = self.m
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)  # No record.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(6)), TARGETS_DEFAULTS)  # No record.
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 12, 4), 'little') & RETIRED_LEDGE_BITS, 0)
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(6)), TARGETS_DEFAULTS)
 
     def test_target_practice_round_trips_in_word_80_bits_10_to_19_alone(self):
         m = self.m
@@ -924,22 +925,24 @@ class ExtensionTests(unittest.TestCase):
                           m.call('Settings_Get', 11, STOPLIGHT), m.call('Settings_Get', GRABS, GRABS_MOVEMENT),
                           m.call('Settings_Get', 11, DEBUG_OFF)), (9, 4, 1, 2, 1))
         # Bits 20-28 (the Randall Timer's 20, All Events' 21-27 and Up-B's
-        # Landing Line 28) and 30-31 (spare) keep what they hold, and the
-        # neighbors' writes leave Target Practice alone.
+        # Landing Line 28), 30 (Double Jump Height) and 31 (spare) keep what
+        # they hold, and the neighbors' writes leave Target Practice alone.
         m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
         m.cpu.mem_write(EXT + 80, (word() | 0xDFF00000).to_bytes(4, 'little'))
         m.call('Settings_Set', GRABS, GRABS_PERCENT, 3); m.call('Settings_Set', 11, DEBUG_OFF, 0)
         self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), (200, 0, 1, 0))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 1)  # Bit 30 is its own.
         self.assertEqual(word() >> 20, 0xDFF)
 
     def test_target_practice_ignores_values_past_its_bits(self):
         m = self.m
         m.call('Settings_Set', TARGETS, 0, 77); m.call('Settings_Set', TARGETS, 1, 1)
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        for index, value in ((0, 256), (1, 2), (2, 2), (TARGETS_LINES, 2), (TARGETS_FULL_HOP, TARGETS_FH_COUNT), (5, 1)):
+        for index, value in ((0, 256), (1, 2), (2, 2), (TARGETS_LINES, 2), (TARGETS_FULL_HOP, TARGETS_FH_COUNT),
+                             (TARGETS_DOUBLE_JUMP, 2), (6, 1)):
             m.call('Settings_Set', TARGETS, index, value)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
-        self.assertEqual(m.call('Settings_Get', TARGETS, 5), 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, 6), 0)
 
     def test_hop_peak_lines_uses_only_word_80_bit_29(self):
         m = self.m
@@ -947,7 +950,7 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', 11, RANDALL_TIMER, 1)  # bit 20,
         m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)  # and the bit under it.
         word = lambda record: int.from_bytes(record[80:84], 'little')
-        m.cpu.mem_write(EXT + 80, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 3 << 30).to_bytes(4, 'little'))  # Spare.
+        m.cpu.mem_write(EXT + 80, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 3 << 30).to_bytes(4, 'little'))  # Double Jump Height and spare.
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LINES), 0)
         for value in (1, 0, 1):
@@ -975,15 +978,52 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_LINES, 1)
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 1 << 29)
 
+    def test_double_jump_height_uses_only_word_80_bit_30(self):
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 255); m.call('Settings_Set', TARGETS, 2, 1)  # Its rows in bits 10-19,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)  # bit 28,
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 1)  # and Hop Peak Lines under it.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)  # FH Multi Lasers, in word 12.
+        word = lambda record: int.from_bytes(record[80:84], 'little')
+        m.cpu.mem_write(EXT + 80, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 1 << 31).to_bytes(4, 'little'))  # Spare.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, value)
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> 30 & 1, word(after) & ~(1 << 30)), (value, word(before)))
+            self.assertEqual(after[:80] + after[84:], before[:80] + before[84:])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(6)), (255, 0, 1, 1, 3, 1))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), 1)
+        # Its neighbors' writes keep it, and the spare bit doesn't read as it.
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 0); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 1)
+        m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 30, 2)
+
+    def test_version_22_records_read_double_jump_height_off_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, TARGETS, TARGETS_DOUBLE_JUMP), 0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in bit 30 alone.
+        m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 1 << 30)
+
     def test_version_22_records_read_the_target_practice_defaults_without_writing(self):
         m = self.m
         old = self.version_22_record()
         old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
         m.cpu.mem_write(EXT, bytes(old))
-        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(6)), TARGETS_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
         # Migrating zeroes word 80, and a write lands in it.
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(5)), TARGETS_DEFAULTS)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(6)), TARGETS_DEFAULTS)
         m.call('Settings_Set', TARGETS, 0, 12)
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 12 << 10)
         self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))
@@ -995,6 +1035,7 @@ class ExtensionTests(unittest.TestCase):
         m = self.m
         m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
         m.call('Settings_Set', TARGETS, TARGETS_LINES, 1); m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)
+        m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 1)
         # Ledgechase's side, distance, CPU action and entry, all in word 12.
         m.call('Settings_Set', 28, 0, 2); m.call('Settings_Set', 28, 4, 3)
         m.call('Settings_Set', 28, 6, 5); m.call('Settings_Set', 28, 8, 1)
@@ -1005,7 +1046,7 @@ class ExtensionTests(unittest.TestCase):
 
     def word_80_and_12_settings(self, read):
         return (read(TARGETS, 0), read(TARGETS, 2), read(TARGETS, TARGETS_LINES), read(GRABS, GRABS_PERCENT),
-                read(28, 0), read(28, 4), read(28, 6), read(28, 8))
+                read(28, 0), read(28, 4), read(28, 6), read(28, 8), read(TARGETS, TARGETS_DOUBLE_JUMP))
 
     def test_version_23_migration_claims_only_word_12s_retired_bits(self):
         m = self.m
@@ -1016,7 +1057,7 @@ class ExtensionTests(unittest.TestCase):
         expected[12:16] = (int.from_bytes(old[12:16], 'little') & ~RETIRED_LEDGE_BITS).to_bytes(4, 'little')
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(self.word_80_and_12_settings(lambda f, i: m.call('Settings_Get', f, i)),
-                         (200, 1, 1, 9, 2, 3, 5, 1))
+                         (200, 1, 1, 9, 2, 3, 5, 1, 1))
 
     def test_version_23_records_read_fh_multi_lasers_off_and_the_rest_without_writing(self):
         m = self.m
@@ -1027,7 +1068,7 @@ class ExtensionTests(unittest.TestCase):
             m.cpu.mem_write(EXT, bytes(old))
             read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
             self.assertEqual(read(TARGETS, TARGETS_FULL_HOP), 0)
-            self.assertEqual(self.word_80_and_12_settings(read), (200, 1, 1, 9, 2, 3, 5, 1))
+            self.assertEqual(self.word_80_and_12_settings(read), (200, 1, 1, 9, 2, 3, 5, 1, 1))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
     def test_fh_multi_lasers_uses_only_word_12_bits_6_to_8(self):

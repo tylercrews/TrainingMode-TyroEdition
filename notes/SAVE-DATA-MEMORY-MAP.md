@@ -11,12 +11,12 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **2 spare bits** in word 80 (30-31) and **3** in word 12 (15-17) |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b33) | `0x1AE0..0x1B33` | 84 bytes | 84 bytes | **1 spare bit** in word 80 (31) and **3** in word 12 (15-17) |
 | **Unallocated spare score slots** | `0x1B34..0x1B37` | **4 bytes** | nothing | **4 bytes (32 bits)** |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bits 30-31 and word 12's bits 15-17, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
+**Bottom line:** 4 whole bytes are free, in one block at `0x1B34..0x1B37`, plus word 80's bit 31 and word 12's bits 15-17, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
 
 The `TYEX` record and the free block are carved out of 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -145,9 +145,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 68..71 | 2v1 Grab Punish, Up-B Sweetspot, Edgeguard (Fox's and Falco's side-B rows, Knockback Distance) | word 68 (table below) | — |
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot, Side-B Sweetspot | word 72 (table below) | — |
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
-| 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot | word 80 (table below) | bits 30-31 |
+| 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot | word 80 (table below) | bit 31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **2 spare bits** (30-31) and word 12's **3 spare bits** (15-17). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines word 80 bit 29. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, so bits 15-17 are the ones left.
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **1 spare bit** (31) and word 12's **3 spare bits** (15-17). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines and Double Jump Height word 80 bits 29 and 30. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, so bits 15-17 are the ones left.
 
 ### Bit fields in the words
 
@@ -344,7 +344,7 @@ Escape IC Grab's Handoff row is disabled and not saved.
 
 **Word 80: Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer, All Events, Up-B Sweetspot** (T10, version 23)
 
-Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way, the Invincibility Stoplight bit 6, Grabs-ercise's CPU Movement bits 7-8, Disable Dev Debug Menu bit 9, Target Practice bits 10-19, the Randall Timer bit 20, All Events bits 21-27, Up-B Sweetspot's Landing Line bit 28 and Target Practice's Hop Peak Lines bit 29; bits 30-31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
+Every migration to version 23 zeroes this word, and rows are stored as their distance from their default, like word 76's, so those zeros read as the defaults. Techchase's CPU Followup Action took bits 4-5 that way, the Invincibility Stoplight bit 6, Grabs-ercise's CPU Movement bits 7-8, Disable Dev Debug Menu bit 9, Target Practice bits 10-19, the Randall Timer bit 20, All Events bits 21-27, Up-B Sweetspot's Landing Line bit 28 and Target Practice's Hop Peak Lines bit 29 and Double Jump Height bit 30; bit 31 can take a setting whose stored 0 is its default with no version bump. Version 22 and older records read the defaults (for the followup, word 9's bit alone).
 
 | Bits | Setting |
 | --- | --- |
@@ -361,7 +361,8 @@ Every migration to version 23 zeroes this word, and rows are stored as their dis
 | 22-27 | Event Select: All Events' selected event, 0 to 63 (`TM_SETTING_EVENT_LIST` row 1, T10, no version bump). `TM_SETTING_EVENT_SELECTION` reads and writes it while All Events is shown, so each list keeps its own place. Older records read 0, the top |
 | 28 | Up-B Sweetspot: Landing Line (Off / On, default Off; T10, no version bump, `TM_UPB_LANDING`, appended to `TMUpBSweetspotPreference` though the menu lists it third). Fox and Falco only. Older records read Off |
 | 29 | Target Practice: Hop Peak Lines (Off / On, default Off; T10, no version bump, `TM_TARGETS_LINES`, appended to `TMTargetsPreference` though the menu lists it after SH Double Lasers). Older records read Off |
-| 30-31 | Free |
+| 30 | Target Practice: Double Jump Height (Off / On, default Off; T10, no version bump, `TM_TARGETS_DOUBLE_JUMP`, appended to `TMTargetsPreference` after FH Multi Lasers, though the menu lists it after Hop Peak Lines). Owned like bit 29: only a version 23 or later record, so older records read Off |
+| 31 | Free |
 
 Both events' totals and session bests are RAM-only (below).
 

@@ -69,7 +69,20 @@
  * stop at the middle (x = 0), so the two sides' read apart (Dream Land's right
  * platform is 0.1 higher). They're found from the live lines every frame, so
  * Fountain's follow its side platforms, and go while one is sunk into the
- * stage. */
+ * stage.
+ *
+ * Double Jump Height. A double jump sets the vertical speed to the full hop's
+ * times air_jump_v_multiplier whatever it was (ftCo_JumpAerial_Enter_Basic),
+ * then falls the way a jump does, so from anywhere it rises the same Rise. So
+ * while the fighter is in the air with its double jump, a white T runs from
+ * TopN (the feet), up through the head's x (HeadN), to that Rise above: a
+ * dashed stem and a solid bar where the feet would peak. Red goes on above it,
+ * to the aerial laser height over that bar, and an arm out the way the fighter
+ * faces: where a laser shot at the double jump's peak flies, as Hop Peak Lines
+ * mark a hop's. Together they read as an F on the T. It goes once the jump is
+ * spent (Fox's and Falco's up-B uses it up on launch, ftFx_SpecialHi) or
+ * can't come: helpless, air dodging, on the ledge, dead, and during side-B and
+ * up-B, which end helpless or on the ground. */
 
 #define TIMED_FRAMES 3600     // The timed run's minute.
 #define TARGET_RADIUS 1.5f    // Under 2.72 - 1.17: see above.
@@ -88,6 +101,18 @@
 /* A side platform closer than this to the main floor is sunk: Fountain's
  * settle 0.37 above it, inside the stage, while they're hidden. */
 #define SUNK_PLATFORM 1.f
+/* Double Jump Height's T: its stem's dashes and gaps, counted down from the
+ * bar so a whole dash meets it, the bar's reach each side, and the red laser
+ * arm's length. Drawn PEAK_LINE_WIDTH wide. */
+#define DJ_DASH 2.5f
+#define DJ_GAP 1.5f
+#define DJ_BAR 6.f
+#define DJ_ARM 10.f
+/* Fox's and Falco's side-B and up-B, from SpecialSStart to SpecialHiBound
+ * (the decomp's ftFox_MotionState, after the common states' 341): each ends
+ * helpless or on the ground, so the double jump can't come. */
+#define FX_SPECIAL_S_FIRST 347
+#define FX_SPECIAL_HI_LAST 359
 
 /* Laser heights above TopN, the airborne ECB bottom on the frame before the
  * aerial shot, and the frames from a B press to the aerial shot and between
@@ -103,8 +128,8 @@ static const Blaster Blasters[2] = {
 };
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_COUNTER,
-    OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_DOUBLE_JUMP,
+    OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
 
 static void Retry(GOBJ *menu);
@@ -113,6 +138,7 @@ static void ChangeFreePractice(GOBJ *menu, int value);
 static void ChangeDoubleLasers(GOBJ *menu, int value);
 static void ChangeFullHop(GOBJ *menu, int value);
 static void ChangePeakLines(GOBJ *menu, int value);
+static void ChangeDoubleJump(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
@@ -201,6 +227,15 @@ static EventOption Options_Main[OPT_COUNT] = {
         .OnChange = ChangePeakLines,
     },
     {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Double Jump Height",
+        .desc = {"In the air with a double jump left: a white T from",
+                 "your feet to where they'd peak if you double jumped",
+                 "now, and red where a laser shot at that peak",
+                 "flies, the way you face. Saved."},
+        .OnChange = ChangeDoubleJump,
+    },
+    {
         .kind = OPTKIND_STRING,
         .value_num = countof(CounterPositionText),
         .name = "Counter Position",
@@ -241,6 +276,7 @@ static bool placed;          // Targets have appeared this match.
 static bool checked;         // The fighter's been looked at (CheckFighter).
 static int pair_presses;     // Press frames that fit a short hop double laser.
 static float peak_lasers[2]; // A short hop's and a full hop's peak laser, above the floor.
+static float double_jump;    // A double jump's rise, from wherever it starts.
 static int score, best;
 static bool reset_clock;
 static bool restarting;      // Leaving a stage that isn't legal.
@@ -271,9 +307,12 @@ static float Rise(float velocity, float gravity) {
     }
     return height;
 }
+// A double jump sets its own speed, so it rises this much from anywhere.
+static float DoubleJumpRise(FighterData *ft) {
+    return Rise(ft->attr.jump_v_initial_velocity * ft->attr.air_jump_v_multiplier, ft->attr.gravity);
+}
 static float FullHopDoubleJump(FighterData *ft) {
-    float jump = ft->attr.jump_v_initial_velocity;
-    return Rise(jump, ft->attr.gravity) + Rise(jump * ft->attr.air_jump_v_multiplier, ft->attr.gravity);
+    return Rise(ft->attr.jump_v_initial_velocity, ft->attr.gravity) + DoubleJumpRise(ft);
 }
 
 /* Height after each airborne frame of a jump from `velocity` with no
@@ -425,6 +464,8 @@ static void LoadSettings(void) {
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP);
     Options_Main[OPT_LINES].val = Options_Main[OPT_LINES].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES);
+    Options_Main[OPT_DOUBLE_JUMP].val = Options_Main[OPT_DOUBLE_JUMP].val_prev =
+        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
     best = TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_BEST);
 }
@@ -435,9 +476,12 @@ static void ChangeDoubleLasers(GOBJ *menu, int value) {
 static void ChangeFullHop(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, value);
 }
-// The lines show or go on the next frame drawn, behind the paused menu too.
+// The lines and the T show or go on the next frame drawn, behind the paused menu too.
 static void ChangePeakLines(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, value);
+}
+static void ChangeDoubleJump(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, value);
 }
 
 /* Where the count goes for each Counter Position: Eggs-ercise's spots, with
@@ -494,6 +538,7 @@ static void ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL, 0);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, TM_TARGETS_FH_OFF);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, 0);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, 0);
     LoadSettings();
     Retry(menu);
 }
@@ -777,10 +822,58 @@ static void DrawPeakLines(void) {
             GFX_AddVtx(floors[i].right, y, 0, PeakColors[hop]);
         }
 }
+/* Double Jump Height's white T and red F arm, at alpha 230, premultiplied as
+ * the peak lines are. */
+static const GXColor DoubleJumpWhite = {230, 230, 230, 230}, DoubleJumpRed = {230, 30, 30, 230};
+
+/* In the air with the double jump left, and able to use it later: not
+ * helpless, air dodging (it ends helpless), on the ledge, dead or on the
+ * revival platform, or in side-B or up-B (see FX_SPECIAL_S_FIRST). */
+static bool DoubleJumpReady(FighterData *ft) {
+    int state = ft->state_id;
+    if (!ft->phys.air_state || ft->jump.jumps_used >= ft->attr.max_jumps) return false;
+    if (state <= ASID_REBIRTHWAIT || (state >= ASID_FALLSPECIAL && state <= ASID_FALLSPECIALB) ||
+        state == ASID_ESCAPEAIR || (state >= ASID_CLIFFCATCH && state <= ASID_CLIFFESCAPEQUICK))
+        return false;
+    return state < FX_SPECIAL_S_FIRST || state > FX_SPECIAL_HI_LAST;
+}
+// The stem's x: the head's (HeadN), or TopN's if there's no such bone.
+static float HeadX(FighterData *ft) {
+    int bone = Fighter_BoneLookup(ft, HeadN);
+    Vec3 head;
+    if (bone < 0 || !ft->bones || !ft->bones[bone].joint) return ft->phys.pos.X;
+    JOBJ_GetWorldPosition(ft->bones[bone].joint, 0, &head);
+    return head.X;
+}
+/* A dashed white stem from the feet up through the head to a double jump's
+ * rise, a white bar there, then red on up to the aerial laser's height above
+ * the bar and an arm out the way the fighter faces. One GX_LINES batch. */
+static void DrawDoubleJump(FighterData *ft) {
+    float x = HeadX(ft), feet = ft->phys.pos.Y, top = feet + double_jump, period = DJ_DASH + DJ_GAP;
+    float laser = top + BlasterOf(ft)->air, arm = x + (ft->facing_direction < 0 ? -DJ_ARM : DJ_ARM);
+    int dashes = 0;
+    while (dashes * period < double_jump) ++dashes;
+    event_vars->GFX_Start(dashes * 2 + 6, (GFX_Params){.shape = GX_LINES, .size = PEAK_LINE_WIDTH, .no_depth = true});
+    for (int i = 0; i < dashes; ++i) {
+        float end = top - i * period, start = end - DJ_DASH;
+        GFX_AddVtx(x, start > feet ? start : feet, 0, DoubleJumpWhite);
+        GFX_AddVtx(x, end, 0, DoubleJumpWhite);
+    }
+    GFX_AddVtx(x - DJ_BAR, top, 0, DoubleJumpWhite);
+    GFX_AddVtx(x + DJ_BAR, top, 0, DoubleJumpWhite);
+    GFX_AddVtx(x, top, 0, DoubleJumpRed);
+    GFX_AddVtx(x, laser, 0, DoubleJumpRed);
+    GFX_AddVtx(x, laser, 0, DoubleJumpRed);
+    GFX_AddVtx(arm, laser, 0, DoubleJumpRed);
+}
+
 static void Targets_GX(GOBJ *gobj, int pass) {
     if (pass != 2) return;
     // Under the targets. The heights are the fighter's, known from its first frame.
     if (checked && Options_Main[OPT_LINES].val) DrawPeakLines();
+    GOBJ *you = Fighter_GetGObj(0);
+    if (checked && Options_Main[OPT_DOUBLE_JUMP].val && you && DoubleJumpReady(you->userdata))
+        DrawDoubleJump(you->userdata);
     for (int i = 0; i < MAX_TARGETS; ++i)
         if (pops[i].age > 0) DrawPop(&pops[i]);
     for (int i = 0; i < MAX_TARGETS; ++i)
@@ -789,8 +882,8 @@ static void Targets_GX(GOBJ *gobj, int pass) {
 
 // Event -----------------------------------------------------------------------
 
-/* Pairs and the peak lines depend on the fighter, which isn't known until its
- * first frame. */
+/* Pairs, the peak lines and the double jump's T depend on the fighter, which
+ * isn't known until its first frame. */
 static void CheckFighter(FighterData *ft) {
     const Blaster *blaster = BlasterOf(ft);
     checked = true;
@@ -798,6 +891,7 @@ static void CheckFighter(FighterData *ft) {
     if (ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO) FullHopCombos(ft, blaster);
     peak_lasers[0] = Rise(ft->attr.hop_v_initial_velocity, ft->attr.gravity) + blaster->air;
     peak_lasers[1] = Rise(ft->attr.jump_v_initial_velocity, ft->attr.gravity) + blaster->air;
+    double_jump = DoubleJumpRise(ft);
     GateLaserRows();
 }
 static void FinishTimedRun(void) {

@@ -16,10 +16,22 @@ import laser_heights  # noqa: E402
 FOX, FALCO = 1, 22  # FTKIND_FOX, FTKIND_FALCO
 NAMES = {FOX: 'Fox', FALCO: 'Falco'}
 ITEM_FOXLASER, ITEM_FALCOLASER = 54, 55
-OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_COUNTER, OPT_DEFAULTS = 3, 4, 5, 6, 7, 8
+OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_DOUBLE_JUMP, OPT_COUNTER, OPT_DEFAULTS = 3, 4, 5, 6, 7, 8, 9
 FIFO, GX_LINES = 0xCC008000, 0xA8
 # Hop Peak Lines: teal for a short hop, purple for a full hop, premultiplied.
 TEAL, PURPLE = (0, 162, 144, 230), (144, 90, 230, 230)
+# Double Jump Height: the white T and the red laser line, premultiplied.
+DJ_WHITE, DJ_RED = (230, 230, 230, 230), (230, 30, 30, 230)
+DJ_DASH, DJ_GAP, DJ_BAR, DJ_ARM = 2.5, 1.5, 6, 10
+# Action states, as MexTK numbers them (Melee's own), and Fox's and Falco's
+# specials after the common 341 (the decomp's ftFox_MotionState).
+ASID_DEADDOWN, ASID_REBIRTHWAIT, ASID_JUMPF, ASID_JUMPB, ASID_FALL = 0, 13, 25, 26, 29
+ASID_FALLSPECIAL, ASID_FALLSPECIALB, ASID_ATTACKAIRN, ASID_ESCAPEAIR = 35, 37, 65, 236
+ASID_CLIFFCATCH, ASID_CLIFFWAIT, ASID_CLIFFESCAPEQUICK, ASID_CLIFFJUMPSLOW1 = 252, 253, 259, 260
+FX_SPECIALAIRNLOOP, FX_SPECIALAIRNEND, FX_SPECIALSSTART, FX_SPECIALAIRS = 345, 346, 347, 351
+FX_SPECIALHIHOLDAIR, FX_SPECIALAIRHI, FX_SPECIALHIFALL, FX_SPECIALHIBOUND, FX_SPECIALLWSTART = 354, 356, 358, 359, 360
+FX_SPECIALAIRLWLOOP = 366  # The shine, which jumps out.
+HEADN = 35  # MexTK's FtCommonBoneNames; RThumbNb, laser_heights.RTHUMBNB, is 51.
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 MATCHGX_EFFECT = 7
 SIZE_SCALE_AT = 0x804DC790  # The item hitbox command's size scale, about 1/256.
@@ -129,8 +141,14 @@ class TargetsMachine:
         self.m.call('TestTargetsSeed', seed)
         self.lines = []
 
-    def init(self, free_practice=0, shdl=0, best=0, counter=0, lines=0, full_hop=0):
-        self.m.call('TestTargetsInit', free_practice, shdl, best, counter, lines, full_hop)
+    def init(self, free_practice=0, shdl=0, best=0, counter=0, lines=0, full_hop=0, double_jump=0):
+        self.m.call('TestTargetsInit', free_practice, shdl, best, counter, lines, full_hop, double_jump)
+
+    def air(self, air=1, used=1, max_jumps=2, state=ASID_FALL, facing=1):
+        self.m.call('TestTargetsAir', air, used, max_jumps, state, facing)
+
+    def head(self, bone=10, x=0):
+        self.m.call('TestTargetsHead', bone, round(x * 1000))
 
     def capture(self):
         """Record the GX FIFO: GFX_AddVtx writes x, y, z, then the color's bytes."""
@@ -664,6 +682,144 @@ class TargetPeakLineTests(unittest.TestCase):
         self.assertGreater(len(batches), 1)  # The target, drawn after.
 
 
+class TargetDoubleJumpTests(unittest.TestCase):
+    """Double Jump Height: a white T from the feet to a double jump's rise, and red on up
+    to where a laser at its peak flies."""
+    @classmethod
+    def setUpClass(cls):
+        build()
+        cls.fighters = fighters()
+
+    def start(self, kind=FOX, double_jump=1, you=(4, 20), head_x=5.5, **kw):
+        m = TargetsMachine(kind, self.fighters[kind].attr)
+        m.flat(((-50, -20, 27), (20, 50, 27)))
+        m.init(double_jump=double_jump, **kw)
+        m.capture()
+        m.head(10, head_x)
+        m.air()
+        m.you(*you, control=0)  # The fighter's first frame; targets wait for control.
+        m.think()
+        return m
+
+    def rise(self, kind):
+        a = self.fighters[kind].attr
+        return laser_heights.rise(a['jump_v'] * a['air_jump_mult'], a['gravity'])
+
+    def expected(self, kind, x, feet, facing=1):
+        """The T's segments, each ((x, y), (x, y), color): the stem's dashes counted
+        down from the bar, the bar, then the red stem and arm."""
+        rise, air = self.rise(kind), self.fighters[kind].constants()['air']
+        top, period, dashes = feet + rise, DJ_DASH + DJ_GAP, 0
+        while dashes * period < rise:
+            dashes += 1
+        segments = [((x, max(top - i * period - DJ_DASH, feet)), (x, top - i * period), DJ_WHITE) for i in range(dashes)]
+        return segments + [((x - DJ_BAR, top), (x + DJ_BAR, top), DJ_WHITE), ((x, top), (x, top + air), DJ_RED),
+                           ((x, top + air), (x + DJ_ARM * facing, top + air), DJ_RED)]
+
+    def assertT(self, vertices, wanted):
+        got = [((a[0], a[1]), (b[0], b[1]), a[3]) for a, b in zip(vertices[::2], vertices[1::2])]
+        self.assertEqual(len(got), len(wanted))
+        self.assertTrue(all(v[2] == 0 for v in vertices))
+        self.assertEqual([v[3] for v in vertices[::2]], [v[3] for v in vertices[1::2]])  # One color a segment.
+        for g, w in zip(got, wanted):
+            for end in (0, 1):
+                self.assertAlmostEqual(g[end][0], w[end][0], delta=.002)
+                self.assertAlmostEqual(g[end][1], w[end][1], delta=.002)
+            self.assertEqual(g[2], w[2])
+
+    def test_the_rise_is_a_double_jumps_from_the_iso(self):
+        # By hand: Fox's double jump starts at 3.68 x 1.2 = 4.416 and Falco's at 4.1 x 0.94,
+        # less 0.23 and 0.17 gravity a frame: 40.204 and 41.778, the doc's full hop + double jump.
+        for kind, by_hand in ((FOX, 40.204), (FALCO, 41.778)):
+            with self.subTest(fighter=NAMES[kind]):
+                m = self.start(kind)
+                self.assertAlmostEqual(m.info(48) / 10000, self.rise(kind), delta=.0005)
+                self.assertAlmostEqual(m.info(48) / 10000, by_hand, delta=.001)
+                full_hop = laser_heights.rise(self.fighters[kind].attr['jump_v'], self.fighters[kind].attr['gravity'])
+                self.assertAlmostEqual((m.info(32) - m.info(48)) / 10000, full_hop, delta=.001)
+
+    def test_a_t_from_the_feet_through_the_head_and_red_to_the_peak_laser(self):
+        for kind in (FOX, FALCO):
+            for facing in (1, -1):
+                with self.subTest(fighter=NAMES[kind], facing=facing):
+                    m = self.start(kind)
+                    m.air(facing=facing)
+                    batches, vertices = m.draw()
+                    wanted = self.expected(kind, 5.5, 20, facing)
+                    self.assertEqual(batches, [(GX_LINES, 2 * len(wanted), 12, 1)])  # Over everything.
+                    self.assertT(vertices, wanted)
+                    # Eleven dashes, a whole one meeting the bar and the last cut off at the feet.
+                    self.assertEqual(len(wanted), 14)
+                    self.assertAlmostEqual(vertices[1][1] - vertices[0][1], DJ_DASH, delta=.001)
+                    self.assertAlmostEqual(vertices[20][1], 20, delta=.001)
+                    # The red goes on above the bar by the aerial laser's height (9.28 Fox, 3.80 Falco).
+                    by_hand = {FOX: 9.2829, FALCO: 3.7980}[kind]
+                    self.assertAlmostEqual(vertices[-1][1] - vertices[-5][1], by_hand, delta=.001)
+
+    def test_it_follows_the_fighter_and_its_head_every_frame(self):
+        m = self.start()
+        m.you(-30, 61.5, control=0); m.head(10, -31.25)
+        self.assertT(m.draw()[1], self.expected(FOX, -31.25, 61.5))
+        # With no head bone it runs up TopN's x.
+        m.head(-1)
+        self.assertT(m.draw()[1], self.expected(FOX, -30, 61.5))
+
+    def test_only_while_the_double_jump_can_still_come(self):
+        m = self.start()
+        shown = [(1, 1, 2, s) for s in (ASID_JUMPF, ASID_JUMPB, ASID_FALL, ASID_ATTACKAIRN, FX_SPECIALAIRNLOOP,
+                                         FX_SPECIALAIRNEND, FX_SPECIALLWSTART, FX_SPECIALAIRLWLOOP, ASID_CLIFFJUMPSLOW1,
+                                         ASID_REBIRTHWAIT + 1, ASID_FALLSPECIAL - 1, ASID_FALLSPECIALB + 1)]
+        shown += [(1, 0, 2, ASID_FALL)]  # Off the edge with both jumps.
+        hidden = [(0, 1, 2, ASID_FALL), (1, 2, 2, ASID_FALL), (1, 3, 2, ASID_FALL)]  # Grounded, or the jump spent.
+        hidden += [(1, 1, 2, s) for s in (ASID_DEADDOWN, ASID_REBIRTHWAIT, ASID_FALLSPECIAL, ASID_FALLSPECIALB,
+                                          ASID_ESCAPEAIR, ASID_CLIFFCATCH, ASID_CLIFFWAIT, ASID_CLIFFESCAPEQUICK,
+                                          FX_SPECIALSSTART, FX_SPECIALAIRS, FX_SPECIALHIHOLDAIR, FX_SPECIALAIRHI,
+                                          FX_SPECIALHIFALL, FX_SPECIALHIBOUND)]
+        for air, used, max_jumps, state in shown + hidden:
+            with self.subTest(air=air, used=used, state=state):
+                m.air(air, used, max_jumps, state)
+                self.assertEqual(len(m.draw()[0]), (air, used, max_jumps, state) in shown)
+
+    def test_the_row_saves_and_the_t_shows_at_once(self):
+        m = self.start(double_jump=0)
+        self.assertEqual((m.info(45), m.info(47)), (0, 0))
+        self.assertEqual(m.draw(), ([], []))
+        m.choose(OPT_DOUBLE_JUMP, 1)
+        self.assertEqual((m.info(46), m.info(4), m.info(29)), (1, 0, 0))  # Saved; no retry or restart.
+        self.assertEqual(len(m.draw()[0]), 1)
+        m.choose(OPT_DOUBLE_JUMP, 0)
+        self.assertEqual((m.info(46), m.draw()), (0, ([], [])))
+        # A saved On loads into the row, its value and the menu's copy alike.
+        m = self.start(double_jump=1)
+        self.assertEqual((m.info(45), m.info(47)), (1, 1))
+        # Timed runs and Free Practice both draw it, and paused too.
+        m = self.start(free_practice=1)
+        self.assertEqual(len(m.draw()[0]), 1)
+        m.m.call('TestTargetsPause', 1)
+        self.assertEqual(len(m.draw()[0]), 1)
+        m.m.call('TestTargetsPause', 0)
+
+    def test_nothing_before_the_fighters_first_frame_or_on_other_passes(self):
+        m = TargetsMachine(FOX, self.fighters[FOX].attr)
+        m.flat()
+        m.init(double_jump=1)
+        m.capture()
+        m.head(10, 0); m.air()
+        self.assertEqual(m.draw(), ([], []))  # Its rise isn't known yet.
+        self.assertEqual(m.info(49), 0)  # Nor is the head looked up.
+        m.you(control=0); m.think()
+        for pass_ in (0, 1, 3):
+            self.assertEqual(m.draw(pass_), ([], []))
+        self.assertEqual(len(m.draw()[0]), 1)
+
+    def test_it_goes_over_the_peak_lines_and_under_the_targets(self):
+        m = self.start(lines=1)
+        m.place(30, 40)
+        batches, _ = m.draw()
+        self.assertEqual(batches[:2], [(GX_LINES, 12, 12, 1), (GX_LINES, 28, 12, 1)])  # Lines, then the T,
+        self.assertGreater(len(batches), 2)  # then the target.
+
+
 class TargetEventTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -901,12 +1057,13 @@ class TargetEventTests(unittest.TestCase):
         self.assertEqual((m.info(2), m.info(4)), (1, 1))
 
     def test_reset_keeps_the_best_and_the_counter_position(self):
-        m = self.start(free_practice=1, shdl=1, best=17, counter=3, lines=1, full_hop=FH_ALL)
-        self.assertEqual((m.info(36), m.info(41)), (1, FH_ALL))
+        m = self.start(free_practice=1, shdl=1, best=17, counter=3, lines=1, full_hop=FH_ALL, double_jump=1)
+        self.assertEqual((m.info(36), m.info(41), m.info(45)), (1, FH_ALL, 1))
         m.m.call('TestTargetsSelect', OPT_DEFAULTS)
         self.assertEqual((m.info(2), m.info(3), m.info(1), m.info(20), m.info(4)), (0, 0, 17, 3, 1))
         self.assertEqual((m.info(37), m.info(36)), (0, 0))  # Hop Peak Lines goes Off too,
-        self.assertEqual((m.info(42), m.info(41)), (FH_OFF, FH_OFF))  # and FH Multi Lasers.
+        self.assertEqual((m.info(42), m.info(41)), (FH_OFF, FH_OFF))  # FH Multi Lasers,
+        self.assertEqual((m.info(46), m.info(45)), (0, 0))  # and Double Jump Height.
 
     def test_counter_position_is_eggs_ercises_and_moves_the_count_at_once(self):
         m = self.start(counter=4)

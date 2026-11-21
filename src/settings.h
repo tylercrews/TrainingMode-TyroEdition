@@ -163,7 +163,7 @@ enum TMSettingsField {
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
     TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 (T10); see TMGrabercisePreference. */
     TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
-    TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19 and 29, and word 12 bits 6-8 (v24) (T10); see TMTargetsPreference. */
+    TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19, 29 and 30, and word 12 bits 6-8 (v24) (T10); see TMTargetsPreference. */
     TM_SETTING_EVENT_LIST, /* Internal: All Events' place, TYEX word 80 bits 21-27 (T10); see TMEventListPreference. Use EVENT_PAGE and EVENT_SELECTION. */
     TM_SETTING_EVENT_HOME, /* Runtime-only, read-only: index is an event on the page shown; returns its index on its own page (Events_HomeEvent). */
 };
@@ -370,9 +370,11 @@ enum TMGrabsMovement {
  * default is 0 (no best, timed runs, single targets, no lines), so each is
  * stored as itself. Only a version 23 or later record owns them. FH Multi
  * Lasers, appended after, is word 12's retired bits 6..8, which version 24
- * claims by zeroing them: only a version 24 record owns it, and 0 is Off. */
+ * claims by zeroing them: only a version 24 record owns it, and 0 is Off.
+ * Double Jump Height, appended after that, is word 80 bit 30, owned and
+ * stored the way Hop Peak Lines is: 0 is Off. */
 enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS_SHDL, TM_TARGETS_LINES,
-                           TM_TARGETS_FULL_HOP, TM_TARGETS_PREF_COUNT };
+                           TM_TARGETS_FULL_HOP, TM_TARGETS_DOUBLE_JUMP, TM_TARGETS_PREF_COUNT };
 /* FH Multi Lasers: Off, every combo at random, or one combo every spawn. The
  * combos run from the highest second laser to the lowest. */
 enum TMTargetsFullHop {

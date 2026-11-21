@@ -74,6 +74,37 @@ int TestTargetsDraw(int pass) {
 }
 int TestTargetsDrawInfo(int draw, int key) { return draw < DRAWS ? draw_info[draw][key] : -1; }
 int TestTargetsPeak(int hop) { return peak_lasers[hop] * 10000; }
+
+/* The head: HeadN's bone index (-1 for none) and its world x, which only it
+ * reports. */
+static FighterBone bones[64];
+static JOBJ head_joint;
+static int head_bone = -1, head_lookups;
+static float head_x;
+s8 Fighter_BoneLookup(FighterData *fighter, int bone) {
+    ++head_lookups;
+    return fighter == &ft && bone == HeadN ? head_bone : -1;
+}
+int JOBJ_GetWorldPosition(JOBJ *source, Vec3 *add, Vec3 *dest) {
+    *dest = (Vec3){source == &head_joint ? head_x : -999, 0, 0};
+    return 0;
+}
+void TestTargetsHead(int bone, int x) {
+    ft.bones = bones;
+    for (int i = 0; i < 64; ++i) bones[i].joint = 0;
+    head_bone = bone;
+    if (bone >= 0) bones[bone].joint = &head_joint;
+    head_x = x / 1000.f;
+}
+/* Airborne or not, the jumps used and allowed, the state and which way the
+ * fighter faces (1 right, -1 left). */
+void TestTargetsAir(int air, int used, int max, int state, int facing) {
+    ft.phys.air_state = air;
+    ft.jump.jumps_used = used;
+    ft.attr.max_jumps = max;
+    ft.state_id = state;
+    ft.facing_direction = facing;
+}
 // Move a line's ends, as a moving platform does, in thousandths.
 void TestTargetsMoveLine(int i, int ay, int by) {
     vertices[2 * i].pos_curr.Y = ay / 1000.f;
@@ -153,10 +184,12 @@ void TestTargetsFighter(int kind, int jump, int hop, int mult, int gravity, int 
     ft.attr.gravity = gravity / 10000.f;
     ft.attr.terminal_velocity = terminal / 10000.f;
 }
-void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved, int peak_lines, int full_hop) {
+void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved, int peak_lines, int full_hop,
+                     int double_jump_saved) {
     *event_vars_ptr_loc = &vars;
     vars.GFX_Start = GFXStart;
     prefs[TM_TARGETS_LINES] = peak_lines;
+    prefs[TM_TARGETS_DOUBLE_JUMP] = double_jump_saved;
     *stc_gobj_lookup = lookup;
     *stc_colldata = &stage;
     *stc_collline = lines;
@@ -324,6 +357,11 @@ int TestTargetsInfo(int key) {
     case 42: return prefs[TM_TARGETS_FULL_HOP];
     case 43: return Options_Main[OPT_FULL_HOP].val_prev;
     case 44: return Options_Main[OPT_FULL_HOP].value_num;
+    case 45: return Options_Main[OPT_DOUBLE_JUMP].val;
+    case 46: return prefs[TM_TARGETS_DOUBLE_JUMP];
+    case 47: return Options_Main[OPT_DOUBLE_JUMP].val_prev;
+    case 48: return double_jump * 10000;
+    case 49: return head_lookups;
     }
     return -1;
 }

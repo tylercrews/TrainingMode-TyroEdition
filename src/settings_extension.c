@@ -249,12 +249,18 @@ typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOW
 #define TARGETS_FULL_HOP_OFFSET 12
 #define TARGETS_FULL_HOP_SHIFT 6
 #define RETIRED_LEDGE_BITS (7u<<6 | 7u<<15)
+/* Double Jump Height (T10), appended after FH Multi Lasers, is back in word
+ * 80: bit 30, after Hop Peak Lines, the same way (Off is 0, only a version 23
+ * or later record owns it). Bit 31 stays free. */
+#define TARGETS_DOUBLE_JUMP_SHIFT 30
 static const ExtensionPreference targets_preferences[TM_TARGETS_PREF_COUNT] = {
     {TARGETS_SHIFT,8,TM_TARGETS_BEST_MAX+1,0}, {TARGETS_SHIFT+8,1,2,0}, {TARGETS_SHIFT+9,1,2,0},
     {TARGETS_LINES_SHIFT,1,2,0}, {TARGETS_FULL_HOP_SHIFT,3,TM_TARGETS_FH_COUNT,TM_TARGETS_FH_OFF},
+    {TARGETS_DOUBLE_JUMP_SHIFT,1,2,0},
 };
-typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 && TM_TARGETS_PREF_COUNT==5 &&
-    TM_TARGETS_LINES==3 && TM_TARGETS_FULL_HOP==TM_TARGETS_PREF_COUNT-1 &&
+typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 && TM_TARGETS_PREF_COUNT==6 &&
+    TM_TARGETS_LINES==3 && TM_TARGETS_FULL_HOP==4 && TM_TARGETS_DOUBLE_JUMP==TM_TARGETS_PREF_COUNT-1 &&
+    TARGETS_LINES_SHIFT+1==TARGETS_DOUBLE_JUMP_SHIFT &&
     TM_TARGETS_FH_COUNT<=8 && TM_TARGETS_FH_OFF==0 &&
     (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1<TARGETS_SHIFT && CONSOLE_OFF_BIT==1u<<1 && TARGETS_SHIFT+10<=32) ? 1 : -1];
 /* The global Randall Timer flag takes word 80 bit 20 (byte 82 bit 4), just
@@ -276,8 +282,8 @@ static const ExtensionPreference event_list_preferences[TM_EVENT_LIST_PREF_COUNT
 };
 typedef char TMExtension_EventListBits[((RANDALL_TIMER_BYTE-GRABS_OFFSET)*8+5==EVENT_LIST_SHIFT &&
     RANDALL_TIMER_BIT==1u<<4 && TM_EVENT_LIST_PREF_COUNT==2 && EVENT_LIST_SHIFT+7<=32) ? 1 : -1];
-/* Up-B Sweetspot's Landing Line is the bit after All Events' cursor, and
- * Target Practice's Hop Peak Lines the one after that. */
+/* Up-B Sweetspot's Landing Line is the bit after All Events' cursor, then
+ * Target Practice's Hop Peak Lines and Double Jump Height. */
 typedef char TMExtension_UpBLandingBit[(EVENT_LIST_SHIFT+7==UPB_LANDING_SHIFT && TM_UPB_LANDING==TM_UPB_PREF_COUNT-1) ? 1 : -1];
 typedef char TMExtension_TargetsLinesBit[(UPB_LANDING_SHIFT+1==TARGETS_LINES_SHIFT) ? 1 : -1];
 #define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
