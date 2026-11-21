@@ -2514,9 +2514,10 @@ void EventLoad(void)
     stc_savestate->is_exist = 0;
     stc_event_vars.savestate = stc_savestate;
 
-    // disable hazards if enabled
+    // disable hazards if enabled. The Training Lab keeps Randall: its Stage
+    // Options turn him off without losing his timing (lab.c).
     if (event_desc->disable_hazards == 1)
-        Hazards_Disable();
+        Hazards_Disable(event_desc == &Lab);
 
     // Store update function
     HSD_Update *update = stc_hsd_update;
@@ -2864,7 +2865,7 @@ void TM_CreateWatermark(void)
 
     stc_event_vars.watermark = text;
 }
-void Hazards_Disable(void)
+void Hazards_Disable(int keep_randall)
 {
     // get stage id
     int stage_internal = Stage_ExternalToInternal(Stage_GetExternalID());
@@ -2879,8 +2880,11 @@ void Hazards_Disable(void)
         GObj_RemoveProc(shyguy_gobj);
 
         // remove randall
-        GOBJ *randall_gobj = Stage_GetMapGObj(2);
-        Stage_DestroyMapGObj(randall_gobj);
+        if (!keep_randall)
+        {
+            GOBJ *randall_gobj = Stage_GetMapGObj(RANDALL_MAP_GOBJ);
+            Stage_DestroyMapGObj(randall_gobj);
+        }
 
         is_fixwind = 1;
 

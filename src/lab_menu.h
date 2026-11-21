@@ -46,10 +46,10 @@ static EventOption LabResetSettings = { .kind = OPTKIND_FUNC, .name = "Reset to 
 static EventMenuRow LabUI_Session_rows[] = {
     LR(FighterSwap_Options, 0, 1), LR(FighterSwap_Options, 1, 3),
     LR(LabOptions_General, OPTGEN_FRAME, 1), LR(LabOptions_General, OPTGEN_SPEED, 1),
-    LR(LabOptions_General, OPTGEN_HMNPCNT, 2), LR(LabOptions_General, OPTGEN_HMNPCNTLOCK, 2),
+    LR(LabOptions_General, OPTGEN_TIMER_LOOP, 1), LR(LabOptions_General, OPTGEN_HMNPCNT, 2), LR(LabOptions_General, OPTGEN_HMNPCNTLOCK, 2),
     LR(LabOptions_General, OPTGEN_STALE, 2), LREF(LabResetSettings, 4),
 };
-LMENU(LabUI_Session, "Session", "Change characters, practice speed and the human starting damage.");
+LMENU(LabUI_Session, "Session", "Change characters, practice speed, the timer and the human starting damage.");
 static EventMenuRow LabUI_CPU_rows[] = {
     LR(LabOptions_CPU, OPTCPU_PCNT, 2), LR(LabOptions_CPU, OPTCPU_LOCKPCNT, 2), LR(LabOptions_CPU, OPTCPU_BEHAVE, 2),
     LREF(LabLink_DI, 1), LR(LabOptions_CPU, OPTCPU_TECHOPTIONS, 3), LREF(LabLink_Counter, 0),

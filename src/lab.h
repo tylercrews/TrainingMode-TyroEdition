@@ -323,6 +323,7 @@ enum gen_option
     OPTLAB_ACTIONLOG,
     OPTLAB_HITBOXTRAILS,
     OPTGEN_OSDS,
+    OPTGEN_TIMER_LOOP, /* Shown in Session, after Game Speed. */
 
     OPTGEN_COUNT
 };
@@ -477,6 +478,14 @@ static EventOption LabOptions_General[OPTGEN_COUNT] = {
         .menu = &LabMenu_OSDs,
         .name = "Global Settings",
         .desc = {"Choose global OSD colors, overlays and other shared controls."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Timer 8m Inf Loop",
+        .desc = {"Show the timer as an 8 minute countdown that",
+                 "starts again at 8:00 each time it reaches 0:00.",
+                 "Switch any time: both show the same moment, so",
+                 "Randall is where an 8 minute match has him."},
     },
 };
 static EventMenu LabMenu_General = {
@@ -834,12 +843,23 @@ static EventMenu LabMenu_Stage_FOD = {
 
 enum stage_story_option
 {
+    OPTSTAGE_STORY_RANDALL_ON, /* The Lab's own, unsaved: Randall himself. */
     OPTSTAGE_STORY_RANDALL,
     OPTSTAGE_STORY_RANDALL_TIMER,
     OPTSTAGE_STORY_COUNT,
 };
 
 static EventOption LabOptions_Stage_Story[OPTSTAGE_STORY_COUNT] = {{
+    .kind = OPTKIND_TOGGLE,
+    .val = 1,
+    .val_prev = 1,
+    .name = "Randall",
+    .desc = {"Randall, the moving cloud. On by default, even",
+             "with Hazards Off. Off hides him and his platform,",
+             "but he keeps his timing, so the Randall Timer",
+             "still shows where he is."},
+    .OnChange = Lab_ChangeRandallOn,
+}, {
     .kind = OPTKIND_TOGGLE,
     .name = TM_GLOBAL_RANDALL_NAME,
     .desc = {"Always show Randall's platform and cloud,",

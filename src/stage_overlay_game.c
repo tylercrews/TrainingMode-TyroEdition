@@ -24,14 +24,16 @@
  * Randall's speed is constant, so the arrow is behind the numbers exactly as
  * long as Randall is behind the stage, and on the track past the timer exactly
  * as long as it's out (see docs/RANDALL-TIMER.md). It's drawn from the live
- * cloud, so it starts where Randall starts and never drifts. */
-#define RANDALL_MAP_GOBJ 2
-/* The joint grStory_801E3370 keeps as Randall's, for its puffs. The map GObj's
- * JObj is the scale joint the game puts over GrSt.dat's tree (801C1768), and
- * Stage_GetMapGObjJObj counts from the file's root as 0, so 1 is the root's
- * first child: the cloud. (The map GObj's JObj's own child is that root, which
- * never moves.) */
-#define RANDALL_CLOUD_JOINT 1
+ * cloud, so it starts where Randall starts and never drifts. With no Randall
+ * (hazards off), it's where he'd be at the timer's time, as a match keeps him:
+ * RANDALL_TIMER_OFFSET frames ahead of the timer, at a constant speed.
+ *
+ * RANDALL_CLOUD_JOINT (events.h) is the joint grStory_801E3370 keeps as
+ * Randall's, for its puffs. The map GObj's JObj is the scale joint the game
+ * puts over GrSt.dat's tree (801C1768), and Stage_GetMapGObjJObj counts from
+ * the file's root as 0, so 1 is the root's first child: the cloud. (The map
+ * GObj's JObj's own child is that root, which never moves.) The Training Lab
+ * hides that joint while its Randall option is Off. */
 #define RANDALL_TIMER_OUT_X 52.675f
 #define RANDALL_TIMER_TOP_Y (-18.9f)    /* Randall's two heights, in stage units. */
 #define RANDALL_TIMER_BOTTOM_Y (-38.5f)
@@ -167,6 +169,8 @@ static void BlastZones_Draw(void) {
 static void Randall_Draw(void) {
     GOBJ *map = randall();
     if (!map) return;
+    JOBJ *cloud = Stage_GetMapGObjJObj(map, RANDALL_CLOUD_JOINT);
+    if (cloud && cloud->flags & JOBJ_HIDDEN) return; /* Off in the Training Lab: no platform to show. */
     static const GXColor fill = {92, 92, 92, 92}, edge = {230, 230, 230, 230}, top = {255, 255, 255, 255};
     JOBJ *root = map->hsd_object;
     CollGroup *group = randall_group(root);
@@ -247,33 +251,63 @@ static GXColor shade(GXColor color, u8 behind_alpha, int behind) {
 static float distance(Vec2 a, Vec2 b) {
     return sqrtf((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
 }
-/* Dots evenly spaced around the loop, dimmer behind the timer. */
+/* Half of the loop, in stage units, from the bottom line's middle around one
+ * end to the top line's middle, with its segments' lengths on the map: the
+ * right half, around the end Randall rises at, or the left, mirrored. */
+#define RANDALL_HALF_POINTS 8
+typedef struct {
+    Vec2 points[RANDALL_HALF_POINTS];
+    float steps[RANDALL_HALF_POINTS - 1];
+    float length;
+} HalfLoop;
+static const u8 half_path[2][RANDALL_HALF_POINTS - 2] = {{1, 2, 3, 4, 5, 6}, {0, 11, 10, 9, 8, 7}};
+static void half_loop(const TimerMap *m, int side, HalfLoop *half) {
+    const u8 *path = half_path[side];
+    half->points[0] = (Vec2){0, randall_path[path[0]].Y};
+    for (int i = 0; i < RANDALL_HALF_POINTS - 2; ++i) half->points[i + 1] = randall_path[path[i]];
+    half->points[RANDALL_HALF_POINTS - 1] = (Vec2){0, randall_path[path[RANDALL_HALF_POINTS - 3]].Y};
+    half->length = 0;
+    for (int i = 1; i < RANDALL_HALF_POINTS; ++i) {
+        half->steps[i - 1] = distance(map_point(m, half->points[i - 1]), map_point(m, half->points[i]));
+        half->length += half->steps[i - 1];
+    }
+}
+/* The point that far along a half on the map, in stage units. */
+static Vec2 half_at(const HalfLoop *half, float at) {
+    for (int i = 1; i < RANDALL_HALF_POINTS; ++i) {
+        float step = half->steps[i - 1];
+        if (at <= step || i == RANDALL_HALF_POINTS - 1) {
+            float t = step > 0 ? at / step : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            Vec2 a = half->points[i - 1], b = half->points[i];
+            return (Vec2){a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t};
+        }
+        at -= step;
+    }
+    return half->points[RANDALL_HALF_POINTS - 1];
+}
+/* Dots evenly spaced around the loop, dimmer behind the timer, the same on
+ * both ends: an even number on each half, centered on it, at the same
+ * fractions of the right half and the left. So the timer's middle falls between
+ * two dots on each line, and each end's middle between two dots on its straight. */
 static void draw_track(const TimerMap *m) {
     static Vec2 dots[RANDALL_TIMER_DOTS_MAX];
     static u8 behind[RANDALL_TIMER_DOTS_MAX];
-    Vec2 points[RANDALL_PATH_POINTS];
-    float length = 0;
-    for (int i = 0; i < RANDALL_PATH_POINTS; ++i) {
-        points[i] = map_point(m, randall_path[i]);
-        if (i) length += distance(points[i - 1], points[i]);
-    }
-    int count = length / RANDALL_TIMER_DOT_SPACING;
-    if (count < 1) return;
-    if (count > RANDALL_TIMER_DOTS_MAX) count = RANDALL_TIMER_DOTS_MAX;
-    float step = length / count, start = 0, seg_length = distance(points[0], points[1]);
-    int seg = 0;
-    for (int i = 0; i < count; ++i) {
-        float at = i * step;
-        while (at > start + seg_length && seg < RANDALL_PATH_POINTS - 2) {
-            start += seg_length;
-            ++seg;
-            seg_length = distance(points[seg], points[seg + 1]);
-        }
-        float t = seg_length > 0 ? (at - start) / seg_length : 0;
-        if (t > 1) t = 1;
-        Vec2 a = randall_path[seg], b = randall_path[seg + 1];
-        dots[i] = map_point(m, (Vec2){a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t});
-        behind[i] = fabs(a.X + (b.X - a.X) * t) <= RANDALL_TIMER_OUT_X;
+    HalfLoop right, left;
+    half_loop(m, 0, &right);
+    half_loop(m, 1, &left);
+    if (!(right.length > 0 && left.length > 0)) return;
+    float pairs = right.length / (2 * RANDALL_TIMER_DOT_SPACING) + 0.5f;
+    int per_half = pairs < RANDALL_TIMER_DOTS_MAX / 4 ? 2 * (int)pairs : RANDALL_TIMER_DOTS_MAX / 2;
+    if (per_half < 2) per_half = 2;
+    int count = 0;
+    for (int i = 0; i < per_half; ++i) {
+        float t = (i + 0.5f) / per_half;
+        Vec2 r = half_at(&right, t * right.length), l = half_at(&left, t * left.length);
+        behind[count] = fabs(r.X) <= RANDALL_TIMER_OUT_X;
+        dots[count++] = map_point(m, r);
+        behind[count] = fabs(l.X) <= RANDALL_TIMER_OUT_X;
+        dots[count++] = map_point(m, l);
     }
     static const GXColor edge = RANDALL_TIMER_DOT_EDGE_COLOR, dot = RANDALL_TIMER_DOT_COLOR;
     begin(count, GX_POINTS, RANDALL_TIMER_DOT_EDGE);
@@ -337,11 +371,35 @@ static int cloud_position(GOBJ *map, Vec2 *out) {
     *out = (Vec2){pos.X, pos.Y};
     return 1;
 }
+/* Where Randall would be at the match timer's time, in stage units, with no
+ * Randall to read: his path, which he rides at a constant speed from the
+ * bottom-left corner on his animation's frame 0, as a match keeps him. */
+static Vec2 timer_position(void) {
+    unsigned frame = ((unsigned)Match_TimerFrames() + RANDALL_TIMER_OFFSET) % RANDALL_LOOP_FRAMES;
+    float total = 0;
+    for (int i = 1; i < RANDALL_PATH_POINTS; ++i) total += distance(randall_path[i - 1], randall_path[i]);
+    float at = total * frame / RANDALL_LOOP_FRAMES;
+    for (int i = 1; i < RANDALL_PATH_POINTS; ++i) {
+        Vec2 a = randall_path[i - 1], b = randall_path[i];
+        float step = distance(a, b);
+        if (at <= step || i == RANDALL_PATH_POINTS - 1) {
+            float t = step > 0 ? at / step : 0;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            return (Vec2){a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t};
+        }
+        at -= step;
+    }
+    return randall_path[0];
+}
 static void RandallTimer_GX(GOBJ *gobj, int pass) {
     if (!live || pass != 0 || !Settings_Get(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER)) return;
+    if (Stage_ExternalToInternal(Stage_GetExternalID()) != GRKIND_STORY) return;
     Vec2 cloud;
     TimerMap m;
-    if (!cloud_position(randall(), &cloud) || !timer_map(&m)) return;
+    GOBJ *map = randall();
+    if (!map) cloud = timer_position(); /* Hazards removed him. */
+    else if (!cloud_position(map, &cloud)) return;
+    if (!timer_map(&m)) return;
     draw_track(&m);
     draw_arrow(&m, cloud);
 }

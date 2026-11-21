@@ -161,6 +161,18 @@ def path(m):
     return [(f32(m.fn("TestPath", i, 0)), f32(m.fn("TestPath", i, 1))) for i in range(m.info(5))]
 
 
+def along(polyline, fraction):
+    """The point a fraction of the way along a polyline, by length."""
+    steps = [math.dist(a, b) for a, b in zip(polyline, polyline[1:])]
+    at = fraction * sum(steps)
+    for (a, b), step in zip(zip(polyline, polyline[1:]), steps):
+        if at <= step:
+            t = at / step if step else 0
+            return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+        at -= step
+    return polyline[-1]
+
+
 def off_track(point, polyline):
     """How far a point is from a polyline."""
     best = math.inf
@@ -262,15 +274,18 @@ class RandallTimerTests(unittest.TestCase):
         loop = [to_hud(*p) for p in path(m)]
         length = sum(math.dist(a, b) for a, b in zip(loop, loop[1:]))
         edges, dots = (d[4] for d in m.draw(0, m.bottom)[:2])
-        self.assertEqual(len(dots), int(length / m.spacing))
+        self.assertEqual(len(dots) % 4, 0)  # An even number on each half.
+        self.assertLessEqual(abs(len(dots) - length / m.spacing), 2)
         self.assertEqual([v[:2] for v in edges], [v[:2] for v in dots])
-        self.assertNear(dots[0][:2], loop[0])  # From where Randall starts.
         for dot in dots:
             self.assertLess(off_track(dot[:2], loop), 1e-3)
-        gaps = [math.dist(a[:2], b[:2]) for a, b in zip(dots, dots[1:] + dots[:1])]
-        # Evenly spaced along the loop; straight-line gaps only shrink across a corner.
-        self.assertAlmostEqual(max(gaps), length / len(dots), places=3)
-        self.assertGreater(min(gaps), 0.6 * length / len(dots))
+        # Evenly spaced along the loop: each dot's nearest is a step away, or
+        # less across a corner.
+        step = length / len(dots)
+        for i, dot in enumerate(dots):
+            nearest = min(math.dist(dot[:2], other[:2]) for j, other in enumerate(dots) if j != i)
+            self.assertLess(nearest, step * 1.01)
+            self.assertGreater(nearest, step * 0.6)
         # Both lines, and the joins past the timer.
         ys = sorted({round(v[1], 3) for v in dots})
         self.assertAlmostEqual(ys[0], VANILLA_TIMER[1] - m.line, places=3)
@@ -285,6 +300,83 @@ class RandallTimerTests(unittest.TestCase):
             self.assertEqual(dot[3], premultiply(c[2], c[6] if behind else c[2] & 255))
             self.assertEqual(edge[3], premultiply(c[3], c[7] if behind else c[3] & 255))
         self.assertTrue(any(left <= v[0] <= right for v in dots) and any(v[0] < left for v in dots))
+
+    def test_both_ends_of_the_track_look_the_same(self):
+        m = self.m
+        to_hud = mapping(m)
+        for hours in (False, True):
+            with self.subTest(hours=hours):
+                m.timer(*VANILLA_TIMER, hours=hours)
+                to_hud = mapping(m, hours=hours)
+                dots = [v[:2] for v in m.draw(0, m.bottom)[1][4]]
+                middle = to_hud(0, 0)[0]
+                # A mirror image across the timer's middle, to well under a pixel
+                # (the left end's corners are a little off the right's).
+                for x, y in dots:
+                    self.assertLess(min(math.dist((2 * middle - x, y), d) for d in dots), 0.02)
+                # Two dots on each end's straight, one each side of its middle,
+                # not one in the middle.
+                for side in (-1, 1):
+                    end = [(x, y) for x, y in dots if abs(x - to_hud(side * 97.475, 0)[0]) < 1e-3]
+                    self.assertEqual(len(end), 2, side)
+                    (_, low), (_, high) = sorted(end, key=lambda d: d[1])
+                    self.assertAlmostEqual(low + high, 2 * VANILLA_TIMER[1], delta=0.02)
+                    self.assertGreater(high - low, 0.4)
+                    self.assertTrue(to_hud(0, -36.75)[1] < low < high < to_hud(0, -20.475)[1])
+                # The timer's middle falls between two dots on each line.
+                for line in (m.bottom, m.top):
+                    y = to_hud(0, line)[1]
+                    xs = sorted(x - middle for x, dy in dots if abs(dy - y) < 1e-3)
+                    left, right = max(x for x in xs if x < 0), min(x for x in xs if x > 0)
+                    self.assertAlmostEqual(left, -right, delta=0.02)
+
+    def test_without_randall_the_arrow_is_where_the_timer_puts_him(self):
+        m = self.m
+        m.fn("TestSet", MAP, 0)  # Hazards removed him.
+        offset, lap = m.info(13), m.info(14)
+        self.assertEqual((offset, lap), (125, 1200))
+        to_hud = mapping(m)
+        table = path(m)
+        # Counting up: frames shown on the timer, plus the offset, along his path.
+        for seconds, ms in ((0, 0), (9, 41), (10, 0), (61, 30), (3599, 59)):
+            with self.subTest(seconds=seconds, ms=ms):
+                m.fn("TestTime", 3, seconds, ms)
+                center, direction, *_ = arrow_of(m.draws("TestDraw", 0), m.length)
+                self.assertNear(center, to_hud(*along(table, ((seconds * 60 + ms + offset) % lap) / lap)), places=3)
+        # 0:00 counting up: frame 125, behind the stage on the bottom, heading right.
+        m.fn("TestTime", 3, 0, 0)
+        center, direction, fill, _ = arrow_of(m.draws("TestDraw", 0), m.length)
+        self.assertNear(direction, (1, 0))
+        # Counting down from 8:00, as a VS match: 7:50.31 is 582 frames in, his
+        # frame 707, out on the right on the top line heading left, as in a match.
+        m.fn("TestTimeStart", 480, 0)
+        m.fn("TestTime", 2, 470, 41)
+        center, direction, *_ = arrow_of(m.draws("TestDraw", 0), m.length)
+        self.assertNear(center, to_hud(*along(table, 707 / lap)), places=3)
+        self.assertNear(direction, (-1, 0))
+        x = (center[0] - to_hud(0, 0)[0]) / (to_hud(1, 0)[0] - to_hud(0, 0)[0])
+        self.assertTrue(55 < x < 61, x)
+        self.assertAlmostEqual(center[1], to_hud(0, m.top)[1], places=4)
+        # The whole track draws under it, as with him.
+        self.assertEqual([d[0] for d in m.draws("TestDraw", 0)], [GX_POINTS, GX_POINTS, GX_TRIANGLES, GX_TRIANGLES])
+        with self.subTest("not Randall's GObj"):
+            m2 = Machine()
+            m2.fn("TestSet", MAP_INDEX, 3)
+            m2.fn("TestTime", 3, 0, 0)
+            self.assertNear(arrow_of(m2.draws("TestDraw", 0), m2.length)[0], to_hud(*along(table, offset / lap)), places=3)
+
+    def test_the_randall_overlay_stands_down_while_the_lab_hides_him(self):
+        m = self.m
+        m.fn("TestSet", FLAGS, 1 << m.info(12))  # Randall Overlay only.
+        m.draws("TestStageGX", 2)
+        self.assertGreater(m.fn("TestBegins"), 0)
+        m.fn("TestCloudHidden", 1)
+        m.draws("TestStageGX", 2)
+        self.assertEqual(m.fn("TestBegins"), 0)
+        # The Randall Timer still follows his hidden cloud.
+        m.fn("TestSet", FLAGS, 1 << m.info(0))
+        center, *_ = arrow_of(m.draw(30, m.top), m.length)
+        self.assertNear(center, mapping(m)(30, m.top))
 
     def test_an_hour_widens_the_timer_and_the_map(self):
         m = self.m
@@ -309,9 +401,10 @@ class RandallTimerTests(unittest.TestCase):
         self.assertEqual(len(edges), m.info(7))
 
     def test_nothing_draws_without_everything_it_needs(self):
+        # Without Randall's GObj it goes by the timer (see above), but not
+        # without a timer, or on another stage.
         cases = (
-            ("off", FLAGS, 0), ("Battlefield", EXTERNAL, None), ("no map GObj (hazards off)", MAP, 0),
-            ("not Randall's GObj", MAP_INDEX, 3), ("no cloud joint", CLOUD, 0), ("no timer", TIMER, 0),
+            ("off", FLAGS, 0), ("Battlefield", EXTERNAL, None), ("no cloud joint", CLOUD, 0), ("no timer", TIMER, 0),
             ("hidden timer", TIMER_FLAGS, None),
         )
         for name, what, value in cases:
@@ -324,6 +417,17 @@ class RandallTimerTests(unittest.TestCase):
                     m.fn("TestSet", what, m.info(10) if what == TIMER_FLAGS else value)
                 self.assertEqual(m.draw(80, m.bottom), [])
                 self.assertEqual(m.fifo, [])
+        with self.subTest("no Randall and no timer"):
+            m = Machine()
+            m.fn("TestSet", MAP, 0)
+            m.fn("TestSet", TIMER, 0)
+            self.assertEqual(m.draw(80, m.bottom), [])
+        with self.subTest("no Randall on another stage"):
+            m = Machine()
+            m.fn("TestSet", MAP, 0)
+            m.fn("TestSet", EXTERNAL, m.info(3))
+            m.fn("TestSet", INTERNAL, 0)
+            self.assertEqual(m.draw(80, m.bottom), [])
         with self.subTest("no digit showing"):
             m = Machine()
             for i in range(10):
@@ -620,6 +724,18 @@ class IsoTests(unittest.TestCase):
         for a, b in zip((cx, cy), to_hud(*frames[0])):
             self.assertAlmostEqual(a, b, places=4)
         self.assertAlmostEqual(direction[0], 1, places=4)
+
+    def test_without_randall_the_arrow_rides_his_real_path_frame_by_frame(self):
+        m, frames = Machine(), self.path["frames"]
+        m.fn("TestSet", MAP, 0)
+        to_hud = mapping(m)
+        offset = m.info(13)
+        worst = 0
+        for frame in range(len(frames)):
+            m.fn("TestTime", 3, 0, (frame - offset) % len(frames))  # That many frames counted up.
+            center, *_ = arrow_of(m.draws("TestDraw", 0), m.length)
+            worst = max(worst, math.dist(center, to_hud(*frames[frame])))
+        self.assertLess(worst, 0.01)  # A third of a pixel.
 
     def test_the_timer_joints_are_where_the_overlay_measures_them(self):
         m = Machine()

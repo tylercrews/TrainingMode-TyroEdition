@@ -350,8 +350,32 @@ int Events_GetSavedScore(int event_id);
 void Event_Retry(void);
 void Events_SetEventAsPlayed(int event_id);
 void Test_Think(GOBJ *gobj);
-void Hazards_Disable(void);
+void Hazards_Disable(int keep_randall);
 void TM_CreateWatermark(void);
+
+/* Randall, Yoshi's Story's cloud: map GObj 2. Joint 1 of it (as
+ * Stage_GetMapGObjJObj counts) is the cloud, which rides a 1200 frame path
+ * animation (see docs/RANDALL-TIMER.md). In a match, its animation frame is
+ * RANDALL_TIMER_OFFSET ahead of the match timer: measured in a VS match at
+ * 7:50.31 (582 timer frames, Randall at frame 707), and within a frame or two
+ * of Slippi's 123 frames from a match's first frame to its timer starting.
+ * 28800 frames, 8 minutes, are exactly 24 laps. */
+#define RANDALL_MAP_GOBJ 2
+#define RANDALL_CLOUD_JOINT 1
+#define RANDALL_LOOP_FRAMES 1200
+#define RANDALL_TIMER_OFFSET 125
+/* The frames the match timer shows as run: its time counting up, or its start
+ * less what's left counting down. Counting down, the game still counts
+ * time_ms up within each second, from 59 at the start; 0 shows .99. */
+static inline int Match_TimerFrames(void)
+{
+    Match *match = stc_match;
+    int shown = match->time_seconds * 60 + match->time_ms;
+    if (match->match.timer != MATCH_TIMER_COUNTDOWN) return shown;
+    int start_ms = match->match.timer_subseconds ? match->match.timer_subseconds - 1 : 59;
+    int start_left = match->match.timer_seconds * 60 + 59 - start_ms;
+    return start_left - (match->time_seconds * 60 + 59 - match->time_ms);
+}
 
 // GX Link args
 #define GXLINK_MENUMODEL 12

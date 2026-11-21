@@ -5,8 +5,13 @@
  * the scale joint Ground_GetStageGObj puts over GrSt.dat's root, that root,
  * then the cloud and its sibling, the spline. The GX state calls are recorded
  * here, and the test reads the vertices from the GX FIFO writes. Blast Zone
- * and Randall Overlay stay Off. Floats cross as their bits. */
+ * stays Off; the Randall Overlay is only checked for drawing or not (its
+ * puffs' shapes come from the cos/sin stubs). The match timer's clock is
+ * stc_match's own fields. Floats cross as their bits. */
 #include "../src/stage_overlay_game.c"
+
+float cos(float x) { return 1; }
+float sin(float x) { return 0; }
 
 static int test_external, test_internal;
 static unsigned test_flags; /* TM_SETTING_FLAG bits that read On. */
@@ -155,6 +160,18 @@ void TestDigit(int i, uint32_t x, uint32_t y, int hidden) {
     test_digits[i].flags = hidden ? JOBJ_HIDDEN : 0;
 }
 void TestCloud(uint32_t x, uint32_t y) { test_cloud.trans = (Vec3){test_float(x), test_float(y), 0}; }
+/* The Training Lab's Randall row hides the cloud joint. */
+void TestCloudHidden(int hidden) { test_cloud.flags = hidden ? JOBJ_HIDDEN : 0; }
+/* The match timer's mode and clock, and the time a countdown starts from. */
+void TestTime(int mode, int seconds, int ms) {
+    stc_match->match.timer = mode;
+    stc_match->time_seconds = seconds;
+    stc_match->time_ms = ms;
+}
+void TestTimeStart(int seconds, int subseconds) {
+    stc_match->match.timer_seconds = seconds;
+    stc_match->match.timer_subseconds = subseconds;
+}
 void TestDraw(int pass) {
     test_begins = 0;
     RandallTimer_GX(0, pass);
@@ -200,6 +217,9 @@ int TestInfo(int what) {
     case 9: return RANDALL_TIMER_DOT_EDGE;
     case 10: return JOBJ_HIDDEN;
     case 11: return live;
+    case 12: return TM_FLAG_RANDALL;
+    case 13: return RANDALL_TIMER_OFFSET;
+    case 14: return RANDALL_LOOP_FRAMES;
     }
     return -1;
 }

@@ -767,6 +767,7 @@
 8016F088:Match_SetNametags
 801650E8:Match_SetNormalCamera
 8016B364:Match_SetPostMatchSFX
+802F3AE8:Match_SetTimerDigits
 80165190:Match_SetZoomCamera
 802F33CC:Match_ShowHUD
 802F40B8:Match_ShowTimer
