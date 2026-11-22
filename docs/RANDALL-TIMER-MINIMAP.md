@@ -1,6 +1,6 @@
-# Randall Timer
+# Randall Timer Minimap
 
-**Randall Timer** is a global setting on the Global Overlays & Gameplay page, right under Randall Overlay. It's also in the Training Lab's Stage Options on Yoshi's Story, under Randall Overlay. It's Off by default and saved, and both places change the same setting.
+**Randall Timer Minimap** is a global setting on the Global Overlays & Gameplay page, right under Randall Overlay. It's also in the Training Lab's Stage Options on Yoshi's Story, under Randall Overlay. It's Off by default and saved, and both places change the same setting.
 
 On Yoshi's Story, it draws a small map of Randall's loop through the match timer at the top of the screen:
 
@@ -12,7 +12,7 @@ It follows the real Randall every frame, so it starts where Randall starts (the 
 
 It works in any match on Yoshi's Story with a timer, counting up (events, the Training Lab) or down (a timed VS match). With hazards off, where Randall isn't there, it shows where he would be at the timer's time (see [Without Randall](#without-randall)). It doesn't show on any other stage, in a match with no timer, while the game hides the timer, or in a timed match's last 5 seconds (the game swaps the timer for its big countdown). It's separate from Randall Overlay, so either one can be on without the other.
 
-The standalone [Slippi Gecko code](../slippi-gecko-codes/randall-timer/README.md) is still the first version, which tinted the timer instead. It hasn't been ported to the map.
+The standalone [Slippi Gecko code](../slippi-gecko-codes/randall-timer-minimap/README.md) draws the same map in any match on Yoshi's Story, for vanilla Melee and Slippi netplay. Its emulator tests check it draws exactly what this version draws.
 
 ## Randall's loop
 
@@ -60,7 +60,7 @@ With hazards off, events remove Randall's map GObj (`Hazards_Disable`), so there
 
 ## In the Training Lab
 
-**Randall stays.** The Lab's Hazards Off removes the Shy Guys but keeps Randall (`Hazards_Disable(keep_randall)`). Its Stage Options on Yoshi's Story start with a **Randall** row, On by default and not saved (Reset to Default Settings turns it back On; a stage or character change starts it On). Off hides the cloud joint (map joint 1, the only one in his tree with a model), switches off his collision group with the game's own `Stage_DisableLineGroup` (`mpLib_80057BC0`, back on with `Stage_EnableLineGroup`, `mpJointListAdd`), and holds his puff timer (`s16` at his `MapData` + 0xC4, `801E366C`) so no puffs appear. He keeps moving, so the Randall Timer keeps following him. The Randall Overlay doesn't draw his platform while the cloud is hidden.
+**Randall stays.** The Lab's Hazards Off removes the Shy Guys but keeps Randall (`Hazards_Disable(keep_randall)`). Its Stage Options on Yoshi's Story start with a **Randall** row, On by default and not saved (Reset to Default Settings turns it back On; a stage or character change starts it On). Off hides the cloud joint (map joint 1, the only one in his tree with a model), switches off his collision group with the game's own `Stage_DisableLineGroup` (`mpLib_80057BC0`, back on with `Stage_EnableLineGroup`, `mpJointListAdd`), and holds his puff timer (`s16` at his `MapData` + 0xC4, `801E366C`) so no puffs appear. He keeps moving, so the Randall Timer Minimap keeps following him. The Randall Overlay doesn't draw his platform while the cloud is hidden.
 
 **In step with the timer.** The Lab hides READY and GO, so on its own its Randall would be a different number of frames ahead of the timer than in a match, and a savestate rewinds the timer but not the stage. So every frame, after the stage's animation (proc priority 1) and before Randall's think (4), the Lab compares his cloud's animation frame with the timer's plus 125. If they're more than a frame and a half apart, it requests the timer's next frame on his animation (`HSD_AObjReqAnim`), and the stage's next animation step plays that frame without advancing. He starts the Lab in step (behind the stage at the bottom left), and a savestate that rewinds the timer takes him back to where he was at that time. With Don't Reset Timers, neither moves back. Frame advance and the pause stop and step both together.
 

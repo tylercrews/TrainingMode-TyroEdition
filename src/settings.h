@@ -66,7 +66,7 @@
 #define TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW 37 /* Editor-only logical row. */
 #define TM_GLOBAL_DEBUG_CONSOLE_OFF_NAME "Disable Dev Debug Menu"
 #define TM_GLOBAL_RANDALL_TIMER_ROW 38 /* Editor-only logical row. */
-#define TM_GLOBAL_RANDALL_TIMER_NAME "Randall Timer"
+#define TM_GLOBAL_RANDALL_TIMER_NAME "Randall Timer Minimap"
 /* Only development builds (TM_DEBUG) have the L/R + Z console, so release
  * builds leave its editor row a gap. */
 #if TM_DEBUG

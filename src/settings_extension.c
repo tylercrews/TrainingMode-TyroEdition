@@ -284,15 +284,15 @@ typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 &&
     TARGETS_LINES_SHIFT+1==TARGETS_DOUBLE_JUMP_SHIFT &&
     TM_TARGETS_FH_COUNT<=8 && TM_TARGETS_FH_OFF==0 &&
     (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1<TARGETS_SHIFT && CONSOLE_OFF_BIT==1u<<1 && TARGETS_SHIFT+10<=32) ? 1 : -1];
-/* The global Randall Timer flag takes word 80 bit 20 (byte 82 bit 4), just
- * above Target Practice, the same way as the Stoplight: Off is 0, and every
- * migration to 23 zeroes it. Older records read Off. */
+/* The global Randall Timer Minimap flag takes word 80 bit 20 (byte 82 bit 4),
+ * just above Target Practice, the same way as the Stoplight: Off is 0, and
+ * every migration to 23 zeroes it. Older records read Off. */
 #define RANDALL_TIMER_BYTE 82
 #define RANDALL_TIMER_BIT 0x10u
 typedef char TMExtension_RandallTimerBit[((RANDALL_TIMER_BYTE-GRABS_OFFSET)*8+4==TARGETS_SHIFT+10 &&
     RANDALL_TIMER_BIT==1u<<4) ? 1 : -1];
 /* All Events (Alphabetized) (T10) takes word 80's bits 21..27, above the
- * Randall Timer, with no version bump: bit 21 is 1 while it's the Event Select
+ * Randall Timer Minimap, with no version bump: bit 21 is 1 while it's the Event Select
  * page shown, and bits 22..27 are its cursor, as byte 5's top six bits are the
  * categorized pages'. Zero, what every migration to 23 writes, is the
  * categorized pages and the top of All Events, and every value fills its bits,

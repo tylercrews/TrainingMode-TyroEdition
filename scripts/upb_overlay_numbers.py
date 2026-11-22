@@ -110,7 +110,7 @@ B0XX_HOOKS = {
 }
 # The Landing Line codes' hooks: StartMelee's last two unconditional
 # instructions that aren't branches, with nothing in a float register, after
-# Slippi's 8016E748 and 8016E74C and the Randall Timer's 8016E750.
+# Slippi's 8016E748 and 8016E74C and the Randall Timer Minimap's 8016E750.
 LANDING_HOOKS = {
     'fox': (0x8016E754, 'addi r3, r3, -17676'),
     'falco': (0x8016E758, 'addi r4, r4, -17484'),

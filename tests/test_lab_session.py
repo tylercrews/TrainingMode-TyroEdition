@@ -118,7 +118,7 @@ class LabSessionTests(unittest.TestCase):
         # Reset adds Stadium's row.
         self.assertEqual((lab.info(20), lab.info(21)), (233, 234))
         # On Yoshi's Story, Reset adds only the Lab's own Randall row: Randall
-        # Overlay and Randall Timer are saved Global settings.
+        # Overlay and Randall Timer Minimap are saved Global settings.
         lab.call('TestLabRandallInit', 1)
         self.assertEqual((lab.info(20), lab.info(21)), (233, 234))
         self.assertEqual(lab.call('TestLabRandall', 11), GEN_TIMER_LOOP)

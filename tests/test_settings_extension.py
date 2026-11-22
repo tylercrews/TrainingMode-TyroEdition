@@ -932,7 +932,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP),
                           m.call('Settings_Get', 11, STOPLIGHT), m.call('Settings_Get', GRABS, GRABS_MOVEMENT),
                           m.call('Settings_Get', 11, DEBUG_OFF)), (9, 4, 1, 2, 1))
-        # Bits 20-28 (the Randall Timer's 20, All Events' 21-27 and Up-B's
+        # Bits 20-28 (the Randall Timer Minimap's 20, All Events' 21-27 and Up-B's
         # Landing Line 28), 30 (Double Jump Height) and 31 (spare) keep what
         # they hold, and the neighbors' writes leave Target Practice alone.
         m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)

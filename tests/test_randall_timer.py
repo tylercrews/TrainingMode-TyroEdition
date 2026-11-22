@@ -1,4 +1,4 @@
-"""The Randall Timer: a map of Randall's loop through Yoshi's Story's match timer.
+"""The Randall Timer Minimap: a map of Randall's loop through Yoshi's Story's match timer.
 
 python tests/test_randall_timer.py -v
 Builds tests/randall_timer_probe.c, which includes the production
@@ -373,7 +373,7 @@ class RandallTimerTests(unittest.TestCase):
         m.fn("TestCloudHidden", 1)
         m.draws("TestStageGX", 2)
         self.assertEqual(m.fn("TestBegins"), 0)
-        # The Randall Timer still follows his hidden cloud.
+        # The Randall Timer Minimap still follows his hidden cloud.
         m.fn("TestSet", FLAGS, 1 << m.info(0))
         center, *_ = arrow_of(m.draw(30, m.top), m.length)
         self.assertNear(center, mapping(m)(30, m.top))

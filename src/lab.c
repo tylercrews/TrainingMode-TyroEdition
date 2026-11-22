@@ -313,7 +313,7 @@ void Lab_ChangeRandallTimer(GOBJ *menu_gobj, int value) {
  * ahead of it. He starts the Lab in step, and a savestate that rewinds the
  * timer takes him back with it. His Stage Options row hides his cloud and
  * switches off his platform and puffs without stopping him, so his timing
- * carries on and the Randall Timer keeps following him. */
+ * carries on and the Randall Timer Minimap keeps following him. */
 #define RANDALL_PUFF_TIMER 0xC4    /* s16 in his MapData: frames to his next puff (801E366C). */
 #define RANDALL_PUFF_NEVER 0x7FFF
 #define RANDALL_SYNC_SLACK 1.5f    /* Frames he may be off the timer before he's moved. */

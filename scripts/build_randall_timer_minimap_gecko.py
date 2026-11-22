@@ -1,9 +1,9 @@
-"""Build the Randall Timer Gecko code.
+"""Build the Randall Timer Minimap Gecko code.
 
-Assembles slippi-gecko-codes/randall-timer with bin/hgecko (which needs
+Assembles slippi-gecko-codes/randall-timer-minimap with bin/hgecko (which needs
 devkitPPC and DEVKITPPC set), then writes its paste-able text file.
 
-Usage: python -I scripts/build_randall_timer_gecko.py
+Usage: python -I scripts/build_randall_timer_minimap_gecko.py
 """
 from pathlib import Path
 import struct
@@ -11,13 +11,13 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-FOLDER = ROOT / 'slippi-gecko-codes/randall-timer'
-GCT = ROOT / 'build/randall-timer.gct'
+FOLDER = ROOT / 'slippi-gecko-codes/randall-timer-minimap'
+GCT = ROOT / 'build/randall-timer-minimap.gct'
 HOOK = 0x8016E750
-TEXT = 'randall-timer.txt'
-LINES = ['$Randall Timer (Slippi NTSC 1.02) [Tyro]',
-         "*Yoshi's Story: the match timer is purple while Randall is out on the left",
-         '*and teal while Randall is out on the right. Visual only.']
+TEXT = 'randall-timer-minimap.txt'
+LINES = ['$Randall Timer Minimap (Slippi NTSC 1.02) [Tyro]',
+         "*Yoshi's Story: a map of Randall's loop through the match timer, with an arrow",
+         '*where Randall is, behind the numbers while he is behind the stage. Visual only.']
 
 
 def main():

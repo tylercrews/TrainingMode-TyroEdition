@@ -233,7 +233,7 @@ class HookTests(unittest.TestCase):
     def test_hooks_are_distinct_and_outside_the_other_codes(self):
         hooks = [c.hook for c in numbers.CODES]
         self.assertEqual(len(hooks), len(set(hooks)))
-        # Slippi's own, then the Randall Timer's, Blast Zone, Randall and Double-Jump codes.
+        # Slippi's own, then the Randall Timer Minimap's, Blast Zone, Randall and Double-Jump codes.
         taken = {0x8016E748, 0x8016E74C, 0x8016E904, 0x8016E750, 0x8016E8C0, 0x8016E8C8, 0x8016E8E0, 0x8016E8E8}
         self.assertFalse(taken & set(hooks))
         self.assertTrue(all(0x8016E730 <= hook < 0x8016E934 for hook in hooks), 'inside StartMelee')

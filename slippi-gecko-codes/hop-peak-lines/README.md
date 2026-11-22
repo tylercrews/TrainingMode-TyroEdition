@@ -27,7 +27,7 @@ The heights are above the floor you jump from.
 2. For Fox, use `Fox Hop Peak Lines (Slippi NTSC 1.02)` as the name and paste the hex lines from [fox-hop-peak-lines.txt](fox-hop-peak-lines.txt). For Falco, use `Falco Hop Peak Lines (Slippi NTSC 1.02)` and [falco-hop-peak-lines.txt](falco-hop-peak-lines.txt). Save and enable it. The `$` title and `*` description lines are metadata, not hex code.
 3. Keep Slippi's standard required codes enabled and restart the game.
 
-On other stages they do nothing. The Fox code hooks `8016E740` and the Falco code `8016E930`, so both can be on at once, alongside every other code in this folder's parent: the [Up-B Overlays](../up-b-overlay/README.md), the [Double-Jump Height Indicators](../dj-height-indicator/README.md) (`8016E8E0` and `8016E8E8`), the [Randall Overlay](../randall-overlay/README.md) (`8016E8C8`), the [Randall Timer](../randall-timer/README.md) (`8016E750`), the [Blast Zone Overlay](../blast-zone-overlay/README.md) (`8016E8C0`), [Actionable Yellow-Green](../actionable/README.md) and the invincibility codes.
+On other stages they do nothing. The Fox code hooks `8016E740` and the Falco code `8016E930`, so both can be on at once, alongside every other code in this folder's parent: the [Up-B Overlays](../up-b-overlay/README.md), the [Double-Jump Height Indicators](../dj-height-indicator/README.md) (`8016E8E0` and `8016E8E8`), the [Randall Overlay](../randall-overlay/README.md) (`8016E8C8`), the [Randall Timer Minimap](../randall-timer-minimap/README.md) (`8016E750`), the [Blast Zone Overlay](../blast-zone-overlay/README.md) (`8016E8C0`), [Actionable Yellow-Green](../actionable/README.md) and the invincibility codes.
 
 ## How it works
 

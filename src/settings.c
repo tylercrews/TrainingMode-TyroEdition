@@ -10,8 +10,8 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
  * escape, punish, ledge/items, and both overrides in the bottom-right corner.
  * Page 1, Global Overlays & Gameplay: character overlays (Invincibility
  * Stoplight under Invincibility Overlay), character gameplay (Infinite
- * Shields), stage overlays (Blast Zones, Randall, Randall Timer under Randall
- * Overlay), then the match clock (Don't Reset Timers) in the left column's
+ * Shields), stage overlays (Blast Zones, Randall, Randall Timer Minimap under
+ * Randall Overlay), then the match clock (Don't Reset Timers) in the left column's
  * last row, separated by blank rows. The right column starts with the
  * development builds' Disable Dev Debug Menu (a gap in release builds).
  * Page 2, Fixed Grid OSD Positions: page 0's OSD rows in the same places; JC

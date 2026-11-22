@@ -857,7 +857,7 @@ static EventOption LabOptions_Stage_Story[OPTSTAGE_STORY_COUNT] = {{
     .desc = {"Randall, the moving cloud. On by default, even",
              "with Hazards Off. Off hides him and his platform,",
              "but he keeps his timing, so the Randall Timer",
-             "still shows where he is."},
+             "Minimap still shows where he is."},
     .OnChange = Lab_ChangeRandallOn,
 }, {
     .kind = OPTKIND_TOGGLE,

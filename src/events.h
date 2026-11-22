@@ -355,7 +355,7 @@ void TM_CreateWatermark(void);
 
 /* Randall, Yoshi's Story's cloud: map GObj 2. Joint 1 of it (as
  * Stage_GetMapGObjJObj counts) is the cloud, which rides a 1200 frame path
- * animation (see docs/RANDALL-TIMER.md). In a match, its animation frame is
+ * animation (see docs/RANDALL-TIMER-MINIMAP.md). In a match, its animation frame is
  * RANDALL_TIMER_OFFSET ahead of the match timer: measured in a VS match at
  * 7:50.31 (582 timer frames, Randall at frame 707), and within a frame or two
  * of Slippi's 123 frames from a match's first frame to its timer starting.
@@ -480,7 +480,7 @@ int ActionCues_IsProtected(GOBJ *gobj);
 int ActionCues_ProtectionLeft(GOBJ *gobj); /* Invincibility Stoplight's count; see action_cues.h. */
 void ActionCues_SetTangibilityOverlay(const s16 *enabled);
 /* Global Blast Zone Overlay (every stage), Randall Overlay and Randall Timer
- * (Yoshi's Story); driven by TM_FLAG_BLAST_ZONES, TM_FLAG_RANDALL and
+ * Minimap (Yoshi's Story); driven by TM_FLAG_BLAST_ZONES, TM_FLAG_RANDALL and
  * TM_FLAG_RANDALL_TIMER. */
 void StageOverlay_MatchStart(void);
 void StageOverlay_SceneChange(void);

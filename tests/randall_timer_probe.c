@@ -1,4 +1,4 @@
-/* The Randall Timer from the production stage overlay. The stage, Randall's
+/* The Randall Timer Minimap from the production stage overlay. The stage, Randall's
  * map GObj and joints, the settings and the match timer's joints are fixtures;
  * tests/test_randall_timer.py drives it. Stage_GetMapGObjJObj is the game's
  * own (linked to Start.dol's 801C3FA4), walking a tree shaped like the game's:

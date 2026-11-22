@@ -12,7 +12,7 @@
  * moving collision group attached to Randall's joints; the joint's world
  * position is the fallback when no group is found.
  *
- * Randall Timer: on Yoshi's Story, a small map of Randall's loop runs through
+ * Randall Timer Minimap: on Yoshi's Story, a small map of Randall's loop runs through
  * the match timer, two dotted lines joined past each side of it, with a red
  * arrow where Randall is, pointing the way it moves. Randall's cloud joint
  * (GrSt.dat's root's first child) rides a path animation, every 1200 frames,
@@ -23,7 +23,7 @@
  * between its walls to the timer's width and keeps the scale past them, and
  * Randall's speed is constant, so the arrow is behind the numbers exactly as
  * long as Randall is behind the stage, and on the track past the timer exactly
- * as long as it's out (see docs/RANDALL-TIMER.md). It's drawn from the live
+ * as long as it's out (see docs/RANDALL-TIMER-MINIMAP.md). It's drawn from the live
  * cloud, so it starts where Randall starts and never drifts. With no Randall
  * (hazards off), it's where he'd be at the timer's time, as a match keeps him:
  * RANDALL_TIMER_OFFSET frames ahead of the timer, at a constant speed.
@@ -418,6 +418,6 @@ void StageOverlay_MatchStart(void) {
     manager = GObj_Create(0, 7, 0);
     if (!manager) { live = 0; return; }
     GObj_AddGXLink(manager, StageOverlay_GX, 5, 0);
-    GOBJ *hud = GObj_Create(0, 7, 0); /* The Randall Timer, in the HUD camera. */
+    GOBJ *hud = GObj_Create(0, 7, 0); /* The Randall Timer Minimap, in the HUD camera. */
     if (hud) GObj_AddGXLink(hud, RandallTimer_GX, RANDALL_TIMER_GXLINK, 0);
 }
