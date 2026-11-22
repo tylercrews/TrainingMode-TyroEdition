@@ -9,8 +9,8 @@
     .set FIGHTER_KIND, 22
 
     .macro character_data
-    .float 15.237983                # short hop: B on frame 2 shoots from 11.4400 up, laser 3.7980 over TopN
-    .float 55.297981                # full hop: B on frame 14 shoots from 51.5000 up
+    .float 20.760109                # short hop: B on frame 2 shoots from 11.4400 up, laser 9.3201 over TopN
+    .float 60.820107                # full hop: B on frame 14 shoots from 51.5000 up
     .endm
 
     # External stage ID, platform lines (NO_LINE: none), main floor y at x = 0.

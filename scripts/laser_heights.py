@@ -1,12 +1,17 @@
 """Print where Fox's and Falco's lasers spawn, from the ISO's skeletons and animations.
 
-ftFx_SpecialN_FtGetHoldJoint (decomp ftfoxspecialn.c) puts a shot at the
-RThumbNb joint's world matrix times (0, 1.2325, 4.2636), with z zeroed, on the
-frame the Loop script sets cmd_vars[2]. The shot flies flat (blaster angle 0),
-so this point's height is the laser's height the whole way. RThumbNb is common
-part 51; PlCo.dat's parts table (ftLoadCommonData + 0x10) maps it to each
-model's joint. The skeleton is posed like scripts/fighter_ecb_pose.py: TransN's
-X and Z are root motion and zeroed, no blending, the model's scale.
+ftFx_SpecialN_FtGetHoldJoint (decomp ftfoxspecialn.c) puts a shot at common
+part 49's world matrix times (0, 1.2325, 4.2636), with z zeroed, on the frame
+the Loop script sets cmd_vars[2]. The shot flies flat (blaster angle 0), so
+this point's height is the laser's height the whole way. Part 49 is hard-coded
+(GTME01.map's Fox_GetBone49Pos, 800E5CB0: li r4,49): MexTK's RHaveN, the right
+hand's item-hold joint the blaster sits on, so the offset is the muzzle. The
+decomp's Fighter_Part enum, which lacks WaistN2 and LHaveN, calls it RThumbNb;
+MexTK's RThumbNb is part 51, a finger joint: measured from it, Falco's shot
+came out 5.52 under the muzzle (Fox's 0.26).
+PlCo.dat's parts table (ftLoadCommonData + 0x10) maps the part to each model's
+joint. The skeleton is posed like scripts/fighter_ecb_pose.py: TransN's X and Z
+are root motion and zeroed, no blending, the model's scale.
 
 The ECB bottom is mpColl_LoadECB_JObj's (the same six joints and minimums as
 fighter_ecb_pose.py), so an airborne fighter lands once TopN + bottom reaches
@@ -24,7 +29,7 @@ import fighter_move_data as f
 import fighter_ecb_pose as pose
 
 LASER_OFFSET = (0.0, 1.2325000762939453, 4.263599872589111)
-RTHUMBNB = 51
+RHAVEN = 49  # The part ftFx_SpecialN_FtGetHoldJoint passes (see above).
 FIGHTERS = {'Fox': ('PlFx', 1), 'Falco': ('PlFc', 22)}
 
 
@@ -68,7 +73,7 @@ class Fighter:
         model = f.read_file(iso, prefix + 'Nr.dat')
         co_body, co_roots = f.archive(f.read_file(iso, 'PlCo.dat'))
         parts = f.u32(co_body, f.u32(co_body, co_roots['ftLoadCommonData'] + 0x10) + kind * 4)
-        self.thumb = co_body[f.u32(co_body, parts + 4) + RTHUMBNB]
+        self.hold = co_body[f.u32(co_body, parts + 4) + RHAVEN]
         self.body, roots = f.archive(pl)
         ft = next(off for n, off in roots.items() if n.startswith('ftData'))
         common = f.u32(self.body, ft)
@@ -137,7 +142,7 @@ class Fighter:
     def laser(self, move, frame):
         """(height, forward) of the shot above and ahead of TopN."""
         m, _ = self.world(move, frame)
-        m = m[self.thumb]
+        m = m[self.hold]
         x, y, z = LASER_OFFSET
         point = [m[i][0] * x + m[i][1] * y + m[i][2] * z + m[i][3] for i in range(3)]
         return point[1], point[2]
@@ -228,7 +233,7 @@ def main():
         for name in FIGHTERS:
             ft = Fighter(iso, name)
             a = ft.attr
-            print(f'{name}: thumb joint {ft.thumb}, scale {ft.scale}, ' +
+            print(f'{name}: hold joint {ft.hold}, scale {ft.scale}, ' +
                   ', '.join(f'{k} {v:g}' for k, v in a.items()))
             for loop in ('SpecialNLoop', 'SpecialAirNLoop'):
                 fire = ft.fire(loop)

@@ -10,8 +10,8 @@ They only draw: they read the stage's collision lines and which characters are p
 
 | | Short hop: B on, from | Full hop: B on, from | Laser over the feet | **Orange (short hop)** | **Teal (full hop)** |
 | --- | --- | --- | --- | --- | --- |
-| Fox | frame 2, 10.65 | frame 8, 31.28 | 9.28 | **19.93** | **40.56** |
-| Falco | frame 2, 11.44 | frame 14, 51.5 | 3.80 | **15.24** | **55.30** |
+| Fox | frame 2, 10.65 | frame 8, 31.28 | 9.55 | **20.20** | **40.83** |
+| Falco | frame 2, 11.44 | frame 14, 51.5 | 9.32 | **20.76** | **60.82** |
 
 The heights are above the floor you jump from. "B on" is the airborne frame you press B on for that laser (the first airborne frame is 1), and "from" is how high you are on the frame before it fires, where the shot comes from. A jump off the ground skips gravity on its first frame, so it rises its whole jump speed then, unless you press B on that frame: the laser's physics takes over and applies gravity at once, and the hop peaks lower. That's why B on frame 1 can't reach the line, and why Falco's short hop line is 0.14 under his peak, which only B on frame 1 could shoot from.
 

@@ -51,7 +51,7 @@ ASID_CLIFFCATCH, ASID_CLIFFWAIT, ASID_CLIFFESCAPEQUICK, ASID_CLIFFJUMPSLOW1 = 25
 FX_SPECIALAIRNLOOP, FX_SPECIALAIRNEND, FX_SPECIALSSTART, FX_SPECIALAIRS = 345, 346, 347, 351
 FX_SPECIALHIHOLDAIR, FX_SPECIALAIRHI, FX_SPECIALHIFALL, FX_SPECIALHIBOUND, FX_SPECIALLWSTART = 354, 356, 358, 359, 360
 FX_SPECIALAIRLWLOOP = 366  # The shine, which jumps out.
-HEADN = 35  # MexTK's FtCommonBoneNames; RThumbNb, laser_heights.RTHUMBNB, is 51.
+HEADN = 35  # MexTK's FtCommonBoneNames; RHaveN, laser_heights.RHAVEN, is 49.
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 MATCHGX_EFFECT = 7
 SIZE_SCALE_AT = 0x804DC790  # The item hitbox command's size scale, about 1/256.
@@ -105,7 +105,7 @@ FH_COMBOS = range(FH_HI_HI_LOW, FH_HIGH_LOW + 1)
 FH_TEXT = ('Off', 'All Combos', 'Hi-Hi-Low', 'High-MedHigh', 'High-Medium', 'High-Low')
 FH_SAVED = {FH_OFF: 0, FH_ALL: 1, FH_HI_HI_LOW: 2, FH_HIGH_MEDHIGH: 3, FH_HIGH_MEDIUM: 5, FH_HIGH_LOW: 4}
 FH_OLD_HIGH_LOWEST = 6
-REACH = 1.5 + 300 / 256  # A target's radius plus a laser's hitbox.
+REACH = 1.3 + 300 / 256  # A target's radius plus a laser's hitbox.
 HHL_SPREAD = 6  # Hi-Hi-Low's high targets, left and right of the low one.
 
 
@@ -312,8 +312,9 @@ class TargetConstantTests(unittest.TestCase):
                 # A standing laser passes over the lowest target; the lowest laser hits its center.
                 self.assertGreater(c['ground'] - lowest, reach)
                 self.assertGreater(c['ground'], lowest)
-        self.assertGreater(self.fighters[FOX].constants()['air'], self.fighters[FOX].constants()['ecb_bottom'])
-        self.assertLess(self.fighters[FALCO].constants()['air'], self.fighters[FALCO].constants()['ecb_bottom'])
+        # Neither fighter's lowest laser starts under the floor.
+        for fighter in self.fighters.values():
+            self.assertGreater(fighter.constants()['air'], fighter.constants()['ecb_bottom'])
 
     def test_only_fox_fits_two_lasers_in_a_short_hop(self):
         for kind, fighter in self.fighters.items():
@@ -334,14 +335,14 @@ class TargetConstantTests(unittest.TestCase):
                         self.assertAlmostEqual(m.m.call('TestTargetsShots', press, 2) / 10000,
                                                y[first + c['loop'] - 1] + c['air'], delta=.001)
         # A short hop's first frame skips gravity, so it rises 2.1 and then 8.55, unless B comes on
-        # that frame. So B on frame 1 shoots from a lower hop's peak (17.83), B on frame 2 from the
-        # higher one's (19.93), and B on frame 3 a frame past it, with the lowest second shot (5.08).
+        # that frame. So B on frame 1 shoots from a lower hop's peak (18.10), B on frame 2 from the
+        # higher one's (20.20), and B on frame 3 a frame past it, with the lowest second shot (5.35).
         c, attr = self.fighters[FOX].constants(), self.fighters[FOX].attr
         rise = laser_heights.rise(attr['hop_v'], attr['gravity'])
         self.assertAlmostEqual(short_hop(attr, 1)[9], rise, delta=.001)
         self.assertAlmostEqual(short_hop(attr, 2)[10], attr['hop_v'] + rise, delta=.001)
         m = self.machine(FOX)
-        for press, by_hand in ((1, (17.83, 5.48)), (2, (19.93, 7.58)), (3, (19.73, 5.08))):
+        for press, by_hand in ((1, (18.10, 5.75)), (2, (20.20, 7.85)), (3, (20.00, 5.35))):
             with self.subTest(press=press):
                 for key, height in zip((1, 2), by_hand):
                     self.assertAlmostEqual(m.m.call('TestTargetsShots', press, key) / 10000, height, delta=.01)
@@ -365,10 +366,10 @@ class TargetConstantTests(unittest.TestCase):
         # By hand: (press frame, heights above the floor) for each combo.
         # By hand: (press frame, heights above the floor, fastfall frame or 0) for each combo.
         by_hand = {
-            FOX: {FH_HI_HI_LOW: (3, (37.11, 38.26, 17.02), 0), FH_HIGH_MEDHIGH: (6, (39.87, 34.12), 0),
-                  FH_HIGH_MEDIUM: (13, (38.26, 17.02), 0), FH_HIGH_LOW: (9, (40.56, 6.56), 18)},
-            FALCO: {FH_HI_HI_LOW: (6, (50.38, 49.34, 7.99), 0), FH_HIGH_MEDHIGH: (10, (54.20, 42.28), 0),
-                    FH_HIGH_MEDIUM: (19, (52.85, 17.29), 0), FH_HIGH_LOW: (14, (55.30, 2.65), 27)},
+            FOX: {FH_HI_HI_LOW: (3, (37.38, 38.53, 17.29), 0), FH_HIGH_MEDHIGH: (6, (40.14, 34.39), 0),
+                  FH_HIGH_MEDIUM: (13, (38.53, 17.29), 0), FH_HIGH_LOW: (9, (40.83, 6.83), 18)},
+            FALCO: {FH_HI_HI_LOW: (6, (55.90, 54.86, 13.51), 0), FH_HIGH_MEDHIGH: (10, (59.72, 47.80), 0),
+                    FH_HIGH_MEDIUM: (20, (57.37, 19.71), 0), FH_HIGH_LOW: (14, (60.82, 8.17), 27)},
         }
         for kind, fighter in self.fighters.items():
             expected = full_hop_combos(fighter)
@@ -396,10 +397,10 @@ class TargetConstantTests(unittest.TestCase):
                 late = hop_shots(fighter.attr, c, press, 2, fastfall + 1)
                 self.assertEqual(late[0], high)
                 self.assertGreater(late[1] - low, REACH)
-                self.assertAlmostEqual(late[1], {FOX: 9.73, FALCO: 5.83}[kind], delta=.01)
+                self.assertAlmostEqual(late[1], {FOX: 10.00, FALCO: 11.35}[kind], delta=.01)
                 # The doc's other timings that break both targets: (B, fastfall, heights).
-                for p, f, hand in {FOX: ((10, 19, (40.33, 6.33)), (11, 20, (39.87, 5.87))),
-                                   FALCO: ((15, 28, (55.15, 2.33)), (16, 29, (54.83, 1.84)))}[kind]:
+                for p, f, hand in {FOX: ((10, 19, (40.60, 6.60)), (11, 20, (40.14, 6.14))),
+                                   FALCO: ((15, 28, (60.67, 7.85)), (16, 29, (60.35, 7.36)))}[kind]:
                     shots = hop_shots(fighter.attr, c, p, 2, f)
                     for shot, by, target in zip(shots, hand, (high, low)):
                         self.assertAlmostEqual(shot, by, delta=.01)
@@ -417,9 +418,9 @@ class TargetConstantTests(unittest.TestCase):
                 self.assertEqual([combo(FH_HI_HI_LOW, 5 + i) / 10000 for i in range(3)], [-HHL_SPREAD, HHL_SPREAD, 0])
                 for other in (c for c in FH_COMBOS if c != FH_HI_HI_LOW):
                     self.assertEqual([combo(other, 5 + i) for i in range(3)], [0, 0, 0])
-        # Three shots fit from B on airborne frames 1 to 7 (Fox) and 1 to 8 (Falco). Fox's frames 3
+        # Three shots fit from B on airborne frames 1 to 7 (Fox) and 1 to 9 (Falco). Fox's frames 3
         # and 4 tie, their first two shots 1.15 apart either way round: Hi-Hi-Low takes 3.
-        for kind, presses in ((FOX, 7), (FALCO, 8)):
+        for kind, presses in ((FOX, 7), (FALCO, 9)):
             c, a = self.fighters[kind].constants(), self.fighters[kind].attr
             self.assertEqual([p for p in range(1, 12) if hop_shots(a, c, p, 3)], list(range(1, presses + 1)))
         # B on the first frame keeps the hop's first frame's gravity, so its hop peaks a frame
@@ -723,10 +724,10 @@ class TargetPeakLineTests(unittest.TestCase):
     def test_heights_are_a_short_hops_and_a_full_hops_peak_laser(self):
         # By hand: a hop's first frame skips gravity, so Fox's short hop peaks at 2.1 + 8.55 and
         # his full hop at 3.68 + 27.6, which B on frames 2 and 8 shoot from, with his aerial laser
-        # 9.28 over TopN. Falco's full hop peaks at 4.1 + 47.4 (B on 14); his short hop peaks at
+        # 9.55 over TopN. Falco's full hop peaks at 4.1 + 47.4 (B on 14); his short hop peaks at
         # 1.9 + 9.68 on airborne frame 12, too soon for any B but the first, which takes the
-        # skip away, so B on 2 shoots from 11.44. His laser is 3.80 up.
-        for kind, by_hand in ((FOX, (19.933, 40.563)), (FALCO, (15.238, 55.298))):
+        # skip away, so B on 2 shoots from 11.44. His laser is 9.32 up.
+        for kind, by_hand in ((FOX, (20.197, 40.827)), (FALCO, (20.76, 60.82))):
             with self.subTest(fighter=NAMES[kind]):
                 m = self.start(kind)
                 got = [m.m.call('TestTargetsPeak', hop) / 10000 for hop in (0, 1)]
@@ -872,9 +873,10 @@ class TargetPeakLineTests(unittest.TestCase):
             self.assertEqual(g[3], w[3])
 
     def test_lowest_laser_lines_sit_at_the_lowest_laser_over_every_floor(self):
-        # By hand: Fox's aerial laser is 9.2829 over TopN, which can sit 4.4322 under the floor
-        # with his legs tucked, so 4.8507 up. Falco's would start under the floor, so his hugs it.
-        for kind, by_hand in ((FOX, 4.8507), (FALCO, 0)):
+        # By hand: Fox's aerial laser is 9.5471 over TopN, which can sit 4.4322 under the floor
+        # with his legs tucked, so 5.1149 up. Falco's is 9.3201 over TopN and his ECB bottom
+        # 5.2207, so 4.0994 up.
+        for kind, by_hand in ((FOX, 5.1149), (FALCO, 4.0994)):
             with self.subTest(fighter=NAMES[kind]):
                 m = self.start(kind, lines=0, low_line=ORANGE + 1)
                 self.assertAlmostEqual(m.info(67) / 10000, self.low(kind), delta=.0003)
@@ -1005,9 +1007,9 @@ class TargetDoubleJumpTests(unittest.TestCase):
                 self.assertAlmostEqual((m.info(32) - m.info(48)) / 10000, max(full_hop(a)), delta=.001)
 
     def test_a_line_across_the_stage_where_a_laser_at_the_peak_flies(self):
-        # By hand: the rise and the aerial laser over TopN, 40.204 + 9.2829 for Fox and
-        # 41.778 + 3.7980 for Falco, whichever way the fighter faces.
-        for kind, by_hand in ((FOX, 49.487), (FALCO, 45.576)):
+        # By hand: the rise and the aerial laser over TopN, 40.204 + 9.5471 for Fox and
+        # 41.778 + 9.3201 for Falco, whichever way the fighter faces.
+        for kind, by_hand in ((FOX, 49.751), (FALCO, 51.098)):
             for facing in (1, -1):
                 with self.subTest(fighter=NAMES[kind], facing=facing):
                     m = self.start(kind)
@@ -1194,8 +1196,7 @@ class TargetEventTests(unittest.TestCase):
     def test_reach_is_the_target_plus_the_lasers_hitbox(self):
         m = self.start()
         m.you(); m.think()
-        reach = 1.5 + 300 / 256
-        for dy, hit in ((reach + .01, 0), (reach - .01, 1)):
+        for dy, hit in ((REACH + .01, 0), (REACH - .01, 1)):
             m.place(0, 30)
             m.laser(0, (-10, 30 + dy), (10, 30 + dy))
             m.think()
@@ -1433,9 +1434,9 @@ class TargetEventTests(unittest.TestCase):
         self.assertEqual([v[3] for v in ticks], [(0, 0, 0, 255)] * 8 + [(255, 255, 255, 255)] * 8)
         for x, y, z, _ in ticks:
             self.assertTrue(abs(x - 30) < .001 or abs(y - 40) < .001)
-            self.assertGreater(max(abs(x - 30), abs(y - 40)), 1.5)
+            self.assertGreater(max(abs(x - 30), abs(y - 40)), 1.3)
         self.assertEqual({(round(x - 30, 3), round(y - 40, 3)) for x, y, _, _ in ticks[:8]},
-                         {(2.5, 0), (5, 0), (-2.5, 0), (-5, 0), (0, 2.5), (0, 5), (0, -2.5), (0, -5)})
+                         {(2.3, 0), (4.8, 0), (-2.3, 0), (-4.8, 0), (0, 2.3), (0, 4.8), (0, -2.3), (0, -4.8)})
         m.choose(OPT_POINTERS, 0)
         self.assertEqual((m.info(61), m.info(4), m.info(29)), (0, 0, 0))  # Saved; no retry or restart.
         batches, vertices = m.draw()

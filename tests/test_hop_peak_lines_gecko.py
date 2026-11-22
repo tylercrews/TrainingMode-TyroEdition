@@ -414,7 +414,7 @@ class DrawTests(unittest.TestCase):
     def test_fox_on_battlefield_by_hand(self):
         # Fox's short hop rises 2.1 on its first frame (no gravity) and then 8.55, and his
         # full hop 3.68 and then 27.6: B on airborne frames 2 and 8 shoot from those peaks,
-        # 10.65 and 31.28, with his aerial laser 9.28 over TopN: 19.93 and 40.56 over each floor.
+        # 10.65 and 31.28, with his aerial laser 9.55 over TopN: 20.20 and 40.83 over each floor.
         m = self.m
         m.add_player(3, CODES['Fox'][0])
         m.set_stage(31)
@@ -423,16 +423,16 @@ class DrawTests(unittest.TestCase):
         self.assertEqual(count, 16)
         got = [(round(l, 3), round(r, 3), round(y, 3), color) for l, r, y, color in lines]
         self.assertEqual(got, [
-            (-224, 224, 19.933, ORANGE), (-224, 224, 40.563, TEAL),        # the main floor
-            (-224, 0, 47.133, ORANGE), (-224, 0, 67.763, TEAL),            # the left platform, to the middle
-            (-224, 224, 74.333, ORANGE), (-224, 224, 94.963, TEAL),        # the top one, across
-            (0, 224, 47.133, ORANGE), (0, 224, 67.763, TEAL),              # the right one, from the middle
+            (-224, 224, 20.197, ORANGE), (-224, 224, 40.827, TEAL),        # the main floor
+            (-224, 0, 47.397, ORANGE), (-224, 0, 68.027, TEAL),            # the left platform, to the middle
+            (-224, 224, 74.597, ORANGE), (-224, 224, 95.227, TEAL),        # the top one, across
+            (0, 224, 47.397, ORANGE), (0, 224, 68.027, TEAL),              # the right one, from the middle
         ])
 
     def test_falco_on_final_destination_by_hand(self):
         # Falco's short hop peaks at 11.58 on airborne frame 12, too soon for any B but the first, which
         # takes away the first frame's skipped gravity: B on frame 2 shoots from 11.44. His full hop's
-        # B on frame 14 shoots from its 51.5 peak. His laser is 3.80 up: 15.24 and 55.30.
+        # B on frame 14 shoots from its 51.5 peak. His laser is 9.32 up: 20.76 and 60.82.
         m = self.m
         m.add_player(0, CODES['Falco'][0])
         m.set_stage(32)
@@ -440,7 +440,7 @@ class DrawTests(unittest.TestCase):
         (_, _, count), lines = m.drawn()
         self.assertEqual(count, 4)
         self.assertEqual([(l, r, round(y, 3), c) for l, r, y, c in lines],
-                         [(-246, 246, 15.238, ORANGE), (-246, 246, 55.298, TEAL)])
+                         [(-246, 246, 20.76, ORANGE), (-246, 246, 60.82, TEAL)])
 
     def test_dream_lands_side_lines_read_apart(self):
         m = self.m
@@ -558,7 +558,7 @@ class IsoTests(unittest.TestCase):
         # The event's Blasters table and the jumps' highest lasers, worked out the same way.
         sys.path.insert(0, str(ROOT / 'scripts'))
         import laser_heights
-        for name, by_hand in (('Fox', (19.933, 40.563)), ('Falco', (15.238, 55.298))):
+        for name, by_hand in (('Fox', (20.197, 40.827)), ('Falco', (20.76, 60.82))):
             fighter = laser_heights.Fighter(self.iso, name)
             a, c = fighter.attr, fighter.constants()
             short, full = heights(name)

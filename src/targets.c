@@ -18,22 +18,24 @@
  * double jump from the highest floor on the stage. Laser heights are from the
  * fighters' own skeletons (scripts/laser_heights.py):
  *
- * - ftFx_SpecialN_FtGetHoldJoint puts a shot at the RThumbNb joint's matrix
- *   times (0, 1.2325, 4.2636), with z zeroed, on the frame the Loop script
- *   sets cmd_vars[2]: Fox's frame 5, Falco's 8 (SpecialAirNLoop and
- *   SpecialNLoop alike). That's in the animation proc, before the frame's
- *   physics, so it's from where the fighter ended the frame before.
+ * - ftFx_SpecialN_FtGetHoldJoint puts a shot at common part 49's matrix
+ *   times (0, 1.2325, 4.2636), with z zeroed. Part 49 is RHaveN, the right
+ *   hand's item-hold joint the blaster sits on, so that's its muzzle (the
+ *   decomp's part enum calls it RThumbNb; MexTK's RThumbNb is 51, a finger).
+ *   It fires on the frame the Loop script sets cmd_vars[2]: Fox's frame 5,
+ *   Falco's 8 in the air and 16 standing. That's in the animation proc, before
+ *   the frame's physics, so it's from where the fighter ended the frame before.
  * - Airborne, the fighter lands once TopN plus the ECB bottom reaches the
  *   floor (mpColl_LoadECB_JObj, with Fighter_procMap putting the skeleton at
  *   the new position first). In the laser loop the legs are tucked, so the ECB
  *   bottom is 4.43 (Fox) or 5.22 (Falco) above TopN, and TopN can be that far
- *   under the floor and still shoot. Fox's lowest laser is 9.28 - 4.43 = 4.85
- *   up. Falco's would start 1.42 under the floor, but itFoxlaser's first
- *   collision check runs from the fighter's ECB center to the shot, so a shot
- *   under the floor is destroyed at once: his lowest laser hugs the floor.
- * - Standing lasers come out 7.57 (Fox) and 2.72 (Falco) up. Both are 2.72
+ *   under the floor and still shoot. So the lowest laser is 9.55 - 4.43 = 5.11
+ *   up for Fox and 9.32 - 5.22 = 4.10 for Falco. (A shot that started under
+ *   the floor would be destroyed at once, since itFoxlaser's first collision
+ *   check runs from the fighter's ECB center to the shot; neither can.)
+ * - Standing lasers come out 7.64 (Fox) and 8.09 (Falco) up, 2.53 and 3.99
  *   above the lowest laser, and a laser's hitbox is 1.17 across each way
- *   (0x12C / 256), so a target smaller than 1.55 needs a low laser at the
+ *   (0x12C / 256), so a target smaller than 1.35 needs a low laser at the
  *   bottom of its range.
  *
  * Jumps. A jump off the ground skips gravity on its first frame
@@ -54,7 +56,7 @@
  * while B is pressed again in time. ShortHopPresses walks a short hop with no
  * fastfall (fastfalling only lands sooner) and finds the press frames whose
  * second shot comes before the landing. For Fox that's B on airborne frames 1
- * to 3: shots at 17.8 and 5.5 above the floor, 19.9 and 7.6, or 19.7 and 5.1
+ * to 3: shots at 18.1 and 5.7 above the floor, 20.2 and 7.8, or 20.0 and 5.3
  * (B on frame 1 keeps the hop lower, see Jumps). Falco's slower laser never
  * fits, so the row reads (N/A) for him. A pair's floor is the main floor, a
  * side platform or the top platform, each kind as likely as the others where
@@ -89,7 +91,7 @@
  * Lowest Laser Lines. Each floor gets one line at the lowest laser that can be
  * shot from it (LowestLaser), the bottom of a target's range, laid out and
  * shaded the way Hop Peak Lines are, in the row's color. Off by default. Fox's
- * is 4.85 up; Falco's hugs the floor.
+ * is 5.11 up, Falco's 4.10.
  *
  * Double Jump Height. A double jump sets the vertical speed to the full hop's
  * times air_jump_v_multiplier whatever it was (ftCo_JumpAerial_Enter_Basic),
@@ -104,7 +106,7 @@
  * or dies. Up-B spends the jump too (ftFx_SpecialHi), and the line just goes. */
 
 #define TIMED_FRAMES 3600     // The timed run's minute.
-#define TARGET_RADIUS 1.5f    // Under 2.72 - 1.17: see above.
+#define TARGET_RADIUS 1.3f    // Under 2.53 - 1.17: see above.
 #define SPAWN_INSET 8.f       // From the main floor's ends, and a platform's.
 #define SPAWN_FROM_YOU 30.f
 #define SPAWN_FROM_LAST 25.f
@@ -138,8 +140,8 @@ typedef struct Blaster {
     int delay, loop;
 } Blaster;
 static const Blaster Blasters[2] = {
-    {9.2829f, 7.5740f, 4.4322f, 9, 10},  // Fox
-    {3.7980f, 2.7208f, 5.2207f, 12, 16}, // Falco
+    {9.5471f, 7.6407f, 4.4322f, 9, 10},  // Fox
+    {9.3201f, 8.0905f, 5.2207f, 12, 16}, // Falco
 };
 
 enum options_main {
@@ -299,7 +301,7 @@ static EventOption Options_Main[OPT_COUNT] = {
         .desc = {"Lines where the lowest laser you can shoot flies,",
                  "off the floor and each platform, in this color:",
                  "darker over the main floor and lighter over the",
-                 "top platform. Falco's hug the floor. Saved."},
+                 "top platform. Saved."},
         .values = LineColorText,
         .OnChange = ChangeLowLine,
     },
