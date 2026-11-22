@@ -3071,7 +3071,7 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
         self.assertEqual(m.call("TestEditorHidden", 16), 1)  # The gap under it.
         self.assertEqual(m.call("TestEditorHidden", 15), 0)
-        label = "Disable Dev Debug Menu L/R+Z"
+        label = "Disable Dev Debug Menu"
         self.assertEqual(self.label(m, 15, len(label) + 1), label + "\0")
         self.assertEqual(self.choice(m, 15), "Off")
         # 0.9 times the other rows' size both ways, so it fits the column.
