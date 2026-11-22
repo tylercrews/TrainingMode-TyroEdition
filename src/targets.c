@@ -55,10 +55,11 @@
  *
  * FH combos. FullHopCombos walks a full hop the same way and times one B
  * press per combo: Hi-Hi-Low (three shots, the first two either side of the
- * apex at about the same height), Peak-Low (the first shot from the peak),
- * High-Lowest (the last press whose second shot comes before landing), and
- * High-MedHigh and High-Medium, whose second shots come halfway from
- * Peak-Low's to the highest and the lowest. A combo stacks over a floor the
+ * apex at about the same height), High-MedHigh and High-Medium (no fastfall,
+ * second shots between the peak press's and the highest and the lowest), and
+ * High-Low: the first shot from the peak, B again, and a fastfall that puts
+ * the second shot as low as it gets before landing (ft_80084DB0, every aerial
+ * laser state's physics, checks for one). A combo stacks over a floor the
  * way a pair does, but for Hi-Hi-Low's two high targets, side by side either
  * side of the low one. All Combos makes about half the spawns a combo at
  * random; one combo picked makes every spawn that combo, but for SH pairs if
@@ -151,10 +152,24 @@ static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
 };
 static char DoubleLasersName[] = "SH Double Lasers";
 static char DoubleLasersUnavailable[] = "SH Double Lasers (N/A)";
-// In TMTargetsFullHop's order: the saved values.
-static const char *FullHopText[TM_TARGETS_FH_COUNT] = {
-    "Off", "All Combos", "Hi-Hi-Low", "High-MedHigh", "Peak-Low", "High-Medium", "High-Lowest"
+/* FH Multi Lasers' values as the menu lists them, the combos from the highest
+ * second laser to the lowest. They're saved in TMTargetsFullHop's order. */
+enum full_hop_row { FH_OFF, FH_ALL, FH_HI_HI_LOW, FH_HIGH_MEDHIGH, FH_HIGH_MEDIUM, FH_HIGH_LOW, FH_COUNT };
+static const char *FullHopText[FH_COUNT] = {
+    "Off", "All Combos", "Hi-Hi-Low", "High-MedHigh", "High-Medium", "High-Low"
 };
+static const u8 FullHopSaved[FH_COUNT] = {
+    TM_TARGETS_FH_OFF, TM_TARGETS_FH_ALL, TM_TARGETS_FH_HI_HI_LOW, TM_TARGETS_FH_HIGH_MEDHIGH,
+    TM_TARGETS_FH_HIGH_MEDIUM, TM_TARGETS_FH_HIGH_LOW
+};
+static int FullHopToSaved(int row) { return row >= FH_OFF && row < FH_COUNT ? FullHopSaved[row] : TM_TARGETS_FH_OFF; }
+/* High-Lowest's old value reads as High-Low; anything else not a row, as Off. */
+static int FullHopFromSaved(int saved) {
+    if (saved == TM_TARGETS_FH_OLD_HIGH_LOWEST) return FH_HIGH_LOW;
+    for (int row = FH_OFF; row < FH_COUNT; ++row)
+        if (FullHopSaved[row] == saved) return row;
+    return FH_OFF;
+}
 static char FullHopName[] = "FH Multi Lasers";
 /* The Hop Peak Lines' colors: the OSD palette's (osd_style.c) White to
  * Lavender, TM_COLOR_WHITE + the value, and each one's RGB. */
@@ -222,12 +237,12 @@ static EventOption Options_Main[OPT_COUNT] = {
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = TM_TARGETS_FH_COUNT,
+        .value_num = FH_COUNT,
         .name = FullHopName,
-        .desc = {"Targets stacked for one full hop multi laser, no",
-                 "fastfall. All Combos: about half the targets, any",
-                 "combo. A combo: every target, to drill it. Free",
-                 "Practice only. Saved."},
+        .desc = {"Targets stacked for one full hop multi laser.",
+                 "High-Low fastfalls; the rest don't. All Combos:",
+                 "about half the targets, any combo. A combo: every",
+                 "target, to drill it. Free Practice only. Saved."},
         .values = FullHopText,
         .disable = 1,
         .OnChange = ChangeFullHop,
@@ -363,27 +378,35 @@ static float FullHopDoubleJump(FighterData *ft) {
     return Rise(ft->attr.jump_v_initial_velocity, ft->attr.gravity) + DoubleJumpRise(ft);
 }
 
-/* Height after each airborne frame of a jump from `velocity` with no
- * fastfall, frame 1 the first. */
-static void Jump(FighterData *ft, float velocity, float *y) {
+/* Height after each airborne frame of a jump from `velocity`, frame 1 the
+ * first, with a fastfall on frame `fastfall` (0 for none). ft_80084DB0 checks
+ * for one before gravity (ftCommon_CheckFallFast): it takes only if the
+ * fighter was already falling, and from then on the fall is fastfall_velocity
+ * every frame. Returns whether it took. */
+static bool Jump(FighterData *ft, float velocity, int fastfall, float *y) {
     float gravity = ft->attr.gravity, fall = ft->attr.terminal_velocity;
+    bool fast = false;
     y[0] = 0;
     for (int frame = 1; frame < JUMP_FRAMES; ++frame) {
-        velocity -= gravity;
-        if (velocity < -fall) velocity = -fall;
+        if (frame == fastfall && velocity < 0) fast = true;
+        if (fast) {
+            velocity = -ft->attr.fastfall_velocity;
+        } else {
+            velocity -= gravity;
+            if (velocity < -fall) velocity = -fall;
+        }
         y[frame] = y[frame - 1] + velocity;
     }
+    return fast;
 }
-/* B on airborne frame `press` of a jump from `velocity` shoots on press +
- * delay and, looped, every Loop after, each from where the fighter was the
- * frame before. Fills `count` heights above the floor, or returns 0 if the
- * fighter lands first or a shot would start under the floor (it dies at once,
- * see LowestLaser). Past the apex each frame is lower than the last, so a shot
+/* B on airborne frame `press` of jump `y` shoots on press + delay and,
+ * looped, every Loop after, each from where the fighter was the frame before.
+ * Fills `count` heights above the floor, or returns 0 if the fighter lands
+ * first or a shot would start under the floor (it dies at once, see
+ * LowestLaser). Past the apex each frame is lower than the last, so a shot
  * from the air means every frame before it was in the air. */
-static int JumpShots(FighterData *ft, const Blaster *blaster, float velocity, int press, int count, float *heights) {
-    float y[JUMP_FRAMES];
+static int Shots(const Blaster *blaster, const float *y, int press, int count, float *heights) {
     if (press < 1) return 0;
-    Jump(ft, velocity, y);
     for (int i = 0; i < count; ++i) {
         int shot = press + blaster->delay + i * blaster->loop;
         if (shot >= JUMP_FRAMES) return 0;
@@ -392,6 +415,12 @@ static int JumpShots(FighterData *ft, const Blaster *blaster, float velocity, in
         heights[i] = from + blaster->air;
     }
     return 1;
+}
+// The same with no fastfall.
+static int JumpShots(FighterData *ft, const Blaster *blaster, float velocity, int press, int count, float *heights) {
+    float y[JUMP_FRAMES];
+    Jump(ft, velocity, 0, y);
+    return Shots(blaster, y, press, count, heights);
 }
 // A short hop double laser's two shots. 0 if it lands before the second.
 static int ShortHopShots(FighterData *ft, const Blaster *blaster, int press, float *high, float *low) {
@@ -410,24 +439,27 @@ static int ShortHopPresses(FighterData *ft, const Blaster *blaster) {
     return count;
 }
 
-/* FH Multi Lasers' combos, each one B press in a full hop with no fastfall.
- * A later press makes a lower second shot (it's past the apex for every
- * press), so the doubles run from press 1 to the last whose second shot
- * comes before landing:
+/* FH Multi Lasers' combos, each one B press in a full hop. With no fastfall,
+ * a later press makes a lower second shot (it's past the apex for every
+ * press), so the doubles run from press 1 to the last whose second shot comes
+ * before landing, and the peak press is the one whose first shot comes from
+ * the apex:
  *
  * - Hi-Hi-Low: looped twice for three shots, the press whose first two come
  *   nearest the same height, either side of the apex, the earliest of any
  *   that tie within .01. Its two high targets go side by side (offsets).
- * - Peak-Low: the first shot from the jump's peak, Hop Peak Lines' purple.
- * - High-Lowest: the last press, so the lowest second shot there is.
- * - High-MedHigh: the second shot nearest halfway from Peak-Low's up to the
- *   highest any double has; High-Medium: halfway down to High-Lowest's.
+ * - High-MedHigh: no fastfall, the second shot nearest halfway from the peak
+ *   press's up to the highest any double has; High-Medium: halfway down to
+ *   the last double's.
+ * - High-Low: the first shot from the peak (Hop Peak Lines' purple), B again,
+ *   and a fastfall, for the lowest second shot there is after that first one
+ *   (HighLow).
  *
  * A combo that doesn't fit the fighter has no shots. */
 static struct full_hop {
-    int press, shots;
+    int press, fastfall, shots; // fastfall: its airborne frame, 0 for none.
     float heights[MAX_SHOTS], offsets[MAX_SHOTS]; // Above the floor, and across from the group's x.
-} full_hops[TM_TARGETS_FH_COUNT];
+} full_hops[FH_COUNT];
 
 static float FullHopVelocity(FighterData *ft) { return ft->attr.jump_v_initial_velocity; }
 static float SecondShot(FighterData *ft, const Blaster *blaster, int press) {
@@ -468,15 +500,37 @@ static void HiHiLow(FighterData *ft, const Blaster *blaster) {
         }
     }
     if (!best) return;
-    SetCombo(ft, blaster, TM_TARGETS_FH_HI_HI_LOW, best, 3);
-    full_hops[TM_TARGETS_FH_HI_HI_LOW].offsets[0] = -HHL_SPREAD;
-    full_hops[TM_TARGETS_FH_HI_HI_LOW].offsets[1] = HHL_SPREAD;
+    SetCombo(ft, blaster, FH_HI_HI_LOW, best, 3);
+    full_hops[FH_HI_HI_LOW].offsets[0] = -HHL_SPREAD;
+    full_hops[FH_HI_HI_LOW].offsets[1] = HHL_SPREAD;
+}
+/* Of every press and fastfall frame whose first shot is from the peak
+ * (`peak`, the full hop's peak laser), the lowest second shot. The apex can
+ * hold two frames (Fox's 15th and 16th, 2e-7 apart), so either can shoot it,
+ * and the later press has longer to fall. The fastfall comes out the earliest
+ * that still gets the second shot out before landing: a later one falls less. */
+#define PEAK_HOLD .001f
+static void HighLow(FighterData *ft, const Blaster *blaster, float peak) {
+    struct full_hop *c = &full_hops[FH_HIGH_LOW];
+    float y[JUMP_FRAMES], shots[2];
+    for (int fastfall = 1; fastfall < JUMP_FRAMES; ++fastfall) {
+        if (!Jump(ft, FullHopVelocity(ft), fastfall, y)) continue;
+        for (int press = 1; press + blaster->delay + blaster->loop < JUMP_FRAMES; ++press) {
+            if (!Shots(blaster, y, press, 2, shots) || shots[0] < peak - PEAK_HOLD) continue;
+            if (c->shots && shots[1] >= c->heights[1]) continue;
+            c->press = press;
+            c->fastfall = fastfall;
+            c->shots = 2;
+            c->heights[0] = shots[0];
+            c->heights[1] = shots[1];
+        }
+    }
 }
 static void FullHopCombos(FighterData *ft, const Blaster *blaster) {
     float y[JUMP_FRAMES], shots[2], top = 0;
     int apex = 1, doubles = 0, highest = 1;
-    for (int i = 0; i < TM_TARGETS_FH_COUNT; ++i) {
-        full_hops[i].shots = 0;
+    for (int i = 0; i < FH_COUNT; ++i) {
+        full_hops[i].shots = full_hops[i].fastfall = 0;
         for (int s = 0; s < MAX_SHOTS; ++s) full_hops[i].offsets[s] = 0;
     }
     while (JumpShots(ft, blaster, FullHopVelocity(ft), doubles + 1, 2, shots)) {
@@ -487,22 +541,21 @@ static void FullHopCombos(FighterData *ft, const Blaster *blaster) {
         }
     }
     if (!doubles) return;
-    Jump(ft, FullHopVelocity(ft), y);
+    Jump(ft, FullHopVelocity(ft), 0, y);
     for (int frame = 2; frame < JUMP_FRAMES; ++frame)
         if (y[frame] > y[apex]) apex = frame;
     int peak = apex + 1 - blaster->delay;
     HiHiLow(ft, blaster);
-    SetCombo(ft, blaster, TM_TARGETS_FH_HIGH_LOWEST, doubles, 2);
-    if (peak < 1 || peak > doubles) return; // The rest are timed around Peak-Low.
+    HighLow(ft, blaster, y[apex] + blaster->air);
+    if (peak < 1 || peak > doubles) return; // The middles are timed around the peak press.
     float middle = SecondShot(ft, blaster, peak);
-    SetCombo(ft, blaster, TM_TARGETS_FH_PEAK_LOW, peak, 2);
-    SetCombo(ft, blaster, TM_TARGETS_FH_HIGH_MEDHIGH,
+    SetCombo(ft, blaster, FH_HIGH_MEDHIGH,
              PressNear(ft, blaster, highest < peak ? highest : peak, peak, (middle + top) * .5f), 2);
-    SetCombo(ft, blaster, TM_TARGETS_FH_HIGH_MEDIUM,
+    SetCombo(ft, blaster, FH_HIGH_MEDIUM,
              PressNear(ft, blaster, peak, doubles, (middle + SecondShot(ft, blaster, doubles)) * .5f), 2);
 }
 static bool FullHopFits(void) {
-    for (int c = TM_TARGETS_FH_HI_HI_LOW; c < TM_TARGETS_FH_COUNT; ++c)
+    for (int c = FH_HI_HI_LOW; c < FH_COUNT; ++c)
         if (full_hops[c].shots) return true;
     return false;
 }
@@ -514,10 +567,10 @@ static bool PairsOn(void) { return FreePractice() && Options_Main[OPT_SHDL].val 
 /* The combo a full hop spawn uses: the row's, or for All Combos any that fits
  * the fighter. -1 if there's none. Only All Combos draws a number. */
 static int FullHopCombo(bool pick) {
-    int value = Options_Main[OPT_FULL_HOP].val, fits[TM_TARGETS_FH_COUNT], count = 0;
-    if (!FreePractice() || value <= TM_TARGETS_FH_OFF || value >= TM_TARGETS_FH_COUNT) return -1;
-    if (value != TM_TARGETS_FH_ALL) return full_hops[value].shots ? value : -1;
-    for (int c = TM_TARGETS_FH_HI_HI_LOW; c < TM_TARGETS_FH_COUNT; ++c)
+    int value = Options_Main[OPT_FULL_HOP].val, fits[FH_COUNT], count = 0;
+    if (!FreePractice() || value <= FH_OFF || value >= FH_COUNT) return -1;
+    if (value != FH_ALL) return full_hops[value].shots ? value : -1;
+    for (int c = FH_HI_HI_LOW; c < FH_COUNT; ++c)
         if (full_hops[c].shots) fits[count++] = c;
     return !count ? -1 : pick ? fits[HSD_Randi(count)] : fits[0];
 }
@@ -536,7 +589,7 @@ static void LoadSettings(void) {
     Options_Main[OPT_SHDL].val = Options_Main[OPT_SHDL].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL);
     Options_Main[OPT_FULL_HOP].val = Options_Main[OPT_FULL_HOP].val_prev =
-        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP);
+        FullHopFromSaved(TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP));
     Options_Main[OPT_LINES].val = Options_Main[OPT_LINES].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES);
     Options_Main[OPT_DOUBLE_JUMP].val = Options_Main[OPT_DOUBLE_JUMP].val_prev =
@@ -555,7 +608,7 @@ static void ChangeDoubleLasers(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SHDL, value);
 }
 static void ChangeFullHop(GOBJ *menu, int value) {
-    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, value);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, FullHopToSaved(value));
 }
 /* The lines, their colors, the double jump's line and the targets' pointers
  * change on the next frame drawn, behind the paused menu too. */
@@ -782,7 +835,7 @@ static void Spawn(FighterData *ft) {
     Vec2 you = {ft->phys.pos.X, ft->phys.pos.Y};
     int kinds[3], count = 0, shots = 1;
     bool full_hop = FullHopCombo(false) >= 0;
-    if (!full_hop || Options_Main[OPT_FULL_HOP].val == TM_TARGETS_FH_ALL) kinds[count++] = SPAWN_SINGLE;
+    if (!full_hop || Options_Main[OPT_FULL_HOP].val == FH_ALL) kinds[count++] = SPAWN_SINGLE;
     if (PairsOn()) kinds[count++] = SPAWN_PAIR;
     if (full_hop) kinds[count++] = SPAWN_FULL_HOP;
     int kind = count > 1 ? kinds[HSD_Randi(count)] : kinds[0];
@@ -1074,7 +1127,7 @@ void Event_Init(GOBJ *gobj) {
     }
     placed = checked = reset_clock = restarting = dj_ready = dj_frozen = false;
     pair_presses = score = 0;
-    for (int i = 0; i < TM_TARGETS_FH_COUNT; ++i) full_hops[i].shots = 0;
+    for (int i = 0; i < FH_COUNT; ++i) full_hops[i].shots = 0;
     LoadSettings();
     // A retry may reuse the module: rebuild the gating from the saved mode.
     Options_Main[OPT_SHDL].disable = Options_Main[OPT_FULL_HOP].disable = 1;

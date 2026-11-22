@@ -176,8 +176,9 @@ void Text_SetText(Text *text, int row, const char *fmt, ...) {
 
 void TestTargetsLoaded(void) { }
 /* A fighter of `kind` (1 Fox, 22 Falco) with its ISO attributes, in ten-thousandths. */
-void TestTargetsFighter(int kind, int jump, int hop, int mult, int gravity, int terminal) {
+void TestTargetsFighter(int kind, int jump, int hop, int mult, int gravity, int terminal, int fastfall) {
     ft.kind = kind;
+    ft.attr.fastfall_velocity = fastfall / 10000.f;
     ft.attr.jump_v_initial_velocity = jump / 10000.f;
     ft.attr.hop_v_initial_velocity = hop / 10000.f;
     ft.attr.air_jump_v_multiplier = mult / 10000.f;
@@ -297,11 +298,12 @@ int TestTargetsShots(int press, int key) {
     int fits = ShortHopShots(&ft, BlasterOf(&ft), press, &high, &low);
     return key == 0 ? fits : key == 1 ? high * 10000 : low * 10000;
 }
-/* FH Multi Lasers' combo `combo`: key 0 its shots (0 if it doesn't fit), 1
- * its press frame, 2 to 4 its heights and 5 to 7 its offsets across, in
- * ten-thousandths. */
+/* FH Multi Lasers' combo `combo` (a menu value): key 0 its shots (0 if it
+ * doesn't fit), 1 its press frame, 2 to 4 its heights and 5 to 7 its offsets
+ * across, in ten-thousandths, and 8 its fastfall frame (0 for none). */
 int TestTargetsFullHop(int combo, int key) {
     struct full_hop *c = &full_hops[combo];
+    if (key == 8) return c->fastfall;
     return key == 0 ? c->shots : key == 1 ? c->press : key < 5 ? c->heights[key - 2] * 10000 : c->offsets[key - 5] * 10000;
 }
 int TestTargetsBlaster(int falco, int key) {

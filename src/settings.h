@@ -387,11 +387,13 @@ enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS
 #define TM_TARGETS_COLOR_COUNT (TM_COLOR_COUNT - TM_COLOR_WHITE)
 #define TM_TARGETS_SH_COLOR_DEFAULT (TM_COLOR_TEAL - TM_COLOR_WHITE)
 #define TM_TARGETS_FH_COLOR_DEFAULT (TM_COLOR_PURPLE - TM_COLOR_WHITE)
-/* FH Multi Lasers: Off, every combo at random, or one combo every spawn. The
- * combos run from the highest second laser to the lowest. */
+/* FH Multi Lasers as saved: Off, every combo at random, or one combo every
+ * spawn. High-Low took Peak-Low's value, and High-Lowest's (6), which nothing
+ * writes now, reads as High-Low too. The menu lists High-Medium before
+ * High-Low (FullHopToSaved in targets.c). */
 enum TMTargetsFullHop {
     TM_TARGETS_FH_OFF, TM_TARGETS_FH_ALL, TM_TARGETS_FH_HI_HI_LOW, TM_TARGETS_FH_HIGH_MEDHIGH,
-    TM_TARGETS_FH_PEAK_LOW, TM_TARGETS_FH_HIGH_MEDIUM, TM_TARGETS_FH_HIGH_LOWEST, TM_TARGETS_FH_COUNT
+    TM_TARGETS_FH_HIGH_LOW, TM_TARGETS_FH_HIGH_MEDIUM, TM_TARGETS_FH_OLD_HIGH_LOWEST, TM_TARGETS_FH_COUNT
 };
 /* The best is 8 bits. A target takes a laser's flight and usually a jump, so
  * a minute is nowhere near 255. */

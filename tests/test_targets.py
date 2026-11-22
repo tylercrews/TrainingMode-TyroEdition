@@ -100,11 +100,14 @@ def short_hop(attr, frames=64):
     return y
 
 
-# FH Multi Lasers (TMTargetsFullHop): Off, All Combos, then the combos, highest
-# second laser first.
-FH_OFF, FH_ALL, FH_HI_HI_LOW, FH_HIGH_MEDHIGH, FH_PEAK_LOW, FH_HIGH_MEDIUM, FH_HIGH_LOWEST = range(7)
-FH_COMBOS = range(FH_HI_HI_LOW, FH_HIGH_LOWEST + 1)
-FH_TEXT = ('Off', 'All Combos', 'Hi-Hi-Low', 'High-MedHigh', 'Peak-Low', 'High-Medium', 'High-Lowest')
+# FH Multi Lasers as the menu lists it: Off, All Combos, then the combos, highest second
+# laser first. FH_SAVED is each one's saved value (TMTargetsFullHop): High-Low took Peak-Low's
+# 4, and High-Lowest's old 6 reads as High-Low.
+FH_OFF, FH_ALL, FH_HI_HI_LOW, FH_HIGH_MEDHIGH, FH_HIGH_MEDIUM, FH_HIGH_LOW = range(6)
+FH_COMBOS = range(FH_HI_HI_LOW, FH_HIGH_LOW + 1)
+FH_TEXT = ('Off', 'All Combos', 'Hi-Hi-Low', 'High-MedHigh', 'High-Medium', 'High-Low')
+FH_SAVED = {FH_OFF: 0, FH_ALL: 1, FH_HI_HI_LOW: 2, FH_HIGH_MEDHIGH: 3, FH_HIGH_MEDIUM: 5, FH_HIGH_LOW: 4}
+FH_OLD_HIGH_LOWEST = 6
 REACH = 1.5 + 300 / 256  # A target's radius plus a laser's hitbox.
 HHL_SPREAD = 6  # Hi-Hi-Low's high targets, left and right of the low one.
 
@@ -112,15 +115,19 @@ HHL_SPREAD = 6  # Hi-Hi-Low's high targets, left and right of the low one.
 def f32(value): return struct.unpack('>f', struct.pack('>f', value))[0]
 
 
-def full_hop(attr, frames=96):
-    """Height after each airborne frame of a full hop with no fastfall, in the probe's
-    float32 arithmetic on its attributes (each in ten-thousandths)."""
-    jump, gravity, terminal = (f32(round(attr[k] * 10000) / 10000) for k in ('jump_v', 'gravity', 'terminal'))
-    y, v = [0.0], jump
-    for _ in range(1, frames):
-        v = max(f32(v - gravity), -terminal)
+def full_hop(attr, frames=96, fastfall=0):
+    """Height after each airborne frame of a full hop, in the probe's float32 arithmetic on
+    its attributes (each in ten-thousandths), with a fastfall on airborne frame `fastfall`
+    (0 for none): it takes only if the fighter was already falling, and from then on the fall
+    is the fastfall speed. None if it doesn't take."""
+    jump, gravity, terminal, fast_v = (f32(round(attr[k] * 10000) / 10000)
+                                       for k in ('jump_v', 'gravity', 'terminal', 'fastfall'))
+    y, v, fast = [0.0], jump, False
+    for frame in range(1, frames):
+        fast = fast or (frame == fastfall and v < 0)
+        v = -fast_v if fast else max(f32(v - gravity), -terminal)
         y.append(f32(y[-1] + v))
-    return y
+    return y if fast or not fastfall else None
 
 
 def jump_shots(y, c, press, count):
@@ -153,10 +160,21 @@ def full_hop_combos(fighter):
         shots = jump_shots(y, c, p, 3)
         if hi_hi_low is None or abs(shots[0] - shots[1]) < gap - .01:
             hi_hi_low, gap = p, abs(shots[0] - shots[1])
-    presses = {FH_HI_HI_LOW: (hi_hi_low, 3), FH_PEAK_LOW: (peak, 2), FH_HIGH_LOWEST: (last, 2),
+    presses = {FH_HI_HI_LOW: (hi_hi_low, 3),
                FH_HIGH_MEDHIGH: (near(min(highest, peak), peak, (second(peak) + second(highest)) / 2), 2),
                FH_HIGH_MEDIUM: (near(peak, last, (second(peak) + second(last)) / 2), 2)}
-    return {combo: (press, jump_shots(y, c, press, count)) for combo, (press, count) in presses.items()}
+    combos = {combo: (press, jump_shots(y, c, press, count), 0) for combo, (press, count) in presses.items()}
+    # High-Low: of every press and fastfall whose first shot is from the peak, the lowest
+    # second shot (the earliest fastfall, then the earliest press, of any that tie).
+    top, high_low = max(y) + c['air'], None
+    for fastfall in range(1, len(y)):
+        walk = full_hop(fighter.attr, fastfall=fastfall)
+        for press in range(1, len(y) - c['delay'] - c['loop']):
+            shots = walk and jump_shots(walk, c, press, 2)
+            if shots and shots[0] >= top - .001 and (high_low is None or shots[1] < high_low[1][1]):
+                high_low = (press, shots, fastfall)
+    combos[FH_HIGH_LOW] = high_low
+    return combos
 
 
 def signed(value): return value - (1 << 32) if value >= 1 << 31 else value
@@ -167,17 +185,20 @@ class TargetsMachine:
         self.m = fixtures.Machine()
         load_probe(self.m, 'targets-probe.elf', 'TestTargetsLoaded')
         self.m.call('TestTargetsFighter', kind, *[round(attr[k] * 10000) for k in
-                                                  ('jump_v', 'hop_v', 'air_jump_mult', 'gravity', 'terminal')])
+                                                  ('jump_v', 'hop_v', 'air_jump_mult', 'gravity', 'terminal',
+                                                   'fastfall')])
         self.m.call('TestTargetsSeed', seed)
         self.lines = []
 
     def init(self, free_practice=0, shdl=0, best=0, counter=0, lines=0, full_hop=0, double_jump=0, colors=None,
-             pointers=1):
-        """`colors`: the saved (short hop, full hop) line colors, or None for the defaults.
-        `pointers`: the saved Target Pointers, packed into the same argument."""
+             pointers=1, full_hop_saved=None):
+        """`full_hop`: the FH Multi Lasers row saved, as the menu lists it, or `full_hop_saved`
+        the value stored. `colors`: the saved (short hop, full hop) line colors, or None for the
+        defaults. `pointers`: the saved Target Pointers, packed into the same argument."""
         packed = 0 if colors is None else (colors[0] + 1) | (colors[1] + 1) << 8
         packed |= (not pointers) << 16
-        self.m.call('TestTargetsInit', free_practice, shdl, best, counter, lines, full_hop, double_jump, packed)
+        saved = FH_SAVED[full_hop] if full_hop_saved is None else full_hop_saved
+        self.m.call('TestTargetsInit', free_practice, shdl, best, counter, lines, saved, double_jump, packed)
 
     def air(self, air=1, used=1, max_jumps=2, state=ASID_FALL, facing=1):
         self.m.call('TestTargetsAir', air, used, max_jumps, state, facing)
@@ -320,13 +341,12 @@ class TargetConstantTests(unittest.TestCase):
 
     def test_full_hop_combos_are_timed_from_live_attributes(self):
         # By hand: (press frame, heights above the floor) for each combo.
+        # By hand: (press frame, heights above the floor, fastfall frame or 0) for each combo.
         by_hand = {
-            FOX: {FH_HI_HI_LOW: (2, (33.43, 34.58, 13.34)), FH_HIGH_MEDHIGH: (5, (36.19, 30.44)),
-                  FH_PEAK_LOW: (7, (36.88, 26.53)), FH_HIGH_MEDIUM: (11, (35.50, 16.14)),
-                  FH_HIGH_LOWEST: (15, (30.44, 4.94))},
-            FALCO: {FH_HI_HI_LOW: (5, (46.28, 45.24, 3.89)), FH_HIGH_MEDHIGH: (9, (50.10, 38.18)),
-                    FH_PEAK_LOW: (13, (51.20, 28.40)), FH_HIGH_MEDIUM: (18, (48.75, 13.19)),
-                    FH_HIGH_LOWEST: (22, (43.73, 0.79))},
+            FOX: {FH_HI_HI_LOW: (2, (33.43, 34.58, 13.34), 0), FH_HIGH_MEDHIGH: (5, (36.19, 30.44), 0),
+                  FH_HIGH_MEDIUM: (11, (35.50, 16.14), 0), FH_HIGH_LOW: (8, (36.88, 6.05), 18)},
+            FALCO: {FH_HI_HI_LOW: (5, (46.28, 45.24, 3.89), 0), FH_HIGH_MEDHIGH: (9, (50.10, 38.18), 0),
+                    FH_HIGH_MEDIUM: (18, (48.75, 13.19), 0), FH_HIGH_LOW: (13, (51.20, 1.73), 27)},
         }
         for kind, fighter in self.fighters.items():
             expected = full_hop_combos(fighter)
@@ -335,19 +355,36 @@ class TargetConstantTests(unittest.TestCase):
             combo = lambda c, key: signed(m.m.call('TestTargetsFullHop', c, key))
             for c in FH_COMBOS:
                 with self.subTest(fighter=NAMES[kind], combo=FH_TEXT[c]):
-                    press, heights = expected[c]
-                    self.assertEqual((combo(c, 0), combo(c, 1)), (len(heights), press))
-                    self.assertEqual((press, len(heights)), (by_hand[kind][c][0], len(by_hand[kind][c][1])))
-                    for i, (h, hand) in enumerate(zip(heights, by_hand[kind][c][1])):
+                    press, heights, fastfall = expected[c]
+                    self.assertEqual((combo(c, 0), combo(c, 1), combo(c, 8)), (len(heights), press, fastfall))
+                    hand = by_hand[kind][c]
+                    self.assertEqual((press, len(heights), fastfall), (hand[0], len(hand[1]), hand[2]))
+                    for i, (h, by) in enumerate(zip(heights, hand[1])):
                         self.assertAlmostEqual(combo(c, 2 + i) / 10000, h, delta=.001)
-                        self.assertAlmostEqual(combo(c, 2 + i) / 10000, hand, delta=.01)
+                        self.assertAlmostEqual(combo(c, 2 + i) / 10000, by, delta=.01)
+            with self.subTest(fighter=NAMES[kind], combo='High-Low'):
+                # Its first laser flies along the purple Hop Peak Line, and its second is no lower
+                # than the lowest laser there is.
+                self.assertAlmostEqual(combo(FH_HIGH_LOW, 2), m.m.call('TestTargetsPeak', 1), delta=20)
+                self.assertGreaterEqual(combo(FH_HIGH_LOW, 3), m.m.call('TestTargetsBlaster', kind == FALCO, 5))
+                # A fastfall a frame sooner lands before the second laser; a frame later, the
+                # second passes over the low target.
+                c, (press, (high, low), fastfall) = fighter.constants(), expected[FH_HIGH_LOW]
+                self.assertIsNone(jump_shots(full_hop(fighter.attr, fastfall=fastfall - 1), c, press, 2))
+                late = jump_shots(full_hop(fighter.attr, fastfall=fastfall + 1), c, press, 2)
+                self.assertEqual(late[0], high)
+                self.assertGreater(late[1] - low, REACH)
+                self.assertAlmostEqual(late[1], {FOX: 8.99, FALCO: 4.74}[kind], delta=.01)
+                # The doc's other timings that break both targets: (B, fastfall, heights).
+                for p, f, hand in {FOX: ((7, 17, (36.88, 6.28)), (10, 20, (36.19, 4.90))),
+                                   FALCO: ((12, 26, (51.18, 2.05)), (15, 29, (50.73, 0.58)))}[kind]:
+                    shots = jump_shots(full_hop(fighter.attr, fastfall=f), c, p, 2)
+                    for shot, by, target in zip(shots, hand, (high, low)):
+                        self.assertAlmostEqual(shot, by, delta=.01)
+                        self.assertLess(abs(shot - target), REACH)
             with self.subTest(fighter=NAMES[kind]):
-                # Peak-Low's first laser flies along the purple Hop Peak Line.
-                self.assertAlmostEqual(combo(FH_PEAK_LOW, 2), m.m.call('TestTargetsPeak', 1), delta=20)
-                # High-Lowest's second is no lower than the lowest laser there is.
-                self.assertGreaterEqual(combo(FH_HIGH_LOWEST, 3), m.m.call('TestTargetsBlaster', kind == FALCO, 5))
                 # Each double's second laser is out of reach of the next one's, so each is its own drill.
-                seconds = [combo(c, 3) / 10000 for c in (FH_HIGH_MEDHIGH, FH_PEAK_LOW, FH_HIGH_MEDIUM, FH_HIGH_LOWEST)]
+                seconds = [combo(c, 3) / 10000 for c in (FH_HIGH_MEDHIGH, FH_HIGH_MEDIUM, FH_HIGH_LOW)]
                 for higher, lower in zip(seconds, seconds[1:]):
                     self.assertGreater(higher - lower, REACH)
             with self.subTest(fighter=NAMES[kind], combo='Hi-Hi-Low'):
@@ -531,7 +568,7 @@ class TargetPlacementTests(unittest.TestCase):
 
     def test_sh_pairs_share_the_spawns_with_full_hop_combos(self):
         # One combo: half SH pairs, half the combo, no singles. All Combos: a third each.
-        for full_hop, wanted in ((FH_PEAK_LOW, {'sh': .5, FH_PEAK_LOW: .5}),
+        for full_hop, wanted in ((FH_HIGH_LOW, {'sh': .5, FH_HIGH_LOW: .5}),
                                  (FH_ALL, {'single': 1 / 3, 'sh': 1 / 3, 'fh': 1 / 3})):
             with self.subTest(full_hop=FH_TEXT[full_hop]):
                 m, spawns = self.run_targets(FOX, 'GrNBa.dat', GRKINDEXT_BATTLE, None, 240, free_practice=1, shdl=1,
@@ -557,7 +594,7 @@ class TargetPlacementTests(unittest.TestCase):
         self.assertEqual(set(floors), {'main', 'left', 'right'}, floors)
 
     def test_no_full_hop_combos_in_timed_runs_or_with_the_setting_off(self):
-        for kind, free_practice, full_hop in ((FOX, 0, FH_ALL), (FALCO, 0, FH_PEAK_LOW), (FOX, 1, FH_OFF)):
+        for kind, free_practice, full_hop in ((FOX, 0, FH_ALL), (FALCO, 0, FH_HIGH_LOW), (FOX, 1, FH_OFF)):
             with self.subTest(fighter=NAMES[kind], free_practice=free_practice, full_hop=FH_TEXT[full_hop]):
                 _, spawns = self.run_targets(kind, 'GrNBa.dat', 31, None, 40, free_practice, full_hop=full_hop)
                 self.assertTrue(all(len(s) == 1 for s in spawns))
@@ -1110,18 +1147,34 @@ class TargetEventTests(unittest.TestCase):
                     self.assertEqual((m.info(41), m.info(43)), (FH_HIGH_MEDIUM, FH_HIGH_MEDIUM))  # Loaded.
                     m.you(); m.think()
                     self.assertEqual((m.info(39), m.info(40), m.info(41)), (1 - free_practice, 0, FH_HIGH_MEDIUM))
-        self.assertEqual(m.info(44), 7)
+        self.assertEqual(m.info(44), 6)
         texts = [bytes(m.m.cpu.mem_read(m.m.call('TestTargetsFullHopText', v), 16)).split(b'\0', 1)[0].decode()
-                 for v in range(7)]
+                 for v in range(6)]
         self.assertEqual(tuple(texts), FH_TEXT)
+
+    def test_full_hop_rows_save_in_their_old_order(self):
+        # Each saved value loads into its row: High-Low took Peak-Low's 4, High-Lowest's old 6
+        # reads as High-Low, and 7, no row, as Off.
+        rows = {0: FH_OFF, 1: FH_ALL, 2: FH_HI_HI_LOW, 3: FH_HIGH_MEDHIGH, 4: FH_HIGH_LOW, 5: FH_HIGH_MEDIUM,
+                FH_OLD_HIGH_LOWEST: FH_HIGH_LOW, 7: FH_OFF}
+        for saved, row in rows.items():
+            with self.subTest(saved=saved):
+                m = self.start(free_practice=1, full_hop_saved=saved)
+                self.assertEqual((m.info(41), m.info(43), m.info(42)), (row, row, saved))  # Read, not written.
+        # Each row picked saves its own value.
+        m = self.start(free_practice=1)
+        m.you(); m.think()
+        for row in (FH_HIGH_MEDIUM, FH_HIGH_LOW, FH_ALL, FH_HI_HI_LOW, FH_HIGH_MEDHIGH, FH_OFF):
+            m.choose(OPT_FULL_HOP, row)
+            self.assertEqual((m.info(41), m.info(42)), (row, FH_SAVED[row]))
 
     def test_full_hop_saves_and_reaches_the_next_spawn(self):
         m = self.start(free_practice=1)
         m.you(); m.think()
-        m.choose(OPT_FULL_HOP, FH_PEAK_LOW)
-        self.assertEqual((m.info(42), m.info(4)), (FH_PEAK_LOW, 0))  # Saved, no restart.
+        m.choose(OPT_FULL_HOP, FH_HIGH_LOW)
+        self.assertEqual((m.info(42), m.info(4)), (FH_SAVED[FH_HIGH_LOW], 0))  # Saved, no restart.
         m.shoot_all()  # The single that was out.
-        high, low = (m.m.call('TestTargetsFullHop', FH_PEAK_LOW, k) / 10000 for k in (2, 3))
+        high, low = (m.m.call('TestTargetsFullHop', FH_HIGH_LOW, k) / 10000 for k in (2, 3))
         for _ in range(10):
             (ux, uy), (lx, ly) = m.targets()
             self.assertEqual(ux, lx)

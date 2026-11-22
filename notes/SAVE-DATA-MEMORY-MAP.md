@@ -178,7 +178,7 @@ Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 
 | 0-1 | Ledgechase side |
 | 2 | Ledgechase CPU 100% |
 | 3-5 | Ledgechase player percent |
-| 6-8 | Target Practice: FH Multi Lasers (T10, version 24, `TM_TARGETS_FULL_HOP`): 0 Off (default), 1 All Combos, 2 Hi-Hi-Low, 3 High-MedHigh, 4 Peak-Low, 5 High-Medium, 6 High-Lowest. A stored 7 reads as Off. Version 2-8's old preset until version 24 zeroed them; older records read Off |
+| 6-8 | Target Practice: FH Multi Lasers (T10, version 24, `TM_TARGETS_FULL_HOP`): 0 Off (default), 1 All Combos, 2 Hi-Hi-Low, 3 High-MedHigh, 4 High-Low (Peak-Low until High-Low replaced it), 5 High-Medium. 6 was High-Lowest: nothing writes it now, and it reads as High-Low. A stored 7 reads as Off. The menu lists High-Medium before High-Low (`FullHopToSaved` in `src/targets.c`). Version 2-8's old preset until version 24 zeroed them; older records read Off |
 | 9-11 | Ledgechase distance |
 | 12-14 | Ledgechase CPU invincibility color |
 | 15-17 | Free (zeroed by version 24; version 2-8's old action) |
