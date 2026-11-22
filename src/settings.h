@@ -140,7 +140,7 @@ enum TMSettingsField {
     TM_SETTING_TECHCHASE, /* Separate extension; manual chances are session-only. */
     TM_SETTING_LEDGECHASE, /* Separate extension; manual ledge chances are session-only. */
     TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
-    TM_SETTING_LOW_LASER, /* Event OSDs, suppression, Puff position/height in the extension. */
+    TM_SETTING_LOW_LASER, /* Event OSDs, suppression, Puff position/height, Lowest Laser Lines in the extension. */
     TM_SETTING_POWERSHIELD, /* Powershield event menu, append-only identity. */
     TM_SETTING_SWEETSPOT_CAMERA, /* Index 0 only: Normal (0) / Zoomed Out (1). */
     TM_SETTING_REVERSAL,
@@ -230,6 +230,7 @@ enum TMUnderFirePreference {
 enum TMLowLaserPreference {
     TM_LOW_LASER_OSDS, TM_LOW_LASER_SUPPRESS_GLOBAL,
     TM_LOW_LASER_POSITION, TM_LOW_LASER_HEIGHT, /* TYEX byte 35, still version 15. */
+    TM_LOW_LASER_LOW_LINE, /* Lowest Laser Lines: TYEX word 12 bit 15, version 24 on, no bump. */
     TM_LOW_LASER_PREF_COUNT
 };
 enum TMPowershieldPreference {

@@ -370,7 +370,8 @@ class DrawTests(unittest.TestCase):
         self.assertEqual(lines, wanted)
 
     def test_matches_target_practice(self):
-        source = (ROOT / 'src/targets.c').read_text()
+        # The event's line drawing is laser_lines.h, which it shares with Low Laser Puff Practice.
+        source = (ROOT / 'src/targets.c').read_text() + (ROOT / 'src/laser_lines.h').read_text()
         self.assertIn('#define SUNK_PLATFORM 1.f', source)
         self.assertIn('#define PEAK_LINE_WIDTH 12', source)
         # The codes draw one color a hop: the event's defaults, Orange and Teal, as it draws them

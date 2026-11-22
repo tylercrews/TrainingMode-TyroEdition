@@ -28,6 +28,7 @@ HEADER = b'TYEX\x19\x50\xA5\x5A'
 # CPU's default recovery toggles).
 EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
 LOW_LASER = 30  # TM_SETTING_LOW_LASER
+LOW_LASER_LOW_LINE = 4  # TM_LOW_LASER_LOW_LINE: word 12 bit 15.
 # Recovery masks: Fox, Falco, Sheik, Falcon, Marth, then (word 64, version 19)
 # Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus. Then Player
 # Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31,
@@ -162,8 +163,10 @@ def upgraded(raw):
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
 REGION_SIZE, OWNED_SIZE = 88, 88
 # Under Fire's Lava Overlay (index 2) and Remove Fleshy Pillars (index 3) live outside
-# FIELDS' tables: word 20 and word 9.
-PREF_COUNTS = {29: 4}
+# FIELDS' tables: word 20 and word 9. Low Laser's Lowest Laser Lines (index 4) is word 12's
+# bit 15, which only version 24 and later records own, so the old-version migrations
+# FIELDS drives can't keep it; its own tests cover it.
+PREF_COUNTS = {29: 4, LOW_LASER: 5}
 GRID = 37  # TM_SETTING_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 EGGS_COUNTER = 44  # TM_SETTING_EGGS_COUNTER: byte 51's top three bits.
@@ -1115,7 +1118,69 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 4)
         self.assertEqual((m.call('Settings_Get', 28, 0), m.call('Settings_Get', 28, 4), m.call('Settings_Get', 28, 6)),
                          (1, 0, 9))
-        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 0)  # Bits 15-17 stay free.
+        # Bit 15 (Low Laser's Lowest Laser Lines, Off) and the free 16-17 stay 0.
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 0)
+
+    # Low Laser Puff Practice's Lowest Laser Lines (T10): word 12's retired bit 15, no version bump.
+    def test_low_laser_lowest_laser_lines_uses_only_word_12_bit_15_with_off_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Word 12's settings around the bit.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 6)
+        m.call('Settings_Set', 29, 0, 1)  # Under Fire's.
+        m.call('Settings_Set', LOW_LASER, 0, 0); m.call('Settings_Set', LOW_LASER, 1, 1)  # Event OSDs, Suppress,
+        m.call('Settings_Set', LOW_LASER, 2, 7); m.call('Settings_Set', LOW_LASER, 3, 4)  # Position, Height.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[:8], HEADER)
+        word = lambda record: int.from_bytes(record[12:16], 'little')
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 0)  # Off by default.
+        self.assertEqual(word(before) >> 15 & 1, 0)
+        rows = lambda: tuple(m.call('Settings_Get', LOW_LASER, i) for i in range(5))
+        self.assertEqual(rows(), (0, 1, 7, 4, 0))
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(word(after), word(before) | 1 << 15)
+        self.assertEqual(after[:12] + after[16:], before[:12] + before[16:])
+        self.assertEqual(rows(), (0, 1, 7, 4, 1))
+        # Its neighbors' writes keep it: the other Low Laser rows, FH Multi Lasers and Ledgechase.
+        m.call('Settings_Set', LOW_LASER, 0, 1); m.call('Settings_Set', LOW_LASER, 1, 0)
+        m.call('Settings_Set', LOW_LASER, 2, 3); m.call('Settings_Set', LOW_LASER, 3, 1)
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 2); m.call('Settings_Set', 28, 6, 9)
+        self.assertEqual(rows(), (1, 0, 3, 1, 1))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 2)
+        self.assertEqual(m.call('Settings_Get', 28, 6), 9)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 1)  # Bits 16-17 stay free.
+        # A bad write is ignored, and Off clears the bit.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 2)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(before) & ~(1 << 15))
+        self.assertEqual(rows(), (1, 0, 3, 1, 0))
+
+    def test_low_laser_lowest_laser_lines_is_off_in_version_23_records_migrated_or_not(self):
+        m = self.m
+        old = self.version_23_record()  # Its retired bits set, as Ledgechase's old action left them.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, LOW_LASER, LOW_LASER_LOW_LINE), 0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))  # Read without writing.
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 0)  # Migrated: the bit is cleared.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 12, 4), 'little') >> 15 & 1, 0)
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 1)
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 1)
+
+    def test_low_laser_lowest_laser_lines_carries_over_from_version_24(self):
+        m = self.m
+        old = self.version_24_record()  # Version 24 zeroed bits 15-17: Off.
+        self.assertEqual(int.from_bytes(old[12:16], 'little') >> 15 & 7, 0)
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, LOW_LASER, LOW_LASER_LOW_LINE), 0)
+        # Version 24 owns the bit, so On reads as On and migrating to 25 keeps it.
+        old[12:16] = (int.from_bytes(old[12:16], 'little') | 1 << 15).to_bytes(4, 'little')
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, LOW_LASER, LOW_LASER_LOW_LINE), 1)
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 12, 4)), bytes(old[12:16]))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 5)
 
     # Version 25 (T10): the Hop Peak Lines' colors in word 84, the last free score bytes.
     def version_24_record(self):

@@ -99,7 +99,7 @@ class LowLaserTests(unittest.TestCase):
             self.m.call('TestLaserChoice',0,index)
             self.assertEqual((self.info(4),self.info(5),self.info(3)),(x,50 if x<0 else -50,18))
         position = (self.info(4), self.info(5))
-        self.m.call('TestLaserChoice',6,0)
+        self.m.call('TestLaserChoice',7,0)  # Reset %.
         self.assertEqual((self.info(3), self.info(16)),(0,0))
         self.assertEqual((self.info(4),self.info(5)),position)
 
@@ -162,8 +162,26 @@ class LowLaserTests(unittest.TestCase):
         self.m.call('TestLaserChoice',3,1)
         self.sample(344,fastfall=1,eligible=1)
         self.assertEqual((self.info(13),self.info(14)),(-1,-1))
-        self.m.call('TestLaserChoice',5,0)
+        self.m.call('TestLaserChoice',6,0)  # Exit.
         self.assertEqual((self.info(11),self.info(17)),(0,1))
+
+    def test_lowest_laser_lines_row_is_a_saved_toggle_off_by_default(self):
+        # Off by default, an On/Off toggle after Suppress Global OSDs, and the draw link is added.
+        self.assertEqual([self.info(k) for k in (56, 57, 58, 59, 60)], [0, 0, 0, 1, 1])
+        options = self.m.symbols['options']
+        name = lambda row: bytes(self.m.cpu.mem_read(struct.unpack('>I', self.m.cpu.mem_read(options + row * 44 + 12, 4))[0], 24)).split(b'\0')[0]
+        self.assertEqual([name(row) for row in (4, 5, 6)], [b'Suppress Global OSDs', b'Lowest Laser Lines', b'Exit'])
+        writes = self.info(15)
+        position = (self.info(4), self.info(5))
+        self.m.call('TestLaserChoice', 5, 1); self.step()
+        self.assertEqual((self.info(56), self.info(57), self.info(15)), (1, 1, writes + 1))
+        self.assertEqual((self.info(4), self.info(5)), position)  # Nothing is placed again.
+        self.m.call('TestLaserReenter'); self.step()
+        self.assertEqual((self.info(56), self.info(58), self.info(59)), (1, 1, 1))  # A saved On loads.
+        self.m.call('TestLaserChoice', 5, 0)
+        self.assertEqual((self.info(56), self.info(57)), (0, 0))
+        # The other toggles keep their own values.
+        self.assertEqual((self.info(11), self.info(12)), (0, 0))
 
     def test_change_stage_greys_current_stage_and_releases_suppression_before_restart(self):
         self.assertEqual(self.info(47), 1)
@@ -218,8 +236,8 @@ class LowLaserTests(unittest.TestCase):
         self.assertEqual((m.call('TestLaserInfo',0),m.call('TestLaserInfo',1)),(1,3))
         menu_ptr=struct.unpack('>I',m.cpu.mem_read(base+entries[3],4))[0]
         rows=struct.unpack('>I',m.cpu.mem_read(menu_ptr+8,4))[0]
-        self.assertEqual(m.cpu.mem_read(menu_ptr+4,1)[0],7)
-        reset_name=struct.unpack('>I',m.cpu.mem_read(rows+6*44+12,4))[0]
+        self.assertEqual(m.cpu.mem_read(menu_ptr+4,1)[0],8)
+        reset_name=struct.unpack('>I',m.cpu.mem_read(rows+7*44+12,4))[0]
         self.assertEqual(bytes(m.cpu.mem_read(reset_name,8)).split(b'\0',1)[0],b'Reset %')
 
     def test_clock_sits_in_bottom_left_and_shows_match_time(self):
@@ -239,7 +257,9 @@ class LowLaserTests(unittest.TestCase):
 
 
 FD_EDGE = struct.unpack('>f', struct.pack('>f', 85.5656967))[0]
-MARIO, FOX = 0, 1
+MARIO, FOX, FALCO = 0, 1, 22
+OPT_LOW_LINE = 5
+FIFO, GX_LINES = 0xCC008000, 0xA8
 BUTTON_A, BUTTON_B = 0x100, 0x200
 # Expected apex rises: gravity before movement, from Puff's PlPr.dat values.
 def rise(velocity, gravity=.064):
@@ -413,6 +433,102 @@ class LowLaserStageTests(unittest.TestCase):
         self.assertEqual(self.info(37), left)
         self.choose(0, 8)  # Under Left Plat stays on the main floor.
         self.assertEqual(self.puff(), (-35, 0))
+
+    def capture(self):
+        """Record the GX FIFO: GFX_AddVtx writes x, y, z, then the color's bytes."""
+        from unicorn import UC_HOOK_MEM_WRITE
+        self.m.cpu.mem_map(FIFO, 0x1000)
+        self.fifo = []
+        self.m.cpu.hook_add(UC_HOOK_MEM_WRITE, lambda cpu, access, address, size, value, user:
+                            self.fifo.append((size, value & 0xFFFFFFFF)), begin=FIFO, end=FIFO + 3)
+
+    def draw(self, pass_=2):
+        """The batches one GX pass starts, (shape, count, width, no depth), and its lines,
+        each (left x, right x, y, color)."""
+        self.fifo.clear()
+        count = self.m.call('TestLaserDraw', pass_)
+        batches = [tuple(self.m.call('TestLaserDrawInfo', i, k) for k in range(4)) for i in range(count)]
+        vertices = []
+        for at in range(0, len(self.fifo), 7):
+            sizes, values = zip(*self.fifo[at:at + 7])
+            self.assertEqual(sizes, (4, 4, 4, 1, 1, 1, 1))
+            vertices.append((*struct.unpack('>3f', struct.pack('>3I', *values[:3])), tuple(values[3:])))
+        for a, b in zip(vertices[::2], vertices[1::2]):
+            self.assertEqual((a[1], a[2], a[3]), (b[1], b[2], b[3]))
+        return batches, [(a[0], b[0], a[1], a[3]) for a, b in zip(vertices[::2], vertices[1::2])]
+
+    def assertLowLines(self, got, floors, kind):
+        """Target Practice's Lowest Laser Lines in Magenta: each floor's (peak_floors in
+        test_targets, the same layout and shade) at the fighter's lowest laser over it."""
+        import test_targets as targets
+        magenta = targets.LINE_NAMES.index('Magenta')
+        low = {FOX: 5.1149, FALCO: 4.0994}[kind]
+        wanted = [(left, right, y + low, targets.line_color(magenta, shade)) for left, right, y, shade in floors]
+        self.assertEqual(len(got), len(wanted))
+        for g, w in zip(got, wanted):
+            self.assertAlmostEqual(g[0], w[0], delta=.001)
+            self.assertAlmostEqual(g[1], w[1], delta=.001)
+            self.assertAlmostEqual(g[2], w[2], delta=.002)
+            self.assertEqual(g[3], w[3])
+
+    def test_lowest_laser_lines_sit_at_fox_and_falcos_lowest_laser_over_every_floor(self):
+        import test_targets as targets
+        # The heights are Target Practice's, from the ISO: the aerial laser over TopN less the
+        # laser loop's ECB bottom, 9.5471 - 4.4322 for Fox and 9.3201 - 5.2207 for Falco.
+        for kind, fighter in targets.fighters().items():
+            c = fighter.constants()
+            self.assertAlmostEqual(max(c['air'] - c['ecb_bottom'], 0), {FOX: 5.1149, FALCO: 4.0994}[kind], delta=.0001)
+        self.capture()
+        counts = {'GrNLa.dat': 1, 'GrPs.dat': 3}  # FD has no platforms; Stadium no top one.
+        for filename, stage, normal in LEGAL:
+            for kind in (FOX, FALCO):
+                with self.subTest(stage=filename, fighter=kind):
+                    lines = self.stage(filename, stage, normal)
+                    self.m.call('TestLaserCharacter', kind)
+                    self.choose(OPT_LOW_LINE, 1)
+                    floors = targets.peak_floors(lines)
+                    self.assertEqual(len(floors), counts.get(filename, 4))
+                    batches, got = self.draw()
+                    self.assertEqual(batches, [(GX_LINES, 2 * len(floors), 12, 1)])  # Over everything.
+                    self.assertLowLines(got, floors, kind)
+
+    def test_lowest_laser_lines_draw_only_when_on_for_fox_and_falco(self):
+        self.capture()
+        self.stage('GrNBa.dat', 31, None)
+        self.assertEqual(self.draw()[0], [])  # Off by default.
+        self.choose(OPT_LOW_LINE, 1)
+        for kind, drawn in ((MARIO, 0), (0x0F, 0), (FALCO, 1), (FOX, 1)):  # 0x0F: Jigglypuff.
+            self.m.call('TestLaserCharacter', kind)
+            self.assertEqual(len(self.draw()[0]), drawn, kind)
+        self.assertEqual((self.draw(0)[0], self.draw(1)[0]), ([], []))  # Only the second pass.
+        self.m.call('TestLaserPause', 1)
+        self.assertEqual(len(self.draw()[0]), 1)  # Behind the paused menu too.
+        self.m.call('TestLaserPause', 0)
+        self.choose(OPT_LOW_LINE, 0)
+        self.assertEqual(self.draw()[0], [])
+        # Puff's placement doesn't move them: they're over every floor wherever Puff is.
+        self.choose(OPT_LOW_LINE, 1)
+        before = self.draw()[1]
+        for choice in (5, 6, 7): self.choose(0, choice)
+        self.choose(1, 4)
+        self.assertEqual(self.draw()[1], before)
+
+    def test_lowest_laser_lines_follow_fountains_platforms(self):
+        self.capture()
+        self.m.call('TestLaserStage', 2)
+        self.line(-63.35, 0, 63.35, 0)
+        left = self.line(-49, 11, -21, 11, 0x100)
+        self.line(21, 35, 49, 35, 0x100)
+        self.line(-14, 43, 14, 43, 0x100)
+        self.choose(OPT_LOW_LINE, 1)
+        heights = lambda: [round(y - 5.1149, 3) for _, _, y, _ in self.draw()[1]]
+        self.assertEqual(heights(), [0, 11, 43, 35])
+        self.m.call('TestLaserMoveLine', left, 5000, 1)
+        self.assertEqual(heights(), [0, 16, 43, 35])
+        self.m.call('TestLaserMoveLine', left, -15500, 1)  # Sunk: 0.5 above the main floor.
+        self.assertEqual(heights(), [0, 43, 35])
+        self.m.call('TestLaserMoveLine', left, 10500, 0)  # Hidden.
+        self.assertEqual(heights(), [0, 43, 35])
 
     def test_other_characters_time_first_aerial_b_press_and_fox_keeps_laser_start(self):
         m = self.m

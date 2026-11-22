@@ -1,11 +1,15 @@
 #include "events.h"
+#include "laser_lines.h"
 #include "stage_points.h"
 #include "stage_swap.h"
 
 /* Squat startup, never SquatWait. A zero animation rate holds the compressed
  * pose while normal hurtbox collision and percent accumulation remain live. */
 #define PUFF_CROUCH_FRAME 2.f
-enum { OPT_POSITION, OPT_HEIGHT, OPT_STAGE, OPT_OSDS, OPT_SUPPRESS, OPT_EXIT, OPT_RESET_PERCENT };
+/* Lowest Laser Lines' color: Magenta, an index into LineColors, shaded per
+ * floor the way Target Practice's are. */
+#define LOW_LINE_COLOR (TM_COLOR_MAGENTA - TM_COLOR_WHITE)
+enum { OPT_POSITION, OPT_HEIGHT, OPT_STAGE, OPT_OSDS, OPT_SUPPRESS, OPT_LOW_LINE, OPT_EXIT, OPT_RESET_PERCENT };
 enum {
     POS_CENTER, POS_FAR_LEFT, POS_CENTER_LEFT, POS_CENTER_RIGHT, POS_FAR_RIGHT,
     POS_ON_LEFT, POS_ON_TOP, POS_ON_RIGHT, POS_UNDER_LEFT, POS_UNDER_RIGHT, POS_COUNT
@@ -26,6 +30,7 @@ static void ChangePosition(GOBJ *menu, int value);
 static void ChangeHeight(GOBJ *menu, int value);
 static void ChangeOSDs(GOBJ *menu, int value);
 static void ChangeSuppression(GOBJ *menu, int value);
+static void ChangeLowLine(GOBJ *menu, int value);
 static void Exit(GOBJ *menu);
 static void ResetPercent(GOBJ *menu);
 static const char *positions[POS_COUNT] = {
@@ -53,6 +58,9 @@ static EventOption options[] = {
               "Other characters show B Press Start for any aerial B.", "Both results stay white. This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .name = "Suppress Global OSDs", .OnChange = ChangeSuppression,
      .desc = {"Hide global OSDs during this event only.", "Event OSDs keep their own On/Off setting.", "Defaults Off. This setting is saved."}},
+    {.kind = OPTKIND_TOGGLE, .name = "Lowest Laser Lines", .OnChange = ChangeLowLine,
+     .desc = {"Fox and Falco: magenta lines where the lowest", "laser you can shoot flies, off the floor and",
+              "each platform. Other characters show none.", "Defaults Off. This setting is saved."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = Exit,
      .desc = {"Return to the Event Selection Screen."}},
     {.kind = OPTKIND_FUNC, .name = "Reset %", .OnSelect = ResetPercent,
@@ -203,6 +211,18 @@ static void PlaceFighters(void) {
     ClearTiming(data);
 }
 
+static int IsBlaster(FighterData *ft) { return ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO; }
+/* Lowest Laser Lines: for Fox or Falco, one line over the main floor and each
+ * platform at the lowest laser shot from it, as Target Practice's row draws
+ * them (laser_lines.h), from the live lines every frame so Fountain's follow
+ * its platforms. Drawn behind the paused menu too. */
+static void LowLaser_GX(GOBJ *gobj, int pass) {
+    if (pass != 2 || !options[OPT_LOW_LINE].val) return;
+    GOBJ *human = Fighter_GetGObj(0);
+    FighterData *hmn = human ? human->userdata : 0;
+    if (hmn && IsBlaster(hmn)) DrawLowestLaserLines(hmn, LOW_LINE_COLOR);
+}
+
 void Event_Init(GOBJ *gobj) {
     LowLaserData *data = gobj->userdata;
     EventDesc *desc = data->desc;
@@ -215,6 +235,7 @@ void Event_Init(GOBJ *gobj) {
     options[OPT_HEIGHT].val = options[OPT_HEIGHT].val_prev = TM_GetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_HEIGHT);
     options[OPT_OSDS].val = options[OPT_OSDS].val_prev = TM_GetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_OSDS);
     options[OPT_SUPPRESS].val = options[OPT_SUPPRESS].val_prev = TM_GetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_SUPPRESS_GLOBAL);
+    options[OPT_LOW_LINE].val = options[OPT_LOW_LINE].val_prev = TM_GetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_LOW_LINE);
     event_vars->set_osd_suppression(&options[OPT_SUPPRESS].val);
     StageSwap_Init();
     /* Same centered HUD canvas, size and height as Under Fire's timing pair. */
@@ -243,8 +264,8 @@ void Event_Init(GOBJ *gobj) {
         Text_AddSubtext(timer, 0, 0, "00:00");
         Text_SetColor(timer, 0, &white);
     }
+    GObj_AddGXLink(GObj_Create(0, 7, 0), LowLaser_GX, MATCHGX_EFFECT, 255);
 }
-static int IsBlaster(FighterData *ft) { return ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO; }
 void Event_Think(GOBJ *gobj) {
     if (Pause_CheckStatus(1) == 2) return;
     LowLaserData *data = gobj->userdata;
@@ -323,6 +344,7 @@ static void ChangeHeight(GOBJ *menu, int value) {
 }
 static void ChangeOSDs(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_OSDS, value); }
 static void ChangeSuppression(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_SUPPRESS_GLOBAL, value); }
+static void ChangeLowLine(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_LOW_LASER, TM_LOW_LASER_LOW_LINE, value); }
 static void ResetPercent(GOBJ *menu) {
     FighterData *puff = Fighter_GetGObj(1)->userdata;
     puff->dmg.percent = puff->dmg.percent_temp = 0;

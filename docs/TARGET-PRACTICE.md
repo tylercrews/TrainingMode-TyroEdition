@@ -165,6 +165,7 @@ Each floor gets one line at the lowest laser that can be shot from it, `LowestLa
 - **The floors, across and shading** are the Hop Peak Lines' (`PeakFloors`): the main floor's and top platform's lines from blast zone to blast zone, a side platform's from its side's blast zone to the middle, Fountain's riding its side platforms and going while one is sunk. The row's color is the base over the side platforms, darker over the main floor and lighter over the top platform, as in [Colors](#colors).
 - **The row** is Off, then the 15 OSD colors in the color rows' order. Off draws nothing. It doesn't need Hop Peak Lines on.
 - **Drawing:** one `GX_LINES` batch (`DrawFloorLines`, which the Hop Peak Lines use too), 2 pixels wide at alpha 230 premultiplied, with no depth test, after the Hop Peak Lines and before the Double Jump Height line and the targets.
+- **Shared:** [Low Laser Puff Practice](LOW-LASER-PUFF.md#lowest-laser-lines) draws the same lines as an On/Off row, in Magenta, from the same code: the blaster heights, `LowestLaser`, the floors, the shades and `DrawFloorLines` are in `src/laser_lines.h`.
 
 ## Double Jump Height
 

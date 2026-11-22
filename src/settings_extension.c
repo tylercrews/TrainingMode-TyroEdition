@@ -39,9 +39,14 @@ static const ExtensionPreference sweetspot_preferences[TM_SWEETSPOT_PREF_COUNT] 
  * 20 bit 23 (byte 22 bit 7), the same way. */
 #define BLAST_ZONES_BYTE 22
 #define BLAST_ZONES_BIT 0x80u
-/* Position and height occupy byte 35 (word at 32, bits 24..30). */
+/* Position and height occupy byte 35 (word at 32, bits 24..30). Lowest Laser
+ * Lines (T10), appended after, is back in word 12 next to the toggles: bit 15,
+ * one of the retired bits every migration to version 24 zeroes (see
+ * RETIRED_LEDGE_BITS), with no version bump. Off, the default, is 0, and only
+ * a version 24 or later record owns it. */
+#define LOW_LASER_LOW_LINE_SHIFT 15
 static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {
-    {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0},
+    {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0}, {LOW_LASER_LOW_LINE_SHIFT,1,2,0},
 };
 static const ExtensionPreference powershield_preferences[TM_PS_PREF_COUNT] = {
     {0,2,4,0}, {2,6,61,0}, {8,6,61,20}, {14,3,5,0},
@@ -245,10 +250,13 @@ typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOW
  * all six retired bits (6..8 and the old action's 15..17) in every record it
  * migrates (RETIRED_LEDGE_BITS), and only a version 24 record owns them. Off,
  * the default, is 0, and a stored 7, no choice, reads as Off. Bits 15..17
- * stay free, zero in every version 24 record. */
+ * are zero in every version 24 record: Low Laser Puff Practice's Lowest Laser
+ * Lines took bit 15 that way, and 16..17 are free. */
 #define TARGETS_FULL_HOP_OFFSET 12
 #define TARGETS_FULL_HOP_SHIFT 6
 #define RETIRED_LEDGE_BITS (7u<<6 | 7u<<15)
+typedef char TMExtension_LowLaserLowLine[(TM_LOW_LASER_LOW_LINE==4 && TM_LOW_LASER_PREF_COUNT==5 &&
+    (RETIRED_LEDGE_BITS & 1u<<LOW_LASER_LOW_LINE_SHIFT) && TARGETS_FULL_HOP_OFFSET==12) ? 1 : -1];
 /* Double Jump Height (T10), appended after FH Multi Lasers, is back in word
  * 80: bit 30, after Hop Peak Lines, the same way (Off is 0, only a version 23
  * or later record owns it). Bit 31 stays free. */
@@ -510,7 +518,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || field==TM_SETTING_SWEETSPOT_DJ ||
         field==TM_SETTING_SWEETSPOT || (field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY)) return 20;
     if(field==TM_SETTING_LEDGECHASE && (index==TM_LEDGECHASE_PRESET || index==TM_LEDGECHASE_AIR_ATTACK)) return 16;
-    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION) return 32;
+    if(field==TM_SETTING_LOW_LASER && (index==TM_LOW_LASER_POSITION || index==TM_LOW_LASER_HEIGHT)) return 32;
     if(field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_REMOVE_PILLARS) return 9;
     return field==TM_SETTING_TECHCHASE?9:field==TM_SETTING_POWERSHIELD?16:12;
 }
@@ -816,6 +824,9 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     }
     if(v11 && field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) return (r[20]&15)<14?r[20]&15:0;
     if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
+    /* Only a version 24 or later record owns word 12's retired bits: before
+     * that, bit 15 could still hold Ledgechase's old action. */
+    if(field==TM_SETTING_LOW_LASER && index==TM_LOW_LASER_LOW_LINE && !supported(r) && !v24) return p->initial;
     /* Older records end before byte 35. */
     if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION && !supported(r) && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
     if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
