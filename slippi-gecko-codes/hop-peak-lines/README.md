@@ -2,18 +2,18 @@
 
 Standalone versions of the **Hop Peak Lines** from Tyro Edition's Target Practice event, for vanilla NTSC 1.02 Melee, including Slippi netplay. There's one code for Fox and one for Falco. Each one draws its character's lines on the six legal stages while that character is in the match (any port). Enable the one for the character you play, or both.
 
-Over the main floor and each platform, a code draws two lines: **teal** where a laser shot at the peak of a short hop flies, and **purple** where one shot at the peak of a full hop flies. That's the highest laser each jump can shoot from that floor. A laser shot on the way up or down goes lower.
+Over the main floor and each platform, a code draws two lines: **orange** where the highest laser a short hop can shoot flies, and **teal** where a full hop's does. That's the laser shot at the jump's peak (for Falco's short hop, as near it as a laser gets). A laser shot on the way up or down goes lower.
 
 They only draw: they read the stage's collision lines and which characters are playing, and never change game state, so they can't cause a desync. Your opponent doesn't need them.
 
 ## Reading the lines
 
-| | Short hop rise | Full hop rise | Laser over the feet | **Teal (short hop)** | **Purple (full hop)** |
+| | Short hop: B on, from | Full hop: B on, from | Laser over the feet | **Orange (short hop)** | **Teal (full hop)** |
 | --- | --- | --- | --- | --- | --- |
-| Fox | 8.55 | 27.6 | 9.28 | **17.83** | **36.88** |
-| Falco | 9.68 | 47.4 | 3.80 | **13.48** | **51.20** |
+| Fox | frame 2, 10.65 | frame 8, 31.28 | 9.28 | **19.93** | **40.56** |
+| Falco | frame 2, 11.44 | frame 14, 51.5 | 3.80 | **15.24** | **55.30** |
 
-The heights are above the floor you jump from.
+The heights are above the floor you jump from. "B on" is the airborne frame you press B on for that laser (the first airborne frame is 1), and "from" is how high you are on the frame before it fires, where the shot comes from. A jump off the ground skips gravity on its first frame, so it rises its whole jump speed then, unless you press B on that frame: the laser's physics takes over and applies gravity at once, and the hop peaks lower. That's why B on frame 1 can't reach the line, and why Falco's short hop line is 0.14 under his peak, which only B on frame 1 could shoot from.
 
 - **The main floor's and top platform's lines** go all the way across, from blast zone to blast zone.
 - **A side platform's lines** go from its side's blast zone to the middle of the stage and stop. Each side's lines sit over that side, so you can compare them: Dream Land's right platform is 0.1 higher than its left, and its lines are that much higher too.
@@ -35,8 +35,8 @@ On other stages they do nothing. The Fox code hooks `8016E740` and the Falco cod
 - **Who's playing:** each frame the callback asks the game for each port's active fighter (`Player_GetEntity`) and draws only if one of them is its character.
 - **Floors:** the main floor's height at the middle is a fixed number for each stage. Each platform is a fixed collision line ID. Every frame the code asks the game whether the line is on (`GrColl_CheckIfLineEnabled`, which Stadium's transformations turn off), then reads where its two ends are right now. That's how Fountain's moving platforms are followed. A line spanning the middle (the top platform) draws across, and one on one side draws from that side's blast zone to the middle. One less than 1 above the main floor is sunk (a hidden Fountain platform sits 0.375 up, inside the stage) and gets no lines.
 - **Blast zones:** the game's `Stage_GetBlastzoneLeft` and `Stage_GetBlastzoneRight`.
-- **Drawing:** one batch of 2-pixel lines, Training Mode's palette Purple (`A064FF`) and Teal (`00B4A0`) at alpha 230. Depth testing is off through `HSD_StateSetZMode`, the same way as the Randall Overlay, so nothing hides them.
-- **Numbers:** [scripts/hop_peak_lines.py](../../scripts/hop_peak_lines.py) reads them from a vanilla ISO: each jump's rise from the character's jump speed and gravity (the game applies gravity before moving), and the aerial laser's height from the character's skeleton, the same way Target Practice does ([scripts/laser_heights.py](../../scripts/laser_heights.py)). It also finds each stage's platform lines and main floor height. The Tyro event works the heights out from the live character instead.
+- **Drawing:** one batch of 2-pixel lines, Training Mode's palette Orange (`FF9628`) and Teal (`00B4A0`) at alpha 230. Depth testing is off through `HSD_StateSetZMode`, the same way as the Randall Overlay, so nothing hides them.
+- **Numbers:** [scripts/hop_peak_lines.py](../../scripts/hop_peak_lines.py) reads them from a vanilla ISO: each jump's highest laser, walking the jump from the character's jump speed and gravity for every B press (`laser_heights.peak_laser`: a jump off the ground skips gravity on its first frame unless B comes on it, and gravity comes before the move after that), and the aerial laser's height from the character's skeleton, the same way Target Practice does ([scripts/laser_heights.py](../../scripts/laser_heights.py)). It also finds each stage's platform lines and main floor height. The Tyro event works the heights out from the live character instead.
 
 | Stage | Main floor (y at x = 0) | Platform lines |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ The first rewrites the `.asm` files from the ISO. The second assembles them with
 - Each legal stage draws two lines per floor at the right heights and colors, worked out by hand for Fox on Battlefield and Falco on Final Destination. The main floor's and top platform's lines reach the live blast zones, and the side platforms' stop at the middle, Dream Land's included.
 - Fountain's lines follow its side platforms and go while one is sunk, and a platform whose line is off has none.
 - A code draws nothing until its character is in the match, and nothing on other stages (where it never asks about a line, since the game's check hangs on one the stage doesn't have) or render passes.
-- The line width, colors and sunk height are Target Practice's (its default Teal and Purple; the event also darkens the main floor's lines and lightens the top platform's, and lets you pick the colors, which the codes don't).
+- The line width, colors and sunk height are Target Practice's (its default Orange and Teal; the event also darkens the main floor's lines and lightens the top platform's, and lets you pick the colors, which the codes don't).
 - When `melee.iso` is at the repo root, the `.asm` files match what the script gives, the heights are Target Practice's, the platform lines are the stages', and each hook replaces exactly the instruction the vanilla DOL has there.
 
 The game functions are stubbed and the GX writes are recorded, so it checks what the codes ask to draw, not the picture.

@@ -18,9 +18,9 @@ GCT = ROOT / 'build/hop-peak-lines.gct'
 # Hook address: text file, Slippi code name, description line.
 CODES = {
     0x8016E740: ('fox-hop-peak-lines.txt', 'Fox Hop Peak Lines (Slippi NTSC 1.02)',
-                 "Teal: a laser at a short hop's peak. Purple: a full hop's. Over the floor and each platform."),
+                 "Orange: a short hop's highest laser. Teal: a full hop's. Over the floor and each platform."),
     0x8016E930: ('falco-hop-peak-lines.txt', 'Falco Hop Peak Lines (Slippi NTSC 1.02)',
-                 "Teal: a laser at a short hop's peak. Purple: a full hop's. Over the floor and each platform."),
+                 "Orange: a short hop's highest laser. Teal: a full hop's. Over the floor and each platform."),
 }
 NOTE = 'Legal stages, while this character is in the match. Side platform lines stop at the middle. Visual only.'
 

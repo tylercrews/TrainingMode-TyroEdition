@@ -382,11 +382,11 @@ enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS
                            TM_TARGETS_POINTERS, TM_TARGETS_PREF_COUNT };
 /* A Hop Peak Line's base color: the OSD palette's White..Lavender, value v
  * being TM_COLOR_WHITE + v. Each is stored as its distance from its default,
- * Teal for the short hop's and Purple for the full hop's, so word 84's zeros
+ * Orange for the short hop's and Teal for the full hop's, so word 84's zeros
  * read as those. A stored 15 isn't a color and reads as the default. */
 #define TM_TARGETS_COLOR_COUNT (TM_COLOR_COUNT - TM_COLOR_WHITE)
-#define TM_TARGETS_SH_COLOR_DEFAULT (TM_COLOR_TEAL - TM_COLOR_WHITE)
-#define TM_TARGETS_FH_COLOR_DEFAULT (TM_COLOR_PURPLE - TM_COLOR_WHITE)
+#define TM_TARGETS_SH_COLOR_DEFAULT (TM_COLOR_ORANGE - TM_COLOR_WHITE)
+#define TM_TARGETS_FH_COLOR_DEFAULT (TM_COLOR_TEAL - TM_COLOR_WHITE)
 /* FH Multi Lasers as saved: Off, every combo at random, or one combo every
  * spawn. High-Low took Peak-Low's value, and High-Lowest's (6), which nothing
  * writes now, reads as High-Low too. The menu lists High-Medium before

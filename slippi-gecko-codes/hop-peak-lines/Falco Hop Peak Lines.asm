@@ -1,7 +1,7 @@
     # To be inserted at 8016e930
     # Falco Hop Peak Lines for vanilla NTSC 1.02 Melee / Slippi.
-    # While Falco is in the match on a legal stage, draws a teal line where
-    # a laser shot at the peak of Falco's short hop flies, and a purple one
+    # While Falco is in the match on a legal stage, draws an orange line
+    # where the highest laser of Falco's short hop flies, and a teal one
     # for a full hop, over the main floor and each platform. Written by
     # scripts/hop_peak_lines.py from the ISO; the drawing is shared in
     # hop-peak-lines.inc.
@@ -9,8 +9,8 @@
     .set FIGHTER_KIND, 22
 
     .macro character_data
-    .float 13.477983                # short hop: rises 9.6800, laser 3.7980 over TopN
-    .float 51.197981                # full hop: rises 47.4000
+    .float 15.237983                # short hop: B on frame 2 shoots from 11.4400 up, laser 3.7980 over TopN
+    .float 55.297981                # full hop: B on frame 14 shoots from 51.5000 up
     .endm
 
     # External stage ID, platform lines (NO_LINE: none), main floor y at x = 0.

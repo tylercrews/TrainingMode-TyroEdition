@@ -1,7 +1,7 @@
     # To be inserted at 8016e740
     # Fox Hop Peak Lines for vanilla NTSC 1.02 Melee / Slippi.
-    # While Fox is in the match on a legal stage, draws a teal line where
-    # a laser shot at the peak of Fox's short hop flies, and a purple one
+    # While Fox is in the match on a legal stage, draws an orange line
+    # where the highest laser of Fox's short hop flies, and a teal one
     # for a full hop, over the main floor and each platform. Written by
     # scripts/hop_peak_lines.py from the ISO; the drawing is shared in
     # hop-peak-lines.inc.
@@ -9,8 +9,8 @@
     .set FIGHTER_KIND, 1
 
     .macro character_data
-    .float 17.832854                # short hop: rises 8.5500, laser 9.2829 over TopN
-    .float 36.882855                # full hop: rises 27.6000
+    .float 19.932854                # short hop: B on frame 2 shoots from 10.6500 up, laser 9.2829 over TopN
+    .float 40.562855                # full hop: B on frame 8 shoots from 31.2800 up
     .endm
 
     # External stage ID, platform lines (NO_LINE: none), main floor y at x = 0.

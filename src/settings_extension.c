@@ -256,7 +256,7 @@ typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOW
 /* The Hop Peak Lines' colors (T10), appended after, had no room left in the
  * record: version 25 appends word 84, the last of the free score bytes, and
  * they're its bits 0..3 (short hop) and 4..7 (full hop). Each is stored as its
- * distance from its default, Teal and Purple, the way Passing Practice's rows
+ * distance from its default, Orange and Teal, the way Passing Practice's rows
  * are, so the zeros every migration to 25 writes read as the defaults, and a
  * stored 15, no color, reads as the default. Only a version 25 record owns
  * the word. Target Pointers (T10), appended after, is bit 8 with no version

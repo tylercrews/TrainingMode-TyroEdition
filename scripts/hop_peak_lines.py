@@ -1,12 +1,13 @@
 """Print, and with --write regenerate, the Hop Peak Lines Gecko codes' numbers.
 
-From a vanilla ISO, for Fox and Falco: the laser shot at the peak of a short
-hop and of a full hop, above the floor jumped from. That's the jump's rise
-(the native jump applies gravity before moving, scripts/laser_heights.rise)
-plus the aerial laser's height over TopN (laser_heights.Fighter.constants()).
-A jump's peak is its highest point and a shot comes from where the fighter was
-the frame before, so these are the highest lasers each jump can shoot.
-src/targets.c works out the same from the live fighter.
+From a vanilla ISO, for Fox and Falco: the highest laser a short hop and a
+full hop can shoot, above the floor jumped from (laser_heights.peak_laser):
+the height the fighter is at the frame before the shot, for the B press that
+shoots highest, plus the aerial laser's height over TopN
+(laser_heights.Fighter.constants()). A jump off the ground skips gravity on its
+first frame unless B comes on it (laser_heights.hop), so that's the shot from
+the apex, but for Falco's short hop, which peaks too soon for any press but
+the first. src/targets.c works out the same from the live fighter.
 
 For each legal stage: the main floor's height at the middle (x = 0), and its
 platform lines: one-way floor lines at least 10 wide, from Stadium's base
@@ -42,9 +43,11 @@ STAGES = sorted(stages.STAGES + [('GrIz.dat', 'Fountain of Dreams', 2, None)], k
 def peaks(iso, name):
     """(short hop, full hop) peak laser above the floor, and the pieces."""
     fighter = laser_heights.Fighter(iso, name)
-    a, air = fighter.attr, fighter.constants()['air']
-    hop, full = laser_heights.rise(a['hop_v'], a['gravity']), laser_heights.rise(a['jump_v'], a['gravity'])
-    return {'short': hop + air, 'full': full + air, 'hop': hop, 'jump': full, 'air': air}
+    a, c = fighter.attr, fighter.constants()
+    (short, hop_press, hop), (full, jump_press, jump) = (laser_heights.peak_laser(a, c, a[v])
+                                                         for v in ('hop_v', 'jump_v'))
+    return {'short': short, 'full': full, 'hop': hop, 'jump': jump, 'air': c['air'],
+            'hop_press': hop_press, 'jump_press': jump_press}
 
 
 def stage_numbers(iso):
@@ -68,8 +71,8 @@ def asm(code, n, stage_table):
     lines = [
         f'    # To be inserted at {hook:08x}',
         f'    # {name} Hop Peak Lines for vanilla NTSC 1.02 Melee / Slippi.',
-        f'    # While {name} is in the match on a legal stage, draws a teal line where',
-        f'    # a laser shot at the peak of {name}\'s short hop flies, and a purple one',
+        f'    # While {name} is in the match on a legal stage, draws an orange line',
+        f'    # where the highest laser of {name}\'s short hop flies, and a teal one',
         '    # for a full hop, over the main floor and each platform. Written by',
         '    # scripts/hop_peak_lines.py from the ISO; the drawing is shared in',
         '    # hop-peak-lines.inc.',
@@ -77,8 +80,9 @@ def asm(code, n, stage_table):
         f'    .set FIGHTER_KIND, {kind}',
         '',
         '    .macro character_data',
-        f'    .float {n["short"]:.6f}                # short hop: rises {n["hop"]:.4f}, laser {n["air"]:.4f} over TopN',
-        f'    .float {n["full"]:.6f}                # full hop: rises {n["jump"]:.4f}',
+        f'    .float {n["short"]:.6f}                # short hop: B on frame {n["hop_press"]} shoots from '
+        f'{n["hop"]:.4f} up, laser {n["air"]:.4f} over TopN',
+        f'    .float {n["full"]:.6f}                # full hop: B on frame {n["jump_press"]} shoots from {n["jump"]:.4f} up',
         '    .endm',
         '',
         '    # External stage ID, platform lines (NO_LINE: none), main floor y at x = 0.',
@@ -106,8 +110,9 @@ def main():
         table = stage_numbers(iso)
         for code in CODES:
             n = peaks(iso, code[0])
-            print(f'{code[0]}: short hop rises {n["hop"]:.4f}, full hop {n["jump"]:.4f}, aerial laser '
-                  f'{n["air"]:.4f} over TopN: lines {n["short"]:.4f} (teal) and {n["full"]:.4f} (purple) up')
+            print(f'{code[0]}: short hop shoots from {n["hop"]:.4f} (B on frame {n["hop_press"]}), full hop from '
+                  f'{n["jump"]:.4f} (B on frame {n["jump_press"]}), aerial laser {n["air"]:.4f} over TopN: '
+                  f'lines {n["short"]:.4f} (orange) and {n["full"]:.4f} (teal) up')
             if '--write' in sys.argv:
                 asm_path(code[0]).write_text(asm(code, n, table), newline='\n')
                 print(f'  wrote {asm_path(code[0]).name}')

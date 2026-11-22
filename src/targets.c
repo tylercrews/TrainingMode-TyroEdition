@@ -36,6 +36,13 @@
  *   (0x12C / 256), so a target smaller than 1.55 needs a low laser at the
  *   bottom of its range.
  *
+ * Jumps. A jump off the ground skips gravity on its first frame
+ * (ftCo_Jump_Phys: mv.co.jump.x4 starts false), so it rises its whole speed
+ * that frame, and Fox's full hop peaks at 31.28, not 27.6. B on that first
+ * frame takes the skip away: the anim proc starts the jump and the input proc
+ * runs before the physics, so the aerial laser's physics (ft_80084DB0, gravity
+ * first) runs instead. A double jump never skips it (ftCo_JumpAerial_Phys).
+ *
  * Hits. A laser's hitboxes sweep from last frame's spot to this one's
  * (it_80272674: state 1 is a new hitbox, 2 and on hold both ends), so a laser
  * moving 5 to 7 units a frame can't skip a target. One whose swept capsule
@@ -46,8 +53,9 @@
  * frames and the Loop's fire frame), then every Loop (Fox 10 frames, Falco 16)
  * while B is pressed again in time. ShortHopPresses walks a short hop with no
  * fastfall (fastfalling only lands sooner) and finds the press frames whose
- * second shot comes before the landing. For Fox that's B on the first airborne
- * frame: shots at 17.8 and 5.5 above the floor. Falco's slower laser never
+ * second shot comes before the landing. For Fox that's B on airborne frames 1
+ * to 3: shots at 17.8 and 5.5 above the floor, 19.9 and 7.6, or 19.7 and 5.1
+ * (B on frame 1 keeps the hop lower, see Jumps). Falco's slower laser never
  * fits, so the row reads (N/A) for him. A pair's floor is the main floor, a
  * side platform or the top platform, each kind as likely as the others where
  * the stage has one that holds still: Fountain's side platforms move, Stadium
@@ -65,11 +73,13 @@
  * random; one combo picked makes every spawn that combo, but for SH pairs if
  * they're on too.
  *
- * Hop Peak Lines. A jump's highest laser is the one shot from its peak (the
- * shot comes from where the fighter was the frame before, and the peak is the
- * highest it gets), so each floor gets two lines, a short hop's and a full
- * hop's, Rise + the aerial laser height above it. Each hop has a base color
- * (Teal and Purple unless picked otherwise), darker over the main floor and
+ * Hop Peak Lines. Each floor gets two lines, a short hop's and a full hop's,
+ * at the highest laser that jump can shoot (PeakPress): the one from its peak,
+ * since a shot comes from where the fighter was the frame before. Falco's
+ * short hop peaks on airborne frame 12, which only B on frame 1 could shoot
+ * from, and that B takes away the skipped gravity, so his line is B on frame
+ * 2's, 0.14 under the peak. Each hop has a base color
+ * (Orange and Teal unless picked otherwise), darker over the main floor and
  * lighter over the top platform. The main floor's and the top platform's go
  * from blast zone to blast zone; a side platform's stop at the middle (x = 0),
  * so the two sides' read apart (Dream Land's right platform is 0.1 higher).
@@ -359,7 +369,8 @@ static float LowestLaser(const Blaster *blaster) {
     return height > 0 ? height : 0;
 }
 
-/* Apex rise for one jump: the native jump applies gravity before moving. */
+/* Apex rise for a jump that applies gravity before moving from its first
+ * frame: a double jump (ftCo_JumpAerial_Phys). */
 static float Rise(float velocity, float gravity) {
     float height = 0;
     if (gravity <= 0) return 0;
@@ -374,26 +385,33 @@ static float Rise(float velocity, float gravity) {
 static float DoubleJumpRise(FighterData *ft) {
     return Rise(ft->attr.jump_v_initial_velocity * ft->attr.air_jump_v_multiplier, ft->attr.gravity);
 }
+/* A full hop's apex, with no B on its first frame (see Jumps: the first frame
+ * rises the whole speed), then a double jump from there. */
 static float FullHopDoubleJump(FighterData *ft) {
-    return Rise(ft->attr.jump_v_initial_velocity, ft->attr.gravity) + DoubleJumpRise(ft);
+    float velocity = ft->attr.jump_v_initial_velocity;
+    return velocity + Rise(velocity, ft->attr.gravity) + DoubleJumpRise(ft);
 }
 
-/* Height after each airborne frame of a jump from `velocity`, frame 1 the
- * first, with a fastfall on frame `fastfall` (0 for none). ft_80084DB0 checks
- * for one before gravity (ftCommon_CheckFallFast): it takes only if the
- * fighter was already falling, and from then on the fall is fastfall_velocity
- * every frame. Returns whether it took. */
-static bool Jump(FighterData *ft, float velocity, int fastfall, float *y) {
+/* Height after each airborne frame of a jump off the ground from `velocity`,
+ * frame 1 the first, with B on airborne frame `press` (0 for none) and a
+ * fastfall on frame `fastfall` (0 for none). The first frame skips gravity
+ * unless B comes on it (see Jumps). ft_80084DB0 checks for a fastfall before
+ * gravity (ftCommon_CheckFallFast): it takes only if the fighter was already
+ * falling, and from then on the fall is fastfall_velocity every frame.
+ * Returns whether it took. */
+static bool Jump(FighterData *ft, float velocity, int press, int fastfall, float *y) {
     float gravity = ft->attr.gravity, fall = ft->attr.terminal_velocity;
     bool fast = false;
     y[0] = 0;
     for (int frame = 1; frame < JUMP_FRAMES; ++frame) {
-        if (frame == fastfall && velocity < 0) fast = true;
-        if (fast) {
-            velocity = -ft->attr.fastfall_velocity;
-        } else {
-            velocity -= gravity;
-            if (velocity < -fall) velocity = -fall;
+        if (frame > 1 || press == 1) {
+            if (frame == fastfall && velocity < 0) fast = true;
+            if (fast) {
+                velocity = -ft->attr.fastfall_velocity;
+            } else {
+                velocity -= gravity;
+                if (velocity < -fall) velocity = -fall;
+            }
         }
         y[frame] = y[frame - 1] + velocity;
     }
@@ -419,8 +437,29 @@ static int Shots(const Blaster *blaster, const float *y, int press, int count, f
 // The same with no fastfall.
 static int JumpShots(FighterData *ft, const Blaster *blaster, float velocity, int press, int count, float *heights) {
     float y[JUMP_FRAMES];
-    Jump(ft, velocity, 0, y);
+    Jump(ft, velocity, press, 0, y);
     return Shots(blaster, y, press, count, heights);
+}
+/* A jump's two walks with no fastfall: B on its first frame (0), which keeps
+ * that frame's gravity, and B on any later frame (1). */
+static void Walks(FighterData *ft, float velocity, float (*walks)[JUMP_FRAMES]) {
+    Jump(ft, velocity, 1, 0, walks[0]);
+    Jump(ft, velocity, 2, 0, walks[1]);
+}
+/* The press whose first shot is the jump's highest laser, the earliest of any
+ * that tie, and that laser's height above the floor. It's the shot from the
+ * apex when a press can reach it. */
+static int PeakPress(FighterData *ft, const Blaster *blaster, float velocity, float *laser) {
+    float walks[2][JUMP_FRAMES], shot;
+    int best = 0;
+    Walks(ft, velocity, walks);
+    *laser = 0;
+    for (int press = 1; press < JUMP_FRAMES; ++press)
+        if (Shots(blaster, walks[press > 1], press, 1, &shot) && (!best || shot > *laser)) {
+            best = press;
+            *laser = shot;
+        }
+    return best;
 }
 // A short hop double laser's two shots. 0 if it lands before the second.
 static int ShortHopShots(FighterData *ft, const Blaster *blaster, int press, float *high, float *low) {
@@ -430,8 +469,10 @@ static int ShortHopShots(FighterData *ft, const Blaster *blaster, int press, flo
     *low = shots[1];
     return 1;
 }
-/* How many press frames from the first fit both shots. A later press is a
- * later second shot, so they're 1 to the count. */
+/* How many press frames from the first fit both shots. B on frame 2 shoots a
+ * frame later than B on frame 1 but from a hop its speed higher (see Jumps),
+ * so it fits if 1 does, and from there a later press is a later, lower second
+ * shot. So they're 1 to the count. */
 static int ShortHopPresses(FighterData *ft, const Blaster *blaster) {
     float high, low;
     int count = 0;
@@ -440,10 +481,11 @@ static int ShortHopPresses(FighterData *ft, const Blaster *blaster) {
 }
 
 /* FH Multi Lasers' combos, each one B press in a full hop. With no fastfall,
- * a later press makes a lower second shot (it's past the apex for every
- * press), so the doubles run from press 1 to the last whose second shot comes
- * before landing, and the peak press is the one whose first shot comes from
- * the apex:
+ * from press 2 on a later press makes a lower second shot (it's past the apex
+ * for every press), and press 1's hop is lower still (see Jumps), so the
+ * doubles run from press 1 to the last whose second shot comes before
+ * landing, and the peak press is the one whose first shot comes from the
+ * apex (PeakPress):
  *
  * - Hi-Hi-Low: looped twice for three shots, the press whose first two come
  *   nearest the same height, either side of the apex, the earliest of any
@@ -451,9 +493,9 @@ static int ShortHopPresses(FighterData *ft, const Blaster *blaster) {
  * - High-MedHigh: no fastfall, the second shot nearest halfway from the peak
  *   press's up to the highest any double has; High-Medium: halfway down to
  *   the last double's.
- * - High-Low: the first shot from the peak (Hop Peak Lines' purple), B again,
- *   and a fastfall, for the lowest second shot there is after that first one
- *   (HighLow).
+ * - High-Low: the first shot from the peak (the full hop's Hop Peak Line),
+ *   B again, and a fastfall, for the lowest second shot there is after that
+ *   first one (HighLow).
  *
  * A combo that doesn't fit the fighter has no shots. */
 static struct full_hop {
@@ -505,19 +547,27 @@ static void HiHiLow(FighterData *ft, const Blaster *blaster) {
     full_hops[FH_HI_HI_LOW].offsets[1] = HHL_SPREAD;
 }
 /* Of every press and fastfall frame whose first shot is from the peak
- * (`peak`, the full hop's peak laser), the lowest second shot. The apex can
- * hold two frames (Fox's 15th and 16th, 2e-7 apart), so either can shoot it,
- * and the later press has longer to fall. The fastfall comes out the earliest
- * that still gets the second shot out before landing: a later one falls less. */
+ * (`peak`, the full hop's peak laser), the lowest second shot, the earliest
+ * fastfall and then press of any that tie. The apex can hold two frames
+ * (Fox's 16th and 17th, 2e-7 apart), so either can shoot it, and the later
+ * press has longer to fall. A fastfall only lowers the frames from its own on,
+ * so only a press whose first shot is the peak with no fastfall can be one,
+ * and a fastfall after the second shot changes nothing. The earliest fastfall
+ * that takes and still gets the second shot out before landing wins: a later
+ * one falls less. */
 #define PEAK_HOLD .001f
 static void HighLow(FighterData *ft, const Blaster *blaster, float peak) {
     struct full_hop *c = &full_hops[FH_HIGH_LOW];
-    float y[JUMP_FRAMES], shots[2];
-    for (int fastfall = 1; fastfall < JUMP_FRAMES; ++fastfall) {
-        if (!Jump(ft, FullHopVelocity(ft), fastfall, y)) continue;
-        for (int press = 1; press + blaster->delay + blaster->loop < JUMP_FRAMES; ++press) {
-            if (!Shots(blaster, y, press, 2, shots) || shots[0] < peak - PEAK_HOLD) continue;
-            if (c->shots && shots[1] >= c->heights[1]) continue;
+    float walks[2][JUMP_FRAMES], y[JUMP_FRAMES], shots[2];
+    Walks(ft, FullHopVelocity(ft), walks);
+    for (int press = 1; press + blaster->delay + blaster->loop < JUMP_FRAMES; ++press) {
+        if (!Shots(blaster, walks[press > 1], press, 1, shots) || shots[0] < peak - PEAK_HOLD) continue;
+        for (int fastfall = 1; fastfall <= press + blaster->delay + blaster->loop; ++fastfall) {
+            if (!Jump(ft, FullHopVelocity(ft), press, fastfall, y) || !Shots(blaster, y, press, 2, shots) ||
+                shots[0] < peak - PEAK_HOLD)
+                continue;
+            if (c->shots && (shots[1] > c->heights[1] || (shots[1] == c->heights[1] && fastfall >= c->fastfall)))
+                continue;
             c->press = press;
             c->fastfall = fastfall;
             c->shots = 2;
@@ -527,8 +577,8 @@ static void HighLow(FighterData *ft, const Blaster *blaster, float peak) {
     }
 }
 static void FullHopCombos(FighterData *ft, const Blaster *blaster) {
-    float y[JUMP_FRAMES], shots[2], top = 0;
-    int apex = 1, doubles = 0, highest = 1;
+    float shots[2], top = 0, peak_laser;
+    int doubles = 0, highest = 1;
     for (int i = 0; i < FH_COUNT; ++i) {
         full_hops[i].shots = full_hops[i].fastfall = 0;
         for (int s = 0; s < MAX_SHOTS; ++s) full_hops[i].offsets[s] = 0;
@@ -541,12 +591,9 @@ static void FullHopCombos(FighterData *ft, const Blaster *blaster) {
         }
     }
     if (!doubles) return;
-    Jump(ft, FullHopVelocity(ft), 0, y);
-    for (int frame = 2; frame < JUMP_FRAMES; ++frame)
-        if (y[frame] > y[apex]) apex = frame;
-    int peak = apex + 1 - blaster->delay;
+    int peak = PeakPress(ft, blaster, FullHopVelocity(ft), &peak_laser);
     HiHiLow(ft, blaster);
-    HighLow(ft, blaster, y[apex] + blaster->air);
+    HighLow(ft, blaster, peak_laser);
     if (peak < 1 || peak > doubles) return; // The middles are timed around the peak press.
     float middle = SecondShot(ft, blaster, peak);
     SetCombo(ft, blaster, FH_HIGH_MEDHIGH,
@@ -955,7 +1002,7 @@ static void DrawPop(struct pop *pop) {
 /* A Hop Peak Line's color: its hop's row's color, at alpha 230,
  * premultiplied. Darker over the main floor (3/5 of each channel), as picked
  * over the side platforms, and lighter over the top platform (halfway to
- * white). Teal (00B4A0) and Purple (A064FF) unless picked otherwise. */
+ * white). Orange (FF9628) and Teal (00B4A0) unless picked otherwise. */
 #define PEAK_ALPHA 230
 enum { SHADE_DARK, SHADE_BASE, SHADE_LIGHT };
 static GXColor PeakColor(int hop, int shade) {
@@ -1076,8 +1123,8 @@ static void CheckFighter(FighterData *ft) {
     checked = true;
     pair_presses = ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO ? ShortHopPresses(ft, blaster) : 0;
     if (ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO) FullHopCombos(ft, blaster);
-    peak_lasers[0] = Rise(ft->attr.hop_v_initial_velocity, ft->attr.gravity) + blaster->air;
-    peak_lasers[1] = Rise(ft->attr.jump_v_initial_velocity, ft->attr.gravity) + blaster->air;
+    PeakPress(ft, blaster, ft->attr.hop_v_initial_velocity, &peak_lasers[0]);
+    PeakPress(ft, blaster, ft->attr.jump_v_initial_velocity, &peak_lasers[1]);
     double_jump = DoubleJumpRise(ft);
     GateLaserRows();
 }

@@ -184,7 +184,8 @@ class Fighter:
 
 
 def rise(v, gravity):
-    """Apex rise of a jump: the native jump applies gravity before moving."""
+    """Apex rise of a jump that applies gravity before moving from its first frame: a
+    double jump (ftCo_JumpAerial_Phys)."""
     height = 0.
     for _ in range(256):
         v -= gravity
@@ -192,6 +193,34 @@ def rise(v, gravity):
             break
         height += v
     return height
+
+
+def hop(v, gravity, terminal, press=0, frames=96):
+    """Height after each airborne frame of a jump off the ground at speed v, with B on
+    airborne frame `press` (0 for none). The jump's physics skips gravity on its first
+    frame (ftCo_Jump_Phys: mv.co.jump.x4 starts false), so it rises its whole speed. B on
+    that frame takes the skip away: the input proc runs between the anim proc that starts
+    the jump and the physics, so the aerial laser's physics (ft_80084DB0, gravity first)
+    runs instead."""
+    y = [0.]
+    for frame in range(1, frames):
+        if frame > 1 or press == 1:
+            v = max(v - gravity, -terminal)
+        y.append(y[-1] + v)
+    return y
+
+
+def peak_laser(attr, constants, v):
+    """(height, press, from): the highest laser a hop at speed v can shoot above the floor
+    it's from, the B press that shoots it (the earliest of any that tie), and TopN's height
+    it comes from. B on airborne frame p shoots `delay` frames later, from where the
+    fighter was the frame before."""
+    best = None
+    for press in range(1, 80):
+        from_y = hop(v, attr['gravity'], attr['terminal'], press)[press + constants['delay'] - 1]
+        if best is None or from_y + constants['air'] > best[0]:
+            best = (from_y + constants['air'], press, from_y)
+    return best
 
 
 def main():
@@ -208,12 +237,14 @@ def main():
                     mark = ' <- shot' if frame == fire else ''
                     print(f'  {loop} f{frame}: laser {y:.4f} up, {z:.4f} ahead, '
                           f'ECB bottom {ft.ecb_bottom(loop, frame):.4f}{mark}')
-            full = rise(a['jump_v'], a['gravity'])
-            double = rise(a['jump_v'] * a['air_jump_mult'], a['gravity'])
-            hop = rise(a['hop_v'], a['gravity'])
-            print(f'  short hop {hop:.4f}, full hop {full:.4f}, double jump {double:.4f}, '
-                  f'full hop + double jump {full + double:.4f}')
             c = ft.constants()
+            short, full = (max(hop(a[v], a['gravity'], a['terminal'])) for v in ('hop_v', 'jump_v'))
+            double = rise(a['jump_v'] * a['air_jump_mult'], a['gravity'])
+            print(f'  short hop {short:.4f}, full hop {full:.4f}, double jump {double:.4f}, '
+                  f'full hop + double jump {full + double:.4f}')
+            for v, name in (('hop_v', 'short hop'), ('jump_v', 'full hop')):
+                laser, press, from_y = peak_laser(a, c, a[v])
+                print(f'  {name} peak laser {laser:.4f} up: B on airborne frame {press}, from {from_y:.4f}')
             print(f'  targets.c: {{{c["air"]:.4f}f, {c["ground"]:.4f}f, {c["ecb_bottom"]:.4f}f, '
                   f'{c["delay"]}, {c["loop"]}}}; lowest laser {max(c["air"] - c["ecb_bottom"], 0):.4f}, '
                   f'laser hitbox {ft.laser_hitbox()}/256')

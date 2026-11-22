@@ -29,7 +29,7 @@ TEXT = {'Fox': 'fox-hop-peak-lines.txt', 'Falco': 'falco-hop-peak-lines.txt'}
 STOP, RETURN, R13, FIFO, SCRATCH = 0x80004000, 0x80004100, 0x804DB6A0, 0xCC008000, 0x80F00000
 LINES_AT, DESCS_AT, VERTS_AT = 0x80B00000, 0x80B10000, 0x80B20000
 GX_LINES, WIDTH = 0xA8, 12
-TEAL, PURPLE = 0x00A290E6, 0x905AE6E6  # Premultiplied RGBA: Target Practice's default Teal and Purple.
+ORANGE, TEAL = 0xE68724E6, 0x00A290E6  # Premultiplied RGBA: Target Practice's default Orange and Teal.
 SUNK = 1.0
 # External stage ID: line count, the platform lines' live ends (as the game
 # starts them), and the main floor at x = 0. From notes/LEGAL-STAGE-PLATFORMS.md;
@@ -295,7 +295,7 @@ def expected(name, stage, lines, enabled, blast):
         floors.append((left, right, y))
     floors = [(f32(left), f32(right), y) for left, right, y in floors]
     return [(left, right, f32(f32(y) + height), color)
-            for left, right, y in floors for height, color in ((short, TEAL), (full, PURPLE))]
+            for left, right, y in floors for height, color in ((short, ORANGE), (full, TEAL))]
 
 
 class HookTests(unittest.TestCase):
@@ -373,17 +373,17 @@ class DrawTests(unittest.TestCase):
         source = (ROOT / 'src/targets.c').read_text()
         self.assertIn('#define SUNK_PLATFORM 1.f', source)
         self.assertIn('#define PEAK_LINE_WIDTH 12', source)
-        # The codes draw one color a hop: the event's defaults, Teal and Purple, as it draws them
+        # The codes draw one color a hop: the event's defaults, Orange and Teal, as it draws them
         # over the side platforms (its base shade), at its alpha, premultiplied.
         self.assertIn('#define PEAK_ALPHA 230', source)
         names = re.findall(r'"([^"]+)"', re.search(r'LineColorText\[TM_TARGETS_COLOR_COUNT\] = \{(.*?)\};', source, re.S)[1])
         rgbs = re.findall(r'\{(\d+), (\d+), (\d+)\}',
                           re.search(r'LineColors\[TM_TARGETS_COLOR_COUNT\]\[3\] = \{(.*?)\n\};', source, re.S)[1])
         premultiplied = lambda name: int.from_bytes(bytes([int(v) * 230 // 255 for v in rgbs[names.index(name)]] + [230]), 'big')
-        self.assertEqual((TEAL, PURPLE), (premultiplied('Teal'), premultiplied('Purple')))
+        self.assertEqual((ORANGE, TEAL), (premultiplied('Orange'), premultiplied('Teal')))
         settings = (ROOT / 'src/settings.h').read_text()
-        self.assertIn('#define TM_TARGETS_SH_COLOR_DEFAULT (TM_COLOR_TEAL - TM_COLOR_WHITE)', settings)
-        self.assertIn('#define TM_TARGETS_FH_COLOR_DEFAULT (TM_COLOR_PURPLE - TM_COLOR_WHITE)', settings)
+        self.assertIn('#define TM_TARGETS_SH_COLOR_DEFAULT (TM_COLOR_ORANGE - TM_COLOR_WHITE)', settings)
+        self.assertIn('#define TM_TARGETS_FH_COLOR_DEFAULT (TM_COLOR_TEAL - TM_COLOR_WHITE)', settings)
         # Both codes list the same stages, the six legal ones.
         self.assertEqual(stage_table('Fox'), stage_table('Falco'))
         self.assertEqual(set(stage_table('Fox')), set(STAGES))
@@ -409,8 +409,9 @@ class DrawTests(unittest.TestCase):
                     self.assertLines(m.drawn(), wanted)
 
     def test_fox_on_battlefield_by_hand(self):
-        # Fox's short hop rises 8.55 and his full hop 27.6, and his aerial laser
-        # comes out 9.28 over TopN: 17.83 and 36.88 over each floor.
+        # Fox's short hop rises 2.1 on its first frame (no gravity) and then 8.55, and his
+        # full hop 3.68 and then 27.6: B on airborne frames 2 and 8 shoot from those peaks,
+        # 10.65 and 31.28, with his aerial laser 9.28 over TopN: 19.93 and 40.56 over each floor.
         m = self.m
         m.add_player(3, CODES['Fox'][0])
         m.set_stage(31)
@@ -419,14 +420,16 @@ class DrawTests(unittest.TestCase):
         self.assertEqual(count, 16)
         got = [(round(l, 3), round(r, 3), round(y, 3), color) for l, r, y, color in lines]
         self.assertEqual(got, [
-            (-224, 224, 17.833, TEAL), (-224, 224, 36.883, PURPLE),        # the main floor
-            (-224, 0, 45.033, TEAL), (-224, 0, 64.083, PURPLE),            # the left platform, to the middle
-            (-224, 224, 72.233, TEAL), (-224, 224, 91.283, PURPLE),        # the top one, across
-            (0, 224, 45.033, TEAL), (0, 224, 64.083, PURPLE),              # the right one, from the middle
+            (-224, 224, 19.933, ORANGE), (-224, 224, 40.563, TEAL),        # the main floor
+            (-224, 0, 47.133, ORANGE), (-224, 0, 67.763, TEAL),            # the left platform, to the middle
+            (-224, 224, 74.333, ORANGE), (-224, 224, 94.963, TEAL),        # the top one, across
+            (0, 224, 47.133, ORANGE), (0, 224, 67.763, TEAL),              # the right one, from the middle
         ])
 
     def test_falco_on_final_destination_by_hand(self):
-        # Falco's short hop rises 9.68 and his full hop 47.4, with his laser 3.80 up.
+        # Falco's short hop peaks at 11.58 on airborne frame 12, too soon for any B but the first, which
+        # takes away the first frame's skipped gravity: B on frame 2 shoots from 11.44. His full hop's
+        # B on frame 14 shoots from its 51.5 peak. His laser is 3.80 up: 15.24 and 55.30.
         m = self.m
         m.add_player(0, CODES['Falco'][0])
         m.set_stage(32)
@@ -434,7 +437,7 @@ class DrawTests(unittest.TestCase):
         (_, _, count), lines = m.drawn()
         self.assertEqual(count, 4)
         self.assertEqual([(l, r, round(y, 3), c) for l, r, y, c in lines],
-                         [(-246, 246, 13.478, TEAL), (-246, 246, 51.198, PURPLE)])
+                         [(-246, 246, 15.238, ORANGE), (-246, 246, 55.298, TEAL)])
 
     def test_dream_lands_side_lines_read_apart(self):
         m = self.m
@@ -549,15 +552,15 @@ class IsoTests(unittest.TestCase):
                 self.assertEqual(numbers.asm_path(c[0]).read_text(), numbers.asm(c, numbers.peaks(self.iso, c[0]), table))
 
     def test_the_heights_are_target_practices(self):
-        # The event's Blasters table and the jumps' rises, worked out the same way.
+        # The event's Blasters table and the jumps' highest lasers, worked out the same way.
         sys.path.insert(0, str(ROOT / 'scripts'))
         import laser_heights
-        for name, by_hand in (('Fox', (17.833, 36.883)), ('Falco', (13.478, 51.198))):
+        for name, by_hand in (('Fox', (19.933, 40.563)), ('Falco', (15.238, 55.298))):
             fighter = laser_heights.Fighter(self.iso, name)
-            a, air = fighter.attr, fighter.constants()['air']
+            a, c = fighter.attr, fighter.constants()
             short, full = heights(name)
-            self.assertAlmostEqual(short, laser_heights.rise(a['hop_v'], a['gravity']) + air, places=5)
-            self.assertAlmostEqual(full, laser_heights.rise(a['jump_v'], a['gravity']) + air, places=5)
+            self.assertAlmostEqual(short, laser_heights.peak_laser(a, c, a['hop_v'])[0], places=5)
+            self.assertAlmostEqual(full, laser_heights.peak_laser(a, c, a['jump_v'])[0], places=5)
             self.assertEqual((round(short, 3), round(full, 3)), by_hand)
 
     def test_the_platform_lines_are_the_legal_stages(self):

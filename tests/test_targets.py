@@ -23,13 +23,13 @@ FIFO, GX_LINES, GX_TRIANGLEFAN, GX_LINESTRIP = 0xCC008000, 0xA8, 0xA0, 0xB0
 # A target: its four ticks (Target Pointers) in one batch, then the bullseye's four discs.
 TARGET_BATCHES = [(GX_LINES, 16, 18, 1)] + [(GX_TRIANGLEFAN, 22, 0, 1)] * 4
 # Hop Peak Lines' colors: the OSD palette's White to Lavender (osd_style.c and .h), each line
-# its row's color, Teal and Purple by default, darker over the main floor, as picked over the
+# its row's color, Orange and Teal by default, darker over the main floor, as picked over the
 # side platforms and lighter over the top platform, at alpha 230 premultiplied.
 OSD_STYLE = (ROOT / 'src/osd_style.c').read_text().split('OSD_PaletteColor', 1)[1].split('};', 1)[0]
 LINE_RGB = [int(h, 16) >> 8 for h in re.findall(r'0x([0-9A-Fa-f]{8})', OSD_STYLE)][1:]
 LINE_NAMES = re.findall(r'"([^"]+)"', (ROOT / 'src/osd_style.h').read_text().split('TM_OSD_COLOR_NAMES', 1)[1]
                         .split('#define', 1)[0])[1:]
-TEAL, PURPLE = LINE_NAMES.index('Teal'), LINE_NAMES.index('Purple')
+ORANGE, TEAL = LINE_NAMES.index('Orange'), LINE_NAMES.index('Teal')
 DARK, BASE, LIGHT = range(3)
 
 
@@ -91,13 +91,10 @@ def fighters():
         return {kind: laser_heights.Fighter(iso, NAMES[kind]) for kind in NAMES}
 
 
-def short_hop(attr, frames=64):
-    """Height after each airborne frame of a short hop: gravity, then the move."""
-    y, v = [0.0], attr['hop_v']
-    for _ in range(1, frames):
-        v = max(v - attr['gravity'], -attr['terminal'])
-        y.append(y[-1] + v)
-    return y
+def short_hop(attr, press=0, frames=64):
+    """Height after each airborne frame of a short hop with B on airborne frame `press` (0 for
+    none): the first frame skips gravity unless B comes on it, then gravity, then the move."""
+    return laser_heights.hop(attr['hop_v'], attr['gravity'], attr['terminal'], press, frames)
 
 
 # FH Multi Lasers as the menu lists it: Off, All Combos, then the combos, highest second
@@ -115,17 +112,19 @@ HHL_SPREAD = 6  # Hi-Hi-Low's high targets, left and right of the low one.
 def f32(value): return struct.unpack('>f', struct.pack('>f', value))[0]
 
 
-def full_hop(attr, frames=96, fastfall=0):
-    """Height after each airborne frame of a full hop, in the probe's float32 arithmetic on
-    its attributes (each in ten-thousandths), with a fastfall on airborne frame `fastfall`
-    (0 for none): it takes only if the fighter was already falling, and from then on the fall
-    is the fastfall speed. None if it doesn't take."""
+def full_hop(attr, press=0, frames=96, fastfall=0):
+    """Height after each airborne frame of a full hop with B on airborne frame `press` (0 for
+    none), in the probe's float32 arithmetic on its attributes (each in ten-thousandths), with
+    a fastfall on airborne frame `fastfall` (0 for none): it takes only if the fighter was
+    already falling, and from then on the fall is the fastfall speed. None if it doesn't take.
+    The first frame skips gravity (and the fastfall check) unless B comes on it."""
     jump, gravity, terminal, fast_v = (f32(round(attr[k] * 10000) / 10000)
                                        for k in ('jump_v', 'gravity', 'terminal', 'fastfall'))
     y, v, fast = [0.0], jump, False
     for frame in range(1, frames):
-        fast = fast or (frame == fastfall and v < 0)
-        v = -fast_v if fast else max(f32(v - gravity), -terminal)
+        if frame > 1 or press == 1:
+            fast = fast or (frame == fastfall and v < 0)
+            v = -fast_v if fast else max(f32(v - gravity), -terminal)
         y.append(f32(y[-1] + v))
     return y if fast or not fastfall else None
 
@@ -142,34 +141,48 @@ def jump_shots(y, c, press, count):
     return heights
 
 
+def hop_shots(attr, c, press, count, fastfall=0):
+    """jump_shots on the full hop that B on airborne frame `press` makes, or None."""
+    y = full_hop(attr, press, fastfall=fastfall)
+    return y and jump_shots(y, c, press, count)
+
+
+def peak_press(attr, c):
+    """The press whose first shot is a full hop's highest, the earliest of any that tie."""
+    firsts = {p: hop_shots(attr, c, p, 1)[0] for p in range(1, 80) if hop_shots(attr, c, p, 1)}
+    return max(firsts, key=lambda p: (firsts[p], -p))
+
+
 def full_hop_combos(fighter):
     """Each combo's press frame and heights, by the doc's rules."""
-    c, y = fighter.constants(), full_hop(fighter.attr)
-    doubles = [p for p in range(1, 90) if jump_shots(y, c, p, 2)]
+    c, a = fighter.constants(), fighter.attr
+    doubles = [p for p in range(1, 90) if hop_shots(a, c, p, 2)]
     assert doubles == list(range(1, len(doubles) + 1))  # A later press only lands sooner.
-    second = lambda p: jump_shots(y, c, p, 2)[1]
+    second = lambda p: hop_shots(a, c, p, 2)[1]
     last, highest = doubles[-1], max(doubles, key=lambda p: (second(p), -p))
-    peak = y.index(max(y)) + 1 - c['delay']  # The first shot comes from the frame before: the peak.
+    peak = peak_press(a, c)  # The first shot comes from the frame before: the peak.
     near = lambda lo, hi, h: min(range(lo, hi + 1), key=lambda p: (abs(second(p) - h), p))
     # Hi-Hi-Low: of the presses that fit three shots (from the first), the one whose first two
     # come nearest the same height, the earliest of any within .01 of it.
-    triples = [p for p in range(1, 90) if jump_shots(y, c, p, 3)]
+    triples = [p for p in range(1, 90) if hop_shots(a, c, p, 3)]
     assert triples == list(range(1, len(triples) + 1))
     hi_hi_low, gap = None, None
     for p in triples:
-        shots = jump_shots(y, c, p, 3)
+        shots = hop_shots(a, c, p, 3)
         if hi_hi_low is None or abs(shots[0] - shots[1]) < gap - .01:
             hi_hi_low, gap = p, abs(shots[0] - shots[1])
     presses = {FH_HI_HI_LOW: (hi_hi_low, 3),
                FH_HIGH_MEDHIGH: (near(min(highest, peak), peak, (second(peak) + second(highest)) / 2), 2),
                FH_HIGH_MEDIUM: (near(peak, last, (second(peak) + second(last)) / 2), 2)}
-    combos = {combo: (press, jump_shots(y, c, press, count), 0) for combo, (press, count) in presses.items()}
+    combos = {combo: (press, hop_shots(a, c, press, count), 0) for combo, (press, count) in presses.items()}
     # High-Low: of every press and fastfall whose first shot is from the peak, the lowest
-    # second shot (the earliest fastfall, then the earliest press, of any that tie).
-    top, high_low = max(y) + c['air'], None
-    for fastfall in range(1, len(y)):
-        walk = full_hop(fighter.attr, fastfall=fastfall)
-        for press in range(1, len(y) - c['delay'] - c['loop']):
+    # second shot (the earliest fastfall, then the earliest press, of any that tie). B on the
+    # first frame walks its own hop, any later B the other.
+    top, high_low = hop_shots(a, c, peak, 1)[0], None
+    for fastfall in range(1, 96):
+        walks = {hop: full_hop(a, hop, fastfall=fastfall) for hop in (1, 2)}
+        for press in range(1, 96 - c['delay'] - c['loop']):
+            walk = walks[min(press, 2)]
             shots = walk and jump_shots(walk, c, press, 2)
             if shots and shots[0] >= top - .001 and (high_low is None or shots[1] < high_low[1][1]):
                 high_low = (press, shots, fastfall)
@@ -309,44 +322,55 @@ class TargetConstantTests(unittest.TestCase):
             with self.subTest(fighter=NAMES[kind]):
                 m = self.machine(kind, free_practice=1, shdl=1)
                 m.you(); m.think()
-                c, y = fighter.constants(), short_hop(fighter.attr)
-                fits = [press for press in range(1, 30)
-                        if press + c['delay'] + c['loop'] < 64 and y[press + c['delay'] + c['loop'] - 1] + c['ecb_bottom'] > 0]
+                c = fighter.constants()
+                hop = lambda press: short_hop(fighter.attr, press)
+                fits = [press for press in range(1, 30) if press + c['delay'] + c['loop'] < 64 and
+                        hop(press)[press + c['delay'] + c['loop'] - 1] + c['ecb_bottom'] > 0]
                 self.assertEqual(m.info(12), len(fits))
-                self.assertEqual(fits, [1] if kind == FOX else [])
-                for press in range(1, 4):
-                    first = press + c['delay']
+                self.assertEqual(fits, [1, 2, 3] if kind == FOX else [])
+                for press in range(1, 6):
+                    first, y = press + c['delay'], hop(press)
                     self.assertEqual(m.m.call('TestTargetsShots', press, 0), int(press in fits))
                     if press in fits:
                         self.assertAlmostEqual(m.m.call('TestTargetsShots', press, 1) / 10000, y[first - 1] + c['air'], delta=.001)
                         self.assertAlmostEqual(m.m.call('TestTargetsShots', press, 2) / 10000,
                                                y[first + c['loop'] - 1] + c['air'], delta=.001)
-        # Fox's pair: the first shot at the short hop's peak, the second just before landing.
+        # A short hop's first frame skips gravity, so it rises 2.1 and then 8.55, unless B comes on
+        # that frame. So B on frame 1 shoots from a lower hop's peak (17.83), B on frame 2 from the
+        # higher one's (19.93), and B on frame 3 a frame past it, with the lowest second shot (5.08).
         c, attr = self.fighters[FOX].constants(), self.fighters[FOX].attr
-        self.assertAlmostEqual(short_hop(attr)[9], laser_heights.rise(attr['hop_v'], attr['gravity']), delta=.001)
+        rise = laser_heights.rise(attr['hop_v'], attr['gravity'])
+        self.assertAlmostEqual(short_hop(attr, 1)[9], rise, delta=.001)
+        self.assertAlmostEqual(short_hop(attr, 2)[10], attr['hop_v'] + rise, delta=.001)
         m = self.machine(FOX)
-        self.assertAlmostEqual(m.m.call('TestTargetsShots', 1, 1) / 10000, 17.83, delta=.01)
-        self.assertAlmostEqual(m.m.call('TestTargetsShots', 1, 2) / 10000, 5.48, delta=.01)
-        self.assertGreaterEqual(m.m.call('TestTargetsShots', 1, 2), m.m.call('TestTargetsBlaster', 0, 5))
+        for press, by_hand in ((1, (17.83, 5.48)), (2, (19.93, 7.58)), (3, (19.73, 5.08))):
+            with self.subTest(press=press):
+                for key, height in zip((1, 2), by_hand):
+                    self.assertAlmostEqual(m.m.call('TestTargetsShots', press, key) / 10000, height, delta=.01)
+                self.assertGreaterEqual(m.m.call('TestTargetsShots', press, 2), m.m.call('TestTargetsBlaster', 0, 5))
 
     def test_full_hop_and_double_jump_from_live_attributes(self):
         for kind, fighter in self.fighters.items():
             with self.subTest(fighter=NAMES[kind]):
                 a = fighter.attr
-                expected = laser_heights.rise(a['jump_v'], a['gravity']) + laser_heights.rise(a['jump_v'] * a['air_jump_mult'], a['gravity'])
+                expected = (a['jump_v'] + laser_heights.rise(a['jump_v'], a['gravity']) +
+                            laser_heights.rise(a['jump_v'] * a['air_jump_mult'], a['gravity']))
                 self.assertAlmostEqual(self.machine(kind).info(32) / 10000, expected, delta=.002)
-        self.assertAlmostEqual(self.machine(FOX).info(32) / 10000, 67.804, delta=.002)
-        self.assertAlmostEqual(self.machine(FALCO).info(32) / 10000, 89.178, delta=.002)
+                self.assertAlmostEqual(expected - laser_heights.rise(a['jump_v'] * a['air_jump_mult'], a['gravity']),
+                                       max(full_hop(a)), delta=.001)
+        # By hand: 3.68 + 27.6 + 40.204 for Fox, 4.1 + 47.4 + 41.778 for Falco.
+        self.assertAlmostEqual(self.machine(FOX).info(32) / 10000, 71.484, delta=.002)
+        self.assertAlmostEqual(self.machine(FALCO).info(32) / 10000, 93.278, delta=.002)
 
 
     def test_full_hop_combos_are_timed_from_live_attributes(self):
         # By hand: (press frame, heights above the floor) for each combo.
         # By hand: (press frame, heights above the floor, fastfall frame or 0) for each combo.
         by_hand = {
-            FOX: {FH_HI_HI_LOW: (2, (33.43, 34.58, 13.34), 0), FH_HIGH_MEDHIGH: (5, (36.19, 30.44), 0),
-                  FH_HIGH_MEDIUM: (11, (35.50, 16.14), 0), FH_HIGH_LOW: (8, (36.88, 6.05), 18)},
-            FALCO: {FH_HI_HI_LOW: (5, (46.28, 45.24, 3.89), 0), FH_HIGH_MEDHIGH: (9, (50.10, 38.18), 0),
-                    FH_HIGH_MEDIUM: (18, (48.75, 13.19), 0), FH_HIGH_LOW: (13, (51.20, 1.73), 27)},
+            FOX: {FH_HI_HI_LOW: (3, (37.11, 38.26, 17.02), 0), FH_HIGH_MEDHIGH: (6, (39.87, 34.12), 0),
+                  FH_HIGH_MEDIUM: (13, (38.26, 17.02), 0), FH_HIGH_LOW: (9, (40.56, 6.56), 18)},
+            FALCO: {FH_HI_HI_LOW: (6, (50.38, 49.34, 7.99), 0), FH_HIGH_MEDHIGH: (10, (54.20, 42.28), 0),
+                    FH_HIGH_MEDIUM: (19, (52.85, 17.29), 0), FH_HIGH_LOW: (14, (55.30, 2.65), 27)},
         }
         for kind, fighter in self.fighters.items():
             expected = full_hop_combos(fighter)
@@ -363,22 +387,22 @@ class TargetConstantTests(unittest.TestCase):
                         self.assertAlmostEqual(combo(c, 2 + i) / 10000, h, delta=.001)
                         self.assertAlmostEqual(combo(c, 2 + i) / 10000, by, delta=.01)
             with self.subTest(fighter=NAMES[kind], combo='High-Low'):
-                # Its first laser flies along the purple Hop Peak Line, and its second is no lower
-                # than the lowest laser there is.
+                # Its first laser flies along the full hop's Hop Peak Line, and its second is no
+                # lower than the lowest laser there is.
                 self.assertAlmostEqual(combo(FH_HIGH_LOW, 2), m.m.call('TestTargetsPeak', 1), delta=20)
                 self.assertGreaterEqual(combo(FH_HIGH_LOW, 3), m.m.call('TestTargetsBlaster', kind == FALCO, 5))
-                # A fastfall a frame sooner lands before the second laser; a frame later, the
-                # second passes over the low target.
+                # The fastfall is the first frame it can take: a frame sooner the fighter isn't
+                # falling yet. A frame later, the second laser passes over the low target.
                 c, (press, (high, low), fastfall) = fighter.constants(), expected[FH_HIGH_LOW]
-                self.assertIsNone(jump_shots(full_hop(fighter.attr, fastfall=fastfall - 1), c, press, 2))
-                late = jump_shots(full_hop(fighter.attr, fastfall=fastfall + 1), c, press, 2)
+                self.assertIsNone(full_hop(fighter.attr, press, fastfall=fastfall - 1))
+                late = hop_shots(fighter.attr, c, press, 2, fastfall + 1)
                 self.assertEqual(late[0], high)
                 self.assertGreater(late[1] - low, REACH)
-                self.assertAlmostEqual(late[1], {FOX: 8.99, FALCO: 4.74}[kind], delta=.01)
+                self.assertAlmostEqual(late[1], {FOX: 9.73, FALCO: 5.83}[kind], delta=.01)
                 # The doc's other timings that break both targets: (B, fastfall, heights).
-                for p, f, hand in {FOX: ((7, 17, (36.88, 6.28)), (10, 20, (36.19, 4.90))),
-                                   FALCO: ((12, 26, (51.18, 2.05)), (15, 29, (50.73, 0.58)))}[kind]:
-                    shots = jump_shots(full_hop(fighter.attr, fastfall=f), c, p, 2)
+                for p, f, hand in {FOX: ((10, 19, (40.33, 6.33)), (11, 20, (39.87, 5.87))),
+                                   FALCO: ((15, 28, (55.15, 2.33)), (16, 29, (54.83, 1.84)))}[kind]:
+                    shots = hop_shots(fighter.attr, c, p, 2, f)
                     for shot, by, target in zip(shots, hand, (high, low)):
                         self.assertAlmostEqual(shot, by, delta=.01)
                         self.assertLess(abs(shot - target), REACH)
@@ -395,11 +419,17 @@ class TargetConstantTests(unittest.TestCase):
                 self.assertEqual([combo(FH_HI_HI_LOW, 5 + i) / 10000 for i in range(3)], [-HHL_SPREAD, HHL_SPREAD, 0])
                 for other in (c for c in FH_COMBOS if c != FH_HI_HI_LOW):
                     self.assertEqual([combo(other, 5 + i) for i in range(3)], [0, 0, 0])
-        # Three shots fit from B on airborne frames 1 to 5 (Fox) and 1 to 6 (Falco). Fox's frames 2
-        # and 3 tie, their first two shots 1.15 apart either way round: Hi-Hi-Low takes 2.
-        for kind, presses in ((FOX, 5), (FALCO, 6)):
-            c, y = self.fighters[kind].constants(), full_hop(self.fighters[kind].attr)
-            self.assertEqual([p for p in range(1, 10) if jump_shots(y, c, p, 3)], list(range(1, presses + 1)))
+        # Three shots fit from B on airborne frames 1 to 7 (Fox) and 1 to 8 (Falco). Fox's frames 3
+        # and 4 tie, their first two shots 1.15 apart either way round: Hi-Hi-Low takes 3.
+        for kind, presses in ((FOX, 7), (FALCO, 8)):
+            c, a = self.fighters[kind].constants(), self.fighters[kind].attr
+            self.assertEqual([p for p in range(1, 12) if hop_shots(a, c, p, 3)], list(range(1, presses + 1)))
+        # B on the first frame keeps the hop's first frame's gravity, so its hop peaks a frame
+        # sooner and its full speed lower: 27.6 against 31.28 for Fox, 47.4 against 51.5 for Falco.
+        for kind, (first, later) in ((FOX, (27.6, 31.28)), (FALCO, (47.4, 51.5))):
+            a = self.fighters[kind].attr
+            self.assertAlmostEqual(max(full_hop(a, 1)), first, delta=.001)
+            self.assertAlmostEqual(max(full_hop(a, 2)), later, delta=.001)
 
 
 class TargetPlacementTests(unittest.TestCase):
@@ -461,10 +491,27 @@ class TargetPlacementTests(unittest.TestCase):
             last = (x, y)
 
     def pair_heights(self):
-        c, y = self.fighters[FOX].constants(), short_hop(self.fighters[FOX].attr)
-        return y[c['delay']] + c['air'], y[c['delay'] + c['loop']] + c['air']
+        """Fox's SH double laser pairs, (high, low) above the floor, for B on airborne frames 1
+        to 3. B on frame 1 keeps the hop's first frame's gravity, so its hop is lower."""
+        c, attr, pairs = self.fighters[FOX].constants(), self.fighters[FOX].attr, []
+        for press in (1, 2, 3):
+            y = short_hop(attr, press)
+            pairs.append(tuple(y[press + c['delay'] + i * c['loop'] - 1] + c['air'] for i in (0, 1)))
+        return pairs
 
-    def floor_kind(self, m, x, surface):
+    def pair_floor(self, m, spawn):
+        """(press, floor) for a pair: B on frames 1 and 2 make the same shape 2.1 apart, so the
+        floor under it tells them apart."""
+        (ux, uy), (lx, ly) = spawn
+        self.assertEqual(ux, lx)
+        for press, (high, low) in enumerate(self.pair_heights(), 1):
+            surface = ly - low
+            floor = abs(uy - surface - high) < .003 and self.floor_kind(m, ux, surface, fail=False)
+            if floor:
+                return press, floor
+        self.fail(f'no pair fits {spawn}')
+
+    def floor_kind(self, m, x, surface, fail=True):
         """The floor a pair is over, at least INSET from its ends: main, left, right or top."""
         ground = [l for l in m.lines if not l[4]]
         left, right = min(l[0] for l in ground), max(l[2] for l in ground)
@@ -474,10 +521,10 @@ class TargetPlacementTests(unittest.TestCase):
             if platform and ax + INSET - .002 <= x <= bx - INSET + .002 and \
                     abs(ay + (by - ay) * (x - ax) / (bx - ax) - surface) < .003:
                 return 'top' if ax < 0 < bx else 'left' if bx < 0 else 'right'
-        self.fail(f'no floor under the pair at ({x}, {surface})')
+        if fail:
+            self.fail(f'no floor under the pair at ({x}, {surface})')
 
     def test_fox_pairs_come_off_each_kind_of_floor_the_stage_has_evenly(self):
-        high, low = self.pair_heights()
         # Fountain's side platforms move and Stadium has no top platform; FD has none at all.
         offered = {'GrNLa.dat': {'main'}, 'GrPs.dat': {'main', 'left', 'right'}, 'GrIz.dat': {'main', 'top'}}
         # Far below every floor, where keeping away from you never turns a spot down, and at
@@ -489,12 +536,12 @@ class TargetPlacementTests(unittest.TestCase):
                 # About half: a mix, not every spawn.
                 self.assertGreater(len(pairs), 80)
                 self.assertLess(len(pairs), 160)
-                kinds = Counter()
-                for (ux, uy), (lx, ly) in pairs:
-                    self.assertEqual(ux, lx)
-                    surface = ly - low
-                    self.assertAlmostEqual(uy - surface, high, delta=.003)
-                    kinds[self.floor_kind(m, ux, surface)] += 1
+                kinds, presses = Counter(), Counter()
+                for pair in pairs:
+                    press, floor = self.pair_floor(m, pair)
+                    kinds[floor] += 1
+                    presses[press] += 1
+                self.assertEqual(set(presses), {1, 2, 3}, presses)  # Every press that fits.
                 expected = offered.get(filename, {'main', 'left', 'right', 'top'})
                 self.assertEqual(set(kinds), expected, kinds)
                 # Main floor, side platforms and top platform each picked as often as the others.
@@ -510,7 +557,6 @@ class TargetPlacementTests(unittest.TestCase):
                     self.assertGreater(min(kinds['left'], kinds['right']), len(pairs) / len(groups) / 4, kinds)
 
     def test_pairs_keep_away_from_you_too(self):
-        high, low = self.pair_heights()
         # On Battlefield's top platform, every spot over it is within FROM_YOU of you.
         m, spawns = self.run_targets(FOX, 'GrNBa.dat', GRKINDEXT_BATTLE, None, 120, free_practice=1, shdl=1,
                                      you=(0, 54.4))
@@ -519,7 +565,7 @@ class TargetPlacementTests(unittest.TestCase):
             for x, y in spawn:
                 self.assertGreaterEqual((x ** 2 + (y - 54.4) ** 2) ** .5, FROM_YOU - .01)
             if len(spawn) == 2:
-                kinds[self.floor_kind(m, spawn[1][0], spawn[1][1] - low)] += 1
+                kinds[self.pair_floor(m, spawn)[1]] += 1
         self.assertEqual(set(kinds), {'main', 'left', 'right'}, kinds)
 
     def group_kind(self, m, kind, spawn):
@@ -528,16 +574,18 @@ class TargetPlacementTests(unittest.TestCase):
         but for Hi-Hi-Low's high two, side by side."""
         if len(spawn) == 1:
             return 'single', None
-        shapes = {'sh': (self.pair_heights(), (0, 0))} if kind == FOX else {}
+        shapes = [('sh', heights, (0, 0)) for heights in self.pair_heights()] if kind == FOX else []
         for c in FH_COMBOS:
             shots = m.m.call('TestTargetsFullHop', c, 0)
-            shapes[c] = ([m.m.call('TestTargetsFullHop', c, 2 + i) / 10000 for i in range(shots)],
-                         [signed(m.m.call('TestTargetsFullHop', c, 5 + i)) / 10000 for i in range(shots)])
-        for name, (heights, offsets) in shapes.items():
+            shapes.append((c, [m.m.call('TestTargetsFullHop', c, 2 + i) / 10000 for i in range(shots)],
+                           [signed(m.m.call('TestTargetsFullHop', c, 5 + i)) / 10000 for i in range(shots)]))
+        for name, heights, offsets in shapes:
             surface, x = spawn[0][1] - heights[0], spawn[0][0] - offsets[0]
-            if len(heights) == len(spawn) and all(abs(t[1] - surface - h) < .003 and abs(t[0] - x - o) < .003
-                                                  for t, h, o in zip(spawn, heights, offsets)):
-                return name, self.floor_kind(m, x, surface)
+            floor = len(heights) == len(spawn) and all(abs(t[1] - surface - h) < .003 and abs(t[0] - x - o) < .003
+                                                       for t, h, o in zip(spawn, heights, offsets)) and \
+                self.floor_kind(m, x, surface, fail=False)
+            if floor:
+                return name, floor
         self.fail(f'no multi laser fits {spawn}')
 
     def test_all_combos_makes_about_half_the_spawns_a_combo_over_each_kind_of_floor(self):
@@ -652,9 +700,9 @@ class TargetPeakLineTests(unittest.TestCase):
         return m
 
     def peaks(self, kind):
-        """A short hop's and a full hop's peak laser above the floor, from the ISO."""
+        """A short hop's and a full hop's highest laser above the floor, from the ISO."""
         a, c = self.fighters[kind].attr, self.fighters[kind].constants()
-        return [laser_heights.rise(a[v], a['gravity']) + c['air'] for v in ('hop_v', 'jump_v')]
+        return [laser_heights.peak_laser(a, c, a[v])[0] for v in ('hop_v', 'jump_v')]
 
     def lines(self, vertices):
         """Each GX_LINES pair as (left x, right x, y, color)."""
@@ -662,7 +710,7 @@ class TargetPeakLineTests(unittest.TestCase):
             self.assertEqual((a[1], a[2], a[3]), (b[1], b[2], b[3]))
         return [(a[0], b[0], a[1], a[3]) for a, b in zip(vertices[::2], vertices[1::2])]
 
-    def assertLines(self, got, floors, kind, colors=(TEAL, PURPLE)):
+    def assertLines(self, got, floors, kind, colors=(ORANGE, TEAL)):
         sh, fh = self.peaks(kind)
         wanted = [(left, right, y + h, line_color(color, shade))
                   for left, right, y, shade in floors for h, color in zip((sh, fh), colors)]
@@ -674,18 +722,23 @@ class TargetPeakLineTests(unittest.TestCase):
             self.assertEqual(g[3], w[3])
 
     def test_heights_are_a_short_hops_and_a_full_hops_peak_laser(self):
-        # By hand: Fox's short hop rises 8.55 and his full hop 27.6, and his aerial laser
-        # is 9.28 over TopN; Falco's rise 9.68 and 47.4, with his laser 3.80 up.
-        for kind, by_hand in ((FOX, (17.833, 36.883)), (FALCO, (13.478, 51.198))):
+        # By hand: a hop's first frame skips gravity, so Fox's short hop peaks at 2.1 + 8.55 and
+        # his full hop at 3.68 + 27.6, which B on frames 2 and 8 shoot from, with his aerial laser
+        # 9.28 over TopN. Falco's full hop peaks at 4.1 + 47.4 (B on 14); his short hop peaks at
+        # 1.9 + 9.68 on airborne frame 12, too soon for any B but the first, which takes the
+        # skip away, so B on 2 shoots from 11.44. His laser is 3.80 up.
+        for kind, by_hand in ((FOX, (19.933, 40.563)), (FALCO, (15.238, 55.298))):
             with self.subTest(fighter=NAMES[kind]):
                 m = self.start(kind)
                 got = [m.m.call('TestTargetsPeak', hop) / 10000 for hop in (0, 1)]
                 for g, wanted, hand in zip(got, self.peaks(kind), by_hand):
                     self.assertAlmostEqual(g, wanted, delta=.0005)
                     self.assertAlmostEqual(g, hand, delta=.001)
-        # A short hop's peak laser is SH Double Lasers' first shot.
+        # A short hop's peak laser is the first shot of SH Double Lasers' B on frame 2, and a
+        # full hop's is High-Low's first.
         m = self.start(FOX)
-        self.assertAlmostEqual(m.m.call('TestTargetsPeak', 0), m.m.call('TestTargetsShots', 1, 1), delta=2)
+        self.assertAlmostEqual(m.m.call('TestTargetsPeak', 0), m.m.call('TestTargetsShots', 2, 1), delta=2)
+        self.assertAlmostEqual(m.m.call('TestTargetsPeak', 1), m.m.call('TestTargetsFullHop', FH_HIGH_LOW, 2), delta=2)
 
     def test_every_legal_stage_gets_lines_over_its_floor_and_platforms(self):
         counts = {'GrNLa.dat': 1, 'GrPs.dat': 3}  # FD has no platforms; Stadium no top one.
@@ -728,25 +781,25 @@ class TargetPeakLineTests(unittest.TestCase):
                                                 (0, 224, 22.125, BASE)], FOX)
 
     def test_each_hop_has_a_color_darker_over_the_floor_and_lighter_over_the_top(self):
-        # By hand: Teal 00B4A0 and Purple A064FF at 230/255 over the side platforms, 3/5 of each
+        # By hand: Orange FF9628 and Teal 00B4A0 at 230/255 over the side platforms, 3/5 of each
         # channel over the main floor and halfway to white over the top platform.
+        self.assertEqual([line_color(ORANGE, s) for s in (DARK, BASE, LIGHT)],
+                         [(138, 81, 21, 230), (230, 135, 36, 230), (230, 182, 132, 230)])
         self.assertEqual([line_color(TEAL, s) for s in (DARK, BASE, LIGHT)],
                          [(0, 97, 86, 230), (0, 162, 144, 230), (114, 195, 186, 230)])
-        self.assertEqual([line_color(PURPLE, s) for s in (DARK, BASE, LIGHT)],
-                         [(86, 54, 138, 230), (144, 90, 230, 230), (186, 159, 230, 230)])
         m = self.start()
         _, vertices = m.draw()
         floors = peak_floors(m.lines)
         self.assertEqual([f[3] for f in floors], [DARK, BASE, LIGHT, BASE])
         self.assertLines(self.lines(vertices), floors, FOX)
         self.assertEqual([v[3] for v in vertices[::2]],
-                         [line_color(c, s) for s in (DARK, BASE, LIGHT, BASE) for c in (TEAL, PURPLE)])
+                         [line_color(c, s) for s in (DARK, BASE, LIGHT, BASE) for c in (ORANGE, TEAL)])
 
     def test_the_color_rows_offer_the_osd_palette_save_and_recolor_at_once(self):
         self.assertEqual(len(LINE_NAMES), 15)
         self.assertEqual(len(LINE_RGB), 15)
         m = self.start()
-        self.assertEqual((m.info(50), m.info(51), m.info(54), m.info(55), m.info(56)), (TEAL, PURPLE, TEAL, PURPLE, 1))
+        self.assertEqual((m.info(50), m.info(51), m.info(54), m.info(55), m.info(56)), (ORANGE, TEAL, ORANGE, TEAL, 1))
         for row in (OPT_SH_COLOR, OPT_FH_COLOR):
             texts = [bytes(m.m.cpu.mem_read(m.m.call('TestTargetsColorText', row, v), 16)).split(b'\0', 1)[0].decode()
                      for v in range(15)]
@@ -853,8 +906,8 @@ class TargetDoubleJumpTests(unittest.TestCase):
                 m = self.start(kind)
                 self.assertAlmostEqual(m.info(48) / 10000, self.rise(kind), delta=.0005)
                 self.assertAlmostEqual(m.info(48) / 10000, by_hand, delta=.001)
-                full_hop = laser_heights.rise(self.fighters[kind].attr['jump_v'], self.fighters[kind].attr['gravity'])
-                self.assertAlmostEqual((m.info(32) - m.info(48)) / 10000, full_hop, delta=.001)
+                a = self.fighters[kind].attr
+                self.assertAlmostEqual((m.info(32) - m.info(48)) / 10000, max(full_hop(a)), delta=.001)
 
     def test_a_line_across_the_head_where_a_laser_at_the_peak_flies(self):
         # By hand: the rise and the aerial laser over TopN, 40.204 + 9.2829 for Fox and
@@ -1269,7 +1322,7 @@ class TargetEventTests(unittest.TestCase):
         self.assertEqual((m.info(37), m.info(36)), (0, 0))  # Hop Peak Lines goes Off too,
         self.assertEqual((m.info(42), m.info(41)), (FH_OFF, FH_OFF))  # FH Multi Lasers,
         self.assertEqual((m.info(46), m.info(45)), (0, 0))  # Double Jump Height,
-        self.assertEqual((m.info(52), m.info(53), m.info(50), m.info(51)), (TEAL, PURPLE, TEAL, PURPLE))  # the colors,
+        self.assertEqual((m.info(52), m.info(53), m.info(50), m.info(51)), (ORANGE, TEAL, ORANGE, TEAL))  # the colors,
         self.assertEqual((m.info(61), m.info(60)), (1, 1))  # and Target Pointers comes back On.
 
     def test_target_pointers_are_on_by_default_save_and_show_or_go_at_once(self):

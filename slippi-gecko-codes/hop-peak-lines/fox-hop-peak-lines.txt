@@ -1,5 +1,5 @@
 $Fox Hop Peak Lines (Slippi NTSC 1.02)
-*Teal: a laser at a short hop's peak. Purple: a full hop's. Over the floor and each platform.
+*Orange: a short hop's highest laser. Teal: a full hop's. Over the floor and each platform.
 *Legal stages, while this character is in the match. Side platform lines stop at the middle. Visual only.
 C216E740 00000099
 9421FF70 90010008
@@ -139,8 +139,8 @@ BBA10054 80010064
 4E800020 4E800021
 00000000 3F000000
 3F800000 00000001
-00A290E6 905AE6E6
-418EA9AF 4213880B
+E68724E6 00A290E6
+419F767C 4222405D
 02000102 3B35DCC6
 032324FF 00000000
 08010405 00000000

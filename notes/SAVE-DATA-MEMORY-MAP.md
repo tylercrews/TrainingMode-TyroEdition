@@ -372,8 +372,8 @@ The region's last 4 bytes, appended by version 25. Every migration to 25 zeroes 
 
 | Bits | Setting |
 | --- | --- |
-| 0-3 | Target Practice: Short Hop Line Color (`TM_TARGETS_SH_COLOR`): the OSD palette's White (0) to Lavender (14), `TM_COLOR_WHITE` + the value; default Teal (10), stored as 0. A stored 15 isn't a color and reads as Teal |
-| 4-7 | Target Practice: Full Hop Line Color (`TM_TARGETS_FH_COLOR`), the same way; default Purple (9), stored as 0 |
+| 0-3 | Target Practice: Short Hop Line Color (`TM_TARGETS_SH_COLOR`): the OSD palette's White (0) to Lavender (14), `TM_COLOR_WHITE` + the value; default Orange (7), stored as 0. A stored 15 isn't a color and reads as Orange |
+| 4-7 | Target Practice: Full Hop Line Color (`TM_TARGETS_FH_COLOR`), the same way; default Teal (10), stored as 0 |
 | 8 | Target Practice: Target Pointers (`TM_TARGETS_POINTERS`, appended after the colors, no version bump): On (default) or Off, stored as its distance from On, so 0 is On and 1 Off. Older records read On |
 | 9-31 | Free |
 

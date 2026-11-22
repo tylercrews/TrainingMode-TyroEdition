@@ -7,8 +7,8 @@
     # Match start (StartMelee) creates one GObj with a GX link 5 callback. Each
     # frame, while a fighter of FIGHTER_KIND is in the match on a legal stage,
     # the callback draws two lines over the main floor and over each platform:
-    # teal where a laser shot at the peak of a short hop flies, purple where a
-    # full hop's does. The main floor's and the top platform's lines run from
+    # orange where the highest laser of a short hop flies, teal where a full
+    # hop's does. The main floor's and the top platform's lines run from
     # blast zone to blast zone, and a side platform's from its side's blast zone
     # to the middle (x = 0), so the two sides read apart. Platforms come from
     # their live collision lines, so Fountain's lines follow its side platforms
@@ -332,8 +332,8 @@ DataTable:
     .float 0.5
     .float 1.0                       # SUNK_PLATFORM in src/targets.c
     .long FIGHTER_KIND
-    .long 0x00A290E6                 # teal: Training Mode's 00B4A0 at alpha 230, premultiplied
-    .long 0x905AE6E6                 # purple: A064FF at alpha 230
+    .long 0xE68724E6                 # orange: Training Mode's FF9628 at alpha 230, premultiplied
+    .long 0x00A290E6                 # teal: 00B4A0 at alpha 230
     character_data
     stage_data
 
