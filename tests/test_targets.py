@@ -40,8 +40,8 @@ def line_color(value, shade):
     return tuple(v * 230 // 255 for v in rgb) + (230,)
 
 
-# Double Jump Height: the red line, premultiplied, DJ_BAR each side of the head.
-DJ_RED, DJ_BAR = (230, 30, 30, 230), 6
+# Double Jump Height: the red line, premultiplied, from blast zone to blast zone.
+DJ_RED = (230, 30, 30, 230)
 # Action states, as MexTK numbers them (Melee's own), and Fox's and Falco's
 # specials after the common 341 (the decomp's ftFox_MotionState).
 ASID_DEADDOWN, ASID_REBIRTHWAIT, ASID_JUMPF, ASID_JUMPB, ASID_FALL = 0, 13, 25, 26, 29
@@ -215,9 +215,6 @@ class TargetsMachine:
 
     def air(self, air=1, used=1, max_jumps=2, state=ASID_FALL, facing=1):
         self.m.call('TestTargetsAir', air, used, max_jumps, state, facing)
-
-    def head(self, bone=10, x=0):
-        self.m.call('TestTargetsHead', bone, round(x * 1000))
 
     def capture(self):
         """Record the GX FIFO: GFX_AddVtx writes x, y, z, then the color's bytes."""
@@ -866,12 +863,11 @@ class TargetDoubleJumpTests(unittest.TestCase):
         build()
         cls.fighters = fighters()
 
-    def start(self, kind=FOX, double_jump=1, you=(4, 20), head_x=5.5, **kw):
+    def start(self, kind=FOX, double_jump=1, you=(4, 20), **kw):
         m = TargetsMachine(kind, self.fighters[kind].attr)
         m.flat(((-50, -20, 27), (20, 50, 27)))
         m.init(double_jump=double_jump, **kw)
         m.capture()
-        m.head(10, head_x)
         m.air()
         m.you(*you, control=0)  # The fighter's first frame; targets wait for control.
         m.think()
@@ -885,12 +881,12 @@ class TargetDoubleJumpTests(unittest.TestCase):
         """Where a laser shot at the peak of a double jump from `feet` flies."""
         return feet + self.rise(kind) + self.fighters[kind].constants()['air']
 
-    def assertLine(self, m, x, y):
-        """One red line, DJ_BAR each side of x, at y."""
+    def assertLine(self, m, y, blast=BLAST):
+        """One red line at y, from blast zone to blast zone."""
         batches, vertices = m.draw()
         self.assertEqual(batches, [(GX_LINES, 2, 12, 1)])  # Over everything.
         self.assertEqual([v[3] for v in vertices], [DJ_RED, DJ_RED])
-        for v, end in zip(vertices, (x - DJ_BAR, x + DJ_BAR)):
+        for v, end in zip(vertices, blast):
             self.assertAlmostEqual(v[0], end, delta=.002)
             self.assertAlmostEqual(v[1], y, delta=.002)
             self.assertEqual(v[2], 0)
@@ -909,7 +905,7 @@ class TargetDoubleJumpTests(unittest.TestCase):
                 a = self.fighters[kind].attr
                 self.assertAlmostEqual((m.info(32) - m.info(48)) / 10000, max(full_hop(a)), delta=.001)
 
-    def test_a_line_across_the_head_where_a_laser_at_the_peak_flies(self):
+    def test_a_line_across_the_stage_where_a_laser_at_the_peak_flies(self):
         # By hand: the rise and the aerial laser over TopN, 40.204 + 9.2829 for Fox and
         # 41.778 + 3.7980 for Falco, whichever way the fighter faces.
         for kind, by_hand in ((FOX, 49.487), (FALCO, 45.576)):
@@ -917,16 +913,17 @@ class TargetDoubleJumpTests(unittest.TestCase):
                 with self.subTest(fighter=NAMES[kind], facing=facing):
                     m = self.start(kind)
                     m.air(facing=facing)
-                    self.assertLine(m, 5.5, self.laser(kind, 20))
-                    self.assertLine(m, 5.5, 20 + by_hand)
+                    self.assertLine(m, self.laser(kind, 20))
+                    self.assertLine(m, 20 + by_hand)
 
-    def test_it_follows_the_fighter_and_its_head_every_frame(self):
+    def test_it_follows_the_fighter_every_frame_and_reaches_the_blast_zones(self):
         m = self.start()
-        m.you(-30, 61.5, control=0); m.head(10, -31.25)
-        self.assertLine(m, -31.25, self.laser(FOX, 61.5))
-        # With no head bone it centers on TopN's x.
-        m.head(-1)
-        self.assertLine(m, -30, self.laser(FOX, 61.5))
+        m.you(-30, 61.5, control=0)
+        self.assertLine(m, self.laser(FOX, 61.5))
+        # Wherever the fighter is across, the line spans the live blast zones.
+        m.m.call('TestTargetsBlast', -230500, 198250)
+        m.you(150, 40, control=0)
+        self.assertLine(m, self.laser(FOX, 40), (-230.5, 198.25))
 
     def test_only_while_the_double_jump_can_still_come(self):
         m = self.start()
@@ -952,25 +949,25 @@ class TargetDoubleJumpTests(unittest.TestCase):
                     m.you(4, 23.5, control=0); m.think()  # Falling with the jump: live.
                     held = self.laser(kind, 23.5)
                     self.assertEqual(m.info(57), 0)
-                    self.assertLine(m, 5.5, held)
+                    self.assertLine(m, held)
                     # The jump's first frame: it has already risen a frame by the think.
                     m.air(used=2, state=jump); m.you(4.5, 27.9, control=0); m.think()
                     self.assertEqual(m.info(57), 1)
-                    self.assertLine(m, 5.5, held)
+                    self.assertLine(m, held)
                     # It holds through the rise, the fall, an aerial, the laser and even helpless,
-                    # following the head across.
-                    for feet, head, state in ((50, 12, jump), (60, 14, ASID_FALL), (40, 9, ASID_ATTACKAIRN),
-                                              (30, 8, FX_SPECIALAIRNLOOP), (5, 7, ASID_FALLSPECIAL)):
-                        m.air(used=2, state=state); m.you(head - 1, feet, control=0); m.head(10, head); m.think()
-                        self.assertLine(m, head, held)
+                    # wherever the fighter drifts.
+                    for feet, x, state in ((50, 11, jump), (60, 13, ASID_FALL), (40, 8, ASID_ATTACKAIRN),
+                                           (30, 7, FX_SPECIALAIRNLOOP), (5, 6, ASID_FALLSPECIAL)):
+                        m.air(used=2, state=state); m.you(x, feet, control=0); m.think()
+                        self.assertLine(m, held)
                     # Paused, and with the row turned off and on.
                     m.m.call('TestTargetsPause', 1)
-                    self.assertLine(m, 7, held)
+                    self.assertLine(m, held)
                     m.m.call('TestTargetsPause', 0)
                     m.choose(OPT_DOUBLE_JUMP, 0)
                     self.assertEqual(m.draw(), ([], []))
                     m.choose(OPT_DOUBLE_JUMP, 1)
-                    self.assertLine(m, 7, held)
+                    self.assertLine(m, held)
                     # Landing ends it.
                     m.air(air=0, used=0, state=ASID_FALL); m.think()
                     self.assertNoLine(m)
@@ -988,9 +985,9 @@ class TargetDoubleJumpTests(unittest.TestCase):
         # The jump given back while held: the live line from where the fighter is.
         m = self.start()
         m.air(used=2, state=ASID_JUMPAERIALB); m.think()
-        m.air(used=1, state=ASID_FALL); m.you(-10, 35, control=0); m.head(10, -9); m.think()
+        m.air(used=1, state=ASID_FALL); m.you(-10, 35, control=0); m.think()
         self.assertEqual(m.info(57), 0)
-        self.assertLine(m, -9, self.laser(FOX, 35))
+        self.assertLine(m, self.laser(FOX, 35))
 
     def test_up_b_spends_the_jump_and_the_line_just_goes(self):
         m = self.start()
@@ -1034,9 +1031,8 @@ class TargetDoubleJumpTests(unittest.TestCase):
         m.flat()
         m.init(double_jump=1)
         m.capture()
-        m.head(10, 0); m.air()
+        m.air()
         self.assertEqual(m.draw(), ([], []))  # Its rise isn't known yet.
-        self.assertEqual(m.info(49), 0)  # Nor is the head looked up.
         m.you(control=0); m.think()
         for pass_ in (0, 1, 3):
             self.assertEqual(m.draw(pass_), ([], []))

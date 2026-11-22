@@ -89,8 +89,8 @@
  * Double Jump Height. A double jump sets the vertical speed to the full hop's
  * times air_jump_v_multiplier whatever it was (ftCo_JumpAerial_Enter_Basic),
  * then falls the way a jump does, so from anywhere it rises the same Rise. So
- * while the fighter is in the air with its double jump, a red line across the
- * head's x (HeadN) marks where a laser shot at the double jump's peak flies:
+ * while the fighter is in the air with its double jump, a red line from blast
+ * zone to blast zone marks where a laser shot at the double jump's peak flies:
  * Rise and the aerial laser height over TopN, as Hop Peak Lines mark a hop's.
  * It can't come while helpless, air dodging, on the ledge, dead, or during
  * side-B and up-B, which end helpless or on the ground. When the double jump
@@ -115,8 +115,6 @@
 /* A side platform closer than this to the main floor is sunk: Fountain's
  * settle 0.37 above it, inside the stage, while they're hidden. */
 #define SUNK_PLATFORM 1.f
-// Double Jump Height's line: its reach each side. Drawn PEAK_LINE_WIDTH wide.
-#define DJ_BAR 6.f
 /* Hi-Hi-Low's two high targets, each this far left and right of the low one,
  * so they sit side by side, their ticks apart. */
 #define HHL_SPREAD 6.f
@@ -1062,14 +1060,6 @@ static bool DoubleJumpReady(FighterData *ft) {
         return false;
     return state < FX_SPECIAL_S_FIRST || state > FX_SPECIAL_HI_LAST;
 }
-// The line's middle: the head's x (HeadN), or TopN's if there's no such bone.
-static float HeadX(FighterData *ft) {
-    int bone = Fighter_BoneLookup(ft, HeadN);
-    Vec3 head;
-    if (bone < 0 || !ft->bones || !ft->bones[bone].joint) return ft->phys.pos.X;
-    JOBJ_GetWorldPosition(ft->bones[bone].joint, 0, &head);
-    return head.X;
-}
 // Where a laser shot at the peak of a double jump started now flies.
 static float DoubleJumpLaser(FighterData *ft) { return ft->phys.pos.Y + double_jump + BlasterOf(ft)->air; }
 /* Each frame, after the fighters move: the double jump comes on the frame its
@@ -1090,12 +1080,12 @@ static void TrackDoubleJump(FighterData *ft) {
     if (ready) dj_laser = DoubleJumpLaser(ft);
     dj_ready = ready;
 }
-// A red line DJ_BAR each side of the head's x at `laser`. One GX_LINES batch.
-static void DrawDoubleJump(FighterData *ft, float laser) {
-    float x = HeadX(ft);
+/* A red line at `laser` from blast zone to blast zone, as the main floor's
+ * Hop Peak Lines go. One GX_LINES batch. */
+static void DrawDoubleJump(float laser) {
     event_vars->GFX_Start(2, (GFX_Params){.shape = GX_LINES, .size = PEAK_LINE_WIDTH, .no_depth = true});
-    GFX_AddVtx(x - DJ_BAR, laser, 0, DoubleJumpRed);
-    GFX_AddVtx(x + DJ_BAR, laser, 0, DoubleJumpRed);
+    GFX_AddVtx(Stage_GetBlastzoneLeft(), laser, 0, DoubleJumpRed);
+    GFX_AddVtx(Stage_GetBlastzoneRight(), laser, 0, DoubleJumpRed);
 }
 
 static void Targets_GX(GOBJ *gobj, int pass) {
@@ -1105,8 +1095,8 @@ static void Targets_GX(GOBJ *gobj, int pass) {
     GOBJ *you = Fighter_GetGObj(0);
     if (checked && Options_Main[OPT_DOUBLE_JUMP].val && you) {
         FighterData *ft = you->userdata;
-        if (DoubleJumpReady(ft)) DrawDoubleJump(ft, DoubleJumpLaser(ft));
-        else if (dj_frozen) DrawDoubleJump(ft, dj_laser);
+        if (DoubleJumpReady(ft)) DrawDoubleJump(DoubleJumpLaser(ft));
+        else if (dj_frozen) DrawDoubleJump(dj_laser);
     }
     for (int i = 0; i < MAX_TARGETS; ++i)
         if (pops[i].age > 0) DrawPop(&pops[i]);

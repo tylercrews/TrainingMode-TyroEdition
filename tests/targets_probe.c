@@ -75,27 +75,6 @@ int TestTargetsDraw(int pass) {
 int TestTargetsDrawInfo(int draw, int key) { return draw < DRAWS ? draw_info[draw][key] : -1; }
 int TestTargetsPeak(int hop) { return peak_lasers[hop] * 10000; }
 
-/* The head: HeadN's bone index (-1 for none) and its world x, which only it
- * reports. */
-static FighterBone bones[64];
-static JOBJ head_joint;
-static int head_bone = -1, head_lookups;
-static float head_x;
-s8 Fighter_BoneLookup(FighterData *fighter, int bone) {
-    ++head_lookups;
-    return fighter == &ft && bone == HeadN ? head_bone : -1;
-}
-int JOBJ_GetWorldPosition(JOBJ *source, Vec3 *add, Vec3 *dest) {
-    *dest = (Vec3){source == &head_joint ? head_x : -999, 0, 0};
-    return 0;
-}
-void TestTargetsHead(int bone, int x) {
-    ft.bones = bones;
-    for (int i = 0; i < 64; ++i) bones[i].joint = 0;
-    head_bone = bone;
-    if (bone >= 0) bones[bone].joint = &head_joint;
-    head_x = x / 1000.f;
-}
 /* Airborne or not, the jumps used and allowed, the state and which way the
  * fighter faces (1 right, -1 left). */
 void TestTargetsAir(int air, int used, int max, int state, int facing) {
@@ -370,7 +349,6 @@ int TestTargetsInfo(int key) {
     case 46: return prefs[TM_TARGETS_DOUBLE_JUMP];
     case 47: return Options_Main[OPT_DOUBLE_JUMP].val_prev;
     case 48: return double_jump * 10000;
-    case 49: return head_lookups;
     case 50: return Options_Main[OPT_SH_COLOR].val;
     case 51: return Options_Main[OPT_FH_COLOR].val;
     case 52: return prefs[TM_TARGETS_SH_COLOR];
