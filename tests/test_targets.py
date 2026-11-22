@@ -18,7 +18,7 @@ FOX, FALCO = 1, 22  # FTKIND_FOX, FTKIND_FALCO
 NAMES = {FOX: 'Fox', FALCO: 'Falco'}
 ITEM_FOXLASER, ITEM_FALCOLASER = 54, 55
 OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_SH_COLOR, OPT_FH_COLOR = 3, 4, 5, 6, 7, 8
-OPT_DOUBLE_JUMP, OPT_POINTERS, OPT_COUNTER, OPT_DEFAULTS = 9, 10, 11, 12
+OPT_LOW_LINE, OPT_DOUBLE_JUMP, OPT_POINTERS, OPT_COUNTER, OPT_DEFAULTS = 9, 10, 11, 12, 13
 FIFO, GX_LINES, GX_TRIANGLEFAN, GX_LINESTRIP = 0xCC008000, 0xA8, 0xA0, 0xB0
 # A target: its four ticks (Target Pointers) in one batch, then the bullseye's four discs.
 TARGET_BATCHES = [(GX_LINES, 16, 18, 1)] + [(GX_TRIANGLEFAN, 22, 0, 1)] * 4
@@ -204,12 +204,13 @@ class TargetsMachine:
         self.lines = []
 
     def init(self, free_practice=0, shdl=0, best=0, counter=0, lines=0, full_hop=0, double_jump=0, colors=None,
-             pointers=1, full_hop_saved=None):
+             pointers=1, full_hop_saved=None, low_line=0):
         """`full_hop`: the FH Multi Lasers row saved, as the menu lists it, or `full_hop_saved`
         the value stored. `colors`: the saved (short hop, full hop) line colors, or None for the
-        defaults. `pointers`: the saved Target Pointers, packed into the same argument."""
+        defaults. `pointers` (the saved Target Pointers) and `low_line` (Lowest Laser Lines: 0
+        Off, else a line color plus one) are packed into the same argument."""
         packed = 0 if colors is None else (colors[0] + 1) | (colors[1] + 1) << 8
-        packed |= (not pointers) << 16
+        packed |= (not pointers) << 16 | low_line << 17
         saved = FH_SAVED[full_hop] if full_hop_saved is None else full_hop_saved
         self.m.call('TestTargetsInit', free_practice, shdl, best, counter, lines, saved, double_jump, packed)
 
@@ -677,7 +678,8 @@ def peak_floors(lines):
 
 
 class TargetPeakLineTests(unittest.TestCase):
-    """Hop Peak Lines: a short hop's and a full hop's peak laser over each floor."""
+    """Hop Peak Lines: a short hop's and a full hop's peak laser over each floor. Lowest Laser
+    Lines: the lowest laser over each floor, the same way."""
     @classmethod
     def setUpClass(cls):
         build()
@@ -853,6 +855,103 @@ class TargetPeakLineTests(unittest.TestCase):
         batches, _ = m.draw()
         self.assertEqual(batches[0], (GX_LINES, 16, 12, 1))
         self.assertGreater(len(batches), 1)  # The target, drawn after.
+
+    def low(self, kind):
+        """The lowest laser above the floor, from the ISO: TopN as far under the floor as the
+        laser loop's ECB bottom allows, never under the floor itself."""
+        c = self.fighters[kind].constants()
+        return max(c['air'] - c['ecb_bottom'], 0)
+
+    def assertLowLines(self, got, floors, kind, color):
+        wanted = [(left, right, y + self.low(kind), line_color(color, shade)) for left, right, y, shade in floors]
+        self.assertEqual(len(got), len(wanted))
+        for g, w in zip(got, wanted):
+            self.assertAlmostEqual(g[0], w[0], delta=.001)
+            self.assertAlmostEqual(g[1], w[1], delta=.001)
+            self.assertAlmostEqual(g[2], w[2], delta=.002)
+            self.assertEqual(g[3], w[3])
+
+    def test_lowest_laser_lines_sit_at_the_lowest_laser_over_every_floor(self):
+        # By hand: Fox's aerial laser is 9.2829 over TopN, which can sit 4.4322 under the floor
+        # with his legs tucked, so 4.8507 up. Falco's would start under the floor, so his hugs it.
+        for kind, by_hand in ((FOX, 4.8507), (FALCO, 0)):
+            with self.subTest(fighter=NAMES[kind]):
+                m = self.start(kind, lines=0, low_line=ORANGE + 1)
+                self.assertAlmostEqual(m.info(67) / 10000, self.low(kind), delta=.0003)
+                self.assertAlmostEqual(m.info(67) / 10000, by_hand, delta=.0002)
+                # The bottom of a single target's range.
+                self.assertEqual(m.info(67), m.m.call('TestTargetsBlaster', kind == FALCO, 5))
+        counts = {'GrNLa.dat': 1, 'GrPs.dat': 3}  # FD has no platforms; Stadium no top one.
+        for kind in (FOX, FALCO):
+            for filename, stage_id, normal in STAGES:
+                with self.subTest(fighter=NAMES[kind], stage=filename):
+                    m = self.start(kind, filename, stage_id, normal, lines=0, low_line=TEAL + 1)
+                    batches, vertices = m.draw()
+                    floors = peak_floors(m.lines)
+                    self.assertEqual(len(floors), counts.get(filename, 4))
+                    self.assertEqual(batches, [(GX_LINES, 2 * len(floors), 12, 1)])  # Over everything.
+                    self.assertTrue(all(v[2] == 0 for v in vertices))
+                    self.assertLowLines(self.lines(vertices), floors, kind, TEAL)
+
+    def test_lowest_laser_lines_are_off_by_default_and_a_color_saves_and_shows_at_once(self):
+        m = self.start(lines=0)
+        self.assertEqual((m.info(63), m.info(65), m.info(66)), (0, 0, 16))  # Off, then the 15 colors.
+        texts = [bytes(m.m.cpu.mem_read(m.m.call('TestTargetsColorText', OPT_LOW_LINE, v), 16)).split(b'\0', 1)[0]
+                 .decode() for v in range(16)]
+        self.assertEqual(texts, ['Off'] + LINE_NAMES)
+        self.assertEqual(m.draw(), ([], []))
+        floors = peak_floors(m.lines)
+        for value in (1, 15, ORANGE + 1, 3):  # White, Lavender, Orange, Green.
+            with self.subTest(color=LINE_NAMES[value - 1]):
+                m.choose(OPT_LOW_LINE, value)
+                self.assertEqual((m.info(64), m.info(4), m.info(29)), (value, 0, 0))  # Saved; no retry or restart.
+                self.assertLowLines(self.lines(m.draw()[1]), floors, FOX, value - 1)
+        m.choose(OPT_LOW_LINE, 0)
+        self.assertEqual((m.info(64), m.draw()), (0, ([], [])))
+        # A saved color loads into the row, its value and the menu's copy alike, and draws in
+        # timed runs, Free Practice and paused.
+        for free_practice in (0, 1):
+            with self.subTest(free_practice=free_practice):
+                m = self.start(lines=0, low_line=12, free_practice=free_practice)
+                self.assertEqual((m.info(63), m.info(65)), (12, 12))
+                self.assertLowLines(self.lines(m.draw()[1]), floors, FOX, 11)
+                m.m.call('TestTargetsPause', 1)
+                self.assertLowLines(self.lines(m.draw()[1]), floors, FOX, 11)
+                m.m.call('TestTargetsPause', 0)
+
+    def test_lowest_laser_lines_and_hop_peak_lines_are_their_own_rows(self):
+        m = self.start(lines=1, low_line=0)
+        m.choose(OPT_LOW_LINE, 5)  # Yellow.
+        self.assertEqual(m.draw()[0], [(GX_LINES, 16, 12, 1), (GX_LINES, 8, 12, 1)])  # Peak lines, then these.
+        m.choose(OPT_LINES, 0)
+        floors = peak_floors(m.lines)
+        batches, vertices = m.draw()
+        self.assertEqual(batches, [(GX_LINES, 8, 12, 1)])
+        self.assertLowLines(self.lines(vertices), floors, FOX, 4)
+        # The hop colors never color them, nor they the hop lines.
+        m.choose(OPT_SH_COLOR, 0); m.choose(OPT_FH_COLOR, 1)
+        self.assertLowLines(self.lines(m.draw()[1]), floors, FOX, 4)
+        m.choose(OPT_LINES, 1)
+        self.assertLines(self.lines(m.draw()[1][:16]), floors, FOX, (0, 1))
+
+    def test_lowest_laser_lines_wait_for_the_fighters_first_frame_and_draw_on_one_pass(self):
+        m = TargetsMachine(FOX, self.fighters[FOX].attr)
+        m.flat(((-50, -20, 27), (20, 50, 27)))
+        m.init(low_line=1)
+        m.capture()
+        self.assertEqual(m.draw(), ([], []))  # The fighter's height isn't known yet.
+        m.you(control=0); m.think()
+        for pass_ in (0, 1, 3):
+            self.assertEqual(m.draw(pass_), ([], []))
+        self.assertEqual(m.draw()[0], [(GX_LINES, 6, 12, 1)])
+
+    def test_lowest_laser_lines_go_under_the_double_jump_line_and_the_targets(self):
+        m = self.start(lines=1, low_line=1, double_jump=1)
+        m.air()  # In the air with the double jump left.
+        m.place(30, 40)
+        batches, _ = m.draw()
+        self.assertEqual(batches[:3], [(GX_LINES, 16, 12, 1), (GX_LINES, 8, 12, 1), (GX_LINES, 2, 12, 1)])
+        self.assertGreater(len(batches), 3)  # Then the target.
 
 
 class TargetDoubleJumpTests(unittest.TestCase):
@@ -1310,15 +1409,16 @@ class TargetEventTests(unittest.TestCase):
 
     def test_reset_keeps_the_best_and_the_counter_position(self):
         m = self.start(free_practice=1, shdl=1, best=17, counter=3, lines=1, full_hop=FH_ALL, double_jump=1,
-                       colors=(1, 12), pointers=0)
-        self.assertEqual((m.info(36), m.info(41), m.info(45), m.info(50), m.info(51), m.info(60)),
-                         (1, FH_ALL, 1, 1, 12, 0))
+                       colors=(1, 12), pointers=0, low_line=6)
+        self.assertEqual((m.info(36), m.info(41), m.info(45), m.info(50), m.info(51), m.info(60), m.info(63)),
+                         (1, FH_ALL, 1, 1, 12, 0, 6))
         m.m.call('TestTargetsSelect', OPT_DEFAULTS)
         self.assertEqual((m.info(2), m.info(3), m.info(1), m.info(20), m.info(4)), (0, 0, 17, 3, 1))
         self.assertEqual((m.info(37), m.info(36)), (0, 0))  # Hop Peak Lines goes Off too,
         self.assertEqual((m.info(42), m.info(41)), (FH_OFF, FH_OFF))  # FH Multi Lasers,
         self.assertEqual((m.info(46), m.info(45)), (0, 0))  # Double Jump Height,
         self.assertEqual((m.info(52), m.info(53), m.info(50), m.info(51)), (ORANGE, TEAL, ORANGE, TEAL))  # the colors,
+        self.assertEqual((m.info(64), m.info(63)), (0, 0))  # Lowest Laser Lines,
         self.assertEqual((m.info(61), m.info(60)), (1, 1))  # and Target Pointers comes back On.
 
     def test_target_pointers_are_on_by_default_save_and_show_or_go_at_once(self):

@@ -86,6 +86,11 @@
  * They're found from the live lines every frame, so Fountain's follow its side
  * platforms, and go while one is sunk into the stage.
  *
+ * Lowest Laser Lines. Each floor gets one line at the lowest laser that can be
+ * shot from it (LowestLaser), the bottom of a target's range, laid out and
+ * shaded the way Hop Peak Lines are, in the row's color. Off by default. Fox's
+ * is 4.85 up; Falco's hugs the floor.
+ *
  * Double Jump Height. A double jump sets the vertical speed to the full hop's
  * times air_jump_v_multiplier whatever it was (ftCo_JumpAerial_Enter_Basic),
  * then falls the way a jump does, so from anywhere it rises the same Rise. So
@@ -139,7 +144,7 @@ static const Blaster Blasters[2] = {
 
 enum options_main {
     OPT_RETRY, OPT_STAGE, OPT_CHARACTER, OPT_FREEPRACTICE, OPT_SHDL, OPT_FULL_HOP, OPT_LINES, OPT_SH_COLOR,
-    OPT_FH_COLOR, OPT_DOUBLE_JUMP, OPT_POINTERS, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
+    OPT_FH_COLOR, OPT_LOW_LINE, OPT_DOUBLE_JUMP, OPT_POINTERS, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
 
 static void Retry(GOBJ *menu);
@@ -150,6 +155,7 @@ static void ChangeFullHop(GOBJ *menu, int value);
 static void ChangePeakLines(GOBJ *menu, int value);
 static void ChangeShortHopColor(GOBJ *menu, int value);
 static void ChangeFullHopColor(GOBJ *menu, int value);
+static void ChangeLowLine(GOBJ *menu, int value);
 static void ChangeDoubleJump(GOBJ *menu, int value);
 static void ChangePointers(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
@@ -179,10 +185,12 @@ static int FullHopFromSaved(int saved) {
     return FH_OFF;
 }
 static char FullHopName[] = "FH Multi Lasers";
-/* The Hop Peak Lines' colors: the OSD palette's (osd_style.c) White to
- * Lavender, TM_COLOR_WHITE + the value, and each one's RGB. */
-static const char *LineColorText[TM_TARGETS_COLOR_COUNT] = {
-    "White", "Red", "Green", "Blue", "Yellow", "Cyan", "Magenta", "Orange", "Pink", "Purple", "Teal", "Lime",
+/* The line colors: the OSD palette's (osd_style.c) White to Lavender,
+ * TM_COLOR_WHITE + the value, and each one's RGB. The names follow Lowest
+ * Laser Lines' Off, which lists them all from there; the hop color rows list
+ * them from White (LineColorText + 1). */
+static const char *LineColorText[TM_TARGETS_LOW_LINE_COUNT] = {
+    "Off", "White", "Red", "Green", "Blue", "Yellow", "Cyan", "Magenta", "Orange", "Pink", "Purple", "Teal", "Lime",
     "Gold", "Sky Blue", "Lavender"
 };
 static const u8 LineColors[TM_TARGETS_COLOR_COUNT][3] = {
@@ -271,7 +279,7 @@ static EventOption Options_Main[OPT_COUNT] = {
         .desc = {"The short hop's Hop Peak Lines: this color over",
                  "the side platforms, darker over the main floor",
                  "and lighter over the top platform. Saved."},
-        .values = LineColorText,
+        .values = LineColorText + 1,
         .OnChange = ChangeShortHopColor,
     },
     {
@@ -281,8 +289,19 @@ static EventOption Options_Main[OPT_COUNT] = {
         .desc = {"The full hop's Hop Peak Lines: this color over",
                  "the side platforms, darker over the main floor",
                  "and lighter over the top platform. Saved."},
-        .values = LineColorText,
+        .values = LineColorText + 1,
         .OnChange = ChangeFullHopColor,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .value_num = TM_TARGETS_LOW_LINE_COUNT,
+        .name = "Lowest Laser Lines",
+        .desc = {"Lines where the lowest laser you can shoot flies,",
+                 "off the floor and each platform, in this color:",
+                 "darker over the main floor and lighter over the",
+                 "top platform. Falco's hug the floor. Saved."},
+        .values = LineColorText,
+        .OnChange = ChangeLowLine,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -342,6 +361,7 @@ static bool placed;          // Targets have appeared this match.
 static bool checked;         // The fighter's been looked at (CheckFighter).
 static int pair_presses;     // Press frames that fit a short hop double laser.
 static float peak_lasers[2]; // A short hop's and a full hop's peak laser, above the floor.
+static float low_laser;      // The lowest laser above the floor (LowestLaser).
 static float double_jump;    // A double jump's rise, from wherever it starts.
 /* Double Jump Height's line: whether the double jump could come last frame,
  * the height of its peak laser then, and whether the line holds there now,
@@ -643,6 +663,8 @@ static void LoadSettings(void) {
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_SH_COLOR);
     Options_Main[OPT_FH_COLOR].val = Options_Main[OPT_FH_COLOR].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR);
+    Options_Main[OPT_LOW_LINE].val = Options_Main[OPT_LOW_LINE].val_prev =
+        TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_LOW_LINE);
     Options_Main[OPT_POINTERS].val = Options_Main[OPT_POINTERS].val_prev =
         TM_GetSetting(TM_SETTING_TARGETS, TM_TARGETS_POINTERS);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
@@ -655,8 +677,9 @@ static void ChangeDoubleLasers(GOBJ *menu, int value) {
 static void ChangeFullHop(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FULL_HOP, FullHopToSaved(value));
 }
-/* The lines, their colors, the double jump's line and the targets' pointers
- * change on the next frame drawn, behind the paused menu too. */
+/* The lines, their colors, the lowest laser's lines, the double jump's line and
+ * the targets' pointers change on the next frame drawn, behind the paused menu
+ * too. */
 static void ChangePeakLines(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LINES, value);
 }
@@ -665,6 +688,9 @@ static void ChangeShortHopColor(GOBJ *menu, int value) {
 }
 static void ChangeFullHopColor(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR, value);
+}
+static void ChangeLowLine(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LOW_LINE, value);
 }
 static void ChangeDoubleJump(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, value);
@@ -730,6 +756,7 @@ static void ResetSettings(GOBJ *menu) {
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_DOUBLE_JUMP, 0);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_SH_COLOR, TM_TARGETS_SH_COLOR_DEFAULT);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_FH_COLOR, TM_TARGETS_FH_COLOR_DEFAULT);
+    TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_LOW_LINE, 0);
     TM_SetSetting(TM_SETTING_TARGETS, TM_TARGETS_POINTERS, 1);
     LoadSettings();
     Retry(menu);
@@ -997,16 +1024,13 @@ static void DrawPop(struct pop *pop) {
     GXColor color = {alpha, alpha, alpha, alpha}; // Premultiplied.
     Circle(pop->pos, TARGET_RADIUS + 6 * t, color, 18);
 }
-/* A Hop Peak Line's color: its hop's row's color, at alpha 230,
+/* A floor's line in line color `value` (LineColors), at alpha 230,
  * premultiplied. Darker over the main floor (3/5 of each channel), as picked
  * over the side platforms, and lighter over the top platform (halfway to
- * white). Orange (FF9628) and Teal (00B4A0) unless picked otherwise. */
+ * white). */
 #define PEAK_ALPHA 230
 enum { SHADE_DARK, SHADE_BASE, SHADE_LIGHT };
-static GXColor PeakColor(int hop, int shade) {
-    int value = Options_Main[hop ? OPT_FH_COLOR : OPT_SH_COLOR].val;
-    if (value < 0 || value >= TM_TARGETS_COLOR_COUNT)
-        value = hop ? TM_TARGETS_FH_COLOR_DEFAULT : TM_TARGETS_SH_COLOR_DEFAULT;
+static GXColor ShadedColor(int value, int shade) {
     u8 rgb[3];
     for (int i = 0; i < 3; ++i) {
         int v = LineColors[value][i];
@@ -1014,6 +1038,13 @@ static GXColor PeakColor(int hop, int shade) {
         rgb[i] = v * PEAK_ALPHA / 255;
     }
     return (GXColor){rgb[0], rgb[1], rgb[2], PEAK_ALPHA};
+}
+// A hop's Hop Peak Lines' color: its row's, Orange (FF9628) and Teal (00B4A0) unless picked otherwise.
+static int PeakColor(int hop) {
+    int value = Options_Main[hop ? OPT_FH_COLOR : OPT_SH_COLOR].val;
+    if (value < 0 || value >= TM_TARGETS_COLOR_COUNT)
+        value = hop ? TM_TARGETS_FH_COLOR_DEFAULT : TM_TARGETS_SH_COLOR_DEFAULT;
+    return value;
 }
 
 /* Each floor's line, from left to right x at its height, and its shade: the
@@ -1033,18 +1064,30 @@ static int PeakFloors(PeakFloor *floors) {
                                           side ? SHADE_BASE : SHADE_LIGHT};
     return count;
 }
-static void DrawPeakLines(void) {
+/* `lines` lines over each floor in one GX_LINES batch, line i at heights[i]
+ * above it in line color colors[i], shaded for the floor. */
+static void DrawFloorLines(int lines, const float *heights, const int *colors) {
     PeakFloor floors[PEAK_FLOORS];
     int count = PeakFloors(floors);
     if (!count) return;
-    event_vars->GFX_Start(count * 4, (GFX_Params){.shape = GX_LINES, .size = PEAK_LINE_WIDTH, .no_depth = true});
-    for (int i = 0; i < count; ++i)
-        for (int hop = 0; hop < 2; ++hop) {
-            float y = floors[i].y + peak_lasers[hop];
-            GXColor color = PeakColor(hop, floors[i].shade);
-            GFX_AddVtx(floors[i].left, y, 0, color);
-            GFX_AddVtx(floors[i].right, y, 0, color);
+    event_vars->GFX_Start(count * lines * 2,
+                          (GFX_Params){.shape = GX_LINES, .size = PEAK_LINE_WIDTH, .no_depth = true});
+    for (int f = 0; f < count; ++f)
+        for (int i = 0; i < lines; ++i) {
+            float y = floors[f].y + heights[i];
+            GXColor color = ShadedColor(colors[i], floors[f].shade);
+            GFX_AddVtx(floors[f].left, y, 0, color);
+            GFX_AddVtx(floors[f].right, y, 0, color);
         }
+}
+static void DrawPeakLines(void) {
+    int colors[2] = {PeakColor(0), PeakColor(1)};
+    DrawFloorLines(2, peak_lasers, colors);
+}
+// Lowest Laser Lines in its row's color: the value less one, 0 being Off.
+static void DrawLowLines(int value) {
+    int color = value - 1;
+    DrawFloorLines(1, &low_laser, &color);
 }
 // Double Jump Height's red, at alpha 230, premultiplied as the peak lines are.
 static const GXColor DoubleJumpRed = {230, 30, 30, 230};
@@ -1092,6 +1135,8 @@ static void Targets_GX(GOBJ *gobj, int pass) {
     if (pass != 2) return;
     // Under the targets. The heights are the fighter's, known from its first frame.
     if (checked && Options_Main[OPT_LINES].val) DrawPeakLines();
+    int low = Options_Main[OPT_LOW_LINE].val;
+    if (checked && low > 0 && low < TM_TARGETS_LOW_LINE_COUNT) DrawLowLines(low);
     GOBJ *you = Fighter_GetGObj(0);
     if (checked && Options_Main[OPT_DOUBLE_JUMP].val && you) {
         FighterData *ft = you->userdata;
@@ -1106,8 +1151,8 @@ static void Targets_GX(GOBJ *gobj, int pass) {
 
 // Event -----------------------------------------------------------------------
 
-/* Pairs, the peak lines and the double jump's line depend on the fighter, which
- * isn't known until its first frame. */
+/* Pairs, the peak and lowest laser lines and the double jump's line depend on
+ * the fighter, which isn't known until its first frame. */
 static void CheckFighter(FighterData *ft) {
     const Blaster *blaster = BlasterOf(ft);
     checked = true;
@@ -1115,6 +1160,7 @@ static void CheckFighter(FighterData *ft) {
     if (ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO) FullHopCombos(ft, blaster);
     PeakPress(ft, blaster, ft->attr.hop_v_initial_velocity, &peak_lasers[0]);
     PeakPress(ft, blaster, ft->attr.jump_v_initial_velocity, &peak_lasers[1]);
+    low_laser = LowestLaser(blaster);
     double_jump = DoubleJumpRise(ft);
     GateLaserRows();
 }

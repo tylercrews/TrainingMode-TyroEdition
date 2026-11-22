@@ -261,22 +261,29 @@ typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOW
  * stored 15, no color, reads as the default. Only a version 25 record owns
  * the word. Target Pointers (T10), appended after, is bit 8 with no version
  * bump: On by default, stored the same way as its distance from On, so the
- * zeros read as On. Bits 9..31 are free for a setting whose stored 0 is its
- * default, with no version bump. IS_TARGETS_WORD_84 is every row in it. */
+ * zeros read as On. Lowest Laser Lines (T10), appended after, is bits 9..12
+ * with no version bump: Off, its default, or a color plus one, so its 16
+ * values fill the bits and the zeros read as Off. Bits 13..31 are free for a
+ * setting whose stored 0 is its default, with no version bump.
+ * IS_TARGETS_WORD_84 is every row in it. */
 #define TARGETS_COLOR_OFFSET 84
 #define TARGETS_COLOR_SIZE 4
 #define TARGETS_POINTERS_SHIFT 8
+#define TARGETS_LOW_LINE_SHIFT 9
 #define IS_TARGETS_WORD_84(field,index) ((field)==TM_SETTING_TARGETS && \
-    ((index)==TM_TARGETS_SH_COLOR || (index)==TM_TARGETS_FH_COLOR || (index)==TM_TARGETS_POINTERS))
+    ((index)==TM_TARGETS_SH_COLOR || (index)==TM_TARGETS_FH_COLOR || (index)==TM_TARGETS_POINTERS || \
+     (index)==TM_TARGETS_LOW_LINE))
 static const ExtensionPreference targets_preferences[TM_TARGETS_PREF_COUNT] = {
     {TARGETS_SHIFT,8,TM_TARGETS_BEST_MAX+1,0}, {TARGETS_SHIFT+8,1,2,0}, {TARGETS_SHIFT+9,1,2,0},
     {TARGETS_LINES_SHIFT,1,2,0}, {TARGETS_FULL_HOP_SHIFT,3,TM_TARGETS_FH_COUNT,TM_TARGETS_FH_OFF},
     {TARGETS_DOUBLE_JUMP_SHIFT,1,2,0},
     {0,4,TM_TARGETS_COLOR_COUNT,TM_TARGETS_SH_COLOR_DEFAULT}, {4,4,TM_TARGETS_COLOR_COUNT,TM_TARGETS_FH_COLOR_DEFAULT},
-    {TARGETS_POINTERS_SHIFT,1,2,1},
+    {TARGETS_POINTERS_SHIFT,1,2,1}, {TARGETS_LOW_LINE_SHIFT,4,TM_TARGETS_LOW_LINE_COUNT,0},
 };
 typedef char TMExtension_TargetsColors[(TM_TARGETS_SH_COLOR==6 && TM_TARGETS_FH_COLOR==7 &&
-    TM_TARGETS_POINTERS==8 && TM_TARGETS_PREF_COUNT==9 && TARGETS_POINTERS_SHIFT==4+4 &&
+    TM_TARGETS_POINTERS==8 && TM_TARGETS_LOW_LINE==9 && TM_TARGETS_PREF_COUNT==10 &&
+    TARGETS_POINTERS_SHIFT==4+4 && TARGETS_LOW_LINE_SHIFT==TARGETS_POINTERS_SHIFT+1 &&
+    TM_TARGETS_LOW_LINE_COUNT==1u<<4 &&
     TM_TARGETS_COLOR_COUNT==15 && TM_TARGETS_SH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT &&
     TM_TARGETS_FH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT) ? 1 : -1];
 typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 &&

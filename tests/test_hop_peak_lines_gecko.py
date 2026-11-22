@@ -376,7 +376,10 @@ class DrawTests(unittest.TestCase):
         # The codes draw one color a hop: the event's defaults, Orange and Teal, as it draws them
         # over the side platforms (its base shade), at its alpha, premultiplied.
         self.assertIn('#define PEAK_ALPHA 230', source)
-        names = re.findall(r'"([^"]+)"', re.search(r'LineColorText\[TM_TARGETS_COLOR_COUNT\] = \{(.*?)\};', source, re.S)[1])
+        # The names start with Lowest Laser Lines' Off, then the colors LineColors lists.
+        names = re.findall(r'"([^"]+)"', re.search(r'LineColorText\[TM_TARGETS_LOW_LINE_COUNT\] = \{(.*?)\};', source, re.S)[1])
+        self.assertEqual(names[0], 'Off')
+        names = names[1:]
         rgbs = re.findall(r'\{(\d+), (\d+), (\d+)\}',
                           re.search(r'LineColors\[TM_TARGETS_COLOR_COUNT\]\[3\] = \{(.*?)\n\};', source, re.S)[1])
         premultiplied = lambda name: int.from_bytes(bytes([int(v) * 230 // 255 for v in rgbs[names.index(name)]] + [230]), 'big')

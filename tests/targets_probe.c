@@ -165,8 +165,8 @@ void TestTargetsFighter(int kind, int jump, int hop, int mult, int gravity, int 
     ft.attr.terminal_velocity = terminal / 10000.f;
 }
 /* `colors` is the saved short hop color plus 1, and the full hop's plus 1
- * times 256; 0 is the defaults. Bit 16 saves Target Pointers Off (only eight
- * arguments travel in registers). */
+ * times 256; 0 is the defaults. Bit 16 saves Target Pointers Off, and bits
+ * 17-20 Lowest Laser Lines' value (only eight arguments travel in registers). */
 void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_saved, int peak_lines, int full_hop,
                      int double_jump_saved, int colors) {
     *event_vars_ptr_loc = &vars;
@@ -176,6 +176,7 @@ void TestTargetsInit(int free_practice, int shdl, int best_saved, int counter_sa
     prefs[TM_TARGETS_SH_COLOR] = colors & 0xFF ? (colors & 0xFF) - 1 : TM_TARGETS_SH_COLOR_DEFAULT;
     prefs[TM_TARGETS_FH_COLOR] = colors >> 8 & 0xFF ? (colors >> 8 & 0xFF) - 1 : TM_TARGETS_FH_COLOR_DEFAULT;
     prefs[TM_TARGETS_POINTERS] = !(colors >> 16 & 1);
+    prefs[TM_TARGETS_LOW_LINE] = colors >> 17 & 0xF;
     *stc_gobj_lookup = lookup;
     *stc_colldata = &stage;
     *stc_collline = lines;
@@ -363,6 +364,11 @@ int TestTargetsInfo(int key) {
     case 60: return Options_Main[OPT_POINTERS].val;
     case 61: return prefs[TM_TARGETS_POINTERS];
     case 62: return Options_Main[OPT_POINTERS].val_prev;
+    case 63: return Options_Main[OPT_LOW_LINE].val;
+    case 64: return prefs[TM_TARGETS_LOW_LINE];
+    case 65: return Options_Main[OPT_LOW_LINE].val_prev;
+    case 66: return Options_Main[OPT_LOW_LINE].value_num;
+    case 67: return low_laser * 10000;
     }
     return -1;
 }

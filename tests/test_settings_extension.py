@@ -115,13 +115,15 @@ GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3,
 # Hop Peak Lines' colors, appended after that, are word 84 (version 25) bits 0-3
 # and 4-7, each stored as its distance from its default (Orange, Teal), and
 # Target Pointers, appended after them, bit 8, the same way: On, its default,
-# is 0.
+# is 0. Lowest Laser Lines, appended after that, is bits 9-12: Off (0, its
+# default) or a line color plus one, stored as itself.
 TARGETS = 53  # TM_SETTING_TARGETS
 TARGETS_LINES, TARGETS_FULL_HOP, TARGETS_DOUBLE_JUMP = 3, 4, 5  # TM_TARGETS_LINES, _FULL_HOP, _DOUBLE_JUMP
 TARGETS_SH_COLOR, TARGETS_FH_COLOR, TARGETS_POINTERS = 6, 7, 8  # TM_TARGETS_SH_COLOR, _FH_COLOR, _POINTERS
-TARGETS_FH_COUNT, TARGETS_COLORS = 7, 15
+TARGETS_LOW_LINE = 9  # TM_TARGETS_LOW_LINE
+TARGETS_FH_COUNT, TARGETS_COLORS, TARGETS_LOW_LINES = 7, 15, 16
 ORANGE, TEAL = 7, 10  # In the OSD palette, less Off: the colors' defaults.
-TARGETS_DEFAULTS = (0, 0, 0, 0, 0, 0, ORANGE, TEAL, 1)
+TARGETS_DEFAULTS = (0, 0, 0, 0, 0, 0, ORANGE, TEAL, 1, 0)
 TARGETS_COUNT = len(TARGETS_DEFAULTS)
 # Word 12's six retired bits: Ledgechase's preset (6-8) and action (15-17) in
 # versions 2-8. Every migration to version 24 zeroes them.
@@ -948,7 +950,8 @@ class ExtensionTests(unittest.TestCase):
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         for index, value in ((0, 256), (1, 2), (2, 2), (TARGETS_LINES, 2), (TARGETS_FULL_HOP, TARGETS_FH_COUNT),
                              (TARGETS_DOUBLE_JUMP, 2), (TARGETS_SH_COLOR, TARGETS_COLORS),
-                             (TARGETS_FH_COLOR, TARGETS_COLORS), (TARGETS_POINTERS, 2), (TARGETS_COUNT, 1)):
+                             (TARGETS_FH_COLOR, TARGETS_COLORS), (TARGETS_POINTERS, 2),
+                             (TARGETS_LOW_LINE, TARGETS_LOW_LINES), (TARGETS_COUNT, 1)):
             m.call('Settings_Set', TARGETS, index, value)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_COUNT), 0)
@@ -1069,7 +1072,8 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(self.word_80_and_12_settings(lambda f, i: m.call('Settings_Get', f, i)),
                          (200, 1, 1, 9, 2, 3, 5, 1, 1))
         self.assertEqual((m.call('Settings_Get', TARGETS, TARGETS_SH_COLOR), m.call('Settings_Get', TARGETS, TARGETS_FH_COLOR),
-                          m.call('Settings_Get', TARGETS, TARGETS_POINTERS)), (ORANGE, TEAL, 1))
+                          m.call('Settings_Get', TARGETS, TARGETS_POINTERS), m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE)),
+                         (ORANGE, TEAL, 1, 0))
 
     def test_version_23_records_read_fh_multi_lasers_off_and_the_rest_without_writing(self):
         m = self.m
@@ -1081,7 +1085,8 @@ class ExtensionTests(unittest.TestCase):
             read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
             self.assertEqual(read(TARGETS, TARGETS_FULL_HOP), 0)
             self.assertEqual((read(TARGETS, TARGETS_SH_COLOR), read(TARGETS, TARGETS_FH_COLOR)), (ORANGE, TEAL))
-            self.assertEqual(read(TARGETS, TARGETS_POINTERS), 1)  # Word 84's 1s aren't Off.
+            self.assertEqual(read(TARGETS, TARGETS_POINTERS), 1)  # Word 84's 1s aren't Off,
+            self.assertEqual(read(TARGETS, TARGETS_LOW_LINE), 0)  # nor a lowest laser line.
             self.assertEqual(self.word_80_and_12_settings(read), (200, 1, 1, 9, 2, 3, 5, 1, 1))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
@@ -1130,6 +1135,7 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_SH_COLOR), ORANGE)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 1)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 0)
         expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[84:88] = bytes(4)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))  # FH Multi Lasers' bits stay.
         self.assertEqual(self.word_80_and_12_settings(lambda f, i: m.call('Settings_Get', f, i)),
@@ -1144,7 +1150,8 @@ class ExtensionTests(unittest.TestCase):
             m.cpu.mem_write(EXT, bytes(old))
             read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
             self.assertEqual((read(TARGETS, TARGETS_SH_COLOR), read(TARGETS, TARGETS_FH_COLOR)), (ORANGE, TEAL))
-            self.assertEqual(read(TARGETS, TARGETS_POINTERS), 1)  # nor Target Pointers Off.
+            self.assertEqual(read(TARGETS, TARGETS_POINTERS), 1)  # nor Target Pointers Off,
+            self.assertEqual(read(TARGETS, TARGETS_LOW_LINE), 0)  # nor a lowest laser line.
             self.assertEqual(read(TARGETS, TARGETS_FULL_HOP), 5)
             self.assertEqual(self.word_80_and_12_settings(read), (200, 1, 1, 9, 2, 3, 5, 1, 1))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
@@ -1157,7 +1164,8 @@ class ExtensionTests(unittest.TestCase):
         self.version_23_record()  # Settings in words 80 and 12 around it.
         m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
         word = lambda record: int.from_bytes(record[84:88], 'little')
-        m.cpu.mem_write(EXT + 84, (0xABCDEE << 8).to_bytes(4, 'little'))  # Bits 9-31 are spare, and bit 8 On.
+        # Bit 8 On, bits 9-12 Lowest Laser Lines' 7 (Magenta), and bits 13-31 spare.
+        m.cpu.mem_write(EXT + 84, (0xABCDEE << 8).to_bytes(4, 'little'))
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         self.assertEqual(before[:8], HEADER)
         self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in (TARGETS_SH_COLOR, TARGETS_FH_COLOR)),
@@ -1179,7 +1187,8 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)
         m.call('Settings_Set', TARGETS, 0, 99); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 6)
         m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 0)
-        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)), (99, 0, 1, 1, 6, 0, 2, 4, 1))
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)),
+                         (99, 0, 1, 1, 6, 0, 2, 4, 1, 7))
 
     def test_target_pointers_use_only_word_84_bit_8_with_on_stored_as_0(self):
         m = self.m
@@ -1187,7 +1196,8 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
         m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)  # and under it.
         word = lambda record: int.from_bytes(record[84:88], 'little')
-        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABCDE << 9).to_bytes(4, 'little'))  # Spare.
+        # Lowest Laser Lines' 14 (Sky Blue) in bits 9-12, and spare bits over it.
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABCDE << 9).to_bytes(4, 'little'))
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         self.assertEqual(word(before) >> 8 & 1, 0)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 1)  # 0 is On.
@@ -1199,12 +1209,38 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(after[:84], before[:84])
             self.assertEqual(after[:8], HEADER)  # No version bump.
         self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)),
-                         (200, 0, 1, 1, 3, 1, 2, 4, 0))
+                         (200, 0, 1, 1, 3, 1, 2, 4, 0, 14))
         # Its neighbors' writes keep it.
         m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, TEAL); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 0)
         m.call('Settings_Set', TARGETS, 0, 5); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 0)
         self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 9, 0x5ABCDE)
+
+    def test_lowest_laser_lines_use_only_word_84_bits_9_to_12_with_off_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Settings in words 80 and 12 around it,
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
+        m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)
+        m.call('Settings_Set', TARGETS, TARGETS_POINTERS, 0)  # and under it.
+        word = lambda record: int.from_bytes(record[84:88], 'little')
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABCD << 13).to_bytes(4, 'little'))  # Spare.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(word(before) >> 9 & 15, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 0)  # 0 is Off.
+        for value in (1, 15, ORANGE + 1, 0, 11):  # Every value fills the bits: Off and 15 colors.
+            m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, value)
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> 9 & 15, word(after) & ~(15 << 9)), (value, word(before)))
+            self.assertEqual(after[:84], before[:84])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)),
+                         (200, 0, 1, 1, 3, 1, 2, 4, 0, 11))
+        # Its neighbors' writes keep it.
+        m.call('Settings_Set', TARGETS, TARGETS_POINTERS, 1); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 0)
+        m.call('Settings_Set', TARGETS, 0, 5); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 11)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 13, 0x5ABCD)
 
     def test_all_events_keeps_its_own_cursor_in_word_80_and_leaves_byte_5_alone(self):
         m = self.m
