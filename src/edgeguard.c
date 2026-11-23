@@ -154,6 +154,10 @@ static void LoadSettings(EventMenu *recovery_menu) {
         !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES);
     Options_Main[OPT_MAIN_CAMERA].val = Options_Main[OPT_MAIN_CAMERA].val_prev =
         TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_CAMERA);
+    Options_Main[OPT_MAIN_UPB_PLAYER].val = Options_Main[OPT_MAIN_UPB_PLAYER].val_prev =
+        TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_PLAYER);
+    Options_Main[OPT_MAIN_UPB_CPU].val = Options_Main[OPT_MAIN_UPB_CPU].val_prev =
+        TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_CPU);
 
     int pref = RecoveryPref(recovery_menu);
     if (pref < 0)
@@ -541,6 +545,55 @@ static void ChangeCamera(GOBJ *menu_gobj, int value) {
     ZoomCamera_Apply(value);
 }
 
+static void ChangePlayerUpBOverlay(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_PLAYER, value);
+}
+
+static void ChangeCPUUpBOverlay(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_CPU, value);
+}
+
+// Up-B Overlays ----------------------------------------
+
+/* The CPU's guide is orange, so it reads apart from yours where the two
+ * overlap: the Change Characters Orange, a dim shade of it the way DimBlue is
+ * of Blue, and a pale one for its X and marks. */
+static const UpBColors CPU_UpBColors = {
+    { 0xff, 0x96, 0x32, 0xff }, { 0x94, 0x57, 0x1d, 0xff }, { 0xff, 0xd8, 0xb0, 0xff },
+};
+
+/* A fighter's up-B guide at both ledges, the way the Slippi Up-B Overlay codes
+ * draw it (UpB_DrawOverlay). Nothing for a fighter with no guide. */
+static void DrawUpBOverlay(GOBJ *fighter, const UpBColors *colors) {
+    if (!fighter)
+        return;
+    FighterData *ft = fighter->userdata;
+    for (int side = 0; side < 2; ++side)
+        UpB_DrawOverlay(ft, ledge_positions[side], side * 2 - 1, colors);
+}
+
+/* The Player and CPU Up-B Overlays, in world space with the match camera, the
+ * CPU's first so yours draws over it. Shown behind the pause menu too. */
+static void Draw_UpBOverlays(GOBJ *gobj, int pass) {
+    bool player = Options_Main[OPT_MAIN_UPB_PLAYER].val, cpu = Options_Main[OPT_MAIN_UPB_CPU].val;
+    if (pass != 2 || (!player && !cpu))
+        return;
+    COBJ *cur_cam = COBJ_GetCurrent();
+    CObj_SetCurrent(*stc_matchcam_cobj);
+    if (cpu)
+        DrawUpBOverlay(Fighter_GetGObj(1), &CPU_UpBColors);
+    if (player)
+        DrawUpBOverlay(Fighter_GetGObj(0), &UpB_Colors);
+    CObj_SetCurrent(cur_cam);
+}
+
+/* Each overlay row is greyed out when its fighter has no guide. The characters
+ * are set for the match: Change Characters restarts it. */
+static void DisableUpBOverlays(FighterData *hmn_data, FighterData *cpu_data) {
+    Options_Main[OPT_MAIN_UPB_PLAYER].disable = !UpB_HasGuide(hmn_data);
+    Options_Main[OPT_MAIN_UPB_CPU].disable = !UpB_HasGuide(cpu_data);
+}
+
 static void WriteCustomKBValues(void) {
     Options_Main[OPT_MAIN_KB_HEIGHT].val = KB_HEIGHT_CUSTOM;
     Options_Main[OPT_MAIN_KB_DISTANCE].disable = 1;
@@ -599,6 +652,7 @@ void Event_Init(GOBJ *gobj) {
         assert("unimplemented character in edgeguard training");
     Options_Main[OPT_MAIN_RECOVERY].menu = recovery_menu;
     LoadSettings(recovery_menu);
+    DisableUpBOverlays(hmn_data, cpu_data);
     saved_recovery = RecoveryMenuOptFlags(cpu);
 
     FighterSwap_Restrict(1, Edgeguard_CPUKinds, countof(Edgeguard_CPUKinds));
@@ -613,6 +667,8 @@ void Event_Init(GOBJ *gobj) {
     ZoomCamera_Init(Options_Main[OPT_MAIN_CAMERA].val, 1);
     GOBJ *camera_gobj = GObj_Create(0, 0, 0);
     GObj_AddUserData(camera_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
+    // After the stage and fighters, as Up-B Sweetspot draws its guides.
+    GObj_AddGXLink(camera_gobj, Draw_UpBOverlays, MATCHGX_EFFECT, 255);
 }
 
 /* D-pad left/right picks that ledge, like the Side row, and restarts. Pressing

@@ -11,11 +11,11 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b37) | `0x1AE0..0x1B37` | 88 bytes | 88 bytes | **1 spare bit** in word 80 (31), **2** in word 12 (16-17) and **19** in word 84 (13-31) |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b37) | `0x1AE0..0x1B37` | 88 bytes | 88 bytes | **1 spare bit** in word 80 (31) and **19** in word 84 (13-31) |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** no whole bytes are free. Version 25 (T10) took the last 4, `0x1B34..0x1B37`, for Target Practice's line colors in word 84. Target Practice's Target Pointers took word 84's bit 8 after that, and its Lowest Laser Lines bits 9-12. Low Laser Puff Practice's Lowest Laser Lines took word 12's bit 15. What's left is 22 spare bits: word 80's bit 31, word 12's bits 16-17 and word 84's bits 13-31, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
+**Bottom line:** no whole bytes are free. Version 25 (T10) took the last 4, `0x1B34..0x1B37`, for Target Practice's line colors in word 84. Target Practice's Target Pointers took word 84's bit 8 after that, and its Lowest Laser Lines bits 9-12. Low Laser Puff Practice's Lowest Laser Lines took word 12's bit 15, and Edgeguard's Player and CPU Up-B Overlays its bits 16-17. What's left is 20 spare bits: word 80's bit 31 and word 84's bits 13-31, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
 
 The `TYEX` record fills 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -131,7 +131,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 0..7 | Header | `TYEX`, version (25), payload size (80), marker `A5 5A` | — |
 | 8 | Global OSDs / overlays / gameplay | bits 0-2 A-Smash Release color, bit 3 Randall Overlay, bits 4-6 Act OoAttack color, bit 7 Don't Reset Timers (T8, no version bump: every record zeroed byte 8 and nothing ever set bit 7) | — |
 | 9..11 | Techchase, Under Fire | word 9 bits 0-23, fully used (table below). Bit 15 (byte 10 bit 7) is Player Distance's top bit since T10, and bit 14 CPU Followup Action's low bit | — |
-| 12..15 | Ledgechase, Under Fire, Low Laser, Target Practice | word 12 (table below) | bits 16-17 |
+| 12..15 | Ledgechase, Under Fire, Low Laser, Target Practice, Edgeguard | word 12 (table below) | — |
 | 16..19 | Powershield, Ledgechase | word 16, fully used | — |
 | 20..23 | Reversal, Attack on Shield, Under Fire, Side-B Sweetspot, Blast Zone Overlay, Edgeguard Side, 2v1 Grab Punish | word 20, fully used (Side-B Sweetspot's Marth is word 72 bit 31) | — |
 | 24..34 | Global OSD colors, Ledgegrab Speedrun, 2v1 Grab Punish | one 4-bit "extra color" nibble per OSD category (21 categories): 0 = use the core 3-bit color, 1..8 = Orange..Lavender. Byte 34 bits 4-5 are Ledgegrab Speedrun's Reset Speed (T9), stored as an offset from the default: 0 Short, 1 Linger, 2 Instant, and an invalid 3 reads as Short. Byte 34 bits 6-7 are the top bits of Grab Punish's Enemy Percent and Teammate Percent (T9). No version bump: every migration to version 15 zeroed this nibble and the color code keeps it. Read only from version 15 on, and Grab Punish's only from version 20 on | — |
@@ -147,7 +147,7 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer Minimap, All Events, Up-B Sweetspot | word 80 (table below) | bit 31 |
 | 84..87 | Target Practice | word 84: the Hop Peak Lines' colors, Target Pointers and Lowest Laser Lines (table below) | bits 13-31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **1 spare bit** (31) and word 12's **2 spare bits** (16-17). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer Minimap word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines and Double Jump Height word 80 bits 29 and 30. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8 and Low Laser Puff Practice's Lowest Laser Lines bit 15, so bits 16-17 are the ones left. Version 25 appended word 84 for Target Practice's line colors, which take bits 0-7, Target Pointers took bit 8 and Lowest Laser Lines bits 9-12 with no version bump, leaving its **19 spare bits** (13-31).
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **1 spare bit** (31). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer Minimap word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines and Double Jump Height word 80 bits 29 and 30. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, Low Laser Puff Practice's Lowest Laser Lines bit 15 and Edgeguard's Up-B Overlays bits 16-17, so word 12 is full. Version 25 appended word 84 for Target Practice's line colors, which take bits 0-7, Target Pointers took bit 8 and Lowest Laser Lines bits 9-12 with no version bump, leaving its **19 spare bits** (13-31).
 
 ### Bit fields in the words
 
@@ -169,9 +169,9 @@ Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot'
 | 21-22 | Distance, low bits: 0 Right Next To, 1 Close, 2 Medium, 3 Past Tech Roll, 4 Random (T10, with bit 15). A stored 5-7 repairs to Right Next To |
 | 23 | Under Fire: Remove Fleshy Pillars (T9). No version bump: every record started with it zero and migrations only keep it |
 
-**Word 12: Ledgechase, Under Fire, Low Laser, Target Practice**
+**Word 12: Ledgechase, Under Fire, Low Laser, Target Practice, Edgeguard** (fully used)
 
-Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 9 moved both, and their migrations copied the old values out but never cleared them, so a record that came up from those versions can still hold them. Every migration to version 24 zeroes all six, after the version 2-8 migration has read them, so in a version 24 record they read 0. Target Practice's FH Multi Lasers took bits 6-8 that way, and Low Laser Puff Practice's Lowest Laser Lines bit 15; bits 16-17 are free for a setting whose stored 0 is its default, with no version bump. Only a version 24 or later record owns them. Migrating version 24 to 25 leaves them alone, so FH Multi Lasers and Lowest Laser Lines carry over.
+Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 9 moved both, and their migrations copied the old values out but never cleared them, so a record that came up from those versions can still hold them. Every migration to version 24 zeroes all six, after the version 2-8 migration has read them, so in a version 24 record they read 0. Target Practice's FH Multi Lasers took bits 6-8 that way, Low Laser Puff Practice's Lowest Laser Lines bit 15, and Edgeguard's Up-B Overlays bits 16-17, each with no version bump since its stored 0 is its default. Only a version 24 or later record owns them. Migrating version 24 to 25 leaves them alone, so all of them carry over.
 
 | Bits | Setting |
 | --- | --- |
@@ -182,7 +182,8 @@ Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 
 | 9-11 | Ledgechase distance |
 | 12-14 | Ledgechase CPU invincibility color |
 | 15 | Low Laser: Lowest Laser Lines (T10, `TM_LOW_LASER_LOW_LINE`, no version bump): 0 Off (default), 1 On. Version 2-8's old action until version 24 zeroed it; older records read Off |
-| 16-17 | Free (zeroed by version 24; version 2-8's old action) |
+| 16 | Edgeguard: Player Up-B Overlay (T10, `TM_EG_UPB_OVERLAY_PLAYER`, no version bump): 0 Off (default), 1 On. Version 2-8's old action until version 24 zeroed it; older records read Off |
+| 17 | Edgeguard: CPU Up-B Overlay (T10, `TM_EG_UPB_OVERLAY_CPU`), the same way |
 | 18 | Under Fire: disable attack particles |
 | 19 | Under Fire: score is a refresh count (format marker) |
 | 20 | Low Laser: event OSDs |

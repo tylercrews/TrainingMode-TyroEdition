@@ -253,7 +253,8 @@ enum TMAttackShieldPreference {
  * six are a second 5-bit mask each, in word 68's bits 19-23 and 24-28.
  * Knockback Height took over Hit Strength's field; Knockback Distance, word
  * 68's bits 29-31, is stored plus 1, so 0 means that field is still Hit
- * Strength (LoadKnockback in edgeguard.c). */
+ * Strength (LoadKnockback in edgeguard.c). The Player and CPU Up-B Overlays
+ * (T10) are word 12's bits 16 and 17, Off as 0, owned from version 24 on. */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
@@ -263,7 +264,8 @@ enum TMEdgeguardPreference {
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
     TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE,
     TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB, TM_EG_KB_DISTANCE,
-    TM_EG_RECOVERY_FOX_UPB, TM_EG_RECOVERY_FALCO_UPB, TM_EG_RECOVERY_LUIGI2, TM_EG_PREF_COUNT
+    TM_EG_RECOVERY_FOX_UPB, TM_EG_RECOVERY_FALCO_UPB, TM_EG_RECOVERY_LUIGI2,
+    TM_EG_UPB_OVERLAY_PLAYER, TM_EG_UPB_OVERLAY_CPU, TM_EG_PREF_COUNT
 };
 /* Side-B Sweetspot: Success Criteria in word 20 bit 26, Knockback in bits
  * 27-29, and Marth (T10) in word 72 bit 31. Zero, which every record that owns

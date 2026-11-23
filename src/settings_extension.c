@@ -75,11 +75,17 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
  * read as Close, the original spot, with no version bump. Camera takes word
  * 56's spare bit 30 the same way: zero is Normal. Side takes word 20's spare
  * bits 24..25: zero is Random. Word 20's padding is kept through migrations,
- * so only a Settings_Set writes Side; an invalid 3 reads as Random. */
+ * so only a Settings_Set writes Side; an invalid 3 reads as Random. The Player
+ * and CPU Up-B Overlays (T10) take word 12's bits 16..17, two of the retired
+ * bits every migration to version 24 zeroes (see RETIRED_LEDGE_BITS), with no
+ * version bump: Off, the default, is 0, and only a version 24 or later record
+ * owns them. */
 #define EDGEGUARD_OFFSET 52
 #define EDGEGUARD_SIZE 12
 #define EDGEGUARD2_OFFSET 64
 #define EDGEGUARD2_SIZE 4
+#define EDGEGUARD_UPB_OVERLAY_OFFSET 12
+#define EDGEGUARD_UPB_OVERLAY_SHIFT 16
 static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {0,9,301,100}, {9,9,301,120}, {18,7,91,45}, {25,7,91,60},
     {0,10,999,0}, {10,10,1000,50}, {20,10,1000,80},
@@ -97,6 +103,8 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     /* word 72: Firefox To Ledge, Firebird To Ledge, Luigi's Up B Sweetspot and
      * Backflip Jump Sweetspot */
     {10,1,2,0}, {11,1,2,0}, {12,2,4,0},
+    /* word 12: Player and CPU Up-B Overlay */
+    {EDGEGUARD_UPB_OVERLAY_SHIFT,1,2,0}, {EDGEGUARD_UPB_OVERLAY_SHIFT+1,1,2,0},
 };
 /* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..13 and Up-B
  * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
@@ -251,12 +259,16 @@ typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOW
  * migrates (RETIRED_LEDGE_BITS), and only a version 24 record owns them. Off,
  * the default, is 0, and a stored 7, no choice, reads as Off. Bits 15..17
  * are zero in every version 24 record: Low Laser Puff Practice's Lowest Laser
- * Lines took bit 15 that way, and 16..17 are free. */
+ * Lines took bit 15 that way, and Edgeguard's Up-B Overlays 16..17. */
 #define TARGETS_FULL_HOP_OFFSET 12
 #define TARGETS_FULL_HOP_SHIFT 6
 #define RETIRED_LEDGE_BITS (7u<<6 | 7u<<15)
 typedef char TMExtension_LowLaserLowLine[(TM_LOW_LASER_LOW_LINE==4 && TM_LOW_LASER_PREF_COUNT==5 &&
     (RETIRED_LEDGE_BITS & 1u<<LOW_LASER_LOW_LINE_SHIFT) && TARGETS_FULL_HOP_OFFSET==12) ? 1 : -1];
+typedef char TMExtension_EdgeguardUpBOverlay[(TM_EG_UPB_OVERLAY_CPU==TM_EG_UPB_OVERLAY_PLAYER+1 &&
+    TM_EG_PREF_COUNT==TM_EG_UPB_OVERLAY_CPU+1 && EDGEGUARD_UPB_OVERLAY_OFFSET==TARGETS_FULL_HOP_OFFSET &&
+    (RETIRED_LEDGE_BITS & 3u<<EDGEGUARD_UPB_OVERLAY_SHIFT)==3u<<EDGEGUARD_UPB_OVERLAY_SHIFT &&
+    !(1u<<LOW_LASER_LOW_LINE_SHIFT & 3u<<EDGEGUARD_UPB_OVERLAY_SHIFT)) ? 1 : -1];
 /* Double Jump Height (T10), appended after FH Multi Lasers, is back in word
  * 80: bit 30, after Hop Peak Lines, the same way (Off is 0, only a version 23
  * or later record owns it). Bit 31 stays free. */
@@ -508,7 +520,8 @@ static unsigned preference_offset(unsigned field, unsigned index) {
         (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
-        return index>=TM_EG_RECOVERY_FOX_UPB?TEAM_CHARACTERS_OFFSET:
+        return index>=TM_EG_UPB_OVERLAY_PLAYER?EDGEGUARD_UPB_OVERLAY_OFFSET:
+            index>=TM_EG_RECOVERY_FOX_UPB?TEAM_CHARACTERS_OFFSET:
             index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
             index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
             index==TM_EG_CAMERA?EDGEGUARD_OFFSET+4:
@@ -572,9 +585,10 @@ static void init_shield_preferences(uint8_t *r) {
             set_preference(r,field,i,preference(field,i)->initial);
 }
 /* Initialize the Edgeguard preferences from index `first`, whose bytes the
- * caller has just claimed. Side is not in those bytes. */
+ * caller has just claimed. Side and the Up-B Overlays (word 12, which the
+ * migration to version 24 clears) are not in those bytes. */
 static void init_edgeguard_preferences(uint8_t *r, unsigned first) {
-    for(unsigned i=first;i<TM_EG_PREF_COUNT;++i)
+    for(unsigned i=first;i<TM_EG_UPB_OVERLAY_PLAYER;++i)
         if(i!=TM_EG_SIDE) set_preference(r,TM_SETTING_EDGEGUARD,i,edgeguard_preferences[i].initial);
 }
 /* Initialize the event menus in word 68, which the caller has just claimed. */
@@ -770,9 +784,12 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 the rest
-     * but word 68, which version 20 records own too, and version 21 word 72. */
+     * but word 68, which version 20 records own too, and version 21 word 72.
+     * Only a version 24 or later record owns the Up-B Overlays' word 12 bits:
+     * before that, they could still hold Ledgechase's old action. */
     if(field==TM_SETTING_EDGEGUARD) {
-        int owned=supported(r)||v21||v22||v23||v24||(index<TM_EG_RECOVERY_FOX_UPB && (v20||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)))));
+        int owned=index>=TM_EG_UPB_OVERLAY_PLAYER?supported(r)||v24:
+            supported(r)||v21||v22||v23||v24||(index<TM_EG_RECOVERY_FOX_UPB && (v20||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)))));
         unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }

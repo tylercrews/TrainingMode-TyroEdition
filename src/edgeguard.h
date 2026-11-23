@@ -2,6 +2,7 @@
 #include "events.h"
 #include "fighter_swap.h"
 #include "stage_swap.h"
+#include "upb_guides.h"
 #include "zoom_camera.h"
 
 static void Exit(GOBJ *menu);
@@ -13,6 +14,8 @@ static void ChangePlayerPosition(GOBJ *menu_gobj, int value);
 static void ChangeKnockbackHeight(GOBJ *menu_gobj, int value);
 static void ChangeKnockbackDistance(GOBJ *menu_gobj, int value);
 static void ChangeBlastZones(GOBJ *menu_gobj, int value);
+static void ChangePlayerUpBOverlay(GOBJ *menu_gobj, int value);
+static void ChangeCPUUpBOverlay(GOBJ *menu_gobj, int value);
 static void ChangeCamera(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMax(GOBJ *menu_gobj, int value);
@@ -101,6 +104,8 @@ enum options_initial {
     OPT_MAIN_KB_DISTANCE,
     OPT_MAIN_KB_CUSTOMMENU,
     OPT_MAIN_BLAST_ZONES,
+    OPT_MAIN_UPB_PLAYER,
+    OPT_MAIN_UPB_CPU,
     OPT_MAIN_CAMERA,
     OPT_MAIN_CHARACTERS,
     OPT_MAIN_STAGE,
@@ -187,6 +192,24 @@ static EventOption Options_Main[] = {
         .OnChange = ChangeBlastZones,
     },
     {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Player Up-B Overlay",
+        .desc = {"Draw your up-B's sweetspots at both ledges, as in",
+                 "Up-B Sweetspot: up-B from the blue ring or dot and",
+                 "you grab the ledge at the white X. Greyed out for",
+                 "characters with no guide. This setting is saved."},
+        .OnChange = ChangePlayerUpBOverlay,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "CPU Up-B Overlay",
+        .desc = {"Draw the CPU's up-B sweetspots at both ledges, in",
+                 "orange: an up-B from its ring or dot grabs the",
+                 "ledge at its X. Greyed out for CPUs with no guide.",
+                 "This setting is saved."},
+        .OnChange = ChangeCPUUpBOverlay,
+    },
+    {
         .kind = OPTKIND_STRING,
         .name = "Camera",
         .value_num = 2,
@@ -216,6 +239,7 @@ static EventOption Options_Main[] = {
         .desc = {"Return to the Event Select Screen."},
         .OnSelect = Exit,
     }};
+typedef char edgeguard_main_rows[(countof(Options_Main) == OPT_MAIN_COUNT) ? 1 : -1];
 
 static EventMenu Menu_Main = {
     .on_exit = Exit,

@@ -37,9 +37,12 @@ LOW_LASER_LOW_LINE = 4  # TM_LOW_LASER_LOW_LINE: word 12 bit 15.
 # their first six in word 68's spare bits 19-23 and 24-28, and Knockback
 # Distance, stored plus 1 so 0 is a save from before it, in bits 29-31. Then
 # word 72's spare bits: Firefox and Firebird To Ledge in 10 and 11, and Luigi's
-# Up B Sweetspot and Backflip Jump Sweetspot in 12-13.
-EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 7, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32, 6, 2, 2, 4)
-EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0, 0, 0, 0, 0)
+# Up B Sweetspot and Backflip Jump Sweetspot in 12-13. Then the Player and CPU
+# Up-B Overlays (T10) in word 12's retired bits 16-17, owned from version 24.
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 7, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32, 6, 2, 2, 4,
+                    2, 2)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0, 0)
 EG_COUNT = len(EDGEGUARD_COUNTS)
 EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index added after version 18
 EG_POSITION = 20  # TM_EG_PLAYER_POSITION
@@ -48,6 +51,7 @@ EG_SIDE = 22  # TM_EG_SIDE
 EG_FOX_SIDEB, EG_FALCO_SIDEB = 23, 24  # TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB
 EG_KB_DISTANCE = 25  # TM_EG_KB_DISTANCE
 EG_FOX_UPB, EG_FALCO_UPB, EG_LUIGI2 = 26, 27, 28  # TM_EG_RECOVERY_FOX_UPB, _FALCO_UPB, _LUIGI2
+EG_UPB_PLAYER, EG_UPB_CPU = 29, 30  # TM_EG_UPB_OVERLAY_PLAYER, _CPU: word 12 bits 16 and 17.
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
 # Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Medium
@@ -1118,7 +1122,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 4)
         self.assertEqual((m.call('Settings_Get', 28, 0), m.call('Settings_Get', 28, 4), m.call('Settings_Get', 28, 6)),
                          (1, 0, 9))
-        # Bit 15 (Low Laser's Lowest Laser Lines, Off) and the free 16-17 stay 0.
+        # Bit 15 (Low Laser's Lowest Laser Lines) and 16-17 (Edgeguard's Up-B Overlays) stay 0, Off.
         self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 0)
 
     # Low Laser Puff Practice's Lowest Laser Lines (T10): word 12's retired bit 15, no version bump.
@@ -1148,7 +1152,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(rows(), (1, 0, 3, 1, 1))
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 2)
         self.assertEqual(m.call('Settings_Get', 28, 6), 9)
-        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 1)  # Bits 16-17 stay free.
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 1)  # Edgeguard's 16-17 stay Off.
         # A bad write is ignored, and Off clears the bit.
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 2)
@@ -1179,6 +1183,60 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT, bytes(old))
         self.assertEqual(m.call('TMExtension_Read', EXT, LOW_LASER, LOW_LASER_LOW_LINE), 1)
         self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 12, 4)), bytes(old[12:16]))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 5)
+
+    # Edgeguard's Player and CPU Up-B Overlays (T10): word 12's retired bits 16-17, no version bump.
+    def test_edgeguard_up_b_overlays_use_only_word_12_bits_16_17_with_off_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Word 12's settings around the bits.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 6)
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 1)
+        m.call('Settings_Set', EDGEGUARD, EG_CAMERA, 1); m.call('Settings_Set', EDGEGUARD, EG_LUIGI2, 3)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        word = lambda record: int.from_bytes(record[12:16], 'little')
+        overlays = lambda: (m.call('Settings_Get', EDGEGUARD, EG_UPB_PLAYER), m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU))
+        self.assertEqual(overlays(), (0, 0))  # Off by default.
+        self.assertEqual(word(before) >> 16 & 3, 0)
+        for player, cpu in ((1, 0), (0, 1), (1, 1)):
+            m.call('Settings_Set', EDGEGUARD, EG_UPB_PLAYER, player); m.call('Settings_Set', EDGEGUARD, EG_UPB_CPU, cpu)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual(overlays(), (player, cpu))
+            self.assertEqual(word(after), word(before) | player << 16 | cpu << 17)
+            self.assertEqual(after[:12] + after[16:], before[:12] + before[16:])
+        # Their neighbors' writes keep them: Low Laser's bit 15, FH Multi Lasers, Ledgechase and Edgeguard's other rows.
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 0); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 2)
+        m.call('Settings_Set', 28, 6, 9); m.call('Settings_Set', EDGEGUARD, EG_CAMERA, 0)
+        self.assertEqual(overlays(), (1, 1))
+        self.assertEqual((m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP),
+                          m.call('Settings_Get', 28, 6), m.call('Settings_Get', EDGEGUARD, EG_LUIGI2)), (0, 2, 9, 3))
+        # A bad write is ignored, and Off clears only its own bit.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', EDGEGUARD, EG_UPB_CPU, 2)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set', EDGEGUARD, EG_UPB_PLAYER, 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(before) & ~(1 << 16))
+        self.assertEqual(overlays(), (0, 1))
+
+    def test_edgeguard_up_b_overlays_are_off_in_version_23_records_migrated_or_not(self):
+        m = self.m
+        old = self.version_23_record()  # Its retired bits set, as Ledgechase's old action left them.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual([m.call('TMExtension_Read', EXT, EDGEGUARD, i) for i in (EG_UPB_PLAYER, EG_UPB_CPU)], [0, 0])
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))  # Read without writing.
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU), 0)  # Migrated: the bits are cleared.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 12, 4), 'little') >> 16 & 3, 0)
+        m.call('Settings_Set', EDGEGUARD, EG_UPB_CPU, 1)
+        self.assertEqual((m.call('Settings_Get', EDGEGUARD, EG_UPB_PLAYER), m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU)), (0, 1))
+
+    def test_edgeguard_up_b_overlays_carry_over_from_version_24(self):
+        m = self.m
+        old = self.version_24_record()  # Version 24 zeroed bits 15-17: Off.
+        old[12:16] = (int.from_bytes(old[12:16], 'little') | 3 << 16).to_bytes(4, 'little')
+        m.cpu.mem_write(EXT, bytes(old))
+        # Version 24 owns the bits, so On reads as On and migrating to 25 keeps them.
+        self.assertEqual([m.call('TMExtension_Read', EXT, EDGEGUARD, i) for i in (EG_UPB_PLAYER, EG_UPB_CPU)], [1, 1])
+        self.assertEqual((m.call('Settings_Get', EDGEGUARD, EG_UPB_PLAYER), m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU)), (1, 1))
         self.assertEqual(bytes(m.cpu.mem_read(EXT + 12, 4)), bytes(old[12:16]))
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 5)
 
