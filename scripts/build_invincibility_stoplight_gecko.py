@@ -20,7 +20,7 @@ HOOK = 0x80080E1C
 def build():
     build_code(SOURCE, BUILD, HOOK, [
         "$Invincibility Stoplight (Slippi NTSC 1.02) [Tyro]",
-        "*Last 4 invincible frames: red, red, then yellow, yellow.",
+        "*Last 8 invincible frames: 4 red, then 4 yellow.",
         "*Same colors for everyone. Works with or without Invincibility Overlay.",
         "*Visual only."], "invincibility-stoplight")
 

@@ -9,9 +9,12 @@ enum { TM_CUE_NONE, TM_CUE_YELLOW, TM_CUE_GREEN, TM_CUE_RED };
 #define TM_CUE_GREEN_COLOR {80,255,90,220}
 #define TM_CUE_RED_COLOR {255,40,40,180}
 #define TM_CUE_RED_PULSE {180,140,100,60,20,60,100,140}
-/* Invincibility Stoplight: the last four protected frames, red then yellow,
- * the same for everyone. A little more opaque than the protection tint (112). */
-#define TM_CUE_ENDING_FRAMES 4
+/* Invincibility Stoplight: the last eight protected frames, four red then four
+ * yellow, the same for everyone. A little more opaque than the protection tint
+ * (112). Dodges, techs and getups protect for 11 frames or more; a few
+ * specials and two ledge attacks protect for less and show only part of it. */
+#define TM_CUE_ENDING_FRAMES 8
+#define TM_CUE_ENDING_YELLOW_FRAMES 4
 #define TM_CUE_ENDING_RED_COLOR {255,40,40,150}
 #define TM_CUE_ENDING_YELLOW_COLOR {255,240,0,150}
 #define TM_CPU_INVINCIBILITY_NAMES "Off", "Red", "Blue", "Yellow", "Green", "Cyan", "Magenta", "Lavender"
@@ -69,8 +72,9 @@ typedef struct TMCueEngine {
     int kind, ledge, respawn, held, star, star_frames;
     unsigned counting;
 } TMCueEngine;
-/* Protected frames left, counting this one: 0 not protected, 1..4, or 5 for
- * five or more. -1 when the script can't be followed far enough to tell.
+/* Protected frames left, counting this one: 0 not protected, 1..8, or 9 for
+ * nine or more (TM_CUE_ENDING_FRAMES + 1). -1 when the script can't be
+ * followed far enough to tell.
  * Hitlag (frozen) holds the script but not the engine's timers. */
 int TMCue_ProtectionLeft(const TMCueScript *script, float rate, int frozen,
                          const TMCueHurt *hurt, const TMCueEngine *engine);

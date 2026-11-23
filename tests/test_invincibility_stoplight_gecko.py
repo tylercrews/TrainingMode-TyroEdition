@@ -81,33 +81,33 @@ class Machine(OverlayMachine):
 
 
 class InvincibilityStoplightGeckoTests(unittest.TestCase):
-    def countdown(self, m, top=6):
+    def countdown(self, m, top=10):
         colors = []
         for frames in range(top, -1, -1):
             m.ledge(frames)
             colors.append(m.draw())
         return colors
 
-    def test_ledge_countdown_is_red_twice_then_yellow_twice_at_two_allocations(self):
+    def test_ledge_countdown_is_four_red_then_four_yellow_at_two_allocations(self):
         for base in [0x80010000, 0x81700000]:
             with self.subTest(base=hex(base)):
                 m = Machine(base)
-                self.assertEqual(self.countdown(m, 8), [0, 0, 0, 0, RED, RED, YELLOW, YELLOW, 0])
+                self.assertEqual(self.countdown(m, 12), [0] * 4 + [RED] * 4 + [YELLOW] * 4 + [0])
 
     def test_over_the_overlay_code_the_same_for_everyone(self):
         m = Machine(overlay=True)
         self.assertEqual(sorted(m.allocations), [HOOK, STOPLIGHT_HOOK])
-        self.assertEqual(self.countdown(m), [BLUE, BLUE, RED, RED, YELLOW, YELLOW, 0])
+        self.assertEqual(self.countdown(m), [BLUE] * 2 + [RED] * 4 + [YELLOW] * 4 + [0])
         m.player(0, accent=0, cpu=1)
-        self.assertEqual(self.countdown(m), [LAVENDER, LAVENDER, RED, RED, YELLOW, YELLOW, 0])
+        self.assertEqual(self.countdown(m), [LAVENDER] * 2 + [RED] * 4 + [YELLOW] * 4 + [0])
 
     def test_timers_combine_as_the_native_countdown_does(self):
         m = Machine()
         for args, color in [
-            ((3, 1), RED), ((1, 3), RED), ((2, 6), 0), ((0, 2), YELLOW),
+            ((6, 1), RED), ((1, 6), RED), ((2, 6), RED), ((2, 12), 0), ((0, 2), YELLOW),
             ((2, 0, 1), 0),  # The 0x2221 hold: no timer ends it.
             ((0, 0, 0, -1, 1), 0),  # Set with no timer.
-            ((0, 0, 0, 3), RED), ((0, 0, 0, 1), YELLOW), ((0, 0, 0, 9), 0),
+            ((0, 0, 0, 6), RED), ((0, 0, 0, 1), YELLOW), ((0, 0, 0, 9), 0),
             ((0, 0, 0, 0), 0),  # Starman with no timer.
         ]:
             with self.subTest(args=args):
@@ -117,19 +117,19 @@ class InvincibilityStoplightGeckoTests(unittest.TestCase):
     def test_script_body_state_commands(self):
         m = Machine()
         colors = []
-        for frame in range(14, 21):
+        for frame in range(10, 21):
             m.protect(script=0 if frame == 20 else 2)
             m.script(ROLL, 20 - frame, frame, offset=3)
             colors.append(m.draw())
-        self.assertEqual(colors, [0, 0, RED, RED, YELLOW, YELLOW, 0])
+        self.assertEqual(colors, [0] * 2 + [RED] * 4 + [YELLOW] * 4 + [0])
         m.protect(script=2)
-        m.script([(2 << 26) | 14, 26 << 26, 0], 0)  # A synchronous timer still to run.
+        m.script([(2 << 26) | 16, 26 << 26, 0], 0)  # A synchronous timer still to run.
         self.assertEqual(m.draw(), RED)
         m.protect()
         m.capsules(15, 2)
         for words, timer, color in [
             ([27 << 26, 0], 2, YELLOW),  # 0x6C: every hurtbox normal.
-            ([(28 << 26) | (4 << 18), 0], 3, RED),  # 0x70: bone 4 normal, so not the whole body.
+            ([(28 << 26) | (4 << 18), 0], 6, RED),  # 0x70: bone 4 normal, so not the whole body.
             ([(28 << 26) | (99 << 18), 0], 1, 0),  # No hurtbox on bone 99.
         ]:
             with self.subTest(words=words):
@@ -176,7 +176,7 @@ class InvincibilityStoplightGeckoTests(unittest.TestCase):
                     m = Machine(overlay=overlay)
                     m.cpu.mem_write(FT + 0x408, random.Random(9).randbytes(0x180))
                     m.w(FT + 0x430, colanim)
-                    m.ledge(3)
+                    m.ledge(6)
                     before = bytes(m.cpu.mem_read(FT, 0x2400))
                     selected = 0 if colanim else 1
                     for _ in range(3):
@@ -207,7 +207,7 @@ class InvincibilityStoplightGeckoTests(unittest.TestCase):
     def test_with_the_overlay_and_actionable_codes_actionable_still_wins(self):
         m = Machine(overlay=True, actionable=True)
         self.assertEqual(sorted(m.allocations), [0x8006D9EC, 0x800805C8, HOOK, STOPLIGHT_HOOK])
-        m.ledge(4)
+        m.ledge(6)
         before = bytes(m.cpu.mem_read(FT, 0x2400))
         m.tick(1, 42, 1)  # Landing lag, still three frames out.
         self.assertEqual(m.draw(), RED)
@@ -217,7 +217,7 @@ class InvincibilityStoplightGeckoTests(unittest.TestCase):
         m.tick(3, 14, 0)
         m.tick(4, 14, 1)
         m.tick(5, 14, 2)
-        m.ledge(6)
+        m.ledge(10)
         self.assertEqual(m.draw(), BLUE)
         m.ledge(1)
         self.assertEqual(m.draw(), YELLOW)

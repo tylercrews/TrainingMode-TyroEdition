@@ -44,7 +44,8 @@ void gecko_draw(GOBJ *obj, int pass) {
     __builtin_memcpy(saved, ft->color, sizeof(saved));
     unsigned selected = ft->color[0].colanim ? 0 : 1;
     for (unsigned i = 0; i < 3; ++i) ft->color[i].color_enable = 0;
-    ft->color[selected].hex = left > 2 ? (GXColor)TM_CUE_ENDING_RED_COLOR : (GXColor)TM_CUE_ENDING_YELLOW_COLOR;
+    ft->color[selected].hex = left > TM_CUE_ENDING_YELLOW_FRAMES ? (GXColor)TM_CUE_ENDING_RED_COLOR
+                                                                  : (GXColor)TM_CUE_ENDING_YELLOW_COLOR;
     ft->color[selected].color_enable = 1;
     native_draw(obj, pass);
     __builtin_memcpy(ft->color, saved, sizeof(saved));

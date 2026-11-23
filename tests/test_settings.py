@@ -4711,12 +4711,12 @@ class ActionCueTests(unittest.TestCase):
 
 
 class InvincibilityStoplightTests(unittest.TestCase):
-    """The last four protected frames: red, red, then yellow, yellow."""
+    """The last eight protected frames: four red, then four yellow."""
     RED, YELLOW = 0xFF282896, 0xFFF00096
     BLUE, LAVENDER = 0x4691FF70, 0xA06EFF70  # Invincibility Overlay: P1's Blue accent, a CPU.
     STOPLIGHT = 12  # TM_FLAG_INVINCIBILITY_ENDING.
     SCRIPT = 0x80403000
-    MORE = 5  # Five or more protected frames left.
+    MORE = 9  # Nine or more protected frames left.
 
     def setUp(self):
         m = self.m = Machine()
@@ -4756,13 +4756,13 @@ class InvincibilityStoplightTests(unittest.TestCase):
         self.m.cpu.mem_write(self.SCRIPT, struct.pack(">" + "I" * len(words), *words))
         self.m.call("TestCueScript", 0, self.SCRIPT + offset * 4, timer * 100, frame * 100)
 
-    def test_ledge_timer_shows_red_twice_then_yellow_twice_before_vulnerability(self):
+    def test_ledge_timer_shows_four_red_then_four_yellow_before_vulnerability(self):
         colors = []
-        for frames in range(8, -1, -1):
+        for frames in range(12, -1, -1):
             self.ledge(frames)
             self.assertEqual(self.left(), min(frames, self.MORE))
             colors.append(self.draw())
-        self.assertEqual(colors, [0, 0, 0, 0, self.RED, self.RED, self.YELLOW, self.YELLOW, 0])
+        self.assertEqual(colors, [0] * 4 + [self.RED] * 4 + [self.YELLOW] * 4 + [0])
 
     def test_a_timer_event_code_holds_never_counts_down(self):
         """Techchase re-arms a 1-frame ledge timer every frame it protects the CPU."""
@@ -4794,26 +4794,27 @@ class InvincibilityStoplightTests(unittest.TestCase):
     def test_overlay_colors_hold_until_the_stoplight_which_is_the_same_for_everyone(self):
         m = self.m
         m.call("Settings_Set", 11, 7, 1)
-        expected = lambda base: [base, base, self.RED, self.RED, self.YELLOW, self.YELLOW, 0]
+        expected = lambda base: [base] * 2 + [self.RED] * 4 + [self.YELLOW] * 4 + [0]
         for accent, cpu, base in ((1, 0, self.BLUE), (0, 1, self.LAVENDER)):
             m.call("TestCuePlayer", 0, accent, cpu)
             colors = []
-            for frames in range(6, -1, -1):
+            for frames in range(10, -1, -1):
                 self.ledge(frames); colors.append(self.draw())
             self.assertEqual(colors, expected(base))
         # An event's CPU palette, Off included, and the dropped-invincibility pulse leave it alone.
         option = 0x80407000
         m.cpu.mem_write(option, struct.pack(">hh", 0, 1))
         m.call("ActionCues_SetCPUInvincibilityOverlay", option)
-        self.ledge(3); self.assertEqual(self.draw(), self.RED)
+        self.ledge(5); self.assertEqual(self.draw(), self.RED)
         m.call("ActionCues_SetTangibilityOverlay", option + 2)
-        self.ledge(5); self.assertEqual(self.draw(), 0)
+        self.ledge(9); self.assertEqual(self.draw(), 0)
         self.ledge(1); self.assertEqual(self.draw(), self.YELLOW)
         self.ledge(0); self.assertEqual(self.draw() & 0xFFFFFF00, 0xFF282800)  # Then the vulnerable pulse.
 
     def test_respawn_and_ledge_timers_combine_as_the_native_countdown_does(self):
         for (ledge, respawn, held, kind), left in (
-            ((3, 1, 0, 2), 3), ((1, 3, 0, 2), 3), ((2, 6, 0, 2), self.MORE), ((0, 2, 0, 1), 2),
+            ((3, 1, 0, 2), 3), ((1, 3, 0, 2), 3), ((2, 6, 0, 2), 6), ((2, 12, 0, 2), self.MORE),
+            ((0, 2, 0, 1), 2),
             ((2, 0, 1, 2), self.MORE),  # The 0x2221 hold: no timer ends it.
             ((0, 0, 0, 1), self.MORE),  # Set with no timer (Escape Samus's invincibility).
         ):
@@ -4822,7 +4823,7 @@ class InvincibilityStoplightTests(unittest.TestCase):
                 self.assertEqual(self.left(), left)
 
     def test_starman_counts_down_its_own_timer(self):
-        for star, left, color in ((3, 3, self.RED), (1, 1, self.YELLOW), (9, self.MORE, 0), (0, self.MORE, 0)):
+        for star, left, color in ((6, 6, self.RED), (1, 1, self.YELLOW), (9, self.MORE, 0), (0, self.MORE, 0)):
             self.ledge(0, star=star)
             self.assertEqual(self.left(), left)
             self.assertEqual(self.draw(), color)
@@ -4835,12 +4836,12 @@ class InvincibilityStoplightTests(unittest.TestCase):
         roll = [(2 << 26) | 4, (26 << 26) | 2, (2 << 26) | 20, 26 << 26, 0]
         m.call("TestCueProtection", 0, 2, 0, 0)
         colors = []
-        for frame in range(14, 21):
+        for frame in range(10, 21):
             if frame == 20: m.call("TestCueProtection", 0, 0, 0, 0)
             self.script(roll, 20 - frame, frame, offset=3)
             self.assertEqual(self.left(), min(20 - frame, self.MORE))
             colors.append(self.tick())
-        self.assertEqual(colors, [0, 0, self.RED, self.RED, self.YELLOW, self.YELLOW, 0])
+        self.assertEqual(colors, [0] * 2 + [self.RED] * 4 + [self.YELLOW] * 4 + [0])
         # A synchronous timer still to run, and a script that ends while protected.
         m.call("TestCueProtection", 0, 2, 0, 0)
         self.script([(2 << 26) | 14, 26 << 26, 0], 0)
@@ -4880,7 +4881,7 @@ class InvincibilityStoplightTests(unittest.TestCase):
         m.call("TestCueScript", 0, 0x1000, 0, 1000)  # Unreadable.
         self.assertEqual(self.left(), -1)
         self.assertEqual(self.tick(), 0)
-        self.ledge(6, kind=2)
+        self.ledge(10, kind=2)
         m.cpu.mem_write(m.call("TestCueData", 0) + 0x1988, struct.pack(">i", 2))
         self.assertEqual(self.left(), self.MORE)  # The ledge outlasts the lookahead.
         self.ledge(3, kind=2)

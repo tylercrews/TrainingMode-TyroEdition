@@ -428,11 +428,11 @@ static void Cue_Draw(GOBJ *gobj, int pass) {
         uint32_t rgba = cpu_override ? cpu_color : protection_color(data);
         color = (GXColor){rgba >> 24, rgba >> 16, rgba >> 8, 112};
     }
-    /* Red on the 4th and 3rd frames from the end, yellow on the last two.
+    /* Red on the 8th to 5th frames from the end, yellow on the last four.
      * Actionable Yellow/Green keeps its priority, as over protection. */
     if (ending && cue != TM_CUE_YELLOW && cue != TM_CUE_GREEN) {
         static const GXColor stoplight[] = {TM_CUE_ENDING_YELLOW_COLOR, TM_CUE_ENDING_RED_COLOR};
-        color = stoplight[ending > 2];
+        color = stoplight[ending > TM_CUE_ENDING_YELLOW_FRAMES];
     }
     /* Dropped invincibility must remain visible even over timing/local tints. */
     if (tangible) {

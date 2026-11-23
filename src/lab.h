@@ -1186,7 +1186,7 @@ static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_TOGGLE,
         .name = TM_GLOBAL_INVINCIBILITY_ENDING_NAME,
-        .desc = {"Last 4 invincible frames: red, red, then yellow, yellow.", "Same colors for everyone. Works with or without the Overlay.", "Ledge, respawn, dodges and techs; not counters or armor."},
+        .desc = {"Last 8 invincible frames: 4 red, then 4 yellow.", "Same colors for everyone. Works with or without the Overlay.", "Ledge, respawn, dodges and techs; not counters or armor."},
         .OnChange = Lab_ChangeGlobalCue,
     },
 };

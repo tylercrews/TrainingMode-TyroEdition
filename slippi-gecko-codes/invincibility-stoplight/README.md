@@ -1,8 +1,8 @@
 # Invincibility Stoplight (Slippi Gecko code)
 
-A standalone version of Tyro Edition's **Invincibility Stoplight** for vanilla NTSC 1.02 Melee, including Slippi netplay. On a fighter's last four invincible frames they turn red, red, then yellow, yellow, and on the next frame they can be hit. It's for learning exactly when a roll, spotdodge, tech, ledge grab or respawn stops protecting someone.
+A standalone version of Tyro Edition's **Invincibility Stoplight** for vanilla NTSC 1.02 Melee, including Slippi netplay. On a fighter's last eight invincible frames they turn red for four frames, then yellow for four, and on the next frame they can be hit. It's for learning exactly when a roll, spotdodge, tech, ledge grab or respawn stops protecting someone.
 
-It's the same red and yellow for every fighter, a little more opaque than the [Invincibility Overlay](../invincibility-overlay/README.md)'s tint. It works on its own or together with that code: with both, a fighter shows their Overlay color until the last four frames.
+It's the same red and yellow for every fighter, a little more opaque than the [Invincibility Overlay](../invincibility-overlay/README.md)'s tint. It works on its own or together with that code: with both, a fighter shows their Overlay color until the last eight frames.
 
 ## Install
 
@@ -16,7 +16,7 @@ It hooks `80080E1C`, so it can run alongside the [Invincibility Overlay](../invi
 
 ## What it covers
 
-The tint has to start before the invincibility ends, so the code works out how many invincible frames are left by running the game's own countdown four frames ahead, on a copy:
+The tint has to start before the invincibility ends, so the code works out how many invincible frames are left by running the game's own countdown eight frames ahead, on a copy:
 
 - **The game's timers:** ledge invincibility, respawn invincibility and the starman. These count down every frame, hitlag included.
 - **The move's own script:** dodges, techs, getups and invincible moves switch invincibility off with a body-state command, either for the whole body or by making every hurtbox intangible. The code reads ahead in the script for that command. A move's script doesn't run during hitlag, so neither does its countdown.
@@ -26,6 +26,8 @@ When it can't tell, it shows nothing rather than a wrong color:
 - Marth's and Roy's counter, and Yoshi's double-jump armor. The Invincibility Overlay tints these, but nothing counts down to their end.
 - Invincibility that ends because the action ends rather than by a command, like an air dodge landing into a waveland.
 - A move's invincibility while that fighter is in hitlag. It picks up again once the hitlag ends.
+
+Every dodge, tech and getup, from the floor or the ledge, is invincible for at least 11 frames, so those always show the whole stoplight. A few specials and attacks are invincible for eight frames or fewer (Marth's up-B for one frame, a shine for two, Donkey Kong's and Peach's ledge attacks under 100% for six and seven), and those start partway through: all yellow, or only some of the red.
 
 Dead and sleeping fighters are never tinted.
 
@@ -51,8 +53,8 @@ It writes `invincibility-stoplight.txt` and `invincibility-stoplight.gct`. Compi
 
 [tests/test_invincibility_stoplight_gecko.py](../../tests/test_invincibility_stoplight_gecko.py) runs the built code in a PowerPC emulator, installed at two unrelated addresses the way the Gecko handler installs it. It checks:
 
-- The ledge countdown: nothing, then red, red, yellow, yellow, then nothing once the fighter can be hit.
-- With the Invincibility Overlay code, the port color (or a CPU's lavender) until the last four frames.
+- The ledge countdown: nothing, then four red, four yellow, then nothing once the fighter can be hit.
+- With the Invincibility Overlay code, the port color (or a CPU's lavender) until the last eight frames.
 - Respawn and ledge timers together, the `0x2221` hold, the hurt status set with no timer, and the starman.
 - A roll's script commands, a synchronous timer still to run, and the whole-body hurtbox commands.
 - That hitlag holds the script's countdown but not the timers.
