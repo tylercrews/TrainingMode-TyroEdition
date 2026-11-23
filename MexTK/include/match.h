@@ -2826,6 +2826,10 @@ void Match_HidePercents();
 void Match_ShowPercents();
 void Match_ShowTimer();
 void Match_HideTimer();
+/* ifTime_SetTime: point the match timer's digits (stc_matchhud->timer_gobj's
+ * joint) at a time without changing the match's clock. Its digit animations
+ * apply on the next JOBJ_AnimAll of that joint. */
+void Match_SetTimerDigits(JOBJ *timer, int seconds, int centiseconds);
 void Match_CorrectCamera();
 void Match_SetNormalCamera();
 void Match_SetFreeCamera(int unk, int unk2);

@@ -104,7 +104,7 @@ queue_mex_build() {
 # compile code in parallel
 queue_mex_build "tmFunction" "build/eventMenu.dat" "src/events.c src/shield_training.c src/menu.c src/osds.c src/savestate_v1.c src/settings.c src/settings_extension.c src/settings_game.c src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c src/powershield_osd_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c src/stage_overlay_game.c" "dats/eventMenu.dat"
 queue_mex_build "cssFunction" "build/labCSS.dat" "src/lab_css.c" "dats/labCSS.dat"
-queue_mex_build "evFunction" "build/lab.dat" "src/lab.c src/stadium.c" "dats/lab.dat"
+queue_mex_build "evFunction" "build/lab.dat" "src/lab.c src/stadium.c src/fountain.c" "dats/lab.dat"
 queue_mex_build "evFunction" "build/lcancel.dat" "src/lcancel.c"
 # ledgedash and sweetspot both compile ledgedash_logic.c to build/ledgedash_logic.o, so they can't run at once
 {
@@ -125,7 +125,12 @@ queue_mex_build "evFunction" "build/techchase.dat" "src/techchase.c"
 queue_mex_build "evFunction" "build/ledgechase.dat" "src/ledgechase.c"
 queue_mex_build "evFunction" "build/slalom.dat" "src/slalom.c" "dats/wavedash.dat"
 queue_mex_build "evFunction" "build/grabpunish.dat" "src/grabpunish.c"
+queue_mex_build "evFunction" "build/passing.dat" "src/passing.c"
 queue_mex_build "evFunction" "build/ledgegrab.dat" "src/ledgegrab.c"
+queue_mex_build "evFunction" "build/escapesamus.dat" "src/escapesamus.c"
+queue_mex_build "evFunction" "build/escapeic.dat" "src/escapeic.c src/action_cues.c"
+queue_mex_build "evFunction" "build/grabercise.dat" "src/grabercise.c"
+queue_mex_build "evFunction" "build/targets.dat" "src/targets.c"
 queue_mex_build "cssFunction" "build/grabpunishCSS.dat" "src/grabpunish_css.c"
 
 # wait for compilation to finish
@@ -175,6 +180,11 @@ ${gc_fst} fs "${tyro_output_iso}" \
     insert TM/ledgechase.dat build/ledgechase.dat \
     insert TM/slalom.dat build/slalom.dat \
     insert TM/grabpunish.dat build/grabpunish.dat \
+    insert TM/passing.dat build/passing.dat \
+    insert TM/escapesamus.dat build/escapesamus.dat \
+    insert TM/escapeic.dat build/escapeic.dat \
+    insert TM/grabercise.dat build/grabercise.dat \
+    insert TM/targets.dat build/targets.dat \
     insert TM/grabpunishCSS.dat build/grabpunishCSS.dat     insert TM/ledgegrab.dat build/ledgegrab.dat \
     insert codes.gct build/codes.gct \
     insert Start.dol build/Start.dol \

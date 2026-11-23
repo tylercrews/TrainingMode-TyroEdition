@@ -21,6 +21,12 @@ esac
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/grabpunish-test.dat -i src/grabpunish.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/passing-test.dat -i src/passing.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/escapesamus-test.dat -i src/escapesamus.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
+    -t MexTK/evFunction.txt -o build/escapeic-test.dat -i src/escapeic.c src/action_cues.c
+"${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgechase-test.dat -i src/ledgechase.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/ledgedash-trails-test.dat -i src/ledgedash.c src/ledgedash_logic.c
@@ -29,7 +35,9 @@ esac
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction     -t MexTK/evFunction.txt -o build/ledgegrab-test.dat -i src/ledgegrab.c
 "${settings_hmex}" -q -l MexTK/melee.link -f "-O2 -w" -s evFunction \
     -t MexTK/evFunction.txt -o build/powershield-test.dat -i src/powershield.c
-powerpc-eabi-gcc -O2 -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
+# TM_DEBUG, as in development builds: the Global Overlays page keeps its
+# development-only Disable Dev Debug Menu row (a gap in release).
+powerpc-eabi-gcc -O2 -DTM_DEBUG -ffreestanding -fno-builtin -msdata=none -mcpu=750 \
     -nostdlib -Wa,-mregnames -Wl,-Ttext=0x101000,-e,TMSettings_Init \
     src/settings.c src/settings_extension.c src/settings_game.c src/trails.c src/trails_game.c src/osd_context.c src/osd_context_game.c src/osd_style.c src/osd_style_game.c src/osd_layout.c src/osd_layout_game.c src/osd_editor_game.c src/powershield_osd_game.c src/action_cues.c src/action_cues_game.c src/asmash_osd_game.c src/ledgedash_logic.c tests/settings_support.c tests/settings_hooks.S \
     -o build/settings-test.elf
@@ -47,15 +55,23 @@ python tests/test_asmash.py -v
 python tests/test_techchase.py -v
 python tests/test_cpu_overlay.py -v
 python tests/test_ledgechase_catalogue.py -v
+python tests/test_all_events.py -v
 python tests/test_ledgechase.py -v
 python tests/test_event_trails.py -v
 python tests/test_under_fire.py -v
 python tests/test_stadium.py -v
+python tests/test_fountain.py -v
+python tests/test_randall_timer.py -v
 python tests/test_lowlaser.py -v
 python tests/test_ledgegrab.py -v
 python tests/test_eggs.py -v
 python tests/test_edgeguard.py -v
 python tests/test_grabpunish.py -v
+python tests/test_passing.py -v
+python tests/test_escapesamus.py -v
+python tests/test_escapeic.py -v
+python tests/test_grabercise.py -v
+python tests/test_targets.py -v
 python tests/test_upbsweetspot.py -v
 python tests/test_savestate.py -v
 python tests/test_stage_swap.py -v

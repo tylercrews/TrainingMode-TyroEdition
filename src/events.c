@@ -216,7 +216,7 @@ EventDesc LedgeChase = {
     .matchData = &LedgeChase_MatchData,
 };
 
-// 2v1 Grab Punish Practice
+// Grab Punish Practice (Doubles)
 static EventMatchData GrabPunish_MatchData = {
     .timer = MATCH_TIMER_COUNTUP,
     .matchType = MATCH_MATCHTYPE_TIME,
@@ -233,10 +233,10 @@ static EventMatchData GrabPunish_MatchData = {
 };
 /* The VS select picks you, a teammate CPU and an enemy CPU and their team
  * colors; TM/grabpunishCSS.dat keeps exactly one CPU on your team there, and
- * GrabPunish_PrepareMatch makes the match the same way. */
+ * TwoVsOne_PrepareMatch makes the match the same way. */
 EventDesc GrabPunish = {
     .tyro_edited = true,
-    .eventName = "2v1 Grab Punish Practice\n",
+    .eventName = "Grab Punish Practice\n",
     .eventDescription = "Your teammate grabs the enemy. Punish them\nbefore they mash out, without hitting your teammate!",
     .eventFile = "grabpunish",
     .jumpTableIndex = -1,
@@ -251,6 +251,42 @@ EventDesc GrabPunish = {
     .scoreType = SCORETYPE_KO,
     .callbackPriority = 3,
     .matchData = &GrabPunish_MatchData,
+};
+
+// Passing Practice (Doubles)
+static EventMatchData Passing_MatchData = {
+    .timer = MATCH_TIMER_COUNTUP,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = true,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+/* The same 2v1 team select as Grab Punish Practice, sharing its saved teams
+ * and characters. */
+EventDesc Passing = {
+    .tyro_edited = true,
+    .eventName = "Passing Practice\n",
+    .eventDescription = "Your teammate passes the enemy to you. Hit it\nback and see how long you can keep it up!",
+    .eventFile = "passing",
+    .jumpTableIndex = -1,
+    .eventCSSFile = "TM/grabpunishCSS.dat",
+    .CSSType = SLCHRKIND_VS,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = -1,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &Passing_MatchData,
 };
 
 // Float Cancel Training
@@ -361,6 +397,57 @@ EventDesc LowLaser = {
     .playerKind = -1, .cpuKind = CKIND_JIGGLYPUFF, .stage = -1, /* Stage select; positions use live geometry. */
     .disable_hazards = true, .scoreType = SCORETYPE_KO, .callbackPriority = 16,
     .matchData = &LowLaser_MatchData,
+};
+
+/* Escape Samus Up-B and Escape IC Grab: snapshot escapes against a fixed CPU,
+ * with a count-up timer and the percent HUD, like Grab Punish Practice. */
+static EventMatchData Escape_MatchData = {
+    .timer = MATCH_TIMER_COUNTUP,
+    .matchType = MATCH_MATCHTYPE_TIME,
+    .hideGo = true,
+    .hideReady = true,
+    .isCreateHUD = true,
+    .timerRunOnPause = false,
+    .isCheckForZRetry = true,
+    .isShowScore = false,
+    .isRunStockLogic = false,
+    .isDisableHit = false,
+    .useKOCounter = false,
+    .timerSeconds = 0,
+};
+EventDesc EscapeSamus = {
+    .tyro_edited = true,
+    .eventName = "Escape Samus Up-B\n",
+    .eventDescription = "Smash DI out of Samus's Screw Attack\nbefore its last hit launches you!",
+    .eventFile = "escapesamus",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = CKIND_SAMUS,
+    .stage = GRKINDEXT_BATTLE,
+    .disable_hazards = true,
+    .force_sopo = true, // Only one climber to SDI.
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3, // Before the fighters' physics, which runs SDI.
+    .matchData = &Escape_MatchData,
+};
+EventDesc EscapeIC = {
+    .tyro_edited = true,
+    .eventName = "Escape IC Grab (Beta)\n",
+    .eventDescription = "Mash out of the Ice Climbers' grab as fast as\nyou can! Beta: no handoffs yet.",
+    .eventFile = "escapeic",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .playerKind = -1,
+    .cpuKind = CKIND_ICECLIMBERS,
+    .stage = GRKINDEXT_FD,
+    .disable_hazards = true,
+    .force_sopo = true, // Only you get grabbed: no Nana of yours to free.
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3,
+    .matchData = &Escape_MatchData,
 };
 
 // Laser land training
@@ -738,6 +825,50 @@ EventDesc Eggs = {
     .matchData = &Eggs_MatchData,
 };
 
+/* Grabs-ercise (T10): Eggs-ercise's timed minute and Free Practice, with a CPU
+ * from the training character select to grab instead of eggs. Its best is in
+ * TYEX word 76, not a score slot, so Events_ScoreIndex gives it none. */
+EventDesc Grabercise = {
+    .tyro_edited = true,
+    .eventName = "Grabs-ercise\n",
+    .eventDescription = "Grab the CPU as it walks, runs, dashes\nand rolls around! Start = more options.",
+    .eventFile = "grabercise",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_TRAINING,
+    .allowed_characters = { .hmn = -1, .cpu = -1 },
+    .cpuKind = -1,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 3, // Before the fighters' input, which reads the CPU's.
+    .matchData = &Eggs_MatchData,
+};
+
+/* Target Practice (T10): Eggs-ercise's timed minute and Free Practice, with
+ * targets for Fox's and Falco's lasers. Its best is in TYEX word 80, not a
+ * score slot, so Events_ScoreIndex gives it none. */
+EventDesc TargetPractice = {
+    .tyro_edited = true,
+    .eventName = "Target Practice\n",
+    .eventDescription = "Shoot the targets with your blaster!\nStart = more options.",
+    .eventFile = "targets",
+    .jumpTableIndex = -1,
+    .CSSType = SLCHRKIND_EVENT,
+    .allowed_characters = {
+        .hmn = CSSID_FOX | CSSID_FALCO,
+        .cpu = -1,
+    },
+    .playerKind = -1,
+    .cpuKind = -1,
+    .stage = -1,
+    .disable_hazards = true,
+    .force_sopo = false,
+    .scoreType = SCORETYPE_KO,
+    .callbackPriority = 15, // After the fighters' and lasers' updates.
+    .matchData = &Eggs_MatchData,
+};
+
 static EventMatchData Slalom_MatchData = {
     .timer = MATCH_TIMER_COUNTDOWN,
     .matchType = MATCH_MATCHTYPE_TIME,
@@ -850,6 +981,8 @@ static EventDesc *Minigames_Events[] = {
     &Reaction,
     &Ledgestall,
     &LedgegrabSpeedrun,
+    &Grabercise,
+    &TargetPractice,
 };
 static EventPage Minigames_Page = {
     .name = "Minigames",
@@ -876,7 +1009,6 @@ static EventDesc *General_Events[] = {
     &SlideOff,
     &GrabMash,
     &LedgeChase,
-    &GrabPunish,
 };
 static EventPage General_Page = {
     .name = "General Tech",
@@ -895,6 +1027,8 @@ static EventDesc *CharacterSpecific_Events[] = {
     &EscapeDThrowKnee,
     &FloatCancel,
     &LowLaser,
+    &EscapeSamus,
+    &EscapeIC,
 };
 static EventPage CharacterSpecific_Page = {
     .name = "Character-specific Tech",
@@ -902,24 +1036,114 @@ static EventPage CharacterSpecific_Page = {
     .events = CharacterSpecific_Events,
 };
 
+// Page 4 Events: you, a CPU teammate and a CPU enemy, from the VS team select.
+static EventDesc *Doubles_Events[] = {
+    &GrabPunish,
+    &Passing,
+};
+static EventPage Doubles_Page = {
+    .name = "Doubles",
+    .eventNum = countof(Doubles_Events),
+    .events = Doubles_Events,
+};
+
+// Page 5, shown left of Minigames: every event again, by the name the screen
+// shows. Each is the same event as on its own page, with its own score and
+// settings. tests/test_all_events.py checks the order and that none is missing.
+static EventDesc *AllEvents_Events[] = {
+    &AmsahTech,
+    &AttackOnShield,
+    &Combo,
+    &Edgeguard,
+    &Eggs,
+    &EscapeDThrowKnee,
+    &EscapeIC,
+    &EscapeSamus,
+    &EscapeSheik,
+    &FloatCancel,
+    &GrabMash,
+    &GrabPunish,
+    &Grabercise,
+    &LCancel,
+    &LaserLand,
+    &LedgeChase,
+    &Ledgedash,
+    &LedgegrabSpeedrun,
+    &TechCounter,
+    &Ledgetech,
+    &LowLaser,
+    &Passing,
+    &Powershield,
+    &Reaction,
+    &Reversal,
+    &SDI,
+    &ShieldDrop,
+    &Multishine,
+    &Sweetspot,
+    &Slalom,
+    &SlideOff,
+    &TargetPractice,
+    &TechChase,
+    &Lab,
+    &Ledgestall,
+    &UpBSweetspot,
+    &Wavedash,
+    &WaveshineSDI,
+};
+static EventPage AllEvents_Page = {
+    .name = "All Events (Alphabetized)",
+    .eventNum = countof(AllEvents_Events),
+    .events = AllEvents_Events,
+};
+
 EventPage *EventPages[] = {
     &Minigames_Page,
     &General_Page,
     &CharacterSpecific_Page,
+    &Doubles_Page,
+    &AllEvents_Page, // TM_EVENT_PAGE_ALL
 };
+typedef char event_pages_fit_the_save[(countof(EventPages) == TM_EVENT_PAGE_ALL + 1) ? 1 : -1];
+/* Every event once, and a cursor's six bits reach the last. */
+typedef char all_events_lists_each_event[(countof(AllEvents_Events) == countof(Minigames_Events) +
+    countof(General_Events) + countof(CharacterSpecific_Events) + countof(Doubles_Events) &&
+    countof(AllEvents_Events) <= 64) ? 1 : -1];
 /* Persisted score identities do not follow menu insertion order. The original
  * 28 scores retain slots 0..27; Ledgechase owns slot 50. Slots 28..49 hold the
  * versioned preferences extension. Further catalogue changes need a mapping. */
-typedef char event_score_map_matches[(countof(Minigames_Events) == 6 &&
-    countof(General_Events) == 18 && countof(CharacterSpecific_Events) == 9) ? 1 : -1];
+typedef char event_score_map_matches[(countof(Minigames_Events) == 8 &&
+    countof(General_Events) == 17 && countof(CharacterSpecific_Events) == 11 &&
+    countof(Doubles_Events) == 2) ? 1 : -1];
+/* Moves an All Events entry to where it sits on its own page. The caller has
+ * checked page and event. */
+static void Events_Home(unsigned *page, unsigned *event) {
+    if (*page != TM_EVENT_PAGE_ALL) return;
+    EventDesc *desc = EventPages[*page]->events[*event];
+    for (unsigned p = 0; p < TM_EVENT_PAGE_ALL; ++p)
+        for (unsigned e = 0; e < (unsigned)EventPages[p]->eventNum; ++e)
+            if (EventPages[p]->events[e] == desc) { *page = p; *event = e; return; }
+}
+unsigned Events_HomeEvent(unsigned page, unsigned event) {
+    if (page < countof(EventPages) && event < (unsigned)EventPages[page]->eventNum) Events_Home(&page, &event);
+    return event;
+}
 unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     if (page >= countof(EventPages) || event >= (unsigned)EventPages[page]->eventNum) return UINT32_MAX;
-    if (page == 0) /* Ledgegrab Speedrun (5) only keeps session bests, in RAM. */
+    /* All Events shares each event's own page's score. */
+    Events_Home(&page, &event);
+    if (page == TM_EVENT_PAGE_ALL) return UINT32_MAX;
+    /* Ledgegrab Speedrun (5) only keeps session bests, in RAM, and Grabs-ercise
+     * (6, T10) and Target Practice (7, T10) keep their bests in the TYEX
+     * extension. */
+    if (page == 0)
         return event < 5 ? event : UINT32_MAX;
-    if (page == 1) /* 2v1 Grab Punish (17) is unscored free practice. */
+    if (page == 1) /* Grab Punish was 17 here, unscored, until it moved to Doubles in T10. */
         return event == 16 ? TM_EVENT_LEDGECHASE_SCORE_SLOT : event < 16 ? 5 + event : UINT32_MAX;
-    /* Up-B Sweetspot (3) and Low Laser (8) are unscored free practice; the
-     * events after Up-B Sweetspot keep their original slots. */
+    if (page == 3) /* Both Doubles events are unscored free practice. */
+        return UINT32_MAX;
+    /* Up-B Sweetspot (3), Low Laser (8), Escape Samus Up-B (9) and Escape IC
+     * Grab (10) are unscored free practice; the events after Up-B Sweetspot
+     * keep their original slots. */
     return event == 3 || event > 7 ? UINT32_MAX : 21 + event - (event > 3);
 }
 
@@ -1015,6 +1239,7 @@ EventVars stc_event_vars = {
     .carry_store = Events_CarryStore,
     .carry_take = Events_CarryTake,
     .restart_on_fighters = Events_RestartOnFighters,
+    .cue_remaining = ActionCues_Remaining,
 };
 
 static GOBJ *stc_msgmgr;
@@ -2021,11 +2246,12 @@ static int TeamCostume(int c_kind, int team) {
     return CSS_GetCostumeRed(c_kind);
 }
 
-/* 2v1 Grab Punish Practice is always a team match of you, a teammate CPU and
- * an enemy CPU. The CPU on your team is the teammate (its CSS keeps that to
- * one), or else the first CPU; the next CPU is the enemy, on another team.
- * Anyone else sits out. Everyone wears their team's costume. */
-static void GrabPunish_PrepareMatch(MatchInit *match) {
+/* The Doubles events, Grab Punish Practice and Passing Practice, are always a
+ * team match of you, a teammate CPU and an enemy CPU. The CPU on your team is
+ * the teammate (their CSS keeps that to one), or else the first CPU; the next
+ * CPU is the enemy, on another team. Anyone else sits out. Everyone wears
+ * their team's costume. Both events share the saved teams. */
+static void TwoVsOne_PrepareMatch(MatchInit *match) {
     PlayerData *players = match->playerData;
     int hmn = -1, mate = -1, enemy = -1;
     for (int i = 0; i < 4; i++)
@@ -2202,8 +2428,8 @@ void EventInit(int page, int eventID, MatchInit *matchData)
         matchData->hudPos = hudPos;
     }
 
-    if (event == &GrabPunish)
-        GrabPunish_PrepareMatch(matchData);
+    if (event == &GrabPunish || event == &Passing)
+        TwoVsOne_PrepareMatch(matchData);
 
     // set to enter fall on match start
     for (int i = 0; i < 6; i++)
@@ -2288,9 +2514,10 @@ void EventLoad(void)
     stc_savestate->is_exist = 0;
     stc_event_vars.savestate = stc_savestate;
 
-    // disable hazards if enabled
+    // disable hazards if enabled. The Training Lab keeps Randall: its Stage
+    // Options turn him off without losing his timing (lab.c).
     if (event_desc->disable_hazards == 1)
-        Hazards_Disable();
+        Hazards_Disable(event_desc == &Lab);
 
     // Store update function
     HSD_Update *update = stc_hsd_update;
@@ -2395,8 +2622,24 @@ void TM_ConsoleToggle(GOBJ *gobj)
     text->show_background ^= 1;
 }
 
+/* Whether the console is open. It starts closed: TM_CreateConsole's own
+ * toggle closes it, so this follows toggles rather than reading the bits. */
+static int console_open;
+
 void TM_ConsoleThink(GOBJ *gobj)
 {
+    // Disable Dev Debug Menu (Global Overlays & Gameplay) closes the
+    // console and keeps L/R + Z from opening it.
+    if (Settings_Get(TM_SETTING_FLAG, TM_FLAG_DEBUG_CONSOLE_OFF))
+    {
+        if (console_open)
+        {
+            TM_ConsoleToggle(gobj);
+            console_open = 0;
+        }
+        return;
+    }
+
     // Toggle console with L/R + Z
     for (int i = 0; i < 4; i++)
     {
@@ -2404,6 +2647,7 @@ void TM_ConsoleThink(GOBJ *gobj)
         if (pad->held & (HSD_TRIGGER_L | HSD_TRIGGER_R) && (pad->down & HSD_TRIGGER_Z))
         {
             TM_ConsoleToggle(gobj);
+            console_open ^= 1;
             break;
         }
     }
@@ -2426,6 +2670,7 @@ void TM_CreateConsole(void)
     DevelopText_StoreTextScale(text, 10, 12);
     stc_event_vars.db_console_text = text;
     TM_ConsoleToggle(gobj);
+    console_open = 0;
 }
 
 void OnFileLoad(HSD_Archive *archive) // this function is run right after TmDt is loaded into memory on boot
@@ -2620,7 +2865,7 @@ void TM_CreateWatermark(void)
 
     stc_event_vars.watermark = text;
 }
-void Hazards_Disable(void)
+void Hazards_Disable(int keep_randall)
 {
     // get stage id
     int stage_internal = Stage_ExternalToInternal(Stage_GetExternalID());
@@ -2635,8 +2880,11 @@ void Hazards_Disable(void)
         GObj_RemoveProc(shyguy_gobj);
 
         // remove randall
-        GOBJ *randall_gobj = Stage_GetMapGObj(2);
-        Stage_DestroyMapGObj(randall_gobj);
+        if (!keep_randall)
+        {
+            GOBJ *randall_gobj = Stage_GetMapGObj(RANDALL_MAP_GOBJ);
+            Stage_DestroyMapGObj(randall_gobj);
+        }
 
         is_fixwind = 1;
 

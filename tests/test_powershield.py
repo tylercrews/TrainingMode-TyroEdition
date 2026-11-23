@@ -3,8 +3,8 @@ from pathlib import Path
 import struct
 import subprocess
 import unittest
+import test_settings as fixtures  # Puts build/test-deps on sys.path first.
 from unicorn import UC_HOOK_CODE
-import test_settings as fixtures
 from test_score_storage import NativeMachine
 
 ROOT = Path(__file__).resolve().parents[1]

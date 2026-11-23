@@ -2,6 +2,7 @@
 #include "events.h"
 #include "fighter_swap.h"
 #include "stage_swap.h"
+#include "upb_guides.h"
 #include "zoom_camera.h"
 
 static void Exit(GOBJ *menu);
@@ -13,6 +14,8 @@ static void ChangePlayerPosition(GOBJ *menu_gobj, int value);
 static void ChangeKnockbackHeight(GOBJ *menu_gobj, int value);
 static void ChangeKnockbackDistance(GOBJ *menu_gobj, int value);
 static void ChangeBlastZones(GOBJ *menu_gobj, int value);
+static void ChangePlayerUpBOverlay(GOBJ *menu_gobj, int value);
+static void ChangeCPUUpBOverlay(GOBJ *menu_gobj, int value);
 static void ChangeCamera(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMin(GOBJ *menu_gobj, int value);
 static void ChangeCustomKB_MagMax(GOBJ *menu_gobj, int value);
@@ -86,8 +89,12 @@ static const char *Values_KnockbackDistance[] = {"Random", "Close", "Near", "Med
 typedef char edgeguard_distance_names[(countof(Values_KnockbackDistance) == KB_DISTANCE_COUNT && KB_DISTANCE_COUNT == TM_EG_KB_DISTANCE_COUNT) ? 1 : -1];
 static const char *Values_PlayerPosition[] = {"At Ledge", "Close", "Halfway", "Mid Stage"};
 typedef char edgeguard_position_names[(countof(Values_PlayerPosition) == TM_EG_POSITION_COUNT) ? 1 : -1];
-static const char *Values_Side[] = {"Random", "Left", "Right"};
-typedef char edgeguard_side_names[(countof(Values_Side) == TM_EG_SIDE_COUNT) ? 1 : -1];
+/* The Side row's order. Left and Right are also the ledge indices (Reset). The
+ * save keeps the order the row first had (TM_EG_SIDE_*), so 0, a save that
+ * never set it, still reads as Random: see Side_Saved in edgeguard.c. */
+enum edgeguard_side { EG_SIDE_LEFT, EG_SIDE_RIGHT, EG_SIDE_RANDOM, EG_SIDE_COUNT };
+static const char *Values_Side[] = {"Left", "Right", "Random"};
+typedef char edgeguard_side_names[(countof(Values_Side) == EG_SIDE_COUNT && (int)EG_SIDE_COUNT == (int)TM_EG_SIDE_COUNT) ? 1 : -1];
 enum options_initial {
     OPT_MAIN_RECOVERY,
     OPT_MAIN_SIDE,
@@ -97,6 +104,8 @@ enum options_initial {
     OPT_MAIN_KB_DISTANCE,
     OPT_MAIN_KB_CUSTOMMENU,
     OPT_MAIN_BLAST_ZONES,
+    OPT_MAIN_UPB_PLAYER,
+    OPT_MAIN_UPB_CPU,
     OPT_MAIN_CAMERA,
     OPT_MAIN_CHARACTERS,
     OPT_MAIN_STAGE,
@@ -116,11 +125,13 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_STRING,
         .name = "Side",
-        .desc = {"Which ledge each attempt starts at: a random one,",
-                 "or always the left or the right.",
+        .desc = {"Which ledge each attempt starts at: always the",
+                 "left or the right, or a random one each reset.",
+                 "D-Pad left/right also picks a side and restarts.",
                  "Takes effect on the next reset. This setting is saved."},
         .values = Values_Side,
         .value_num = countof(Values_Side),
+        .val = EG_SIDE_RANDOM,
         .OnChange = ChangeSide,
     },
     {
@@ -181,6 +192,24 @@ static EventOption Options_Main[] = {
         .OnChange = ChangeBlastZones,
     },
     {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Player Up-B Overlay",
+        .desc = {"Draw your up-B's sweetspots at both ledges, as in",
+                 "Up-B Sweetspot: up-B from the blue ring or dot and",
+                 "you grab the ledge at the white X. Greyed out for",
+                 "characters with no guide. This setting is saved."},
+        .OnChange = ChangePlayerUpBOverlay,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "CPU Up-B Overlay",
+        .desc = {"Draw the CPU's up-B sweetspots at both ledges, in",
+                 "orange: an up-B from its ring or dot grabs the",
+                 "ledge at its X. Greyed out for CPUs with no guide.",
+                 "This setting is saved."},
+        .OnChange = ChangeCPUUpBOverlay,
+    },
+    {
         .kind = OPTKIND_STRING,
         .name = "Camera",
         .value_num = 2,
@@ -210,6 +239,7 @@ static EventOption Options_Main[] = {
         .desc = {"Return to the Event Select Screen."},
         .OnSelect = Exit,
     }};
+typedef char edgeguard_main_rows[(countof(Options_Main) == OPT_MAIN_COUNT) ? 1 : -1];
 
 static EventMenu Menu_Main = {
     .on_exit = Exit,

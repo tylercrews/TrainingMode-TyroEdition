@@ -25,6 +25,13 @@ static const u8 CustomKnockback_Prefs[OPT_CUSTOMKB_COUNT] = {
     TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
 };
 
+/* The saved value of each Side row, in row order. */
+static const u8 Side_Saved[EG_SIDE_COUNT] = {
+    [EG_SIDE_LEFT] = TM_EG_SIDE_LEFT,
+    [EG_SIDE_RIGHT] = TM_EG_SIDE_RIGHT,
+    [EG_SIDE_RANDOM] = TM_EG_SIDE_RANDOM,
+};
+
 static int RecoveryPref(EventMenu *menu) {
     if (menu == &RecMenu_Fox) return TM_EG_RECOVERY_FOX;
     if (menu == &RecMenu_Falco) return TM_EG_RECOVERY_FALCO;
@@ -124,7 +131,7 @@ static void LoadKnockback(void) {
 }
 
 static void SaveSettings(void) {
-    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE, Options_Main[OPT_MAIN_SIDE].val);
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE, Side_Saved[Options_Main[OPT_MAIN_SIDE].val]);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT, Options_Main[OPT_MAIN_PERCENT].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION, Options_Main[OPT_MAIN_POSITION].val);
     TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_KB_HEIGHT, Options_Main[OPT_MAIN_KB_HEIGHT].val);
@@ -134,7 +141,10 @@ static void SaveSettings(void) {
 }
 
 static void LoadSettings(EventMenu *recovery_menu) {
-    Options_Main[OPT_MAIN_SIDE].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE);
+    int side = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_SIDE);
+    for (int row = 0; row < EG_SIDE_COUNT; ++row)
+        if (Side_Saved[row] == side)
+            Options_Main[OPT_MAIN_SIDE].val = row;
     Options_Main[OPT_MAIN_PERCENT].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_PERCENT);
     Options_Main[OPT_MAIN_POSITION].val = TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_PLAYER_POSITION);
     LoadKnockback();
@@ -144,6 +154,10 @@ static void LoadSettings(EventMenu *recovery_menu) {
         !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES);
     Options_Main[OPT_MAIN_CAMERA].val = Options_Main[OPT_MAIN_CAMERA].val_prev =
         TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_CAMERA);
+    Options_Main[OPT_MAIN_UPB_PLAYER].val = Options_Main[OPT_MAIN_UPB_PLAYER].val_prev =
+        TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_PLAYER);
+    Options_Main[OPT_MAIN_UPB_CPU].val = Options_Main[OPT_MAIN_UPB_CPU].val_prev =
+        TM_GetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_CPU);
 
     int pref = RecoveryPref(recovery_menu);
     if (pref < 0)
@@ -448,6 +462,12 @@ static int ChooseLaunch(FighterData *ft, int side_idx, float *distance, float *m
     return KB_PERCENT_MIN + HSD_Randi(KB_PERCENT_MAX - KB_PERCENT_MIN);
 }
 
+/* This attempt's ledge index: Left and Right are rows 0 and 1. */
+static int ChooseSide(void) {
+    int side = Options_Main[OPT_MAIN_SIDE].val;
+    return side == EG_SIDE_RANDOM ? HSD_Randi(2) : side;
+}
+
 static void Reset(void) {
     event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
     edgeguard_timer = 0;
@@ -460,8 +480,7 @@ static void Reset(void) {
 
     // 0 is the left ledge: the fighters start inland of it and the cpu is
     // launched leftward. 1 is the right.
-    int side = Options_Main[OPT_MAIN_SIDE].val;
-    int side_idx = side == TM_EG_SIDE_LEFT ? 0 : side == TM_EG_SIDE_RIGHT ? 1 : HSD_Randi(2);
+    int side_idx = ChooseSide();
     int hmn_dmg = Options_Main[OPT_MAIN_PERCENT].val;
 
     // The cpu keeps its usual launch spot, unless the hmn starts closer to the
@@ -526,6 +545,55 @@ static void ChangeCamera(GOBJ *menu_gobj, int value) {
     ZoomCamera_Apply(value);
 }
 
+static void ChangePlayerUpBOverlay(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_PLAYER, value);
+}
+
+static void ChangeCPUUpBOverlay(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_EDGEGUARD, TM_EG_UPB_OVERLAY_CPU, value);
+}
+
+// Up-B Overlays ----------------------------------------
+
+/* The CPU's guide is orange, so it reads apart from yours where the two
+ * overlap: the Change Characters Orange, a dim shade of it the way DimBlue is
+ * of Blue, and a pale one for its X and marks. */
+static const UpBColors CPU_UpBColors = {
+    { 0xff, 0x96, 0x32, 0xff }, { 0x94, 0x57, 0x1d, 0xff }, { 0xff, 0xd8, 0xb0, 0xff },
+};
+
+/* A fighter's up-B guide at both ledges, the way the Slippi Up-B Overlay codes
+ * draw it (UpB_DrawOverlay). Nothing for a fighter with no guide. */
+static void DrawUpBOverlay(GOBJ *fighter, const UpBColors *colors) {
+    if (!fighter)
+        return;
+    FighterData *ft = fighter->userdata;
+    for (int side = 0; side < 2; ++side)
+        UpB_DrawOverlay(ft, ledge_positions[side], side * 2 - 1, colors);
+}
+
+/* The Player and CPU Up-B Overlays, in world space with the match camera, the
+ * CPU's first so yours draws over it. Shown behind the pause menu too. */
+static void Draw_UpBOverlays(GOBJ *gobj, int pass) {
+    bool player = Options_Main[OPT_MAIN_UPB_PLAYER].val, cpu = Options_Main[OPT_MAIN_UPB_CPU].val;
+    if (pass != 2 || (!player && !cpu))
+        return;
+    COBJ *cur_cam = COBJ_GetCurrent();
+    CObj_SetCurrent(*stc_matchcam_cobj);
+    if (cpu)
+        DrawUpBOverlay(Fighter_GetGObj(1), &CPU_UpBColors);
+    if (player)
+        DrawUpBOverlay(Fighter_GetGObj(0), &UpB_Colors);
+    CObj_SetCurrent(cur_cam);
+}
+
+/* Each overlay row is greyed out when its fighter has no guide. The characters
+ * are set for the match: Change Characters restarts it. */
+static void DisableUpBOverlays(FighterData *hmn_data, FighterData *cpu_data) {
+    Options_Main[OPT_MAIN_UPB_PLAYER].disable = !UpB_HasGuide(hmn_data);
+    Options_Main[OPT_MAIN_UPB_CPU].disable = !UpB_HasGuide(cpu_data);
+}
+
 static void WriteCustomKBValues(void) {
     Options_Main[OPT_MAIN_KB_HEIGHT].val = KB_HEIGHT_CUSTOM;
     Options_Main[OPT_MAIN_KB_DISTANCE].disable = 1;
@@ -584,6 +652,7 @@ void Event_Init(GOBJ *gobj) {
         assert("unimplemented character in edgeguard training");
     Options_Main[OPT_MAIN_RECOVERY].menu = recovery_menu;
     LoadSettings(recovery_menu);
+    DisableUpBOverlays(hmn_data, cpu_data);
     saved_recovery = RecoveryMenuOptFlags(cpu);
 
     FighterSwap_Restrict(1, Edgeguard_CPUKinds, countof(Edgeguard_CPUKinds));
@@ -598,6 +667,20 @@ void Event_Init(GOBJ *gobj) {
     ZoomCamera_Init(Options_Main[OPT_MAIN_CAMERA].val, 1);
     GOBJ *camera_gobj = GObj_Create(0, 0, 0);
     GObj_AddUserData(camera_gobj, 0, ZoomCamera_Restore, &ZoomCamera_Normal);
+    // After the stage and fighters, as Up-B Sweetspot draws its guides.
+    GObj_AddGXLink(camera_gobj, Draw_UpBOverlays, MATCHGX_EFFECT, 255);
+}
+
+/* D-pad left/right picks that ledge, like the Side row, and restarts. Pressing
+ * the side already chosen only restarts, as D-pad left always has. */
+static void ReadDPad(int down) {
+    int side = down & HSD_BUTTON_DPAD_LEFT ? EG_SIDE_LEFT
+        : down & HSD_BUTTON_DPAD_RIGHT ? EG_SIDE_RIGHT : -1;
+    if (side < 0)
+        return;
+    Options_Main[OPT_MAIN_SIDE].val = Options_Main[OPT_MAIN_SIDE].val_prev = side;
+    SaveSettings();
+    reset_timer = 0;
 }
 
 /* The restart saves the card. */
@@ -657,10 +740,8 @@ void Event_Think(GOBJ *menu) {
         reset_timer = RESET_DELAY;
     }
     
-    HSD_Pad *pad = PadGetMaster(hmn_data->pad_index);
-    if (pad->down & HSD_BUTTON_DPAD_LEFT)
-        reset_timer = 0;
-        
+    ReadDPad(PadGetMaster(hmn_data->pad_index)->down);
+
     u32 opt_flags = RecoveryMenuOptFlags(cpu);
     SaveRecovery(cpu, opt_flags);
     Recovery_Think(cpu, opt_flags);

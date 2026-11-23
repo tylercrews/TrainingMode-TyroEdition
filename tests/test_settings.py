@@ -20,7 +20,11 @@ IDS = [0, 1, 3, 5, 8, 9, 10, 12, 13, 14, 16, 18, 19, 20, 21, 22, 24, 26, 28]
 # Global Settings pages, read down the left column then the right; 255 = gap.
 EDITOR = [
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,29,6],
-    [2,4,7,17,11,25,255,23,255,35,31,255,34] + [255] * 16,
+    # Row 15, the right column's first, is development builds' Disable TM
+    # Developer Debug Menu (37); the settings ELF is built with TM_DEBUG.
+    # Randall Timer Minimap (38) sits under Randall Overlay (31), so Don't Reset Timers
+    # (34) fills the left column's last row.
+    [2,4,7,17,11,25,36,255,23,255,35,31,38,255,34, 37] + [255] * 13,
     # Fixed Grid OSD Positions: page one's OSD rows, then JC Shine (32) and Reset All (33).
     [0,1,20,19,5,8,30,255,3,16,27,18,28,255,255, 9,10,24,12,255,21,22,255,26,13,14,255,32,33],
 ]
@@ -638,7 +642,7 @@ class EventSelectionTests(unittest.TestCase):
     def test_page_and_selection_round_trip_without_changing_neighbors(self):
         m = Machine(); m.init()
         original = m.record()
-        for page in range(3):
+        for page in range(4):  # Minigames, General Tech, Character-specific Tech, Doubles.
             for event in range(64):
                 m.write(2, 0, page); m.write(26, 0, event)
                 self.assertEqual((m.read(2), m.read(26)), (page, event))
@@ -779,6 +783,49 @@ class SettingsTests(unittest.TestCase):
         fresh.call("Settings_Set", 25, 0, 1)
         self.assertEqual(fresh.call("Settings_Get", 25, 0), 1)
 
+    # Escape IC Grab's Actionable Flash (field 52): byte 37 bit 7, inverted like the guides.
+    def test_escape_ic_flash_defaults_on_and_only_changes_its_own_bit(self):
+        m = self.m; m.init()
+        self.assertEqual(m.read(52), 1)
+        m.write(24, 1, 20)  # The CPU character shares byte 37 (bits 1-5),
+        m.write(18, 2, 4)   # and Ledgedash's criterion its bit 6.
+        before = m.record()
+        self.assertEqual(m.write(52, 0, 0), 1)
+        expected = bytearray(before); expected[37] |= 0x80
+        self.assertEqual(m.record(), bytes(expected))
+        self.assertEqual((m.read(52), m.read(24, 1), m.read(18, 2)), (0, 20, 4))
+        self.assertEqual(m.write(52, 0, 0), 0)
+        m.write(24, 1, 3); m.write(18, 2, 1)  # Its neighbors' edits keep it,
+        m.write(14, 28, 5)  # and so does OSD 28's color (slot 18), which ends in byte 37's bit 0.
+        self.assertEqual(m.read(52), 0)
+        self.assertEqual(m.write(52, 0, 1), 1)
+        self.assertEqual((m.read(52), m.record()[37] & 0x80), (1, 0))
+
+    def test_escape_ic_flash_rejects_bad_values_and_defaults_old_saves_on(self):
+        m = self.m; m.init(); before = m.record()
+        for index, value in [(1, 0), (0, 2), (0, 0xFFFFFFFF)]:
+            self.assertEqual(m.write(52, index, value), 0)
+            self.assertEqual(m.record(), before)
+        self.assertEqual(m.read(52, 1), 0)
+        for version in (1, 2):  # Their byte 37 padding was never this bit's.
+            old = bytearray(before); old[10] = version << 6; old[37] = 0xFF
+            m.put(old)
+            self.assertEqual(m.call("TMSettings_Prepare", RECORD, 1), 1)
+            self.assertEqual(m.read(52), 1)
+
+    def test_escape_ic_flash_survives_a_fresh_service_without_dirtying_on_read(self):
+        m = self.m; m.init()
+        self.assertEqual(m.call("Settings_Get", 52, 0), 1)
+        self.assertEqual(m.call("TestDirty"), 0)
+        m.call("Settings_Set", 52, 0, 0)
+        saved = m.record()
+        fresh = Machine(); fresh.put(saved)
+        self.assertEqual(fresh.call("Settings_Get", 52, 0), 0)
+        self.assertEqual(fresh.call("TestDirty"), 0)
+        self.assertEqual(fresh.record(), saved)
+        fresh.call("Settings_Set", 52, 0, 1)
+        self.assertEqual(fresh.call("Settings_Get", 52, 0), 1)
+
     def test_global_trail_rows_do_not_use_enable_mask_bits(self):
         m = self.m
         m.init()
@@ -888,7 +935,9 @@ class SettingsTests(unittest.TestCase):
         r[40:44] = b"KEEP"
         m.put(r)
         self.assertEqual(m.call("TMSettings_Prepare", RECORD, 1), 2)
-        self.assertEqual(m.record()[4:6], b"\1\1")
+        # Byte 5's page is two bits, and since T10's Doubles page all four values
+        # are pages. The Event Select Screen clamps the selection to its page.
+        self.assertEqual(m.record()[4:6], b"\1\xFF")
         self.assertEqual(m.record()[7:10], b"\0\0\0")
         self.assertEqual(m.record()[12:30], b"\0" * 18)
         self.assertEqual(m.record()[37] & 0xFE, 0xFE)
@@ -2966,7 +3015,7 @@ class OSDEditorTests(unittest.TestCase):
 
     def test_every_setting_has_exactly_one_row_and_all_osds_are_on_page_one(self):
         rows = [id for page in EDITOR[:2] for id in page if id != 255]
-        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35]))
+        self.assertEqual(sorted(rows), sorted(IDS + [30, 27, 29, 6, 2, 4, 7, 17, 11, 23, 25, 31, 34, 35, 36, 37, 38]))
         self.assertTrue(set(IDS + [30, 27]) <= set(EDITOR[0]))
         # The positions page keeps every OSD row where page one has it.
         self.assertEqual(EDITOR[2][:27], EDITOR[0][:27])
@@ -2976,21 +3025,82 @@ class OSDEditorTests(unittest.TestCase):
         self.assertEqual(self.m.call("TMSettings_EditorIDFor", 3, 0), 255)
 
     def test_overlay_page_groups_character_overlays_gameplay_stage_and_timers(self):
-        character, gameplay, stage, timers = [2, 4, 7, 17, 11, 25], [23], [35, 31], [34]
-        self.assertEqual(EDITOR[1][:13], character + [255] + gameplay + [255] + stage + [255] + timers)
+        character, gameplay, stage, timers = [2, 4, 7, 17, 11, 25, 36], [23], [35, 31, 38], [34]
+        self.assertEqual(EDITOR[1][:15], character + [255] + gameplay + [255] + stage + [255] + timers)
         m = self.m; open_editor(m, 1)
         m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
-        for row in (6, 8, 11): self.assertEqual(m.call("TestEditorHidden", row), 1)
-        for row, label in ((9, "Blast Zone Overlay"), (10, "Randall Overlay"), (12, "Don't Reset Timers")):
+        for row in (7, 9, 13): self.assertEqual(m.call("TestEditorHidden", row), 1)
+        for row, label in ((6, "Invincibility Stoplight"), (10, "Blast Zone Overlay"), (11, "Randall Overlay"),
+                           (12, "Randall Timer Minimap"), (14, "Don't Reset Timers")):
             self.assertEqual(self.label(m, row, len(label)), label)
+
+    def test_randall_timer_row_sits_under_randall_overlay_and_saves_its_own_word_80_bit(self):
+        TIMER = 14  # TM_FLAG_RANDALL_TIMER.
+        extension = 0x8045A6C0 + 0x1AE0
+        m = self.m
+        self.assertEqual(m.call("Settings_Get", 11, TIMER), 0)  # Off by default.
+        self.assertEqual(editor_row(38), (1, editor_row(31)[1] + 1))
+        open_editor(m, 1)
+        row = editor_row(38)[1]
+        self.assertEqual(self.label(m, row, len("Randall Timer Minimap") + 1), "Randall Timer Minimap\0")
+        self.assertEqual(self.choice(m, row), "Off")
+        m.call("Settings_Set", 11, 12, 0)  # Create the extension record.
+        core = m.record()
+        byte82 = m.cpu.mem_read(extension + 82, 1)[0]
+        m.call("TestEditorInput", MENU_A, row)
+        self.assertEqual((m.call("Settings_Get", 11, TIMER), self.choice(m, row)), (1, "On"))
+        self.assertEqual(m.cpu.mem_read(extension + 82, 1)[0], byte82 | 0x10)  # Word 80 bit 20.
+        self.assertEqual(m.record(), core)  # Nothing in the core record.
+        m.call("TestEditorAnimate", row)
+        # The native exit save writes the row back unchanged.
+        m.call("TestSettingsEditorWrite", PHYSICAL[row], m.call("TestEditorCache", row))
+        self.assertEqual(m.call("Settings_Get", 11, TIMER), 1)
+        for flag in (9, 10, 11, 12, 13):  # Randall Overlay and the other extension flags stay Off.
+            self.assertEqual(m.call("Settings_Get", 11, flag), 0)
+        m.call("TestEditorInput", MENU_B, row)
+        self.assertEqual((m.call("Settings_Get", 11, TIMER), self.choice(m, row)), (0, "Off"))
+        self.assertEqual(m.cpu.mem_read(extension + 82, 1)[0], byte82)
+
+    def test_debug_menu_row_tops_the_right_column_and_saves_its_own_word_80_bit(self):
+        DEBUG_OFF = 13  # TM_FLAG_DEBUG_CONSOLE_OFF.
+        extension = 0x8045A6C0 + 0x1AE0
+        m = self.m
+        self.assertEqual(m.call("Settings_Get", 11, DEBUG_OFF), 0)  # Off by default.
+        self.assertEqual(editor_row(37), (1, 15))
+        open_editor(m, 1)
+        m.call("TestEditorInput", 0, 0)  # Next idle frame re-hides the gaps.
+        self.assertEqual(m.call("TestEditorHidden", 16), 1)  # The gap under it.
+        self.assertEqual(m.call("TestEditorHidden", 15), 0)
+        label = "Disable Dev Debug Menu"
+        self.assertEqual(self.label(m, 15, len(label) + 1), label + "\0")
+        self.assertEqual(self.choice(m, 15), "Off")
+        # 0.9 times the other rows' size both ways, so it fits the column.
+        self.assertEqual([m.call("TestEditorScale100", 15, axis) for axis in (0, 1)], [70, 90])
+        self.assertEqual([m.call("TestEditorScale100", 14, axis) for axis in (0, 1)], [78, 100])
+        m.call("Settings_Set", 11, 12, 0)  # Create the extension record.
+        core = m.record()
+        byte81 = m.cpu.mem_read(extension + 81, 1)[0]
+        m.call("TestEditorInput", MENU_A, 15)
+        self.assertEqual((m.call("Settings_Get", 11, DEBUG_OFF), self.choice(m, 15)), (1, "On"))
+        self.assertEqual(m.cpu.mem_read(extension + 81, 1)[0], byte81 | 0x02)  # Word 80 bit 9.
+        self.assertEqual(m.record(), core)  # Nothing in the core record.
+        m.call("TestEditorAnimate", 15)
+        # The native exit save writes the row back unchanged.
+        m.call("TestSettingsEditorWrite", PHYSICAL[15], m.call("TestEditorCache", 15))
+        self.assertEqual(m.call("Settings_Get", 11, DEBUG_OFF), 1)
+        for flag in (7, 9, 10, 11, 12):  # Its neighbors stay Off.
+            self.assertEqual(m.call("Settings_Get", 11, flag), 0)
+        m.call("TestEditorInput", MENU_B, 15)
+        self.assertEqual((m.call("Settings_Get", 11, DEBUG_OFF), self.choice(m, 15)), (0, "Off"))
+        self.assertEqual(m.cpu.mem_read(extension + 81, 1)[0], byte81)
 
     def test_checkboxes_are_posed_from_the_page_shown_not_the_previous_page(self):
         m = self.m
         frames = 0x804DB6A0 - 0x6AE8
         m.cpu.mem_write(frames, struct.pack(">ff", 3.0, 9.0))  # Off, On
-        m.write(14, 16, 7)  # Act OoWait On at page 1 row 9, where Blast Zone Overlay sits on page 2.
+        m.call("Settings_Set", 14, 27, 7)  # Act OoAttack On at page 1 row 10, where Blast Zone Overlay sits on page 2.
         m.call("TestEditorInit")
-        row = editor_row(16)[1]
+        row = editor_row(27)[1]
         self.assertEqual(m.call("TestEditorBoxFrame", row), 9)
         self.assertEqual(m.call("TestEditorBoxFrame", 7), 3)  # Gap rows are posed Off.
         m.call("TestEditorInput", MENU_L, 0); m.call("TestEditorInput", MENU_R, 0)
@@ -3155,7 +3265,7 @@ class OSDEditorTests(unittest.TestCase):
         m.call("TestEditorReload")
         self.assertEqual(self.label(m, 0, 23), "Hitbox Trails Very Fast")
         self.assertEqual(m.call("TestEditorCache", 0), 1)
-        self.assertEqual(m.call("TestEditorHidden", 6), 1)
+        self.assertEqual(m.call("TestEditorHidden", 7), 1)  # The gap under Invincibility Stoplight.
         self.assertEqual(m.call("TestEditorLabelChar", master, 0), 0)
         # Exit saving through the native row hook now binds Global Overlays rows.
         m.call("TestSettingsEditorWrite", PHYSICAL[0], 0)
@@ -3271,9 +3381,9 @@ class SweetspotCameraTests(unittest.TestCase):
         exported = event_exports(self.dat_path)
         m.symbols['DAT_InitSweetspot'] = self.base + exported[0]
         menu = self.word(self.base + exported[3])
-        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 8)
+        self.assertEqual(m.cpu.mem_read(menu+4, 1)[0], 9)
         self.options = options = self.word(menu+8)
-        self.row = options + 3 * 44  # Knockback, Success Criteria and Line Guides come first.
+        self.row = options + 4 * 44  # Knockback, Success Criteria, Marth and Line Guides come first.
         self.assertEqual(self.text(self.word(self.row+12)), 'Camera')
         self.assertEqual(struct.unpack('>H', m.cpu.mem_read(self.row+4, 2))[0], 2)
         names = self.word(self.row+32)
@@ -3407,6 +3517,31 @@ class SweetspotCameraTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(knockback+6, 4)), struct.pack('>2h', 6, 6))
         self.assertEqual(bytes(m.cpu.mem_read(success+6, 4)), struct.pack('>2h', 1, 1))
 
+    def test_marth_defaults_to_down_tilt_and_saves_only_its_extension_bit(self):
+        m = self.m; row = self.options + 2 * 44
+        self.assertEqual(self.text(self.word(row+12)), 'Marth')
+        self.assertEqual(struct.unpack('>H', m.cpu.mem_read(row+4, 2))[0], 2)
+        names = self.word(row+32)
+        self.assertEqual([self.text(self.word(names+i*4)) for i in range(2)], ['Down Tilt', 'Off'])
+        before = m.record()
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 0, 0))
+        m.symbols['DAT_ChangeMarth'] = self.word(row+36)
+        extension = 0x8045A6C0 + 0x1AE0
+        m.call('DAT_ChangeMarth', 0, 1)
+        snapshot = bytes(m.cpu.mem_read(extension, 80))
+        for choice in (0, 1, 0, 1):
+            m.call('DAT_ChangeMarth', 0, choice)
+            self.assertEqual(m.call('Settings_Get', 41, 2), choice)
+            after = bytes(m.cpu.mem_read(extension, 80))
+            self.assertEqual(after[75] >> 7, choice)  # Word 72 bit 31,
+            self.assertEqual(after[:75], snapshot[:75])  # and nothing else.
+            self.assertEqual((after[75] & 0x7F, after[76:]), (snapshot[75] & 0x7F, snapshot[76:]))
+        self.assertEqual([m.call('Settings_Get', 41, i) for i in range(2)], [0, 0])  # Success, Knockback.
+        self.assertEqual(m.record(), before)  # It lives in TYEX.
+        m.call('DAT_InitSweetspot', 0)
+        self.assertEqual(bytes(m.cpu.mem_read(row+6, 4)), struct.pack('>2h', 1, 1))
+
 
 class EventMenuSaveTests:
     """Run an event's compiled Event_Init and menu callbacks: each saved row is
@@ -3418,6 +3553,7 @@ class EventMenuSaveTests:
     natives = ('Match_SetNormalCamera', 'Match_CorrectCamera', 'Stage_GetExternalID',
                'Stage_GetLeftOfLineCoordinates', 'Stage_GetRightOfLineCoordinates', 'Stage_GetBlastzoneBottom',
                'CameraSubject_Alloc', 'GObj_Create', 'GObj_AddGXLink', 'GObj_AddUserData')
+    returns_null = ()  # Natives that return a pointer the event checks, like Text_CreateText.
 
     def setUp(self):
         from unicorn import UC_HOOK_CODE
@@ -3439,6 +3575,7 @@ class EventMenuSaveTests:
             if not name: return
             if name == 'Stage_GetExternalID': cpu.reg_write(gpr(3), 32)
             elif name in ('GObj_Create', 'CameraSubject_Alloc'): cpu.reg_write(gpr(3), 0x8040D000)
+            elif name in self.returns_null: cpu.reg_write(gpr(3), 0)
             cpu.reg_write(reg.UC_PPC_REG_PC, cpu.reg_read(reg.UC_PPC_REG_LR))
         self.hook = m.cpu.hook_add(UC_HOOK_CODE, dependencies)
 
@@ -3446,7 +3583,9 @@ class EventMenuSaveTests:
     def word(self, address): return struct.unpack('>I', self.m.cpu.mem_read(address, 4))[0]
     def text(self, address): return bytes(self.m.cpu.mem_read(address, 80)).split(b'\0', 1)[0].decode()
     def shown(self): return [struct.unpack('>2h', self.m.cpu.mem_read(row+6, 4)) for row in self.rows]
-    def saved_values(self): return [self.m.call('Settings_Get', self.field, i) for i in range(len(self.saved))]
+    indices = None  # Each saved row's preference index, when the menu's order isn't the enum's.
+    def saved_values(self):
+        return [self.m.call('Settings_Get', self.field, i) for i in self.indices or range(len(self.saved))]
 
     def change(self, index, value):
         row = self.rows[index]
@@ -3473,7 +3612,7 @@ class EventMenuSaveTests:
                 chosen[index] = value
                 self.assertEqual(self.saved_values(), chosen, name)
         self.assertEqual(m.record(), core)  # Both events live in TYEX,
-        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x15\x44')  # on the card itself.
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 6)), b'TYEX\x19\x50')  # on the card itself.
         for row, (_, _, default) in zip(self.rows, self.saved):
             m.cpu.mem_write(row+6, struct.pack('>2h', default, default))
         m.call('DAT_EventInit', 0)
@@ -3484,13 +3623,55 @@ class GrabPunishSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/grabpunish-test.dat'
     field = 42  # TM_SETTING_GRAB_PUNISH
     saved = (('Grab Location', 8, 0), ('Your Location', 8, 0), ('Enemy Percent', 11, 3), ('Teammate Percent', 11, 0),
-             ('CPU Mashing', 6, 1), ('Teammate Facing', 3, 0), ('Release Hit = Success', 2, 1))
+             ('CPU Mashing', 6, 2), ('Teammate Facing', 3, 0), ('Release Hit = Success', 2, 1))
+
+
+class PassingSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/passing-test.dat'
+    field = 48  # TM_SETTING_PASSING
+    saved = (('Teammate Aerial', 5, 2), ('Enemy Percent', 21, 4), ('Percent Mode', 2, 0),
+             ('Reset If Hitstun Ends', 2, 0), ('Distance', 5, 2), ('Your Side', 3, 0), ('Your Facing', 2, 0))
+    natives = EventMenuSaveTests.natives + ('Text_CreateCanvas', 'Text_CreateText', 'Text_AddSubtext',
+                                            'Text_SetColor', 'Text_SetScale', 'GObj_AddProc', 'memset')
+    returns_null = ('Text_CreateText',)  # No HUD, as before a match has its text canvases.
+
+
+class EscapeSamusSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/escapesamus-test.dat'
+    field = 49  # TM_SETTING_ESCAPE_SAMUS
+    saved = (('Your Position', 3, 0), ('Distance', 4, 1), ('Samus Side', 3, 0), ('Your Percent', 21, 0), ('Goal', 2, 0))
+    natives = EventMenuSaveTests.natives + ('GObj_AddProc',)
+
+
+class EscapeICSaveTests(EventMenuSaveTests, unittest.TestCase):
+    dat_path = ROOT / 'build/escapeic-test.dat'
+    field = 50  # TM_SETTING_ESCAPE_IC
+    saved = (('Your Percent', 21, 0),)
+    natives = EventMenuSaveTests.natives + ('GObj_AddProc',)
+
+    def test_actionable_flash_saves_in_the_core_record(self):
+        m = self.m
+        m.call('DAT_EventInit', 0)
+        flash = self.rows[0] + 44  # Row 1, after Your Percent.
+        self.assertEqual(self.text(self.word(flash+12)), 'Actionable Flash')
+        self.assertEqual(struct.unpack('>2h', m.cpu.mem_read(flash+6, 4)), (1, 1))  # On by default.
+        extension = bytes(m.cpu.mem_read(self.extension, 88))
+        m.cpu.mem_write(flash+6, struct.pack('>2h', 0, 1))
+        m.symbols['DAT_Change'] = self.word(flash+36)
+        m.call('DAT_Change', 0, 0)
+        self.assertEqual((m.call('Settings_Get', 52, 0), m.record()[37] & 0x80), (0, 0x80))
+        self.assertEqual(bytes(m.cpu.mem_read(self.extension, 88)), extension)  # Not in TYEX.
+        m.cpu.mem_write(flash+6, struct.pack('>2h', 1, 1))
+        m.call('DAT_EventInit', 0)
+        self.assertEqual(struct.unpack('>2h', m.cpu.mem_read(flash+6, 4)), (0, 0))
 
 
 class UpBSweetspotSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/upbsweetspot-test.dat'
     field = 43  # TM_SETTING_UPB_SWEETSPOT
-    saved = (('Enable Line Guides', 2, 1), ('Marth', 3, 0), ('Camera', 2, 0))
+    saved = (('Enable Line Guides', 2, 1), ('B0XX Angles', 2, 0), ('Landing Line', 2, 0), ('Marth', 3, 0),
+             ('Camera', 2, 0))
+    indices = (0, 1, 4, 2, 3)  # Landing Line was appended to TMUpBSweetspotPreference.
 
 
 class SweetspotDoubleJumpDrawTests(unittest.TestCase):
@@ -3677,6 +3858,38 @@ class SweetspotResetTests(unittest.TestCase):
         for frame in range(35): self.step(349, 1)
         self.assertEqual(self.resets, [])
 
+    def marth(self, value):
+        """Choose the Marth row's value, the menu's third row: 0 Down Tilt, 1 Off."""
+        menu = struct.unpack('>I', self.m.cpu.mem_read(self.base + event_exports(self.dat_path)[3], 4))[0]
+        options = struct.unpack('>I', self.m.cpu.mem_read(menu + 8, 4))[0]
+        self.m.cpu.mem_write(options + 2 * 44 + 6, struct.pack('>h', value))
+
+    def side_b_inputs(self):
+        """Step into side-B and return the CPU's held buttons and stick Y."""
+        self.step(350)
+        self.m.cpu.mem_write(self.cpu_data + 0x1A88, bytes(6))  # FighterData.cpu: held, sticks.
+        self.step(351)
+        held = struct.unpack('>I', self.m.cpu.mem_read(self.cpu_data + 0x1A88, 4))[0]
+        return held, struct.unpack('>b', self.m.cpu.mem_read(self.cpu_data + 0x1A8D, 1))[0]
+
+    def test_marth_down_tilts_on_your_side_b_by_default(self):
+        self.assertEqual(self.side_b_inputs(), (0x100, -38))  # A with the stick tilted down.
+
+    def test_marth_off_never_down_tilts_and_a_ledge_grab_still_counts(self):
+        self.marth(1)
+        self.assertEqual(self.side_b_inputs(), (0, -127))  # Just the crouch.
+        self.marth(0)  # Turning him back on mid-attempt waits for the next side-B,
+        self.m.call('TestCueState', 2, 57, 7, 40, 100)  # so even a down-tilt isn't frozen.
+        self.step(352)
+        self.assertEqual(self.speeds, [])
+        self.step(252)  # CliffCatch.
+        self.assertEqual(self.speeds, [1])
+        for frame in range(59):
+            self.step(253)
+            self.assertEqual(self.resets, [])
+        self.step(253)
+        self.assertEqual(self.resets, [2])
+
     def ledgedash_criterion(self):
         """Choose Sweetspot + Ledgedash, the menu's second row, then sweetspot."""
         menu = struct.unpack('>I', self.m.cpu.mem_read(self.base + event_exports(self.dat_path)[3], 4))[0]
@@ -3845,6 +4058,29 @@ class ActionCueTests(unittest.TestCase):
             self.assertEqual(self.show(4, 14, 0), self.GREEN)
             self.assertEqual(self.show(5, 14, 1), self.GREEN)
             self.assertEqual(self.show(6, 14, 2), 0)
+
+    def test_a_ground_release_cues_its_end_then_greens_in_wait(self):
+        # CaptureCut, after mashing out: no interrupt, Wait at its animation's end (DK's is 20).
+        for end in (30, 20):
+            self.m.call("ActionCues_Clear")
+            self.assertEqual([self.show(i, 229, end - 3 + i, end) for i in range(3)], [0, self.YELLOW, self.YELLOW])
+            self.assertEqual([self.show(3 + i, 14, i) for i in range(3)], [self.GREEN, self.GREEN, 0])
+
+    def test_an_air_release_greens_at_its_30th_frame_not_its_animation_end(self):
+        m = self.m
+        shown = []
+        for frame in range(27, 35):  # CaptureJump's animation is 50 frames.
+            m.call("TestCueHeld", 0, frame)
+            shown.append(self.show(frame, 230, frame, 50))
+        self.assertEqual(shown, [0, self.YELLOW, self.YELLOW, self.GREEN, self.GREEN, 0, 0, 0])
+        m.call("TestCueHeld", 0, 49)
+        self.assertEqual(self.show(49, 230, 49, 50), 0)
+        self.assertEqual(self.show(50, 29, 0), 0)  # Falling at its end is no new recovery.
+
+    def test_held_in_a_grab_isnt_cued(self):
+        for state in (223, 224, 225):  # CapturePulledHi, CaptureWaitHi, CaptureDamageHi.
+            self.m.call("TestCueState", 0, state, 38, 40, 100)
+            self.assertEqual(self.m.call("ActionCues_Remaining", self.m.call("TestCueObject", 0)), 0xFFFFFFFF)
 
     def test_ledge_jump_cues_its_second_stage_and_greens_on_fall(self):
         for first, second in [(260, 261), (262, 263)]:
@@ -4472,6 +4708,214 @@ class ActionCueTests(unittest.TestCase):
         fresh = Machine()
         fresh.put(m.record())
         self.assertEqual(fresh.call("Settings_Get", 11, 7), 1)
+
+
+class InvincibilityStoplightTests(unittest.TestCase):
+    """The last eight protected frames: four red, then four yellow."""
+    RED, YELLOW = 0xFF282896, 0xFFF00096
+    BLUE, LAVENDER = 0x4691FF70, 0xA06EFF70  # Invincibility Overlay: P1's Blue accent, a CPU.
+    STOPLIGHT = 12  # TM_FLAG_INVINCIBILITY_ENDING.
+    SCRIPT = 0x80403000
+    MORE = 9  # Nine or more protected frames left.
+
+    def setUp(self):
+        m = self.m = Machine()
+        m.init(); m.call("TestCueInit")
+        m.call("Settings_Set", 11, self.STOPLIGHT, 1)
+        m.call("TestCuePlayer", 0, 1, 0)
+        m.call("TestCueState", 0, 181, 0, 40, 100)
+        self.frame = 1
+        m.call("TestCueTick", self.frame)  # Wraps the slot's renderer.
+
+    def draw(self, slot=0):
+        self.m.call("TestCueDraw", slot)
+        return self.m.call("TestCueDrawColor", slot)
+
+    def tick(self, slot=0):
+        self.frame += 1
+        self.m.call("TestCueTick", self.frame)
+        return self.draw(slot)
+
+    def left(self, slot=0):
+        return signed(self.m.call("TestCueProtectionLeft", slot))
+
+    def ledge(self, frames, respawn=0, held=0, star=-1, kind=None):
+        """The engine's timers after this frame's update, counted down from the
+        frame before: two simulated frames. Read the result with draw()."""
+        if kind is None: kind = 2 if frames else 1 if respawn else 0
+        m = self.m
+        m.call("TestCueProtection", 0, 0, kind, 0)
+        before = [value + 1 if value > 0 else value for value in (frames, respawn, star)]
+        m.call("TestCueEngine", 0, before[0], before[1], held, before[2])
+        self.frame += 1; m.call("TestCueTick", self.frame)
+        m.call("TestCueEngine", 0, frames, respawn, held, star)
+        self.frame += 1; m.call("TestCueTick", self.frame)
+
+    def script(self, words, timer, frame=10, offset=0):
+        """Point the script at words[offset] with timer frames to its next command."""
+        self.m.cpu.mem_write(self.SCRIPT, struct.pack(">" + "I" * len(words), *words))
+        self.m.call("TestCueScript", 0, self.SCRIPT + offset * 4, timer * 100, frame * 100)
+
+    def test_ledge_timer_shows_four_red_then_four_yellow_before_vulnerability(self):
+        colors = []
+        for frames in range(12, -1, -1):
+            self.ledge(frames)
+            self.assertEqual(self.left(), min(frames, self.MORE))
+            colors.append(self.draw())
+        self.assertEqual(colors, [0] * 4 + [self.RED] * 4 + [self.YELLOW] * 4 + [0])
+
+    def test_a_timer_event_code_holds_never_counts_down(self):
+        """Techchase re-arms a 1-frame ledge timer every frame it protects the CPU."""
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)
+        for _ in range(4):
+            m.call("TestCueProtection", 0, 0, 1, 0)
+            m.call("TestCueEngine", 0, 1, 0, 0, -1)
+            self.assertEqual((self.tick(), self.left()), (self.BLUE, self.MORE))
+        m.call("TestCueProtection", 0, 0, 0, 0)
+        m.call("TestCueEngine", 0, 0, 0, 0, -1)
+        self.assertEqual(self.tick(), 0)
+        # A new timer counts once the engine has taken a frame off it.
+        m.call("TestCueProtection", 0, 0, 2, 0)
+        m.call("TestCueEngine", 0, 3, 0, 0, -1)
+        self.assertEqual((self.tick(), self.left()), (self.BLUE, self.MORE))
+        m.call("TestCueEngine", 0, 2, 0, 0, -1)
+        self.assertEqual((self.tick(), self.left()), (self.YELLOW, 2))
+        m.call("TestCueTick", self.frame)  # Paused: the same frame again keeps the count.
+        self.assertEqual(self.draw(), self.YELLOW)
+        m.call("ActionCues_Clear")  # A restore forgets it.
+        self.assertEqual((self.draw(), self.left()), (self.BLUE, self.MORE))
+        # Starman's timer too.
+        m.call("TestCueProtection", 0, 0, 0, 0)
+        for _ in range(3):
+            m.call("TestCueEngine", 0, 0, 0, 0, 2)
+            self.assertEqual((self.tick(), self.left()), (self.BLUE, self.MORE))
+
+    def test_overlay_colors_hold_until_the_stoplight_which_is_the_same_for_everyone(self):
+        m = self.m
+        m.call("Settings_Set", 11, 7, 1)
+        expected = lambda base: [base] * 2 + [self.RED] * 4 + [self.YELLOW] * 4 + [0]
+        for accent, cpu, base in ((1, 0, self.BLUE), (0, 1, self.LAVENDER)):
+            m.call("TestCuePlayer", 0, accent, cpu)
+            colors = []
+            for frames in range(10, -1, -1):
+                self.ledge(frames); colors.append(self.draw())
+            self.assertEqual(colors, expected(base))
+        # An event's CPU palette, Off included, and the dropped-invincibility pulse leave it alone.
+        option = 0x80407000
+        m.cpu.mem_write(option, struct.pack(">hh", 0, 1))
+        m.call("ActionCues_SetCPUInvincibilityOverlay", option)
+        self.ledge(5); self.assertEqual(self.draw(), self.RED)
+        m.call("ActionCues_SetTangibilityOverlay", option + 2)
+        self.ledge(9); self.assertEqual(self.draw(), 0)
+        self.ledge(1); self.assertEqual(self.draw(), self.YELLOW)
+        self.ledge(0); self.assertEqual(self.draw() & 0xFFFFFF00, 0xFF282800)  # Then the vulnerable pulse.
+
+    def test_respawn_and_ledge_timers_combine_as_the_native_countdown_does(self):
+        for (ledge, respawn, held, kind), left in (
+            ((3, 1, 0, 2), 3), ((1, 3, 0, 2), 3), ((2, 6, 0, 2), 6), ((2, 12, 0, 2), self.MORE),
+            ((0, 2, 0, 1), 2),
+            ((2, 0, 1, 2), self.MORE),  # The 0x2221 hold: no timer ends it.
+            ((0, 0, 0, 1), self.MORE),  # Set with no timer (Escape Samus's invincibility).
+        ):
+            with self.subTest(ledge=ledge, respawn=respawn, held=held):
+                self.ledge(ledge, respawn, held, kind=kind)
+                self.assertEqual(self.left(), left)
+
+    def test_starman_counts_down_its_own_timer(self):
+        for star, left, color in ((6, 6, self.RED), (1, 1, self.YELLOW), (9, self.MORE, 0), (0, self.MORE, 0)):
+            self.ledge(0, star=star)
+            self.assertEqual(self.left(), left)
+            self.assertEqual(self.draw(), color)
+        self.ledge(0)
+        self.assertEqual((self.left(), self.draw()), (0, 0))
+
+    def test_script_intangibility_ends_on_its_body_state_command(self):
+        m = self.m
+        # A roll: intangible on frame 4 (0x68 state 2), vulnerable on frame 20 (0x68 state 0).
+        roll = [(2 << 26) | 4, (26 << 26) | 2, (2 << 26) | 20, 26 << 26, 0]
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        colors = []
+        for frame in range(10, 21):
+            if frame == 20: m.call("TestCueProtection", 0, 0, 0, 0)
+            self.script(roll, 20 - frame, frame, offset=3)
+            self.assertEqual(self.left(), min(20 - frame, self.MORE))
+            colors.append(self.tick())
+        self.assertEqual(colors, [0] * 2 + [self.RED] * 4 + [self.YELLOW] * 4 + [0])
+        # A synchronous timer still to run, and a script that ends while protected.
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        self.script([(2 << 26) | 14, 26 << 26, 0], 0)
+        self.assertEqual(self.left(), 4)
+        self.script([(26 << 26) | 1, 0], 1)
+        self.assertEqual(self.left(), self.MORE)
+
+    def test_whole_body_hurtbox_commands_count_too(self):
+        m = self.m
+        m.call("TestCueCapsules", 0, 15, 2)
+        for bone in range(15): m.call("TestCueBone", 0, bone, bone)
+        for words, timer, left in (
+            ([27 << 26, 0], 2, 2),  # 0x6C: every hurtbox normal.
+            ([(28 << 26) | (4 << 18), 0], 3, 3),  # 0x70: bone 4 normal, so not the whole body.
+            ([(28 << 26) | (99 << 18), 0], 1, self.MORE),  # No hurtbox on bone 99.
+            ([(27 << 26) | 1, 0], 1, self.MORE),  # Every hurtbox still protected.
+        ):
+            with self.subTest(words=words):
+                self.script(words, timer)
+                self.assertEqual(self.left(), left)
+
+    def test_hitlag_holds_the_script_but_not_the_timers(self):
+        m = self.m
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        self.script([26 << 26, 0], 2)
+        m.call("TestCueFrozen", 0, 1)
+        self.assertEqual(self.left(), self.MORE)
+        self.assertEqual(self.tick(), 0)
+        m.call("TestCueProtection", 0, 0, 0, 0)
+        self.ledge(2)
+        self.assertEqual(self.left(), 2)
+        self.assertEqual(self.draw(), self.YELLOW)
+
+    def test_unknown_ends_show_nothing(self):
+        m = self.m
+        m.call("TestCueProtection", 0, 2, 0, 0)
+        m.call("TestCueScript", 0, 0x1000, 0, 1000)  # Unreadable.
+        self.assertEqual(self.left(), -1)
+        self.assertEqual(self.tick(), 0)
+        self.ledge(10, kind=2)
+        m.cpu.mem_write(m.call("TestCueData", 0) + 0x1988, struct.pack(">i", 2))
+        self.assertEqual(self.left(), self.MORE)  # The ledge outlasts the lookahead.
+        self.ledge(3, kind=2)
+        m.cpu.mem_write(m.call("TestCueData", 0) + 0x1988, struct.pack(">i", 2))
+        self.assertEqual(self.left(), -1)
+        # Counters and Yoshi's armor have no countdown to read, even over a timer.
+        data = m.call("TestCueData", 0)
+        self.ledge(2)
+        m.call("TestCueKind", 0, 18); m.call("TestCueState", 0, 369, 10, 60, 100)
+        m.cpu.mem_write(data + 0x221B, b"\xC0")
+        self.assertEqual((self.left(), self.draw()), (self.MORE, 0))
+        m.cpu.mem_write(data + 0x221B, b"\x00")
+        m.call("TestCueKind", 0, 14); m.call("TestCueState", 0, 27, 0, 40, 100)
+        m.call("TestCueProtection", 0, 0, 2, 12000)
+        self.assertEqual((self.left(), self.draw()), (self.MORE, 0))
+
+    def test_actionable_cue_keeps_priority_and_toggles_apply_while_paused(self):
+        m = self.m
+        data = m.call("TestCueData", 0)
+        m.cpu.mem_write(data + 0x408, bytes((i * 7 + 3) & 255 for i in range(384)))
+        before = bytes(m.cpu.mem_read(data + 0x408, 384))
+        self.ledge(2)
+        self.assertEqual(self.draw(), self.YELLOW)
+        self.assertEqual(bytes(m.cpu.mem_read(data + 0x408, 384)), before)
+        m.cpu.mem_write(data + 0x408, bytes(384))  # No native tint, so a plain draw reads 0.
+        m.call("Settings_Set", 11, self.STOPLIGHT, 0)
+        self.assertEqual(self.draw(), 0)
+        m.call("Settings_Set", 11, self.STOPLIGHT, 1)
+        self.assertEqual(self.draw(), self.YELLOW)
+        m.call("Settings_Set", 11, 4, 1)  # Actionable Yellow>Green.
+        m.call("TestCueLanding", 0, 5, 1)
+        m.call("TestCueState", 0, 42, 3, 40, 100)
+        self.ledge(2)
+        self.assertEqual((self.left(), self.draw()), (2, 0xFFF000DC))
 
 
 class LedgedashLogicTests(unittest.TestCase):

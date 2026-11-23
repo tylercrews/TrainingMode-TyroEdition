@@ -1,5 +1,6 @@
 #include "lab_common.h"
 #include "osds.h"
+#include "fountain.h"
 
 // DECLARATIONS #############################################
 
@@ -322,6 +323,7 @@ enum gen_option
     OPTLAB_ACTIONLOG,
     OPTLAB_HITBOXTRAILS,
     OPTGEN_OSDS,
+    OPTGEN_TIMER_LOOP, /* Shown in Session, after Game Speed. */
 
     OPTGEN_COUNT
 };
@@ -476,6 +478,14 @@ static EventOption LabOptions_General[OPTGEN_COUNT] = {
         .menu = &LabMenu_OSDs,
         .name = "Global Settings",
         .desc = {"Choose global OSD colors, overlays and other shared controls."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Timer 8m Inf Loop",
+        .desc = {"Show the timer as an 8 minute countdown that",
+                 "starts again at 8:00 each time it reaches 0:00.",
+                 "Switch any time: both show the same moment, so",
+                 "Randall is where an 8 minute match has him."},
     },
 };
 static EventMenu LabMenu_General = {
@@ -796,23 +806,30 @@ enum stage_fod_option
     OPTSTAGE_FOD_COUNT,
 };
 
-static const char *LabValues_FODPlatform[] = {"Random", "Hidden", "Lowest", "Left Default", "Average", "Right Default", "Highest"};
-static const float LabValues_FODPlatformHeights[] = { 0.0f, -3.25f, 15.f, 20.f, 25.f, 28.f, 35.f };
-
+/* Random, Hidden, then every height the game can stop a platform at, in the Y
+ * you stand at on it (see src/fountain.h). */
 static EventOption LabOptions_Stage_FOD[OPTSTAGE_FOD_COUNT] = {
     {
         .kind = OPTKIND_STRING,
-        .value_num = sizeof(LabValues_FODPlatformHeights)/sizeof(*LabValues_FODPlatformHeights),
+        .value_num = FOUNTAIN_CHOICE_COUNT,
         .name = "Left Platform Height",
-        .desc = {"Adjust the left platform's distance from the ground."},
-        .values = LabValues_FODPlatform,
+        .desc = {"Hold the left platform at one height.",
+                 "Random moves it as in a match; Hidden sinks it.",
+                 "12.375 to 27.375, the Y you stand at on it.",
+                 "It starts at 16.125 and resurfaces at 19.875."},
+        .values = Fountain_Labels,
+        .OnChange = Lab_ChangeFountainPlatform,
     },
     {
         .kind = OPTKIND_STRING,
-        .value_num = sizeof(LabValues_FODPlatformHeights)/sizeof(*LabValues_FODPlatformHeights),
+        .value_num = FOUNTAIN_CHOICE_COUNT,
         .name = "Right Platform Height",
-        .desc = {"Adjust the right platform's distance from the ground."},
-        .values = LabValues_FODPlatform,
+        .desc = {"Hold the right platform at one height.",
+                 "Random moves it as in a match; Hidden sinks it.",
+                 "12.375 to 27.375, the Y you stand at on it.",
+                 "It starts at 22.125 and resurfaces at 19.875."},
+        .values = Fountain_Labels,
+        .OnChange = Lab_ChangeFountainPlatform,
     }
 };
 
@@ -826,17 +843,36 @@ static EventMenu LabMenu_Stage_FOD = {
 
 enum stage_story_option
 {
+    OPTSTAGE_STORY_RANDALL_ON, /* The Lab's own, unsaved: Randall himself. */
     OPTSTAGE_STORY_RANDALL,
+    OPTSTAGE_STORY_RANDALL_TIMER,
     OPTSTAGE_STORY_COUNT,
 };
 
 static EventOption LabOptions_Stage_Story[OPTSTAGE_STORY_COUNT] = {{
+    .kind = OPTKIND_TOGGLE,
+    .val = 1,
+    .val_prev = 1,
+    .name = "Randall",
+    .desc = {"Randall, the moving cloud. On by default, even",
+             "with Hazards Off. Off hides him and his platform,",
+             "but he keeps his timing, so the Randall Timer",
+             "Minimap still shows where he is."},
+    .OnChange = Lab_ChangeRandallOn,
+}, {
     .kind = OPTKIND_TOGGLE,
     .name = TM_GLOBAL_RANDALL_NAME,
     .desc = {"Always show Randall's platform and cloud,",
              "even while it passes behind the stage.",
              "Shares the Global Overlays & Gameplay setting."},
     .OnChange = Lab_ChangeRandallOverlay,
+}, {
+    .kind = OPTKIND_TOGGLE,
+    .name = TM_GLOBAL_RANDALL_TIMER_NAME,
+    .desc = {"A red arrow follows Randall around a track through",
+             "the match timer, behind the numbers while Randall",
+             "is behind the stage. Shares the Global setting."},
+    .OnChange = Lab_ChangeRandallTimer,
 }};
 
 static EventMenu LabMenu_Stage_Story = {
@@ -944,6 +980,7 @@ static u8 LabOSD_ID[] = {
 static const char *LabOSD_ColorNames[] = { TM_OSD_COLOR_NAMES };
 // Appended after OSD Display so the existing TM_SETTINGS_OSDS + N rows keep their indices.
 #define LABOSD_ACT_OO_ATTACK (TM_SETTINGS_OSDS + 11)
+#define LABOSD_INVINCIBILITY_ENDING (TM_SETTINGS_OSDS + 12)
 static EventOption LabOptions_OSDs[] = {
     {
         .kind = OPTKIND_STRING,
@@ -1145,6 +1182,12 @@ static EventOption LabOptions_OSDs[] = {
         .kind = OPTKIND_STRING, .name = TM_GLOBAL_ACT_OO_ATTACK_NAME,
         .value_num = TM_COLOR_COUNT, .values = LabOSD_ColorNames, .OnChange = Lab_ChangeOSDs,
         .desc = {"Frames to act once a grounded attack or throw is actionable.", "1f = first frame. Includes Wait after the animation ends."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = TM_GLOBAL_INVINCIBILITY_ENDING_NAME,
+        .desc = {"Last 8 invincible frames: 4 red, then 4 yellow.", "Same colors for everyone. Works with or without the Overlay.", "Ledge, respawn, dodges and techs; not counters or armor."},
+        .OnChange = Lab_ChangeGlobalCue,
     },
 };
 

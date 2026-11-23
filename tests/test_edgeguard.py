@@ -1,13 +1,20 @@
-"""Execute the production Edgeguard knockback and recovery logic."""
+"""Execute the production Edgeguard knockback, recovery and Up-B Overlay logic."""
+import importlib.util
 import math
 from pathlib import Path
 import re
+import struct
 import unittest
 import recovery_sim as sim
 import test_settings as fixtures
 from test_lowlaser import load_probe
+from unicorn import UC_HOOK_MEM_WRITE
 
 ROOT = Path(__file__).resolve().parents[1]
+# The Gecko codes' generator, whose shapes the Up-B Overlays must match.
+_spec = importlib.util.spec_from_file_location('upb_overlay_numbers', ROOT / 'scripts/upb_overlay_numbers.py')
+numbers = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(numbers)
 RANDOM, VERY_HIGH, HIGH, LEVEL, LOW, VERY_LOW, CUSTOM = range(7)
 HEIGHTS = {VERY_HIGH: (51, 61), HIGH: (23, 33), LEVEL: (-5, 5), LOW: (-33, -23), VERY_LOW: (-61, -51)}
 CLOSE, NEAR, MEDIUM, FAR = 1, 2, 3, 4
@@ -167,6 +174,67 @@ class KnockbackTests(unittest.TestCase):
                          ['Random', 'Very High', 'High', 'Level', 'Low', 'Very Low', 'Custom'])
         table = re.search(r'Values_KnockbackDistance\[\] = \{(.*?)\};', header).group(1)
         self.assertEqual(re.findall(r'"([^"]+)"', table), ['Random', 'Close', 'Near', 'Medium', 'Far'])
+
+
+SIDE = 22  # TM_EG_SIDE
+SAVED_RANDOM, SAVED_LEFT, SAVED_RIGHT = range(3)  # TM_EG_SIDE_*, the save's order
+ROW_LEFT, ROW_RIGHT, ROW_RANDOM = range(3)  # the menu's order
+DPAD_LEFT, DPAD_RIGHT, DPAD_DOWN, DPAD_UP = 1, 2, 4, 8
+
+
+class SideTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'edgeguard-probe.elf', 'TestEdgeguardInit')
+
+    def test_the_menu_lists_left_right_random_and_defaults_to_random(self):
+        header = (ROOT / 'src' / 'edgeguard.h').read_text()
+        table = re.search(r'Values_Side\[\] = \{(.*?)\};', header).group(1)
+        self.assertEqual(re.findall(r'"([^"]+)"', table), ['Left', 'Right', 'Random'])
+        self.assertIn('.val = EG_SIDE_RANDOM,', header)
+
+    def test_saved_sides_keep_their_meaning(self):
+        # 0 is a save that never set Side, and still reads as Random.
+        for saved, row in ((SAVED_RANDOM, ROW_RANDOM), (SAVED_LEFT, ROW_LEFT), (SAVED_RIGHT, ROW_RIGHT)):
+            with self.subTest(saved=saved):
+                self.m.call('TestPreference', SIDE, saved)
+                self.m.call('TestLoadSettings')
+                self.assertEqual(self.m.call('TestSideRow'), row)
+                self.m.call('TestPreference', SIDE, 3)
+                self.m.call('TestChangeSide', row)
+                self.assertEqual(self.m.call('TestReadPreference', SIDE), saved)
+
+    def test_left_and_right_always_use_their_ledge(self):
+        for rand in (0, 1):
+            self.m.call('TestRand', 0, rand)
+            for row, ledge in ((ROW_LEFT, 0), (ROW_RIGHT, 1), (ROW_RANDOM, rand)):
+                self.m.call('TestChangeSide', row)
+                self.assertEqual(self.m.call('TestChooseSide'), ledge, (row, rand))
+
+    def reset_timer(self):
+        value = self.m.call('TestResetTimer')
+        return value if value < 0x80000000 else value - 0x100000000
+
+    def test_the_dpad_picks_a_side_saves_it_and_restarts(self):
+        self.m.call('TestChangeSide', ROW_RANDOM)
+        # The last press picks the side already chosen, which only restarts.
+        for button, row, saved in ((DPAD_RIGHT, ROW_RIGHT, SAVED_RIGHT), (DPAD_LEFT, ROW_LEFT, SAVED_LEFT),
+                                   (DPAD_LEFT, ROW_LEFT, SAVED_LEFT)):
+            self.m.call('TestClearReset')
+            self.m.call('TestDPad', button)
+            self.assertEqual(self.m.call('TestSideRow'), row)
+            self.assertEqual(self.m.call('TestReadPreference', SIDE), saved)
+            self.assertEqual(self.reset_timer(), 0)
+
+    def test_up_and_down_leave_the_side_alone(self):
+        self.m.call('TestChangeSide', ROW_RANDOM)
+        for button in (0, DPAD_DOWN, DPAD_UP):
+            self.m.call('TestDPad', button)
+            self.assertEqual(self.m.call('TestSideRow'), ROW_RANDOM)
+            self.assertEqual(self.reset_timer(), -1)
 
 
 class ToMainStageTests(unittest.TestCase):
@@ -479,6 +547,160 @@ class RecoveryRowSaveTests(unittest.TestCase):
         self.assertEqual(self.m.call('TestLoadRows', 2), 0b1000111)
         self.m.call('TestPreference', FOX, 1 | 1 << 3 | 1 << 4 | 1 << 5)  # Low, Jump, Instant, Fast Fall.
         self.assertEqual(self.m.call('TestLoadRows', 0), 1 | 1 << 4 | 1 << 5 | 1 << 6)
+
+
+class UpBOverlayTests(unittest.TestCase):
+    """The Player and CPU Up-B Overlays: Up-B Sweetspot's guides, as the Slippi
+    Up-B Overlay codes draw them, at both ledges."""
+    GX_PIPE = 0xCC008000
+    PLAYER, CPU = 0, 1
+    MARIO, FOX, FALCON, SHEIK, POPO, YOSHI, GAW = 0, 1, 2, 7, 10, 14, 24
+    # Ledge-grab boxes in tenths (snap x, y, height), from the ISO.
+    BOXES = {FOX: (110, 130, 90), SHEIK: (110, 150, 110), FALCON: (90, 170, 110), MARIO: (120, 150, 100)}
+    SLUGS = {FOX: 'fox', SHEIK: 'sheik', FALCON: 'falcon', MARIO: 'mario'}
+    YOURS = {numbers.BLUE: (0x30, 0xc8, 0xff, 0xff), numbers.DIM_BLUE: (0x1c, 0x6c, 0x94, 0xff),
+             numbers.WHITE: (0xff, 0xff, 0xff, 0xff)}
+    CPUS = {numbers.BLUE: (0xff, 0x96, 0x32, 0xff), numbers.DIM_BLUE: (0x94, 0x57, 0x1d, 0xff),
+            numbers.WHITE: (0xff, 0xd8, 0xb0, 0xff)}
+    # The bar and the X are symmetric, so they're drawn the same way round off
+    # either ledge, not mirrored point by point.
+    SYMMETRIC = ('the snap: coming down, the up-B grabs here', 'the target X')
+
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'edgeguard-probe.elf', 'TestEdgeguardInit')
+        self.writes = []
+        self.m.cpu.mem_map(self.GX_PIPE & ~0xFFF, 0x1000)
+        self.m.cpu.hook_add(UC_HOOK_MEM_WRITE, self.pipe_write, begin=self.GX_PIPE, end=self.GX_PIPE + 3)
+        self.m.call('TestOverlayInit')
+
+    def pipe_write(self, cpu, access, address, size, value, data):
+        self.writes.append((size, value & ((1 << size * 8) - 1)))
+
+    def fighter(self, ply, kind):
+        self.m.call('TestOverlayFighter', ply, kind, *self.BOXES.get(kind, (110, 130, 90)))
+
+    def drawn(self, pass_=2):
+        """Every vertex of one drawn frame, in order, as (x, y, color)."""
+        self.writes.clear()
+        self.m.call('TestOverlayDraw', pass_)
+        vertices = []
+        for i in range(0, len(self.writes), 7):
+            x, y, z, *color = self.writes[i:i + 7]
+            x, y = (struct.unpack('>f', struct.pack('>I', v[1]))[0] for v in (x, y))
+            vertices.append((x, y, tuple(part[1] for part in color)))
+        return vertices
+
+    def expected(self, kind, colors):
+        """What the Gecko generator draws for the probe's fighter, off the left
+        ledge (mirrored) and then the right, as [(points, color, symmetric)]."""
+        slug, (width, y_offset, height) = self.SLUGS[kind], (v / 10 for v in self.BOXES[kind])
+        ecb = next(c[6] for c in numbers.CHARACTERS if c[0] == slug)
+        target = ((ecb + width) / 2, -y_offset)
+        n = {'target': target, 'snap': (target[0], target[1] + height / 2)}
+        if kind in (self.FOX, self.SHEIK):
+            distance = (lambda tilt: 81.6) if kind == self.FOX else (lambda tilt: 20 * (tilt + 1))
+            n.update(distance=distance, threshold=.5, stick=numbers.stick(.28, .28), rings=[distance(1)])
+        else:
+            rise, forward, end_rise, end_forward, tilt = numbers.PATHS[slug]
+            n.update(path=(rise, forward, end_rise, end_forward), tilt=18.0 if tilt else 0.0)
+        shapes = []
+        for ledge, out in ((-85, -1), (85, 1)):
+            for _, _, color, points, comment in numbers.shapes(slug, n):
+                shapes.append(([(ledge + out * x, y) for x, y in points], colors[color], comment in self.SYMMETRIC))
+        return shapes
+
+    def assert_draws(self, drawn, *fighters):
+        shapes = [shape for kind, colors in fighters for shape in self.expected(kind, colors)]
+        self.assertEqual(len(drawn), sum(len(points) for points, _, _ in shapes))
+        at = 0
+        for points, color, symmetric in shapes:
+            got = drawn[at:at + len(points)]
+            at += len(points)
+            self.assertEqual({c for _, _, c in got}, {color})
+            got = [(round(x, 2), round(y, 2)) for x, y, _ in got]
+            if symmetric:
+                got, points = sorted(got), sorted((round(x, 2), round(y, 2)) for x, y in points)
+            for (x, y), point in zip(got, points):
+                self.assertAlmostEqual(x, point[0], 1)
+                self.assertAlmostEqual(y, point[1], 1)
+
+    def test_both_rows_are_off_until_saved_on(self):
+        self.m.call('TestLoadSettings')
+        self.assertEqual([self.m.call('TestOverlayRow', row, key) for row in (0, 1) for key in (0, 1)], [0] * 4)
+        for row in (0, 1):
+            self.m.call('TestPreference', self.m.call('TestOverlayPreference', row), 1)
+        self.m.call('TestLoadSettings')
+        self.assertEqual([self.m.call('TestOverlayRow', row, key) for row in (0, 1) for key in (0, 1)], [1] * 4)
+
+    def test_each_row_saves_its_own_setting(self):
+        player, cpu = (self.m.call('TestOverlayPreference', row) for row in (0, 1))
+        self.m.call('TestChangeOverlay', 1, 1)
+        self.assertEqual((self.m.call('TestReadPreference', player), self.m.call('TestReadPreference', cpu)), (0, 1))
+        self.m.call('TestChangeOverlay', 0, 1)
+        self.m.call('TestChangeOverlay', 1, 0)
+        self.assertEqual((self.m.call('TestReadPreference', player), self.m.call('TestReadPreference', cpu)), (1, 0))
+
+    def test_nothing_draws_with_both_rows_off_or_on_other_passes(self):
+        self.fighter(self.PLAYER, self.FOX)
+        self.fighter(self.CPU, self.FOX)
+        self.assertEqual(self.drawn(), [])
+        self.m.call('TestOverlayRows', 1, 1)
+        self.assertEqual(self.drawn(0) + self.drawn(1), [])
+        self.assertTrue(self.drawn(2))
+
+    def test_your_fox_gets_the_gecko_codes_ring_at_both_ledges(self):
+        self.fighter(self.PLAYER, self.FOX)
+        self.fighter(self.CPU, self.FALCON)
+        self.m.call('TestOverlayRows', 1, 0)
+        drawn = self.drawn()
+        self.assert_draws(drawn, (self.FOX, self.YOURS))
+        # The 2/3 ring and its ticks draw over the stage, off both ledges.
+        self.assertEqual(self.m.call('TestOverlayOnTop'), 2 * (53 + 6))
+        # The X is half of the standing ECB (2) plus the box's reach (11) out, 13 down.
+        crosses = [v[:2] for v in drawn if v[2] == self.YOURS[numbers.WHITE]][-4:]
+        self.assertAlmostEqual(sum(x for x, _ in crosses) / 4, 85 + 6.5, 3)
+        self.assertAlmostEqual(sum(y for _, y in crosses) / 4, -13, 3)
+
+    def test_the_cpus_is_orange_and_draws_before_yours(self):
+        self.fighter(self.PLAYER, self.FOX)
+        self.fighter(self.CPU, self.SHEIK)
+        self.m.call('TestOverlayRows', 1, 1)
+        self.assert_draws(self.drawn(), (self.SHEIK, self.CPUS), (self.FOX, self.YOURS))
+        self.m.call('TestOverlayRows', 0, 1)
+        self.assert_draws(self.drawn(), (self.SHEIK, self.CPUS))
+        self.assertEqual(self.m.call('TestOverlayOnTop'), 0)  # Sheik's half ring stays behind the stage.
+
+    def test_paths_start_from_the_standing_ecbs_x(self):
+        self.fighter(self.CPU, self.FALCON)  # Falcon's ECB is 4.07 out, no stick angle.
+        self.m.call('TestOverlayRows', 0, 1)
+        self.assert_draws(self.drawn(), (self.FALCON, self.CPUS))
+        self.fighter(self.PLAYER, self.MARIO)  # Mario's also has the dim path for holding toward the stage.
+        self.m.call('TestOverlayRows', 1, 0)
+        self.assert_draws(self.drawn(), (self.MARIO, self.YOURS))
+        self.assertEqual(self.m.call('TestOverlayOnTop'), 0)
+
+    def test_fighters_with_no_guide_draw_nothing_and_grey_out_their_row(self):
+        for player, cpu in ((self.YOSHI, self.POPO), (self.FOX, self.YOSHI), (self.POPO, self.FALCON)):
+            with self.subTest(player=player, cpu=cpu):
+                self.fighter(self.PLAYER, player)
+                self.fighter(self.CPU, cpu)
+                self.m.call('TestOverlayDisable')
+                self.assertEqual((self.m.call('TestOverlayRow', 0, 2), self.m.call('TestOverlayRow', 1, 2)),
+                                 (player in (self.YOSHI, self.POPO), cpu in (self.YOSHI, self.POPO)))
+        self.fighter(self.PLAYER, self.YOSHI)
+        self.fighter(self.CPU, self.POPO)
+        self.m.call('TestOverlayRows', 1, 1)
+        self.assertEqual(self.drawn(), [])
+
+    def test_the_standing_ecbs_are_the_gecko_codes(self):
+        for slug, _, kind, *_, ecb in numbers.CHARACTERS:
+            self.assertEqual(self.m.call('TestStandingFront', kind), round(ecb * 100), slug)
+        self.assertEqual(self.m.call('TestStandingFront', self.GAW), 218)  # Posed the same way, Wait1.
+        self.assertEqual(self.m.call('TestStandingFront', self.POPO), 200)  # The game's minimum.
 
 
 if __name__ == '__main__':

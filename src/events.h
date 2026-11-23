@@ -314,6 +314,11 @@ typedef struct EventVars
      * keeps that one), skipping the CSS/SSS. Only for fighters the event takes
      * from the CSS; returns 0 when refused. Carry works as for a stage change. */
     int (*restart_on_fighters)(int hmn_kind, int hmn_costume, int cpu_kind, int cpu_costume);
+    /* What Actionable Yellow>Green reads (ActionCues_Remaining): updates until
+     * the fighter can act, 0 if it can now, 1 or 2 in the yellow window, 3 if
+     * further, and -1 for a state it doesn't cue. Events pass it to TMCue_Update
+     * (action_cues.c, compiled into the event) for the same yellow and green. */
+    int (*cue_remaining)(GOBJ *fighter);
 } EventVars;
 #define TM_EVENT_CARRY_SIZE 2048
 #define event_vars_ptr_loc ((EventVars**)0x803d7054)
@@ -345,8 +350,32 @@ int Events_GetSavedScore(int event_id);
 void Event_Retry(void);
 void Events_SetEventAsPlayed(int event_id);
 void Test_Think(GOBJ *gobj);
-void Hazards_Disable(void);
+void Hazards_Disable(int keep_randall);
 void TM_CreateWatermark(void);
+
+/* Randall, Yoshi's Story's cloud: map GObj 2. Joint 1 of it (as
+ * Stage_GetMapGObjJObj counts) is the cloud, which rides a 1200 frame path
+ * animation (see docs/RANDALL-TIMER-MINIMAP.md). In a match, its animation frame is
+ * RANDALL_TIMER_OFFSET ahead of the match timer: measured in a VS match at
+ * 7:50.31 (582 timer frames, Randall at frame 707), and within a frame or two
+ * of Slippi's 123 frames from a match's first frame to its timer starting.
+ * 28800 frames, 8 minutes, are exactly 24 laps. */
+#define RANDALL_MAP_GOBJ 2
+#define RANDALL_CLOUD_JOINT 1
+#define RANDALL_LOOP_FRAMES 1200
+#define RANDALL_TIMER_OFFSET 125
+/* The frames the match timer shows as run: its time counting up, or its start
+ * less what's left counting down. Counting down, the game still counts
+ * time_ms up within each second, from 59 at the start; 0 shows .99. */
+static inline int Match_TimerFrames(void)
+{
+    Match *match = stc_match;
+    int shown = match->time_seconds * 60 + match->time_ms;
+    if (match->match.timer != MATCH_TIMER_COUNTDOWN) return shown;
+    int start_ms = match->match.timer_subseconds ? match->match.timer_subseconds - 1 : 59;
+    int start_left = match->match.timer_seconds * 60 + 59 - start_ms;
+    return start_left - (match->time_seconds * 60 + 59 - match->time_ms);
+}
 
 // GX Link args
 #define GXLINK_MENUMODEL 12
@@ -448,9 +477,11 @@ int ActionCues_CommonState(int kind, int state);
 void ActionCues_SetLocalOverlay(GOBJ *gobj, const GXColor *color);
 void ActionCues_SetTimingOverlay(GOBJ *gobj, const GXColor *color);
 int ActionCues_IsProtected(GOBJ *gobj);
+int ActionCues_ProtectionLeft(GOBJ *gobj); /* Invincibility Stoplight's count; see action_cues.h. */
 void ActionCues_SetTangibilityOverlay(const s16 *enabled);
-/* Global Blast Zone Overlay (every stage) and Randall Overlay (Yoshi's Story);
- * driven by TM_FLAG_BLAST_ZONES and TM_FLAG_RANDALL. */
+/* Global Blast Zone Overlay (every stage), Randall Overlay and Randall Timer
+ * Minimap (Yoshi's Story); driven by TM_FLAG_BLAST_ZONES, TM_FLAG_RANDALL and
+ * TM_FLAG_RANDALL_TIMER. */
 void StageOverlay_MatchStart(void);
 void StageOverlay_SceneChange(void);
 void ActionCues_SetCPUInvincibilityOverlay(const s16 *palette);

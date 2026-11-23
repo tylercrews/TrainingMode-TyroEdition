@@ -22,7 +22,7 @@ Sources: the Melee decompilation (doldecomp/melee, `src/melee/ft/kinds/*/ft*spec
 
 From `mpcoll.c` (`mpColl_80044164` and the air collision that calls it) and `ftcliffcommon.c`:
 
-- **Box.** Relative to the fighter's position (TopN), facing the ledge: horizontally from the fighter out to `ecb.right + ledge_snap_x`, vertically `ledge_snap_y ± ledge_snap_height / 2`, swept over the frame's movement. The ledge must be inside it, and the ECB's bottom (the feet) must be below the ledge. TM already reads these as `coll_data.cliffgrab_width`, `cliffgrab_y_offset` and `cliffgrab_height` (Side-B's `LedgeGrabTop` uses them).
+- **Box.** Relative to the fighter's position (TopN), facing the ledge: horizontally from the fighter out to `ecb.right + ledge_snap_x`, vertically `ledge_snap_y ± ledge_snap_height / 2`, swept over the frame's movement. The ledge must be inside it, and the ECB's bottom (the feet) must be below the ledge. TM already reads these as `coll_data.cliffgrab_width`, `cliffgrab_y_offset` and `cliffgrab_height` (Side-B's `LedgeGrabTop` uses them). In `mpColl_80044164` the sweep is the box from the lower of the frame's two positions to the higher, so moving down it grabs on the first frame your position is `ledge_snap_y − ledge_snap_height / 2` or less below the ledge (Fox and Falco: 8.5), with the ECB's bottom still outside the ledge ([Coming down](#coming-down-where-the-ledge-snaps-t10)).
 - **Moving down.** The check only runs when `cur_pos.y < prev_pos.y`. A perfectly level travel frame doesn't count either.
 - **Holding down** past the drop threshold (`input.lstick.y <= -x480`) turns ledge grabs off.
 - **The move must ask for it.** Each up-B's collision callback decides when, and in which direction:
@@ -191,7 +191,7 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 
 [src/upbsweetspot.c](../src/upbsweetspot.c) follows this note, with these choices:
 
-- **Start:** an angel platform 40 out and 15 above the ledge, placed the way Ledgedash places its Respawn Platform start. Unlike Ledgedash, the game's own `RebirthWait` interrupt still decides when you leave, so any action works, up-B included.
+- **Start:** an angel platform 40 out and 15 above the ledge, placed the way Ledgedash places its Respawn Platform start. Unlike Ledgedash, the game's own `RebirthWait` interrupt still decides when you leave, so any action works, up-B included. Since T10 each character has its own spot ([Start spots](#start-spots-t10)).
     - That exit grants respawn invincibility (`ftColl_8007B7A4`). The event sets the remaining frames to 1 once you're off, so the game ends it itself, flashing included.
 - **Up-B detection:** each character's up-B action-state range, from the decompilation's motion-state enums (clones share their original's). Yoshi and Jigglypuff are left off the CSS.
 - **Guides:**
@@ -201,8 +201,174 @@ From `PlMs.dat` (`AttackS4`, the forward smash's subaction script):
 - **Marth:** his attack starts as each attempt does and freezes with all four hitboxes out, on frame 13 for the forward smash and frame 7 for the down-tilt (`AttackLw3`, hitbox 3 is its 10% tipper), while you're still on the platform, so a hit doesn't depend on when you up-B. `AttackS4`'s script creates its hitboxes at 10 and clears them at 14, and `Fighter_IncrementStateFrameInfo` leaves `state.frame` on the next animation frame before the script runs (80073240), so a command at time t runs when `state.frame` reaches t and 13 is the last frame with them out. The freeze is set again every frame, as Side-B's is; nothing in the game is known to undo it, but that was the only difference left between the two. The forward smash's placement isn't computed ahead of time: its first freeze reads hitbox 3's position and slides Marth (and his hitboxes) so the tipper is right over the ledge, then later resets use that measured reach. The down-tilt stands 15 in from the ledge, Side-B's spot, so its tip reaches past the ledge the same way.
     - The first Dolphin test had only the tipper on, 12 inland. It was too far back, and the whole forward smash was wanted.
 - **The white X** uses the ECB side facing the ledge (`ecb.right` facing right, `-ecb.left` facing left), like `mpColl_800443C4` and its mirror. The first version used `ecb.right` on both ledges.
-- **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card. The success rate is session-only, carried through Change Stage with `carry_store`.
+- **Settings:** Enable Line Guides, Marth and Camera are saved to the memory card, and since T10 B0XX Angles and Landing Line (Fox and Falco; greyed out for everyone else). The success rate is session-only, carried through Change Stage with `carry_store`.
 - **Stages:** the first-frame guard from [Stages](#stages), option 1.
+
+## The stick's dead zones and B0XX angles (T10)
+
+**How the game reads the stick.** Every aimed up-B takes its angle as `atan2(lstick.y, lstick.x * facing)` from `input.lstick`: Fox and Falco in `ftFx_SpecialAirHi_Enter`, Sheik in `ftSk_SpecialHi_80113A30`, and Zelda's, Mewtwo's and Pikachu's air launches the same way. That stick is:
+
+- **In 80ths, inside a circle.** `HSD_PadClamp` (`controller.c`) runs with `gmmain.c`'s settings: a circle clamp of radius 80, no inner dead zone, scaled by 80. A stick past the circle is scaled back onto it, each axis rounded toward 0.
+- **Zeroed near each axis.** `Fighter_procInput` (`fighter.c`) sets an axis to 0 when it's at or under `horizontal_stick_deadzone` or `vertical_stick_deadzone` (PlCo.dat `ftLoadCommonData` 0x0 and 0x4, both **0.28**). So an axis reads 0 or at least 23/80 (0.2875). Hold the stick straight left and move it up or down a little, and it still reads exactly left until the other axis passes 22/80, about 16 degrees of stick at full tilt.
+
+So the shallowest angle off a straight direction is `atan2(23, 76)`, **16.84 degrees**: 23 is the least the other axis can read, and 76 the most the first can then read inside the circle (77² + 23² is past 80²). It's the same limit as the Wavedash OSD's shallowest angle. Nothing strictly between straight and 16.84 degrees off it can be aimed, either side of straight across, up and down. That's the game, not the controller: notches only make the angles it does read easier to hit.
+
+**What the guides draw.**
+
+- Each quarter of the ring between straight directions runs from 16.84 degrees past one to 16.84 short of the next. A white tick across the ring on each straight direction marks where holding straight sweetspots (Fox's level tick was the first), with 2 degrees of ring either side through it (`STRAIGHT_ARC`), so the ring still reads as a circle and the tick shows its distance.
+- The teleports and Quick Attack go farther with more tilt. At φ degrees off the nearest straight direction, the off-axis part of a tilt t is t·sin φ, so the least tilt that aims there is max(0.5, 0.2875 / sin φ). The dim edge follows it: it meets the ring at 16.84 degrees, where only a near-full tilt reads off-axis, and is the 0.5 threshold from asin(0.2875 / 0.5) = 35.1 degrees on. Straight works at any tilt past 0.5, so their white marks run from the dim edge to the ring, with 2 degrees of the dim edge (at the 0.5 threshold) and of the ring through their ends.
+- The event reads the deadzones live from `*stc_ftcommon`; the Gecko codes take them from the ISO.
+
+**The B0XX.** HayBox's Melee mode ([`src/modes/Melee20Button.cpp`](https://github.com/JonnyHaystack/HayBox/blob/master/src/modes/Melee20Button.cpp)) is, by its README, "up to date with B0XX V3 specifications", so its coordinates are the ones used. Its comments give the B0XX's design angles: 22.96 to 67.04 degrees, 4.41 apart, with 45 in the middle. In 80ths, toward the stage and up, for one quadrant (the other three mirror it):
+
+| Input | Without B | Degrees | With B | Degrees |
+| --- | --- | --- | --- | --- |
+| Straight across, straight up, diagonal | 80, 0 / 0, 80 / 56, 56 | 0 / 90 / 45 | the same | |
+| Mod X across, up | 53, 0 / 0, 43 | 0 / 90 | the same | |
+| Mod Y across, up | 27, 0 / 0, 59 | (too little: straight up) / 90 | 80, 0 / 0, 59 | 0 / 90 |
+| Mod X diagonal | 59, 25 | 22.96 | 73, 31 | 23.01 |
+| Mod X diagonal + C-Down | 56, 29 | 27.38 | 70, 36 | 27.22 |
+| Mod X diagonal + C-Left | 63, 39 | 31.76 | 68, 42 | 31.70 |
+| Mod X diagonal + C-Up | 56, 41 | 36.21 | 59, 43 | 36.09 |
+| Mod X diagonal + C-Right | 49, 42 | 40.60 | 51, 43 | 40.13 |
+| Mod Y diagonal | 25, 59 | 67.04 | 31, 73 | 66.99 |
+| Mod Y diagonal + C-Down | 29, 56 | 62.62 | 36, 70 | 62.78 |
+| Mod Y diagonal + C-Left | 39, 63 | 58.24 | 42, 68 | 58.30 |
+| Mod Y diagonal + C-Up | 41, 56 | 53.79 | 47, 64 | 53.71 |
+| Mod Y diagonal + C-Right | 51, 61 | 50.10 | 47, 57 | 50.50 |
+
+- Every axis there is past the deadzone, so the game reads them as sent. Mod Y across (27/80) is under Fox's and Falco's 0.5 of \|x\| + \|y\| and the teleports' 0.5 tilt, so it goes straight up. With B, Mod Y across is a full tilt (HayBox's "turnaround neutral B nerf").
+- B0XX firmware has changed: the v1.00 manual's Mod X diagonal is 0.7375, 0.2875 (21.3 degrees), and its longer angles were on L, not B.
+- Fox and Falco go the same distance at any tilt, so B moves their angles under half a degree (0.67 units on Fox's ring, less than a dot): they get one dot per angle. The teleports and Quick Attack get both: with B nearly at the full travel, without B closer in. Sheik's Mod X diagonal is 36.0 away without B (0.80 of a tilt) and 39.8 with it. Mod Y + C-Right is the exception: without B it's the longer one.
+- Each dot is where up-B with that stick has to start to end at the X: the stick's direction reversed, at the distance its tilt travels. Under the stage, Fox's and Falco's are from aiming up and away from it, from 31.7 degrees (Mod X + C-Left) up: 23 and 27 would start past the ring's end, 30 degrees short of level.
+- Spots under a unit apart are one dot: white first, then blue, then dim.
+
+## Start spots (T10)
+
+**The problem.** Donkey Kong and Bowser couldn't get to anywhere they could sweetspot from on the old platform (40 out, 15 up). Their air up-Bs barely rise but go a long way sideways, and they keep the drift you carry into them:
+
+- **Donkey Kong** (`ftDk_SpecialAirHi`): 0.675 up, under 0.07 of his gravity until `cmd_var0` at frame 27, then full gravity. That's a peak of about 16.5 at frame 31. Sideways he accelerates 0.05 a frame toward 1.4 (attributes `0x4C` to `0x60`), starting from your drift capped at 0.85. Held toward the stage from a standstill, he's 51 across when he's back to the height he started at (frame 50) and 100 across by the end (frame 85). Drift carried in adds about 16.
+- **Bowser** (`ftKp_SpecialAirHi`): 1.78 up against 0.05 gravity (max fall 1.0) until frame 50, then FallSpecial. Sideways he accelerates 0.02 toward 1.6 (`0x54` to `0x6C`), and his drift is kept, not capped. That's a peak of about 31 at frame 35. From a standstill he's back to his start height 39 across (frame 65). Carrying 0.8 of drift in, that's 87.
+- **Link and Young Link** (`ftLk_SpecialAirHi`): 2.3 (2.31) up against half gravity for 80 frames, keeping half your drift, toward 0.6 (0.8) of their drift. That's a peak of about 47 at frame 41.
+
+From 40 out, holding toward the stage as you fall (what you'd naturally do), any up-B overshoots onto the stage. The only grabs left are after falling 23 to 34 frames, using the stage's wall, in a window of about 3 frames.
+
+**The rule now** (`Start_Spots` in the event; Ness and the Ice Climbers keep the old spot):
+
+- **Path up-Bs:** 20 straight above the blue dot (the fastest grab), and at least 15 out so the platform clears the stage's wall. Luigi, Kirby, Samus and Peach go straight up, so they drift in a little on the way down.
+- **Aimed up-Bs:** 20 above the white X, the full travel out: fall a little, up-B, and hold straight toward the stage. Fox's and Falco's charge drops about 6, so they up-B 6 above the X.
+- **Donkey Kong, Bowser, Link and Young Link** have no guide, so their spots come from a simulation: drop off the platform holding toward the stage, up-B after k frames, and keep holding toward the stage. See "The physics up-Bs' second try" below.
+- **Blast zones:** the platform is never within 35 of the bottom blast zone or 20 of a side one. Game & Watch is moved on Yoshi's Story, where his dot is below the blast zone anyway, and so is Bowser (by 10).
+
+| Fighter | Out, up from the ledge | From |
+| --- | --- | --- |
+| Mario, Dr. Mario | 25, −35 | dot 24.7, −55.4 |
+| Luigi | 15, −41 | dot 7.2, −60.9 |
+| Marth | 17, −44 | dot 17.2, −64.3 |
+| Roy | 19, −42 | dot 19.4, −61.5 |
+| Captain Falcon | 18, −35 | dot 18.4, −54.6 |
+| Ganondorf | 21, −39 | dot 20.5, −58.9 |
+| Peach | 15, −32 | dot 9.4, −51.8 |
+| Kirby | 15, −41 | dot 6.0, −60.7 |
+| Samus | 15, −37 | dot 6.0, −57.3 |
+| Game & Watch | 16, −71 | dot 16.1, −90.6 |
+| Fox | 88, 7 | X 6.5, −13, plus 81.5 |
+| Falco | 67, 7 | X 6.65, −13, plus 60.1 |
+| Sheik | 47, 5 | X 7.0, −15, plus 40 |
+| Zelda | 91, 10 | X 6.5, −10, plus 84 |
+| Mewtwo | 57, 6 | X 7.1, −14, plus 50 |
+| Pikachu | 55, 9 | X 5.5, −11, plus 49.5 |
+| Pichu | 41, 14 | X 5.5, −6, plus 35.2 |
+| Donkey Kong | 105, 35 | see below |
+| Bowser | 110, 15 | |
+| Link | 85, 35 | |
+| Young Link | 100, 35 | |
+| Ness, Ice Climbers | 40, 15 | the old spot |
+
+The dots and X's come from `scripts/upb_overlay_numbers.py`'s numbers. The physics up-Bs' second spots haven't been checked in Dolphin. If they still overshoot, move them out along the band (about 10 out for every 15 up); if they come up short, move them in.
+
+### The physics up-Bs' second try
+
+The first spots (DK 70, 10; Bowser 60, 0; Link 55, 0; Young Link 65, −5) failed in Dolphin: DK and Bowser had to jump backwards before up-B to get anywhere they could sweetspot from, and DK drifting in got hit by Marth. The simulation behind them was too kind in two ways:
+
+- **It let the wall catch them.** It stopped anyone who passed ledge height a few units out against Final Destination's wall, from where they slid down into the ledge. In the game, the ECB clips the stage's corner there, and they land on the stage.
+- **It guessed the ECBs.** `scripts/fighter_ecb_pose.py` on each `SpecialAirHi` (medians over the move):
+
+  | Fighter | ECB bottom above the feet | Half width |
+  | --- | --- | --- |
+  | Donkey Kong | 0 | 4.5 |
+  | Bowser | 2.0 (0 to 5.5) | 4.7 |
+  | Link | 5.8 | 2.2 |
+  | Young Link | 4.6 | 2.0 |
+
+  A raised bottom lands them on the stage from that much lower, and they can't grab until it's below the ledge.
+
+The simulation now counts a grab only when the ledge is in the box, they're moving down and the ECB's bottom is below the ledge. It counts as a failure when they pass ledge height over the stage (land), or within half a width plus 2 of the ledge (corner), or reach the stage's side below it (wall). No wall to slide down.
+
+With that, the old spots work for an up-B straight off the platform, but drifting in for 3 to 6 frames overshoots, which is what happened in Dolphin. The spots that sweetspot form a narrow diagonal band, about 10 across, farther out the higher you start, and drifting in carries you across it. So the platform now sits just beyond the band, where falling with the stick toward the stage takes you into it and keeps you there. Dolphin showed the up-Bs go farther than the simulation says, so each spot is picked to still work if they really go 5 or 10 farther:
+
+| Fighter | Spot | Up-B after this many frames of drifting in | If the up-B really goes 10 farther, 5 farther, as simulated, 5 shorter |
+| --- | --- | --- | --- |
+| Donkey Kong | 105, 35 | 2 to 37 | 41, 40, 36, 25 frames |
+| Bowser | 110, 15 | 11 to 35 | 19, 29, 25, 18 |
+| Link | 85, 35 | 1 to 57 | 18, 58, 57, 41 |
+| Young Link | 100, 35 | 5 to 61 | 30, 58, 53, 38 |
+
+Bowser keeps all the drift he carries into Whirling Fortress, so his window opens only once he has some (about 10 frames). Up-B straight off the platform comes up short. Dropping without drifting comes up short for all four.
+
+## Coming down: where the ledge snaps (T10)
+
+**The problem.** The white X is the middle of the ledge-grab box, so an up-B that ends there grabs. That's right for one that ends level or rising: the box is only checked moving down, so it grabs as it starts to fall, and the middle leaves the most room either way. Coming down, the travel grabs on its way to the X instead, the first frame the box holds the ledge. Aiming at the X then aims lower than the grab, and the ring above the X, at the travel's length from it, is closer in than the farthest you can start from and still grab in the travel.
+
+**The snap.** Moving down, the box holds the ledge once your position is at the top of its range: `ledge_snap_y − ledge_snap_height / 2` below the ledge, from the ledge out to the box's reach (`mpColl_80044164`; the sweep covers the frame's whole drop, so a fast travel can't skip it). The snap is that height, over the X:
+
+| Fighter | X, down from the ledge | Snap | Fighter | X | Snap |
+| --- | --- | --- | --- | --- | --- |
+| Fox, Falco | 13 | 8.5 (4.5 above the X) | Sheik | 15 | 9.5 |
+| Zelda | 10 | 4.5 | Mewtwo | 14 | 8 |
+| Pikachu | 11 | 6 | Pichu | 6 | 3 |
+
+The ECB's bottom has to be below the ledge too, and at the snap it is for all seven: posed through their travels, it's at most 3.5 above the position (Zelda's, against her box's 4.5) and Pichu's at most 2.5 (against 3).
+
+**What the guides draw.**
+
+- A **white bar** over the X, as wide as it, at the snap.
+- The ring's quarter from straight above the X out to level, its mark straight above, and the B0XX dots for the angles that come down are around the snap. Up-B from one, aim at the snap, and the travel grabs as it ends. Closer grabs sooner. A little farther ends just above the box, and you fall into the grab a frame or two later.
+- Level and rising are still around the X. The step between the two is inside the gap beside level, which isn't drawn.
+- During the charge, the white line aims at the snap when you launch from above it, else at the X, and Held / Need follows it. The live line is green when, coming down, it crosses the box (worked out against its rectangle), and yellow when it ends just above it.
+
+The X stays the grab spot for the fixed-path up-Bs: they grab as they start to fall from their peak, like a level travel.
+
+## The landing line (T10)
+
+**What it is.** For Fox and Falco, the **Landing Line** setting (and an add-on Gecko code each) draws a pink line for the lowest you can up-B from and still land on the stage. For each angle the stick can aim up toward the stage, and straight across, it's where up-B has to start for the travel, aimed back the other way, to cross the ledge's x just high enough to clear the corner. Start above it and aim just over the ledge, and the travel carries you onto the stage. Below it, the ledge is all that's in reach.
+
+**The corner.** Rising, the travel doesn't land on or grab anything until it's past the ledge, so what matters is that the ECB, a diamond around Fox's position, doesn't touch the corner on the way over. Moving along a straight line `rise` degrees above level, the corner stays clear of the diamond as long as the line passes it by the diamond's extent across the line. The two points that can reach it first are the bottom and the side facing the stage. As the travel crosses the ledge's x, the position has to be at least
+
+    max(−bottom, side_x · tan(rise) − side_y)
+
+above the ledge: the bottom's height for shallow angles, and for steep ones, where the side reaches the wall first, the side's. The farthest start is then the travel's length back along the angle from there. Ending exactly over the ledge's x is enough: the travel's last speed (1.3 a frame for Fox) carries on into SpecialHiFall, inward.
+
+**The ECB during the travel.** `ftFox_SpecialHi_RotateModel` pitches the whole skeleton at XRotN to the travel's angle, so the ECB depends on the angle. Posing SpecialHi with XRotN turned `2π − angle` (a scratch version of `scripts/fighter_ecb_pose.py`), over the travel's last 5 frames:
+
+| Rise | Fox bottom / side x / side y | Falco bottom / side x / side y |
+| --- | --- | --- |
+| 0 | 2.49 / 4.01 / 4.06 | 2.98 / 4.07 / 5.38 |
+| 16.84 | 1.96 / 3.81 / 4.22 | 2.31 / 3.57 / 5.54 |
+| 30 | 1.89 / 3.42 / 4.62 | 2.19 / 3.06 / 5.88 |
+| 45 | 2.21 / 2.76 / 5.38 | 2.50 / 2.60 / 6.47 |
+| 60 | 2.51 / 2.00 / 6.13 | 3.11 / 2.00 / 7.18 |
+| 73.16 | 2.86 / 2.00 / 6.79 | 3.42 / 2.00 / 7.62 |
+
+From 60 degrees up the sides are at the game's 2-unit minimum, which is also where they start to decide it. So the guides use two numbers each: bottom 2.2 and side height 6.8 for Fox, 2.5 and 7.6 for Falco (`LandingECB` in the event, `LANDING_ECB` in the script), with the side 2 out. That line is within 0.3 (Fox) and 0.6 (Falco) of what each angle's own ECB gives. Crossing the ledge's x, the position is then 2.2 below the ledge for Fox up to about 60 degrees, rising to 0.2 below at 73.16; Falco 2.5, rising to 1.0.
+
+**Left out, so the line is the safe one.**
+
+- **What's left of your speed after the travel.** It carries on up and in for a few frames, so you might make it from a unit or two lower. That depends on gravity and drift, so the line doesn't count on it.
+- **Wallriding.** Aimed into the stage's side below the ledge, Firefox can ride up the wall and over (`ftFx_SpecialAirHi_Coll` doesn't end the travel on a wall; the decompilation marks its match as fake, so the details aren't settled). That depends on each stage's wall and underside (Battlefield's undercut, Final Destination's and Yoshi's Story's slopes), so it isn't drawn. It's on the README's investigate list.
+- **Coming down onto the stage.** Starting above the line isn't the lowest, so the line stops at level.
+
+The other aimed up-Bs don't get it yet: their travels don't turn the model the same way, so their ECBs would need their own posing.
 
 ## Air up-Bs and the animation numbers
 
@@ -227,9 +393,17 @@ If Dolphin agrees, those characters' blue dots, and their Gecko codes, sit up to
 
 An event's reset keeps you in the form you're in: `Savestate_KeepForms` calls `Fighter_Transform` right after the load, before the event places anyone (see [DEVELOPMENT.md](../DEVELOPMENT.md#zelda-and-sheik-t9)). The form is picked on the character select with Z, and holding A through a match load (`Playerblock_Initialize`, 8016D97C) no longer swaps it in events.
 
+## Edgeguard's Up-B Overlays (T10)
+
+Edgeguard's **Player Up-B Overlay** and **CPU Up-B Overlay** draw these guides for your character and the CPU's, at both ledges: what the [Gecko codes](#slippi-gecko-codes) draw (the ring and the bar for an aimed up-B, the path starts otherwise, and the X), without the event's live lines, B0XX Angles or Landing Line. The CPU's is orange, drawn first, so yours shows over it where they overlap. The code is shared with this event through [src/upb_guides.h](../src/upb_guides.h).
+
+- **The X uses a standing ECB.** This event reads the ECB live while you stand on the platform. In Edgeguard nobody stands still near the ledge, and the ECB changes with every animation, so the X would wander. The overlays use the Gecko codes' standing values instead ([below](#slippi-gecko-codes)), so the X sits within about a unit of this event's.
+- **Game & Watch** has a path guide here but no Gecko code, so he had no standing value. Posed the same way (`python -I scripts/fighter_ecb_pose.py PlGw PlGwNr.dat Wait1`, averaged over the loop), his ECB front is **2.18**. The same command gives Captain Falcon's 4.07, matching the table.
+- **No guide, no overlay:** Donkey Kong, Bowser, Link, Young Link, Ness and the Ice Climbers only get this event's ledge target, and Yoshi and Jigglypuff aren't here at all, so their rows are greyed out. Of Edgeguard's CPUs, that's the Ice Climbers, Yoshi and Jigglypuff.
+
 ## Slippi Gecko codes
 
-[slippi-gecko-codes/up-b-overlay](../slippi-gecko-codes/up-b-overlay/README.md) has one code per character with a guide. They draw the blue guides and white X with fixed numbers that [scripts/upb_overlay_numbers.py](../scripts/upb_overlay_numbers.py) reads from the ISO. The only number the ISO can't give directly is the ECB's front, which the event reads live on the platform:
+[slippi-gecko-codes/up-b-overlay](../slippi-gecko-codes/up-b-overlay/README.md) has one code per character with a guide, and since T10 a B0XX code for each aimed up-B, which draws B0XX Angles' dots, and a Landing Line add-on for Fox and Falco (hooks `8016E754` and `8016E758`). They draw the blue guides, white X and bar with fixed numbers that [scripts/upb_overlay_numbers.py](../scripts/upb_overlay_numbers.py) reads from the ISO. The numbers the ISO can't give directly are the ECB's front, which the event reads live on the platform, and the travel's ECB behind the landing line ([above](#the-landing-line-t10)):
 
 - **How the game sizes it** (`mpColl_LoadECB_JObj`): the box around six joints from `ftData + 0x44`, relative to TopN. If that box is narrower than 10 (the minimum `10 × scale`), it's re-centered at half its width. Each side is then at least 2 out. (The +2 padding only applies when the ledge-grab flag is off. `mpColl_LoadECB` uses 6 and grounded collision 5, which both have it.)
 - **Measured** by posing each skeleton in Wait1 (`RebirthWait`'s motion) across its loop, with the melee-decomp-animations tools, at the model scale (common attribute 0x8C) and facing the ledge:
@@ -262,4 +436,11 @@ Most characters are at the 2 minimum. Since the X is half of (ECB front + ledge 
 10. The [air rises](#air-up-bs-and-the-animation-numbers): up-B from Mario's blue dot and see if it reaches the X. The yellow line shows the angle you set out at.
 11. Marth's down-tilt: that it starts cleanly from Wait, freezes with its hitboxes out, and that the tipper reaches the ledge.
 12. Game & Watch's blue and dim dots.
-13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's.
+13. The Gecko codes: the six earliest hooks (`8016E7EC` to `8016E80C`, Kirby, Pichu, Roy, Zelda, Mewtwo and Ganondorf) run before StartMelee loads the stage. The overlay only reads the stage when it draws, so that should be fine, but check one of them shows. Each code's X should sit on the event's. The B0XX codes' hooks (`8016E760` to `8016E7D8`) run earlier still, just after Slippi's two at `8016E748` and `8016E74C`.
+14. The ring's gaps: during Fox's charge, hold the stick a little off straight across, up or down. Held should stay at 0 or 90, and the live line straight, until the stick is about 16 degrees off.
+15. B0XX Angles with a B0XX (or a box on HayBox's Melee mode): up-B from a dot, hold its input, and the live line should end on the X and grab. Mod X with a diagonal should read 23 in Held / Need. For Sheik, check a blue dot with B held through the startup and a dim one without.
+16. [Start spots](#start-spots-t10): Donkey Kong, Link and Young Link should sweetspot if they drop holding toward the stage and up-B anywhere in the first 30 frames or so, and Bowser if he up-Bs after 10 to 30 frames of it, without jumping backwards first. Game & Watch on Yoshi's Story starts 35 above the blast zone, and Bowser there 20 inside the side one.
+17. [The snap](#coming-down-where-the-ledge-snaps-t10): a Firefox from the ring above the X, aimed at the bar, grabs as the travel ends (the live line green); from a few units farther it ends just over the box and grabs a frame or two later (yellow). The ledge should snap when Fox is about 8.5 below it, not at the X's 13.
+18. [The landing line](#the-landing-line-t10): Fox and Falco, from a little above the pink line, aimed just over the ledge, land on the stage without touching its side; from a little below, they hit the corner or the wall. Check a steep angle (Mod Y up) as well as a shallow one, and straight across from the tick. If the line is a couple of units low everywhere, the travel's leftover speed is helping more than counted; if it's off only at steep angles, check `side_y`.
+19. The Landing Line codes' hooks, `8016E754` and `8016E758`, run right after Slippi's two and the Randall Timer Minimap's (`8016E750`), earlier than any other Up-B code: check one shows.
+20. [Edgeguard's Up-B Overlays](#edgeguards-up-b-overlays-t10): both show at both ledges on every legal stage, on Normal and Zoomed Out, and behind the pause menu. Yours is blue over the CPU's orange. The X should match this event's for the same character, and an up-B from the ring or dot should grab there. The rows are greyed out for the Ice Climbers, Yoshi and Jigglypuff, and Zelda's switches to Sheik's when she transforms.

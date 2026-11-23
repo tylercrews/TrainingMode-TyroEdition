@@ -2,7 +2,7 @@
 #include "osd_layout.h"
 
 /* Labels by stable OSD/flag identity; TMSettings_EditorIDs places them on a page. */
-static const char *row_names[36] = {
+static const char *row_names[39] = {
     [0] = "Wavedash Info", [1] = "L-Cancel", [3] = "Act OoS Frame", [5] = "Dashback",
     [8] = "Fighter-specific Tech", [9] = "Powershield Frame", [10] = "SDI Inputs",
     [12] = "Lockout Timers", [13] = "Item Throw Interrupts", [14] = "Boost Grab",
@@ -23,6 +23,9 @@ static const char *row_names[36] = {
     [TM_GLOBAL_RANDALL_ROW] = TM_GLOBAL_RANDALL_NAME,
     [TM_GLOBAL_DONT_RESET_TIMERS_ROW] = TM_GLOBAL_DONT_RESET_TIMERS_NAME,
     [TM_GLOBAL_BLAST_ZONES_ROW] = TM_GLOBAL_BLAST_ZONES_NAME,
+    [TM_GLOBAL_INVINCIBILITY_ENDING_ROW] = TM_GLOBAL_INVINCIBILITY_ENDING_NAME,
+    [TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW] = TM_GLOBAL_DEBUG_CONSOLE_OFF_NAME,
+    [TM_GLOBAL_RANDALL_TIMER_ROW] = TM_GLOBAL_RANDALL_TIMER_NAME,
     [TM_GRID_JC_SHINE_ROW] = "JC Shine (Fox/Falco)",
     [TM_GRID_RESET_ROW] = "Reset All to Auto",
 };
@@ -149,8 +152,12 @@ static void refresh_row(void *data, unsigned row) {
         else choice = cell_name(row, Settings_Get(TM_SETTING_OSD_GRID_CELL, grid_slot(id)));
     }
     Text_SetText(text, subtext, "%s: %s", row_name(row), choice);
-    /* Fit long names plus the palette value into the existing two-column layout. */
-    Text_SetScale(text, subtext, 0.78f, 1.0f);
+    /* Fit long names plus the palette value into the existing two-column layout.
+     * The debug menu's row sits in the narrower right column, so it is 0.9 times
+     * the usual size both ways; even so, "Disable Dev Debug Menu L/R+Z: On" ran
+     * past the box, which is why the name drops "L/R+Z". */
+    if (id == TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW) Text_SetScale(text, subtext, 0.7f, 0.9f);
+    else Text_SetScale(text, subtext, 0.78f, 1.0f);
     GXColor color = {rgba >> 24, rgba >> 16, rgba >> 8, rgba};
     Text_SetColor(text, subtext, &color);
 }

@@ -63,6 +63,7 @@ static int Load(void *state, int flags) {
     for (int i = 0; i < PLAYERS; ++i) {
         ft[i].dmg.percent = ft[i].dmg.percent_temp = 0;
         ft[i].state_id = ASID_FALL;
+        ft[i].grab.attacker = 0;
     }
     return 1;
 }
@@ -151,6 +152,9 @@ static void Engine(void) {
     for (int i = 0; i < PLAYERS; ++i) {
         ft[i].dmg.percent += ft[i].dmg.percent_temp;
         ft[i].dmg.percent_temp = 0;
+        // Every way out of a hold goes through the release (800DC920),
+        // which clears the victim's link to the grabber.
+        if (!IsCaptured(&ft[i])) ft[i].grab.attacker = 0;
     }
     if (!grab_misses && ft[MATE].state_id == ASID_WAIT && (ft[MATE].cpu.held & PAD_TRIGGER_Z))
         ft[MATE].state_id = ASID_CATCH;
@@ -170,10 +174,12 @@ void TestGPThink(int frames) {
     }
 }
 void TestGPMissGrabs(int value) { grab_misses = value; }
+/* A capture points the victim's attacker (0x1A5C) at the grabber. */
 void TestGPGrabbed(int timer) {
     ft[MATE].state_id = ASID_CATCHWAIT;
     ft[ENEMY].state_id = ASID_CAPTUREWAITHI;
     ft[ENEMY].grab.grab_timer = timer;
+    ft[ENEMY].grab.attacker = &fighters[MATE];
 }
 void TestGPTimer(int timer) { ft[ENEMY].grab.grab_timer = timer; }
 void TestGPLetGo(int length) {
@@ -181,6 +187,11 @@ void TestGPLetGo(int length) {
     ft[ENEMY].state_id = ASID_CAPTURECUT;
     ft[ENEMY].state.frame = -ft[ENEMY].state.rate; /* Engine() makes the entry frame 0. */
     if (ft[MATE].state_id == ASID_CATCHWAIT) ft[MATE].state_id = ASID_WAIT;
+}
+/* Your grab connects, or (0) you let go or throw them. */
+void TestGPYourGrab(int holding) {
+    ft[ENEMY].state_id = holding ? ASID_CAPTUREPULLEDHI : ASID_WAIT;
+    ft[ENEMY].grab.attacker = holding ? &fighters[HMN] : 0;
 }
 void TestGPHit(int who, int damage) { ft[who].dmg.percent_temp = damage; }
 void TestGPState(int who, int state) { ft[who].state_id = state; }

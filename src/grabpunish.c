@@ -1,10 +1,10 @@
 #include "events.h"
 
-/* 2v1 Grab Punish Practice: your teammate CPU grabs the enemy CPU, and you
+/* Grab Punish Practice (Doubles page): your teammate CPU grabs the enemy CPU, and you
  * punish the enemy (say with a JC up-smash) before they mash out, without
  * hitting your teammate. The VS character select picks all three fighters
  * and the team colors. grabpunish_css.c keeps exactly one CPU on your team
- * there, and EventInit (GrabPunish_PrepareMatch in events.c) makes the match
+ * there, and EventInit (TwoVsOne_PrepareMatch in events.c) makes the match
  * the same way, so the CPU on your team is your teammate and the other is
  * the enemy. The teams are saved for this event alone, and nothing picked
  * there changes your normal character or costume.
@@ -30,24 +30,36 @@
  *   Light         38   54   70   86  102  118  134  150  166  182  198
  *   Medium        25   36   47   57   68   79   89  100  111  121  132
  *   Heavy         19   27   35   43   51   59   67   75   83   91   99
- *   Very Heavy    11   16   20   25   29   34   39   43   48   52   57
- *   Inhuman        6    9   11   14   16   19   21   23   26   28   31
- * What each takes off the timer a frame:
- *   No Mash        1  nothing but the frame
- *   Light          2  a button every 6 frames (10 inputs a second)
- *   Medium         3  a button every 3 frames (20 a second)
- *   Heavy          4  a button and a new stick direction, each every 4
- *                     frames (30 a second)
- *   Very Heavy     7  a button and a new stick direction, each every 2
- *                     frames (60 a second)
- *   Inhuman       13  a new button and stick direction every frame, the
- *                     fastest possible
+ *   Extreme       15   22   28   35   41   47   54   60   67   73   79
+ *   Inhuman       13   18   24   29   34   40   45   50   56   61   66
+ * Each setting is a number of mash inputs a second. Each input takes 6, so
+ * the timer drops 1 + inputs a second / 10 a frame:
+ *              inputs/s  a frame
+ *   No Mash         0       1   nothing but the frame
+ *   Light          10       2   a button every 6 frames
+ *   Medium         20       3   a button every 3 frames (the default)
+ *   Heavy          30       4   a button and a new stick direction, each
+ *                               every 4 frames
+ *   Extreme        40       5   a button and a new stick direction, each
+ *                               every 3 frames
+ *   Inhuman        50       6   a button every 2 frames and a new stick
+ *                               direction every 3
+ * The rates come from the event author's own mash practice (T10): 20 a second
+ * comes easily, 25 is about average, 35 is a really solid stretch, and 40 was
+ * the peak, reached only after practicing for a while. So Extreme is about the
+ * best a practiced human does, and Inhuman is just past it. The game would
+ * count up to 120 a second (a new button and stick direction every frame,
+ * which this event's Inhuman used to be), but no one mashes that fast. Before
+ * T10 the fourth setting was Very Heavy at 60 a second; Extreme keeps its saved
+ * value, and Inhuman keeps Inhuman's.
  *
  * The grab ending isn't the end of the punish. The enemy lands in CaptureCut,
  * the ground release: 30 frames (20 for Donkey Kong), which nothing can cut
  * short, then Wait. Holding up as it ends, or pressing X or Y with under 16
  * left on the timer, makes it CaptureJump, the jump release, instead. This
- * event's mash does neither. */
+ * event's mash does neither. Nothing keeps a released fighter from being
+ * grabbed (only a captured one is grab immune), so you can regrab them in the
+ * release, and that counts like a hit there. */
 
 #define FD_EDGE 85.5656967f      // FD's main-stage edge; ground spots scale to each stage's.
 #define PLAYER_CLEARANCE 22.f    // Least room between you and the nearer of the pair.
@@ -72,8 +84,9 @@
 
 // Teammate-to-enemy distance (center to center) each time the grab is tried.
 static const float Grab_Gaps[] = { 8, 5, 11, 14 };
-// Frames taken off the grab timer a frame by each mash setting, on average.
-static const int Mash_Rate[] = { 1, 2, 3, 4, 7, 13 };
+// Frames taken off the grab timer a frame by each mash setting, on average:
+// 1 + inputs a second / 10, for 0, 10, 20, 30, 40 and 50 inputs a second.
+static const int Mash_Rate[] = { 1, 2, 3, 4, 5, 6 };
 
 void Exit(GOBJ *menu);
 static void Reset(int same_attempt);
@@ -104,9 +117,10 @@ static const char *Values_Location[] = {
     "Under Left Plat", "Under Right Plat", "Left Corner", "Right Corner",
 };
 
-enum mash { MASH_NONE, MASH_LIGHT, MASH_MEDIUM, MASH_HEAVY, MASH_VERY_HEAVY, MASH_INHUMAN };
+// Saved by position: Extreme took Very Heavy's value and Inhuman kept its own.
+enum mash { MASH_NONE, MASH_LIGHT, MASH_MEDIUM, MASH_HEAVY, MASH_EXTREME, MASH_INHUMAN };
 static const char *Values_Mash[] = {
-    "No Mash", "Light Mash", "Medium Mash", "Heavy Mash", "Very Heavy Mash", "Inhuman Mash",
+    "No Mash", "Light Mash", "Medium Mash", "Heavy Mash", "Extreme Mash", "Inhuman Mash",
 };
 typedef char grabpunish_mash_rates[(countof(Mash_Rate) == countof(Values_Mash)) ? 1 : -1];
 
@@ -178,13 +192,13 @@ static EventOption Options_Main[] = {
         .name = "CPU Mashing",
         .values = Values_Mash,
         .value_num = countof(Values_Mash),
-        .val = MASH_LIGHT,
-        .val_prev = MASH_LIGHT,
+        .val = MASH_MEDIUM,
+        .val_prev = MASH_MEDIUM,
         .OnChange = SaveSettings,
-        .desc = {"How hard the enemy mashes. Each mash input takes",
-                 "6 frames off the hold, on top of 1 a frame.",
-                 "Light holds 1/2 as long, Medium 1/3, Heavy 1/4,",
-                 "Very Heavy 1/7, Inhuman 1/13. See Mashing Info."},
+        .desc = {"How fast the enemy mashes, in inputs a second:",
+                 "Light 10, Medium 20, Heavy 30, Extreme 40,",
+                 "Inhuman 50. Each input takes 6 frames off the",
+                 "hold, on top of 1 a frame. See Mashing Info."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -204,9 +218,9 @@ static EventOption Options_Main[] = {
         .val_prev = 1,
         .OnChange = ChangeReleaseHits,
         .desc = {"The enemy can't act for 30 frames after the grab",
-                 "ends (20 for DK). On counts a hit in that window",
-                 "as an Enemy Hit. It always shows as a Release Hit.",
-                 "Changing this resets your totals."},
+                 "ends (20 for DK). On counts a hit or a grab then",
+                 "as an Enemy Hit. It always shows as a Release Hit",
+                 "or Regrab. Changing this resets your totals."},
     },
     {
         .kind = OPTKIND_INFO,
@@ -214,7 +228,7 @@ static EventOption Options_Main[] = {
         .desc = {"Holds 75 + 1.6 x percent frames, minus 6 for each",
                  "new A/B/X/Y press or stick direction. At 60%, 200%:",
                  "No Mash 171, 395. Light 86, 198. Medium 57, 132.",
-                 "Heavy 43, 99. Very Heavy 25, 57. Inhuman 14, 31."},
+                 "Heavy 43, 99. Extreme 35, 79. Inhuman 29, 66."},
     },
     {
         .kind = OPTKIND_INFO,
@@ -234,7 +248,7 @@ static EventOption Options_Main[] = {
 
 static EventMenu Menu_Main = {
     .on_exit = Exit,
-    .name = "2v1 Grab Punish",
+    .name = "Grab Punish",
     .option_num = countof(Options_Main),
     .options = Options_Main,
 };
@@ -278,6 +292,7 @@ static struct attempt {
     int tries;        // Grabs tried this attempt; picks the gap.
     bool hit_enemy;   // In the grab; hit_release is in the release after it.
     bool hit_release, hit_mate;
+    bool regrab;      // Your release hit or late hit was a grab.
     bool free;        // Got away without a hit, and can act: shown red.
     int frames_left;  // Grab Time Left while the enemy is held or in the release.
     int let_go_left;  // The frames left when your hit on your teammate let go of the enemy.
@@ -606,14 +621,15 @@ static void Mash(FighterData *cpu, int frame) {
             if (frame % 4 < 2) cpu->cpu.held = frame / 4 % 2 ? PAD_BUTTON_B : PAD_BUTTON_A;
             cpu->cpu.lstickX = (frame + 2) / 4 % 2 ? 127 : -127;
             break;
-        case MASH_VERY_HEAVY:
-            if (frame % 2 == 0) cpu->cpu.held = PAD_BUTTON_A;
-            cpu->cpu.lstickX = (frame + 1) / 2 % 2 ? 127 : -127;
+        case MASH_EXTREME:
+            // A on frames 0, 3, 6..., the stick flipping on 2, 5, 8...
+            if (frame % 3 == 0) cpu->cpu.held = PAD_BUTTON_A;
+            cpu->cpu.lstickX = (frame + 1) / 3 % 2 ? 127 : -127;
             break;
         case MASH_INHUMAN:
-            // Alternating buttons, so each frame is a fresh press.
-            cpu->cpu.held = frame % 2 ? PAD_BUTTON_B : PAD_BUTTON_A;
-            cpu->cpu.lstickX = frame % 2 ? 127 : -127;
+            // A on even frames, the stick flipping on 1, 4, 7...
+            if (frame % 2 == 0) cpu->cpu.held = PAD_BUTTON_A;
+            cpu->cpu.lstickX = (frame + 2) / 3 % 2 ? 127 : -127;
             break;
     }
 }
@@ -656,6 +672,14 @@ static bool TookHit(int ply, float *last) {
     *last = percent;
     return hit;
 }
+/* You're holding the enemy. Every capture, command grabs too, points the
+ * victim's attacker (0x1A5C) at the grabber, and the release (800DC920) and
+ * throws clear it, so it's never your teammate's leftover. The enemy never
+ * grabs, so it never points at you the other way round. */
+static bool GrabbedByYou(FighterData *enemy) {
+    GOBJ *holder = enemy->grab.attacker;
+    return holder && (holder == Body(hmn_ply, 0) || holder == Body(hmn_ply, 1));
+}
 
 /* The timing overlay, so this red goes over every other overlay. */
 static void SetEnemyOverlay(const GXColor *color) {
@@ -690,9 +714,10 @@ static void DrawHUD(GOBJ *gobj, int pass) {
     else if (phase == PHASE_RELEASE)
         sprintf(time_text, "Release %df", attempt.frames_left);
     else if (attempt.time_left >= 0)
-        sprintf(time_text, "%s Hit %df", attempt.hit_release ? "Release" : "Grab", attempt.time_left);
+        sprintf(time_text, "%s %df", attempt.regrab ? "Regrab"
+            : attempt.hit_release ? "Release Hit" : "Grab Hit", attempt.time_left);
     else if (attempt.free)
-        sprintf(time_text, "%s %df", attempt.late_hit ? "Late Hit"
+        sprintf(time_text, "%s %df", attempt.late_hit ? (attempt.regrab ? "Late Regrab" : "Late Hit")
             : attempt.time_left == TIME_ESCAPED ? "Escaped" : "Let Go", attempt.late);
     else
         sprintf(time_text, "-");
@@ -811,11 +836,14 @@ void Event_Think(GOBJ *gobj) {
             break;
         case PHASE_RELEASE:
             attempt.hit_mate |= mate_hit;
-            if (enemy_hit) {
+            // A regrab takes them out of CaptureCut, so check it before the
+            // countdown reads that as being able to act.
+            if (enemy_hit || GrabbedByYou(enemy)) {
                 // Your hit on your teammate let go of the enemy, and the rest
                 // of that attack can still land: that hit is in the grab.
-                attempt.hit_enemy = attempt.let_go_left >= 0 && phase_timer <= GRACE_FRAMES;
+                attempt.hit_enemy = enemy_hit && attempt.let_go_left >= 0 && phase_timer <= GRACE_FRAMES;
                 attempt.hit_release = !attempt.hit_enemy;
+                attempt.regrab = !enemy_hit;
                 attempt.time_left = attempt.hit_enemy ? attempt.let_go_left : attempt.frames_left;
                 phase = PHASE_RESOLVE;
                 phase_timer = 0;
@@ -836,17 +864,23 @@ void Event_Think(GOBJ *gobj) {
                 CountAttempt();
             break;
         case PHASE_FOLLOWUP:
-            // A hit stops the count on last frame's, as with the time left.
+            // A hit or grab stops the count on last frame's, as with the time left.
             if (attempt.free && !attempt.late_hit) {
-                if (enemy_hit) attempt.late_hit = true;
-                else attempt.late++;
+                if (enemy_hit || GrabbedByYou(enemy)) {
+                    attempt.late_hit = true;
+                    attempt.regrab = !enemy_hit;
+                } else {
+                    attempt.late++;
+                }
             }
             if (enemy->flags.dead) {
                 if (++attempt.dead >= KO_WAIT)
                     Reset(0);
                 break;
             }
-            attempt.idle = enemy_hit || enemy->flags.hitstun || enemy->flags.hitlag ? 0 : attempt.idle + 1;
+            // Held or being thrown isn't settled either, so a regrab gets its throw.
+            attempt.idle = enemy_hit || enemy->flags.hitstun || enemy->flags.hitlag || enemy->grab.attacker
+                ? 0 : attempt.idle + 1;
             if ((attempt.idle >= FOLLOWUP_IDLE && phase_timer >= FOLLOWUP_MIN) || phase_timer >= FOLLOWUP_MAX)
                 Reset(0);
             break;

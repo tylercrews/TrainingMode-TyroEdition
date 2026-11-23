@@ -6,7 +6,8 @@ static GOBJ event, fighters[PLAYERS];
 static FighterData ft[PLAYERS];
 static JOBJ joints[PLAYERS];
 static CmSubject subjects[PLAYERS];
-static unsigned preferences[TM_UPB_PREF_COUNT] = {1, TM_UPB_MARTH_FSMASH, 0};
+static ftCommonData common;
+static unsigned preferences[TM_UPB_PREF_COUNT] = {1, 0, TM_UPB_MARTH_FSMASH, 0, 0};
 static int swings, dtilts, freezes, loads;
 static float marth_rate = 1;
 
@@ -29,6 +30,10 @@ static int Load(void *state, int flags) {
 GOBJ *Fighter_GetGObj(int player) { return player < PLAYERS ? &fighters[player] : 0; }
 GOBJ *Fighter_GetSubcharGObj(int player, int ms) { return 0; }
 int Stage_GetExternalID(void) { return GRKINDEXT_FD; }
+static float blast_bottom = -140, blast_side = 246; /* Final Destination's. */
+float Stage_GetBlastzoneBottom(void) { return blast_bottom; }
+float Stage_GetBlastzoneLeft(void) { return -blast_side; }
+float Stage_GetBlastzoneRight(void) { return blast_side; }
 void Stage_GetLeftOfLineCoordinates(int line, Vec3 *pos) { *pos = (Vec3){-85, 0, 0}; }
 void Stage_GetRightOfLineCoordinates(int line, Vec3 *pos) { *pos = (Vec3){85, 0, 0}; }
 int GrColl_RaycastGround(Vec3 *pos, int *line, int *kind, Vec3 *unk1, int unk2, int unk3, int unk4, void *cb,
@@ -86,6 +91,17 @@ float sin(float a) {
     return a * (1.f - a2 / 6.f * (1.f - a2 / 20.f * (1.f - a2 / 42.f * (1.f - a2 / 72.f))));
 }
 float cos(float a) { return sin(a + PROBE_PI / 2); }
+static float Atan(float t) {
+    for (int i = 0; i < 2; ++i) t = t / (1.f + sqrtf(1.f + t * t));
+    float t2 = t * t;
+    return 4.f * t * (1.f - t2 * (1.f / 3.f - t2 * (.2f - t2 / 7.f)));
+}
+/* Every quadrant: twice the half angle, whose tangent is y / (r + x). */
+float atan2(float y, float x) {
+    float r = sqrtf(x * x + y * y);
+    if (x + r <= 0) return y < 0 ? -PROBE_PI : PROBE_PI;
+    return 2 * Atan(y / (r + x));
+}
 int CObj_SetCurrent(COBJ *camera) { return 1; }
 COBJ *COBJ_GetCurrent(void) { return 0; }
 static int on_top_vertices;
@@ -112,6 +128,8 @@ int TestUpBInit(int attack) {
     vars.Savestate_Save_v1 = (void *)Save;
     vars.Savestate_Load_v1 = (void *)Load;
     vars.GFX_Start = GFXStart;
+    *stc_ftcommon = &common;
+    common.x0 = common.x4 = .28f; /* PlCo.dat's stick deadzones. */
     for (int i = 0; i < PLAYERS; ++i) {
         fighters[i].userdata = &ft[i];
         fighters[i].hsd_object = &joints[i];
@@ -152,10 +170,12 @@ void TestUpBGameAndWatch(void) {
 }
 void TestUpBState(int state) { ft[HMN].state_id = state; }
 void TestUpBMove(int x, int y) { ft[HMN].phys.pos.X = x; ft[HMN].phys.pos.Y = y; }
-/* Enough travel attributes for AimedDistance: Firefox's constant speed, and Sheik's
- * 20 frames at 1 per unit of tilt plus 1, with 0.5 the least tilt. */
+/* Enough travel attributes for AimedDistance: Firefox's constant speed and its
+ * 0.5 least stick (|x| + |y|), and Sheik's 20 frames at 1 per unit of tilt plus
+ * 1, with 0.5 the least tilt. */
 void TestUpBAimed(int kind) {
     static float attributes[64];
+    attributes[0x64 / 4] = .5f;
     attributes[0x68 / 4] = 30;
     attributes[0x70 / 4] = 31;
     attributes[0x74 / 4] = 2.72f;
@@ -166,6 +186,21 @@ void TestUpBAimed(int kind) {
     ft[HMN].special_attributes = attributes;
     TestUpBKind(kind);
 }
+void TestUpBB0XX(int on) { Options_Main[OPT_B0XX].val = on; }
+void TestUpBLanding(int on) { Options_Main[OPT_LANDING].val = on; }
+int TestUpBLandingDisabled(void) { return Options_Main[OPT_LANDING].disable; }
+/* A ledge-grab box, in tenths (Fox's is 110, 130, 90), and the targets it
+ * gives, the way the platform settles them. */
+void TestUpBBox(int width, int y_offset, int height) {
+    ft[HMN].coll_data.cliffgrab_width = width / 10.f;
+    ft[HMN].coll_data.cliffgrab_y_offset = y_offset / 10.f;
+    ft[HMN].coll_data.cliffgrab_height = height / 10.f;
+    SetTargets(&ft[HMN]);
+}
+/* The processed stick, in thousandths. */
+void TestUpBStick(int x, int y) { ft[HMN].input.lstick = (Vec2){ x / 1000.f, y / 1000.f }; }
+void TestUpBBlastBottom(int y) { blast_bottom = y; }
+void TestUpBBlastSide(int x) { blast_side = x; }
 void TestUpBDraw(void) { on_top_vertices = 0; Draw_Guides(); }
 int TestUpBOnTopVertices(void) { return on_top_vertices; }
 int TestUpBInfo(int key) {
@@ -180,6 +215,9 @@ int TestUpBInfo(int key) {
     case 7: return loads;
     case 8: return dtilts;
     case 9: return ft[MARTH].state.frame;
+    case 10: return ft[HMN].phys.pos.X * 10;
+    case 11: return ft[HMN].phys.pos.Y * 10;
+    case 12: return ft[HMN].facing_direction;
     }
     return -1;
 }

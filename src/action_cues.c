@@ -17,64 +17,117 @@ int TMCue_Remaining(float frame, float rate, float boundary) {
     if (frame + 2 * rate >= boundary) return 2;
     return 3;
 }
+enum { STEP_BAD = -1, STEP_OK, STEP_IASA, STEP_DONE };
+/* One native interpreter update of a copy. Read only: no hitboxes, sound,
+ * randomness or live interpreter mutations. With a body, the three body-state
+ * commands write it instead (0x80071A14/58/9C): 0x68 hurt.kind_script, 0x6C
+ * every hurtbox, 0x70 the first hurtbox on a bone. STEP_DONE: the script runs
+ * nothing more (it ended, or waits for its animation to loop). */
+static int script_step(TMCueScript *copy, float rate, TMCueHurt *body) {
+    copy->frame += rate;
+    if (copy->timer != FLT_MAX) copy->timer -= rate;
+    for (unsigned budget = 0; budget < 256; ++budget) {
+        if (!copy->current) return STEP_DONE;
+        if (copy->timer == FLT_MAX) {
+            if (copy->frame >= rate) return STEP_DONE;
+            copy->timer = -copy->frame;
+        }
+        if (copy->timer > 0) return STEP_OK;
+        if (!readable(copy->current, 1)) return STEP_BAD;
+        unsigned word = *copy->current, op = word >> 26, value = word & 0x03FFFFFFu;
+        if (op == 22 && !body) return STEP_IASA; /* 0x58: Enable IASA. */
+        if (body && op == 26) body->kind = value;
+        if (body && op == 27)
+            for (unsigned i = 0; i < body->count && i < 15; ++i) body->state[i] = value;
+        if (body && op == 28)
+            for (unsigned i = 0; i < body->count && i < 15; ++i)
+                if (body->bone[i] == (int)((word >> 18) & 0xFF)) { body->state[i] = word & 0x3FFFF; break; }
+        switch (op) {
+        case 0: return STEP_DONE;
+        case 1: copy->timer += value; copy->current++; break;
+        case 2: copy->timer = value - copy->frame; copy->current++; break;
+        case 3:
+            if (copy->depth > 3) return STEP_BAD;
+            copy->stack[copy->depth++] = (uintptr_t)(copy->current + 1);
+            copy->stack[copy->depth++] = value;
+            copy->current++;
+            break;
+        case 4:
+            if (copy->depth < 2) return STEP_BAD;
+            if (--copy->stack[copy->depth - 1])
+                copy->current = (const uint32_t *)copy->stack[copy->depth - 2];
+            else { copy->depth -= 2; copy->current++; }
+            break;
+        case 5:
+            if (copy->depth >= 5 || !readable(copy->current, 2)) return STEP_BAD;
+            copy->stack[copy->depth++] = (uintptr_t)(copy->current + 2);
+            copy->current = (const uint32_t *)(uintptr_t)copy->current[1];
+            break;
+        case 6:
+            if (!copy->depth) return STEP_BAD;
+            copy->current = (const uint32_t *)copy->stack[--copy->depth];
+            break;
+        case 7:
+            if (!readable(copy->current, 2)) return STEP_BAD;
+            copy->current = (const uint32_t *)(uintptr_t)copy->current[1];
+            break;
+        case 8: copy->current++; copy->timer = FLT_MAX; break;
+        case 9: copy->current++; break; /* Background flash: deliberately skip. */
+        default:
+            if (op < 10 || op >= 10 + sizeof(command_words)) return STEP_BAD;
+            unsigned words = command_words[op - 10];
+            if (!readable(copy->current, words)) return STEP_BAD;
+            copy->current += words;
+        }
+    }
+    return STEP_BAD; /* Cyclic/invalid script: no guessed boundary. */
+}
 int TMCue_ScriptIASA(const TMCueScript *source, float rate) {
     if (!(rate > 0) || source->depth > 5) return -1;
     TMCueScript copy = *source;
-    /* Read only: no hitboxes, sound, randomness or live interpreter mutations. */
     for (unsigned step = 1; step <= 2; ++step) {
-        copy.frame += rate;
-        if (copy.timer != FLT_MAX) copy.timer -= rate;
-        for (unsigned budget = 0; budget < 256; ++budget) {
-            if (!copy.current) return 3;
-            if (copy.timer == FLT_MAX) {
-                if (copy.frame >= rate) return 3;
-                copy.timer = -copy.frame;
-            }
-            if (copy.timer > 0) break;
-            if (!readable(copy.current, 1)) return -1;
-            unsigned word = *copy.current, op = word >> 26, value = word & 0x03FFFFFFu;
-            if (op == 22) return step; /* 0x58: Enable IASA. */
-            switch (op) {
-            case 0: return 3;
-            case 1: copy.timer += value; copy.current++; break;
-            case 2: copy.timer = value - copy.frame; copy.current++; break;
-            case 3:
-                if (copy.depth > 3) return -1;
-                copy.stack[copy.depth++] = (uintptr_t)(copy.current + 1);
-                copy.stack[copy.depth++] = value;
-                copy.current++;
-                break;
-            case 4:
-                if (copy.depth < 2) return -1;
-                if (--copy.stack[copy.depth - 1])
-                    copy.current = (const uint32_t *)copy.stack[copy.depth - 2];
-                else { copy.depth -= 2; copy.current++; }
-                break;
-            case 5:
-                if (copy.depth >= 5 || !readable(copy.current, 2)) return -1;
-                copy.stack[copy.depth++] = (uintptr_t)(copy.current + 2);
-                copy.current = (const uint32_t *)(uintptr_t)copy.current[1];
-                break;
-            case 6:
-                if (!copy.depth) return -1;
-                copy.current = (const uint32_t *)copy.stack[--copy.depth];
-                break;
-            case 7:
-                if (!readable(copy.current, 2)) return -1;
-                copy.current = (const uint32_t *)(uintptr_t)copy.current[1];
-                break;
-            case 8: copy.current++; copy.timer = FLT_MAX; break;
-            case 9: copy.current++; break; /* Background flash: deliberately skip. */
-            default:
-                if (op < 10 || op >= 10 + sizeof(command_words)) return -1;
-                unsigned words = command_words[op - 10];
-                if (!readable(copy.current, words)) return -1;
-                copy.current += words;
-            }
-            if (budget == 255) return -1; /* Cyclic/invalid script: no guessed boundary. */
-        }
+        int result = script_step(&copy, rate, 0);
+        if (result == STEP_IASA) return step;
+        if (result != STEP_OK) return result == STEP_DONE ? 3 : -1;
     }
     return 3;
+}
+/* The native timer updates at the top of PlayerThink_Animation (0x8006A414),
+ * which run before its hitlag check. */
+static void engine_step(TMCueEngine *e) {
+    if (e->ledge && !--e->ledge && !e->held) e->kind = e->respawn ? 1 : 0;
+    if (e->respawn && !--e->respawn) e->kind = e->held || e->ledge ? 2 : 0;
+    if (e->star && e->star_frames && !--e->star_frames) e->star = 0;
+}
+/* ActionCues_IsProtected's whole-body test: every hurtbox protected. */
+static int body_protected(const TMCueHurt *body) {
+    if (body->kind > 0) return 1;
+    if (!body->count || body->count > 15) return 0;
+    for (unsigned i = 0; i < body->count; ++i)
+        if (body->state[i] <= 0) return 0;
+    return 1;
+}
+int TMCue_ProtectionLeft(const TMCueScript *source, float rate, int frozen,
+                         const TMCueHurt *hurt, const TMCueEngine *engine) {
+    TMCueScript copy = *source;
+    TMCueHurt body = *hurt;
+    TMCueEngine timers = *engine;
+    /* A timer held by something else has no end to see: hold the protection. */
+    if (timers.kind > 0 && ((timers.ledge && !(timers.counting & TM_CUE_COUNTING_LEDGE)) ||
+        (timers.respawn && !(timers.counting & TM_CUE_COUNTING_RESPAWN)))) timers.held = 1;
+    if (!(timers.counting & TM_CUE_COUNTING_STAR)) timers.star_frames = 0;
+    int script = source->depth > 5 || !(rate >= 0) ? STEP_BAD : frozen || rate == 0 ? STEP_DONE : STEP_OK;
+    for (unsigned ahead = 0; ahead <= TM_CUE_ENDING_FRAMES; ++ahead) {
+        if (ahead) {
+            engine_step(&timers);
+            if (script == STEP_OK) script = script_step(&copy, rate, &body);
+            if (script == STEP_IASA) script = STEP_BAD; /* Not returned with a body. */
+        }
+        if (timers.kind > 0 || timers.star) continue;
+        if (ahead && script == STEP_BAD) return -1;
+        if (!body_protected(&body)) return ahead;
+    }
+    return TM_CUE_ENDING_FRAMES + 1;
 }
 unsigned TMCue_Update(TMCueState *cue, int state, float frame, unsigned instance,
                       int remaining, int frozen, int timing, int red_active) {

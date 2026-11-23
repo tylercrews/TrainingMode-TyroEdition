@@ -8,7 +8,9 @@
 typedef char settings_overlay_capacity[(OVERLAY_COUNT <= TM_SETTINGS_OVERLAYS) ? 1 : -1];
 typedef char settings_overlay_effects[(countof(LabValues_OverlayColours) == TM_SETTINGS_OVERLAY_CHOICES) ? 1 : -1];
 typedef char settings_osd_capacity[(countof(LabOSD_ID) == TM_SETTINGS_OSDS) ? 1 : -1];
-typedef char lab_act_oo_attack_row[(countof(LabOptions_OSDs) == LABOSD_ACT_OO_ATTACK + 1) ? 1 : -1];
+/* Rows appended after OSD Display, in order: Act OoAttack, Invincibility Stoplight. */
+typedef char lab_appended_osd_rows[(LABOSD_INVINCIBILITY_ENDING == LABOSD_ACT_OO_ATTACK + 1 &&
+    countof(LabOptions_OSDs) == LABOSD_INVINCIBILITY_ENDING + 1) ? 1 : -1];
 
 // Static Variables
 static DIDraw didraws[6];
@@ -288,8 +290,134 @@ void Lab_ChangeStadiumTransformation(GOBJ *menu_gobj, int value) {
     Stadium_Select(value);
 }
 
+static void Stage_ApplyFountain(void) {
+    Fountain_Apply(LabOptions_Stage_FOD[OPTSTAGE_FOD_PLAT_HEIGHT_LEFT].val,
+                   LabOptions_Stage_FOD[OPTSTAGE_FOD_PLAT_HEIGHT_RIGHT].val);
+}
+
+/* Move the platform now, so it shows behind the paused menu. */
+void Lab_ChangeFountainPlatform(GOBJ *menu_gobj, int value) {
+    Stage_ApplyFountain();
+}
+
 void Lab_ChangeRandallOverlay(GOBJ *menu_gobj, int value) {
     TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL, value);
+}
+
+void Lab_ChangeRandallTimer(GOBJ *menu_gobj, int value) {
+    TM_SetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER, value);
+}
+
+/* Randall: the Lab keeps him with Hazards Off (events.c), in step with the
+ * match timer as a match keeps him, his animation RANDALL_TIMER_OFFSET frames
+ * ahead of it. He starts the Lab in step, and a savestate that rewinds the
+ * timer takes him back with it. His Stage Options row hides his cloud and
+ * switches off his platform and puffs without stopping him, so his timing
+ * carries on and the Randall Timer Minimap keeps following him. */
+#define RANDALL_PUFF_TIMER 0xC4    /* s16 in his MapData: frames to his next puff (801E366C). */
+#define RANDALL_PUFF_NEVER 0x7FFF
+#define RANDALL_SYNC_SLACK 1.5f    /* Frames he may be off the timer before he's moved. */
+static GOBJ *lab_randall;
+static int lab_randall_coll;       /* His collision group, or -1. */
+static int lab_randall_off;        /* Whether he's switched off now. */
+
+static int Lab_InTree(JOBJ *joint, JOBJ *target) {
+    for (; joint; joint = joint->sibling)
+        if (joint == target || Lab_InTree(joint->child, target)) return 1;
+    return 0;
+}
+/* At Event_Init, while his platform is still on: his map GObj and his collision
+ * group, the one on his joints, as the Randall Overlay finds it. */
+static void Lab_RandallFind(void) {
+    lab_randall = 0;
+    lab_randall_coll = -1;
+    lab_randall_off = 0;
+    if (Stage_ExternalToInternal(Stage_GetExternalID()) != GRKIND_STORY) return;
+    GOBJ *map = Stage_GetMapGObj(RANDALL_MAP_GOBJ);
+    MapData *data = map ? map->userdata : 0;
+    if (!data || data->index != RANDALL_MAP_GOBJ || !map->hsd_object) return;
+    lab_randall = map;
+    JOBJ *root = map->hsd_object;
+    for (CollGroup *group = *stc_firstcollgroup; group; group = group->next) {
+        if (group->jobj && (group->jobj == root || Lab_InTree(root->child, group->jobj))) {
+            lab_randall_coll = group - *stc_collgroup;
+            break;
+        }
+    }
+}
+static JOBJ *Lab_RandallCloud(void) {
+    return lab_randall ? Stage_GetMapGObjJObj(lab_randall, RANDALL_CLOUD_JOINT) : 0;
+}
+/* Every frame before his think (proc 4), and right away from the menu, so a
+ * paused change shows. */
+static void Lab_RandallApply(void) {
+    JOBJ *cloud = Lab_RandallCloud();
+    if (!cloud) return;
+    int off = !LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_ON].val;
+    s16 *puff = (s16 *)((u8 *)lab_randall->userdata + RANDALL_PUFF_TIMER);
+    if (off) {
+        JOBJ_SetFlags(cloud, JOBJ_HIDDEN);
+        *puff = RANDALL_PUFF_NEVER;
+    }
+    if (off == lab_randall_off) return;
+    lab_randall_off = off;
+    if (!off) {
+        JOBJ_ClearFlags(cloud, JOBJ_HIDDEN);
+        *puff = 0;
+    }
+    if (lab_randall_coll < 0) return;
+    if (off) Stage_DisableLineGroup(lab_randall_coll);
+    else Stage_EnableLineGroup(lab_randall_coll);
+}
+void Lab_ChangeRandallOn(GOBJ *menu_gobj, int value) {
+    Lab_RandallApply();
+}
+/* After the stage's animation (proc 1): if he's more than a frame off the
+ * timer, he takes up the timer's place on the next one. */
+static void Lab_RandallSync(void) {
+    JOBJ *cloud = Lab_RandallCloud();
+    AOBJ *anim = cloud ? cloud->aobj : 0;
+    if (!anim) return;
+    unsigned now = ((unsigned)Match_TimerFrames() + RANDALL_TIMER_OFFSET) % RANDALL_LOOP_FRAMES;
+    float off = anim->curr_frame - now;
+    if (off > RANDALL_LOOP_FRAMES / 2) off -= RANDALL_LOOP_FRAMES;
+    if (off < -RANDALL_LOOP_FRAMES / 2) off += RANDALL_LOOP_FRAMES;
+    if (off >= -RANDALL_SYNC_SLACK && off <= RANDALL_SYNC_SLACK) return;
+    /* The stage's next animation step plays this frame without advancing. */
+    AOBJ_ReqAnim((int *)anim, (now + 1) % RANDALL_LOOP_FRAMES);
+}
+static void Lab_RandallThink(void) {
+    Lab_RandallSync();
+    Lab_RandallApply();
+}
+
+/* Timer 8m Inf Loop: the match timer keeps counting up, and this redraws its
+ * digits as an 8 minute countdown of the same moment, as a VS match's timer
+ * shows it: 0:00.00 at 28800 frames, then 7:59.99 as it starts again. It runs
+ * after the game's own timer think (proc 17) on that one's link, which runs
+ * while paused. 28800 frames are 24 of Randall's laps, so every time shows him
+ * where an 8 minute match has him. */
+#define LAB_TIMER_LOOP_FRAMES (8 * 60 * 60)
+#define LAB_TIMER_PLINK 16
+#define LAB_TIMER_PRIORITY 18
+/* What that countdown shows after these frames, as the game's does: time_ms
+ * counts up from 59 within each second, shown as 99 - ms * 99 / 59. */
+static void Lab_TimerLoopDigits(unsigned frames, int *seconds, int *centiseconds) {
+    unsigned into = frames % LAB_TIMER_LOOP_FRAMES;
+    if (frames && !into) into = LAB_TIMER_LOOP_FRAMES;
+    unsigned clock = 59 + into;
+    *seconds = LAB_TIMER_LOOP_FRAMES / 60 - clock / 60;
+    *centiseconds = 99 - clock % 60 * 99 / 59;
+}
+static void Lab_TimerLoopThink(GOBJ *gobj) {
+    if (!LabOptions_General[OPTGEN_TIMER_LOOP].val || stc_match->match.timer != MATCH_TIMER_COUNTUP) return;
+    GOBJ *timer = stc_matchhud->timer_gobj;
+    JOBJ *digits = timer ? timer->hsd_object : 0;
+    if (!digits) return;
+    int seconds, centiseconds;
+    Lab_TimerLoopDigits(Match_TimerFrames(), &seconds, &centiseconds);
+    Match_SetTimerDigits(digits, seconds, centiseconds);
+    JOBJ_AnimAll(digits); /* Its only animations are the digits', held still. */
 }
 
 void Lab_ChangeInputDisplay(GOBJ *menu_gobj, int value) {
@@ -370,9 +498,11 @@ void Lab_ChangeOSDsOff(GOBJ *menu_gobj, int value) {
     LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
     Memcard_SaveIfChanged();
 }
-static const unsigned global_cue_flags[] = {
-    TM_FLAG_MISSED_LCANCEL, TM_FLAG_RUN_TURNAROUND, TM_FLAG_LAST_BLOCKED_FRAME, TM_FLAG_INFINITE_SHIELDS,
-    TM_FLAG_INVINCIBILITY,
+/* Each global cue toggle's LabOptions_OSDs row and flag. */
+static const struct { unsigned char row, flag; } global_cues[] = {
+    {TM_SETTINGS_OSDS + 5, TM_FLAG_MISSED_LCANCEL}, {TM_SETTINGS_OSDS + 6, TM_FLAG_RUN_TURNAROUND},
+    {TM_SETTINGS_OSDS + 7, TM_FLAG_LAST_BLOCKED_FRAME}, {TM_SETTINGS_OSDS + 8, TM_FLAG_INFINITE_SHIELDS},
+    {TM_SETTINGS_OSDS + 9, TM_FLAG_INVINCIBILITY}, {LABOSD_INVINCIBILITY_ENDING, TM_FLAG_INVINCIBILITY_ENDING},
 };
 static void Lab_ChangeOSDDisplay(GOBJ *menu, int value) {
     MenuData *data = menu->userdata;
@@ -390,12 +520,12 @@ void Lab_ChangeGlobalCue(GOBJ *menu_gobj, int value) {
     MenuData *menu = menu_gobj->userdata;
     EventOption *selected = EventMenu_SelectedOption(menu);
     unsigned cue;
-    for (cue = 0; cue < countof(global_cue_flags); ++cue)
-        if (selected == &LabOptions_OSDs[TM_SETTINGS_OSDS + 5 + cue]) break;
-    if (cue == countof(global_cue_flags)) return;
-    TM_SetSetting(TM_SETTING_FLAG, global_cue_flags[cue], value);
-    for (unsigned i = 0; i < countof(global_cue_flags); ++i)
-        LabOptions_OSDs[TM_SETTINGS_OSDS + 5 + i].val = TM_GetSetting(TM_SETTING_FLAG, global_cue_flags[i]);
+    for (cue = 0; cue < countof(global_cues); ++cue)
+        if (selected == &LabOptions_OSDs[global_cues[cue].row]) break;
+    if (cue == countof(global_cues)) return;
+    TM_SetSetting(TM_SETTING_FLAG, global_cues[cue].flag, value);
+    for (unsigned i = 0; i < countof(global_cues); ++i)
+        LabOptions_OSDs[global_cues[i].row].val = TM_GetSetting(TM_SETTING_FLAG, global_cues[i].flag);
     Lab_RefreshShieldOverride();
     Memcard_SaveIfChanged();
 }
@@ -6041,37 +6171,8 @@ static void UpdateOverlays(GOBJ *character, EventOption *overlays) {
     }
 }
 
-static void Stage_SetFODPlatformHeight(int side) {
-    int option_idx = side == 0 ? OPTSTAGE_FOD_PLAT_HEIGHT_LEFT : OPTSTAGE_FOD_PLAT_HEIGHT_RIGHT;
-    int idx = LabOptions_Stage_FOD[option_idx].val;
-    if (idx == 0) return; // random default
-    float height = LabValues_FODPlatformHeights[idx];
-
-    GOBJ *platform_gobj = Stage_GetMapGObj(4);
-    if (side == 0)
-        platform_gobj = platform_gobj->previous;
-
-    GOBJ *stage_gobj = Stage_GetMapGObj(3);
-    JOBJ *stage_jobj = stage_gobj->hsd_object;
-    JOBJ *plat_jobj = stage_jobj->child->child;
-    if (side != 0)
-        plat_jobj = plat_jobj->sibling;
-
-    struct FODData { u16 mode, timer; } *data = (void*)((u8*)platform_gobj->userdata + 0xC4);
-
-    data->mode = 1;
-    data->timer = 0xFF;
-
-    plat_jobj->trans.Y = height;
-    JOBJ_SetMtxDirtySub(plat_jobj);
-}
-
 static void Stage_Think(void) {
-    GrExternal stage_kind = Stage_GetExternalID();
-    if (stage_kind == GRKINDEXT_IZUMI) {
-        Stage_SetFODPlatformHeight(0);
-        Stage_SetFODPlatformHeight(1);
-    }
+    Stage_ApplyFountain();
 }
 
 // Think Function that runs after the stage and character's think functions.
@@ -6091,14 +6192,14 @@ void Event_PostThink(GOBJ *gobj)
 // SESSION SETTINGS: STAGE-CHANGE CARRY AND RESET ------------------------------
 
 /* Unsaved Lab settings: every value row that a fresh Lab starts at its default.
- * Saved preferences (Controls, overlays, Global OSDs, Input Display, Randall)
- * and the recording setup are left alone. Stage menus belong to one stage, so
+ * Saved preferences (Controls, overlays, Global OSDs, Input Display, Randall
+ * Overlay and Timer) and the recording setup are left alone. Stage menus belong to one stage, so
  * Reset includes the current one but a stage change does not carry them. */
 #define LAB_SESSION_MAX 272
 #define LAB_RECOVERY_MAX 12
 typedef char lab_session_capacity[(OPTGEN_COUNT + OPTCPU_COUNT + OPTTECH_COUNT + 2 * OPTINF_COUNT +
     OPTHITBOXTRAILS_COUNT + OPTCHARRNG_MAXCOUNT + LAB_RECOVERY_MAX + ADV_COUNTER_COUNT * OPTCTR_COUNT +
-    ACTION_LOG_MAX * OPTACTIONLOG_COUNT + OPTSTAGE_STADIUM_COUNT + OPTSTAGE_FOD_COUNT <= LAB_SESSION_MAX) ? 1 : -1];
+    ACTION_LOG_MAX * OPTACTIONLOG_COUNT + OPTSTAGE_STADIUM_COUNT + OPTSTAGE_FOD_COUNT + 1 <= LAB_SESSION_MAX) ? 1 : -1];
 typedef char lab_recovery_capacity[(countof(RecOptions_Fox) <= LAB_RECOVERY_MAX &&
     countof(RecOptions_Falco) <= LAB_RECOVERY_MAX && countof(RecOptions_Sheik) <= LAB_RECOVERY_MAX &&
     countof(RecOptions_Falcon) <= LAB_RECOVERY_MAX && countof(RecOptions_Marth) <= LAB_RECOVERY_MAX &&
@@ -6143,6 +6244,9 @@ static int Lab_SessionList(int with_stage) {
     EventMenu *stage = LabOptions_Main[OPTLAB_STAGE].disable ? 0 : LabOptions_Main[OPTLAB_STAGE].menu;
     if (with_stage && (stage == &LabMenu_Stage_Stadium || stage == &LabMenu_Stage_FOD))
         count = Lab_SessionAdd(count, stage->options, stage->option_num);
+    // Yoshi's Story's other rows are saved Global settings.
+    if (with_stage && stage == &LabMenu_Stage_Story)
+        count = Lab_SessionAdd(count, &LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_ON], 1);
     return count;
 }
 
@@ -6381,8 +6485,8 @@ void Event_Init(GOBJ *gobj)
     Lab_ChangeHitboxTrails(0, 0);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 2].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_OSDS_OFF);
     LabOptions_OSDs[TM_SETTINGS_OSDS + 1].val = TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_CPU_OSDS_OFF);
-    for (unsigned i = 0; i < countof(global_cue_flags); ++i)
-        LabOptions_OSDs[TM_SETTINGS_OSDS + 5 + i].val = TM_GetSetting(TM_SETTING_FLAG, global_cue_flags[i]);
+    for (unsigned i = 0; i < countof(global_cues); ++i)
+        LabOptions_OSDs[global_cues[i].row].val = TM_GetSetting(TM_SETTING_FLAG, global_cues[i].flag);
     LabOptions_OSDDisplay[0].val = TM_GetSetting(TM_SETTING_OSD_LAYOUT, 0);
     LabOptions_OSDDisplay[1].val = TM_GetSetting(TM_SETTING_OSD_POSITION, 0);
     Lab_RefreshShieldOverride();
@@ -6415,6 +6519,14 @@ void Event_Init(GOBJ *gobj)
     EventMenu *stage_menu = stage_menus[Stage_GetExternalID()];
     LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val =
         LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL].val_prev = !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL);
+    LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_TIMER].val =
+        LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_TIMER].val_prev =
+            !!TM_GetSetting(TM_SETTING_FLAG, TM_FLAG_RANDALL_TIMER);
+    LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_ON].val =
+        LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_ON].val_prev = 1;
+    Lab_RandallFind();
+    GOBJ *timer_loop = GObj_Create(0, LAB_TIMER_PLINK, 0);
+    GObj_AddProc(timer_loop, Lab_TimerLoopThink, LAB_TIMER_PRIORITY);
     if (stage_menu != NULL) {
         LabOptions_Main[OPTLAB_STAGE].disable = 0;
         LabOptions_Main[OPTLAB_STAGE].menu = stage_menu;
@@ -6820,6 +6932,9 @@ void Event_Think(GOBJ *event)
 {
     // Before the start savestate below, so it includes carried percents.
     Lab_ApplyPendingCarry();
+
+    // After the stage's animation (proc 1), before Randall's think (proc 4).
+    Lab_RandallThink();
 
     // Save a minor state at event start, so people can reset if they SD.
     // This cannot be done in Event_Init, so we do it here.

@@ -10,7 +10,7 @@ It only draws: it reads the stage's collision data and never changes game state,
 2. Use `Randall Overlay (Slippi NTSC 1.02)` as the name. Paste the hex lines from [randall-overlay.txt](randall-overlay.txt) into the code field, then save and enable it. The `$` title and `*` description lines are metadata, not hex code.
 3. Keep Slippi's standard required codes enabled and restart the game.
 
-On other stages it does nothing. It can run alongside [Actionable Yellow-Green](../actionable/README.md): that code hooks `800805C8` and `8006D9EC`, this one `8016E8C8`.
+On other stages it does nothing. It can run alongside [Actionable Yellow-Green](../actionable/README.md): that code hooks `800805C8` and `8006D9EC`, this one `8016E8C8`. It also runs alongside the [Randall Timer Minimap](../randall-timer-minimap/README.md) (`8016E750`), which draws a map of Randall's loop through the match timer.
 
 ## How it works
 

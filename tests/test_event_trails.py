@@ -1,8 +1,8 @@
 """Event trail precedence, paused edits, lifecycle and actual Ledgedash DAT wiring."""
 import struct
 import unittest
+import test_settings as fixtures  # Puts build/test-deps on sys.path first.
 from unicorn import UC_HOOK_CODE
-import test_settings as fixtures
 from test_settings import Machine, ROOT
 
 

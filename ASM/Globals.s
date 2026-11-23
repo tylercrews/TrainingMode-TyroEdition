@@ -999,6 +999,7 @@
 .set SettingsField_EventSelection, 26
 .set SettingsField_SweetspotCamera, 32
 .set SettingsField_EditorPage, 35
+.set SettingsField_EventHome, 55
 
 # Preserve the native hook's entire register context, including volatile FPRs,
 # r0, CR, CTR and XER. Leave ABI linkage/argument space below the saves.

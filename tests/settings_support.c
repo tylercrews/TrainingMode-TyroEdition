@@ -51,6 +51,7 @@ unsigned Events_ScoreIndex(unsigned page, unsigned event) {
     for (unsigned p = 0; p < page; ++p) index += p==1?16:counts[p];
     return index;
 }
+unsigned Events_HomeEvent(unsigned page, unsigned event) { (void)page; return event; } /* No All Events here. */
 unsigned test_character_steps; /* Each hook call's step + 1, a nibble each. */
 void TestEventCharacters(unsigned step) {
     test_character_steps = test_character_steps << 4 | (step + 1);
@@ -167,6 +168,7 @@ static const char *editor_choices[29];
 static const char *editor_labels[29];
 static JOBJ editor_roots[2], editor_joints[29];
 static uint32_t editor_colors[29];
+static float editor_scales[29][2];
 static int editor_row(Text *text, int subtext) {
     if (subtext < 1) return -1;
     if (text == &editor_left && subtext <= 15) return subtext - 1;
@@ -204,6 +206,8 @@ void Text_SetText(Text *text, int subtext, const char *format, ...) {
 void Text_SetScale(Text *text, int subtext, float x, float y) {
     int i=layout_text_index(text); if(i>=0 && (unsigned)subtext<9){layout_texts[i].scale[subtext][0]=x;layout_texts[i].scale[subtext][1]=y;}
     if (text == &style_text && (unsigned)subtext < 8) { style_scales[subtext][0] = x; style_scales[subtext][1] = y; }
+    int row = editor_row(text, subtext);
+    if (row >= 0) { editor_scales[row][0] = x; editor_scales[row][1] = y; }
 }
 void Text_SetPosition(Text *text, int subtext, float x, float y) {
     int i=layout_text_index(text); if(i>=0 && (unsigned)subtext<9){layout_texts[i].pos[subtext][0]=x;layout_texts[i].pos[subtext][1]=y;}
@@ -291,6 +295,8 @@ unsigned TestEditorChoiceChar(unsigned row, unsigned offset) { return editor_cho
 uint32_t TestEditorColor(unsigned row) { return editor_colors[row]; }
 unsigned TestEditorLabelChar(unsigned row, unsigned offset) { return editor_labels[row][offset]; }
 unsigned TestEditorHidden(unsigned row) { return !!(editor_joints[row].flags & JOBJ_HIDDEN); }
+/* A row's text scale in hundredths, axis 0 x / 1 y. */
+int TestEditorScale100(unsigned row, unsigned axis) { return (int)(editor_scales[row][axis & 1] * 100.0f + 0.5f); }
 
 static GOBJ cue_manager, cue_objects[12];
 static FighterData cue_data[12];
@@ -418,6 +424,7 @@ void TestCueInit(void) {
     memset(shield_draw_count, 0, sizeof(shield_draw_count));
     *stc_ftcommon = &cue_common;
     cue_common.lcancel_input_window = 7; cue_common.x260 = 60;
+    cue_common.x3b8 = 30; /* CaptureJump's first actionable frame count. */
     for (unsigned slot = 0; slot < 12; ++slot) {
         cue_objects[slot].userdata = &cue_data[slot];
         cue_objects[slot].gx_cb = TestCueNativeDraw;
@@ -467,6 +474,11 @@ void TestCueState(unsigned slot, int state, int frame, int end, int rate100) {
 void TestCueLanding(unsigned slot, int lag, int allow_interrupt) {
     cue_data[slot].attr.normal_landing_lag = lag;
     cue_data[slot].state_var.state_var1 = allow_interrupt;
+}
+/* A state's frame count in state_var1, a float there (CaptureJump's). */
+void TestCueHeld(unsigned slot, int frames) {
+    float held = frames;
+    memcpy(&cue_data[slot].state_var.state_var1, &held, sizeof(held));
 }
 void TestCueFrozen(unsigned slot, int frozen) { cue_data[slot].flags.hitlag = frozen; cue_data[slot].flags.freeze = frozen; }
 void TestCueIASA(unsigned slot, int ready) { cue_data[slot].flags.past_iasa = ready; }
@@ -520,6 +532,18 @@ void TestCueCapsules(unsigned slot, int num, int state) {
     for (unsigned i = 0; i < countof(cue_data[slot].hurtbox); ++i) cue_data[slot].hurtbox[i].state = state;
 }
 void TestCueCapsule(unsigned slot, unsigned index, int state) { cue_data[slot].hurtbox[index].state = state; }
+void TestCueBone(unsigned slot, unsigned index, int bone) { cue_data[slot].hurtbox[index].bone_index = bone; }
+/* The protection the engine counts down: the ledge and respawn timers, the
+ * 0x2221 0x80 hold, and starman (star < 0: none; 0: no timer; n: n frames). */
+void TestCueEngine(unsigned slot, int ledge, int respawn, int held, int star) {
+    FighterData *data = &cue_data[slot];
+    u8 *raw = (u8 *)data;
+    data->hurt.intang_frames.ledge = ledge; data->hurt.intang_frames.respawn = respawn;
+    raw[0x2221] = held ? raw[0x2221] | 0x80 : raw[0x2221] & ~0x80;
+    raw[0x221D] = star >= 0 ? raw[0x221D] | 2 : raw[0x221D] & ~2;
+    data->x2004 = star > 0 ? star : 0;
+}
+int TestCueProtectionLeft(unsigned slot) { return ActionCues_ProtectionLeft(&cue_objects[slot]); }
 void TestCuePlayer(unsigned ply, int accent, int cpu) {
     cue_players[ply].color_accent = accent; cue_players[ply].p_kind = cpu;
 }

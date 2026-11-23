@@ -18,6 +18,8 @@ static int status;
 static unsigned osd_page, editor_page;
 /* ASM/Globals.s mirrors this as SettingsField_EditorPage. */
 typedef char TMSettings_EditorPageField[TM_SETTING_EDITOR_PAGE == 35 ? 1 : -1];
+/* And TM_SETTING_EVENT_HOME as SettingsField_EventHome. */
+typedef char TMSettings_EventHomeField[TM_SETTING_EVENT_HOME == 55 ? 1 : -1];
 static int pending_save; /* Survives native archive unload clearing its own xC. */
 static int queued_to_native;
 static u8 extension_fallback[TM_EXTENSION_SIZE];
@@ -66,11 +68,36 @@ static const u8 legacy_color[TM_COLOR_COUNT-TM_COLOR_LEGACY_COUNT] = {
     TM_COLOR_YELLOW, TM_COLOR_MAGENTA, TM_COLOR_MAGENTA, TM_COLOR_CYAN,
     TM_COLOR_GREEN, TM_COLOR_YELLOW, TM_COLOR_BLUE, TM_COLOR_MAGENTA,
 };
+/* The extension's last validated bytes and what validating them found, as
+ * settings_view keeps for the core record. TMExtension_Prepare checks every
+ * row of every event (about 10,000 instructions), and the extension is read
+ * every frame (the Blast Zone and Randall overlays, enabled OSDs' colors), so
+ * it runs again only when the bytes change: a write, a card load or anything
+ * else that touches them. A read that finds them unchanged is about 1,400. */
+static u32 last_extension[TM_EXTENSION_SIZE / 4];
+static int extension_seen, last_extension_status;
+typedef char TMSettings_ExtensionWords[(TM_EXTENSION_SIZE % 4 == 0 && TM_EXTENSION_OFFSET % 4 == 0) ? 1 : -1];
+/* Word compare, non-inlined for the same relocation reason as same_bytes. */
+__attribute__((noinline)) static int same_words(const u32 *a, const u32 *b, unsigned count) {
+    for (unsigned i = 0; i < count; ++i)
+        if (a[i] != b[i]) return 0;
+    return 1;
+}
+static int extension_prepare(u8 *extension) {
+    if (extension_seen && same_words((const u32 *)extension, last_extension, countof(last_extension)))
+        return last_extension_status;
+    int status=TMExtension_Prepare(extension);
+    memcpy(last_extension, extension, TM_EXTENSION_SIZE);
+    extension_seen=1;
+    /* A migration or repair is reported once; the bytes it left are ready. */
+    last_extension_status=status==TM_EXTENSION_MIGRATED || status==TM_EXTENSION_REPAIRED ? TM_EXTENSION_READY : status;
+    return status;
+}
 static u8 *extension_view(void) {
     u8 *core=settings_view();
     u8 *extension=(u8 *)stc_memcard+TM_EXTENSION_OFFSET;
     int mode=core==fallback?1:0;
-    int ext_status=mode?TM_EXTENSION_UNSUPPORTED:TMExtension_Prepare(extension);
+    int ext_status=mode?TM_EXTENSION_UNSUPPORTED:extension_prepare(extension);
     if(!mode && ext_status==TM_EXTENSION_UNSUPPORTED) mode=2;
     if(mode) {
         if(extension_private_mode!=mode) TMExtension_Init(extension_fallback);
@@ -85,11 +112,26 @@ static void extension_set(unsigned field,unsigned index,u32 value) {
     u8 *view=extension_view();
     if(TMExtension_Write(view,field,index,value) && view!=extension_fallback) mark_changed();
 }
+static void core_set(unsigned field, unsigned index, uint32_t value) {
+    u8 *view = settings_view();
+    if (TMSettings_Write(view, field, index, value) && view != fallback) {
+        mark_changed();
+        memcpy(last_record, view, TM_SETTINGS_SIZE);
+    }
+}
+static int all_events_shown(void) {
+    return TMExtension_Read(extension_view(), TM_SETTING_EVENT_LIST, TM_EVENT_LIST_SHOWN);
+}
 static u8 door_zelda[4]; /* See TM_SETTING_DOOR_ZELDA, and Settings_DoorCharacter. */
 uint32_t Settings_Get(unsigned field, unsigned index) {
     if (field == TM_SETTING_DOOR_ZELDA) return index < 4 ? door_zelda[index] : 0;
     if (field == TM_SETTING_OSD_PAGE) return osd_page;
     if (field == TM_SETTING_EDITOR_PAGE) return editor_page;
+    if (field == TM_SETTING_EVENT_HOME) return Events_HomeEvent(Settings_Get(TM_SETTING_EVENT_PAGE, 0), index);
+    /* All Events is page 4 to everything but the save: see TM_EVENT_PAGE_ALL. */
+    if ((field == TM_SETTING_EVENT_PAGE || field == TM_SETTING_EVENT_SELECTION) && all_events_shown())
+        return field == TM_SETTING_EVENT_PAGE ? TM_EVENT_PAGE_ALL :
+            TMExtension_Read(extension_view(), TM_SETTING_EVENT_LIST, TM_EVENT_LIST_SELECTION);
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_NATIVE_ROW && TM_EXTENSION_FLAG(TMSettings_NativeFlag(index))) { index=TMSettings_NativeFlag(index); field=TM_SETTING_FLAG; }
     if(field==TM_SETTING_OSD_COLOR) {
@@ -100,7 +142,7 @@ uint32_t Settings_Get(unsigned field, unsigned index) {
         u32 extra=TMExtension_Read(extension_view(),TM_SETTING_OSD_COLOR_EXTRA,slot);
         return extra?TM_COLOR_LEGACY_COUNT-1+extra:base;
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN || field==TM_SETTING_LEDGEGRAB_RESET)
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN || field==TM_SETTING_LEDGEGRAB_RESET || field==TM_SETTING_PASSING || field==TM_SETTING_ESCAPE_SAMUS || field==TM_SETTING_ESCAPE_IC || field==TM_SETTING_GRABERCISE || field==TM_SETTING_TARGETS || field==TM_SETTING_EVENT_LIST)
         return TMExtension_Read(extension_view(),field,index);
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index))
         return !!Settings_Get(TM_SETTING_OSD_COLOR,index);
@@ -119,7 +161,25 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
     if (field == TM_SETTING_EDITOR_PAGE) { if (value < TM_EDITOR_PAGES) editor_page = value; return; }
     if(field==TM_SETTING_EDITOR_ROW) { index=TMSettings_EditorIDFor(editor_page,index); field=TM_SETTING_NATIVE_ROW; }
     if(field==TM_SETTING_NATIVE_ROW && TM_EXTENSION_FLAG(TMSettings_NativeFlag(index))) { index=TMSettings_NativeFlag(index); field=TM_SETTING_FLAG; }
-    if(field==TM_SETTING_OSD_COLOR_EXTRA) return; /* Written only through OSD_COLOR. */
+    if(field==TM_SETTING_OSD_COLOR_EXTRA || field==TM_SETTING_EVENT_LIST || field==TM_SETTING_EVENT_HOME) return; /* Written through OSD_COLOR, and EVENT_PAGE and EVENT_SELECTION; HOME is read-only. */
+    if (field == TM_SETTING_EVENT_SELECTION && all_events_shown()) {
+        extension_set(TM_SETTING_EVENT_LIST, TM_EVENT_LIST_SELECTION, value);
+        return;
+    }
+    /* Each list keeps its own cursor. All Events keeps its own, and so does the
+     * categorized page it was entered from, which byte 5 keeps under it; any
+     * other page starts at the top, as a new page always has. The flag is
+     * written only when it changes, so the categorized pages alone never make
+     * the extension record. */
+    if (field == TM_SETTING_EVENT_PAGE) {
+        if (value > TM_EVENT_PAGE_ALL) return;
+        if ((value == TM_EVENT_PAGE_ALL) != all_events_shown())
+            extension_set(TM_SETTING_EVENT_LIST, TM_EVENT_LIST_SHOWN, value == TM_EVENT_PAGE_ALL);
+        if (value == TM_EVENT_PAGE_ALL || value == TMSettings_Read(settings_view(), field, 0)) return;
+        core_set(TM_SETTING_EVENT_SELECTION, 0, 0);
+        core_set(field, 0, value);
+        return;
+    }
     if(field==TM_SETTING_OSD_COLOR) {
         int slot=TMSettings_OSDCategorySlot(index);
         if(slot<0 || value>=TM_COLOR_COUNT) return;
@@ -127,7 +187,7 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
         extension_set(TM_SETTING_OSD_COLOR_EXTRA,slot,extended?value-TM_COLOR_LEGACY_COUNT+1:0);
         if(extended) value=legacy_color[value-TM_COLOR_LEGACY_COUNT];
     }
-    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN || field==TM_SETTING_LEDGEGRAB_RESET) {
+    if(field==TM_SETTING_TECHCHASE || field==TM_SETTING_LEDGECHASE || field==TM_SETTING_UNDERFIRE || field==TM_SETTING_LOW_LASER || field==TM_SETTING_POWERSHIELD || field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || (field==TM_SETTING_OSD_COLOR && TM_EXTENSION_OSD(index)) || (field==TM_SETTING_FLAG && TM_EXTENSION_FLAG(index)) || field==TM_SETTING_OSD_GRID_CELL || field==TM_SETTING_COSTUME || field==TM_SETTING_EDGEGUARD || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT || field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT || field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN || field==TM_SETTING_LEDGEGRAB_RESET || field==TM_SETTING_PASSING || field==TM_SETTING_ESCAPE_SAMUS || field==TM_SETTING_ESCAPE_IC || field==TM_SETTING_GRABERCISE || field==TM_SETTING_TARGETS) {
         extension_set(field,index,value); return;
     }
     if((field==TM_SETTING_OSD_ENABLED || field==TM_SETTING_NATIVE_ROW) && TM_EXTENSION_OSD(index)) {
@@ -135,7 +195,6 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
         unsigned old=Settings_Get(TM_SETTING_OSD_COLOR,index);
         extension_set(TM_SETTING_OSD_COLOR,index,value?(old?old:TM_COLOR_WHITE):TM_COLOR_OFF); return;
     }
-    u8 *view = settings_view();
     if(field==TM_SETTING_OSD_MASK) {
         for(unsigned i=0;i<countof(extension_osds);++i) {
             unsigned id=extension_osds[i], old=Settings_Get(TM_SETTING_OSD_COLOR,id);
@@ -143,12 +202,9 @@ void Settings_Set(unsigned field, unsigned index, uint32_t value) {
         }
         /* Existing core bytes and palette mappings stay compatible. The new
          * enables are synthesized; these formerly unused bits are never repurposed. */
-        value=(value&~EXTENSION_OSD_BITS)|(TMSettings_Read(view,TM_SETTING_OSD_MASK,0)&EXTENSION_OSD_BITS);
+        value=(value&~EXTENSION_OSD_BITS)|(TMSettings_Read(settings_view(),TM_SETTING_OSD_MASK,0)&EXTENSION_OSD_BITS);
     }
-    if (TMSettings_Write(view, field, index, value) && view != fallback) {
-        mark_changed();
-        memcpy(last_record, view, TM_SETTINGS_SIZE);
-    }
+    core_set(field, index, value);
 }
 
 int Settings_Status(void) {

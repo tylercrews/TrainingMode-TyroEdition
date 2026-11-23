@@ -27,11 +27,20 @@ float sqrtf(float v) {
     for (int i = 0; i < 24; ++i) x = .5f * (x + v / x);
     return x;
 }
+/* The series, unchanged within a quarter turn, where the launch and recovery
+ * angles are; past it, folded back in, for the Up-B Overlays' rings (Fox's
+ * reaches -150 degrees). */
+#define PROBE_PI 3.14159265f
 float sin(float a) {
+    while (a > PROBE_PI) a -= 2 * PROBE_PI;
+    while (a < -PROBE_PI) a += 2 * PROBE_PI;
+    if (a > PROBE_PI / 2) a = PROBE_PI - a;
+    if (a < -PROBE_PI / 2) a = -PROBE_PI - a;
     float a2 = a * a;
     return a * (1.f - a2 / 6.f * (1.f - a2 / 20.f * (1.f - a2 / 42.f * (1.f - a2 / 72.f))));
 }
 float cos(float a) {
+    if (a > PROBE_PI / 2 || a < -PROBE_PI / 2) return sin(a + PROBE_PI / 2);
     float a2 = a * a;
     return 1.f - a2 / 2.f * (1.f - a2 / 12.f * (1.f - a2 / 30.f * (1.f - a2 / 56.f)));
 }
@@ -118,6 +127,16 @@ void TestChangeHeight(int value) {
     ChangeKnockbackHeight(0, value);
 }
 void TestChangeCustom(void) { ChangeCustomKB_MagMin(0, 0); }
+void TestLoadSettings(void) { LoadSettings(0); }
+int TestSideRow(void) { return Options_Main[OPT_MAIN_SIDE].val; }
+void TestChangeSide(int row) {
+    Options_Main[OPT_MAIN_SIDE].val = row;
+    ChangeSide(0, row);
+}
+int TestChooseSide(void) { return ChooseSide(); }
+void TestDPad(int down) { ReadDPad(down); }
+int TestResetTimer(void) { return reset_timer; }
+void TestClearReset(void) { reset_timer = -1; }
 
 /* One actionable frame of a plan, 40 out unless told otherwise. */
 static SpacieGeo TestGeo(int out, int h, int vy, int kbx, int kby) {
@@ -317,4 +336,76 @@ int TestResetCpuClears(int stale) {
     ft->fighter_var.ft_var1 = stale;
     Reset_CPU(&gobjs[1], 1, 60, 100.f, 45.f, 15.f);
     return ft->fighter_var.ft_var1;
+}
+
+/* The Player and CPU Up-B Overlays. Draw_UpBOverlays's vertices go to the GX
+ * pipe, which the test records; GFXStart counts the ones drawn over the stage. */
+int CObj_SetCurrent(COBJ *camera) { return 1; }
+COBJ *COBJ_GetCurrent(void) { return 0; }
+static int on_top_vertices;
+static void GFXStart(u16 count, GFX_Params params) {
+    if (params.no_depth) on_top_vertices += count;
+}
+static float overlay_attributes[2][64];
+/* Ledges at x = -85 and 85 (Final Destination's) and PlCo.dat's 0.28 stick
+ * deadzones, as the Up-B Sweetspot probe has them. */
+void TestOverlayInit(void) {
+    vars.GFX_Start = GFXStart;
+    common.x0 = common.x4 = .28f;
+    ledge_positions[0] = (Vec2) { -85.f, 0.f };
+    ledge_positions[1] = (Vec2) { 85.f, 0.f };
+}
+/* Fighter `ply` (0 you, 1 the CPU) as `kind`, with a ledge-grab box in tenths
+ * (Fox's is 110, 130, 90) and the Up-B Sweetspot probe's attributes: Firefox's
+ * 81.6 for any stick past 0.5 of |x| + |y|, Sheik's 20 * (tilt + 1) past a 0.5
+ * tilt, and Mario's 18 degrees toward the stage. */
+void TestOverlayFighter(int ply, int kind, int width, int y_offset, int height) {
+    FighterData *ft = &fighters[ply];
+    float *a = overlay_attributes[ply];
+    memset(a, 0, sizeof(overlay_attributes[ply]));
+    if (kind == FTKIND_FOX || kind == FTKIND_FALCO) {
+        a[0x64 / 4] = .5f;
+        a[0x68 / 4] = 30;
+        a[0x70 / 4] = 31;
+        a[0x74 / 4] = 2.72f;
+    } else if (kind == FTKIND_SHEIK) {
+        ((int *)a)[0x38 / 4] = 20;
+        a[0x40 / 4] = .5f;
+        a[0x44 / 4] = 1;
+        a[0x48 / 4] = 1;
+    } else if (kind == FTKIND_MARIO) {
+        a[0x28 / 4] = 18;
+    }
+    ft->kind = kind;
+    ft->special_attributes = a;
+    ft->scale.Y = 1.f;
+    ft->coll_data.cliffgrab_width = width / 10.f;
+    ft->coll_data.cliffgrab_y_offset = y_offset / 10.f;
+    ft->coll_data.cliffgrab_height = height / 10.f;
+}
+void TestOverlayRows(int player, int cpu) {
+    Options_Main[OPT_MAIN_UPB_PLAYER].val = player;
+    Options_Main[OPT_MAIN_UPB_CPU].val = cpu;
+}
+void TestOverlayDraw(int pass) {
+    on_top_vertices = 0;
+    Draw_UpBOverlays(0, pass);
+}
+int TestOverlayOnTop(void) { return on_top_vertices; }
+void TestOverlayDisable(void) { DisableUpBOverlays(&fighters[0], &fighters[1]); }
+/* Row 0 is yours, 1 the CPU's; key 0 its value, 1 its previous value, 2 whether it's greyed out. */
+int TestOverlayRow(int row, int key) {
+    EventOption *option = &Options_Main[row ? OPT_MAIN_UPB_CPU : OPT_MAIN_UPB_PLAYER];
+    return key == 0 ? option->val : key == 1 ? option->val_prev : option->disable;
+}
+void TestChangeOverlay(int row, int value) {
+    Options_Main[row ? OPT_MAIN_UPB_CPU : OPT_MAIN_UPB_PLAYER].val = value;
+    (row ? ChangeCPUUpBOverlay : ChangePlayerUpBOverlay)(0, value);
+}
+int TestOverlayPreference(int row) { return row ? TM_EG_UPB_OVERLAY_CPU : TM_EG_UPB_OVERLAY_PLAYER; }
+/* The standing ECB front the overlay uses for `kind`, in hundredths. */
+int TestStandingFront(int kind) {
+    static FighterData ft;
+    ft.kind = kind;
+    return UpB_StandingECBFront(&ft) * 100.f + .5f;
 }

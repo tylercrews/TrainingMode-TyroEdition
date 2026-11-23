@@ -3,8 +3,8 @@ import importlib.util
 import re
 import struct
 import unittest
+import test_settings as fixtures  # Puts build/test-deps on sys.path first.
 from unicorn import UC_HOOK_CODE
-import test_settings as fixtures
 from test_settings import ROOT, gpr, reg
 
 GRKIND_ZEBES = 8

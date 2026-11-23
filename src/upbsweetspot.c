@@ -1,19 +1,70 @@
 #include "events.h"
 #include "stage_swap.h"
+#include "upb_guides.h"
 #include "zoom_camera.h"
 
 /* Up-B Sweetspot: start on an angel platform off one ledge and grab the ledge
  * with your up-B. Marth swings his forward smash or down-tilt as each attempt
  * starts and freezes with the tipper out, so its hitboxes are simply there
  * whenever you arrive and overshooting onto the stage gets you hit. The guides
- * and every number behind them are in notes/UPB-SWEETSPOT-RESEARCH.md. */
+ * and every number behind them are in notes/UPB-SWEETSPOT-RESEARCH.md; each
+ * fighter's up-B and the guides Edgeguard's overlays share are in
+ * upb_guides.h. */
 
-// Where the angel platform sits, from the ledge: far enough out that you have
-// to recover, close enough that every character here can.
+// The angel platform's spot, out from the ledge and up from it, for anyone
+// Start_Spots leaves out: Ness and the Ice Climbers.
 #define PLATFORM_OUT 40
 #define PLATFORM_UP 15
+// The platform stays at least this far above the bottom blast zone (Game &
+// Watch's spot is under Yoshi's Story's) and this far inside the side one
+// (Bowser's is 10 short of Yoshi's Story's).
+#define PLATFORM_BLAST_MARGIN 35
+#define PLATFORM_SIDE_MARGIN 20
 // Nana's platform, beside Popo's on the stage side.
 #define NANA_PLATFORM_GAP 8
+
+/* Where each fighter's angel platform sits, out from the ledge and up from it
+ * (where their feet are), so the spot their up-B sweetspots from is in easy
+ * reach. Worked out from the ISO's numbers; see "Start spots" in
+ * notes/UPB-SWEETSPOT-RESEARCH.md.
+ * - Paths: 20 above the blue dot, and at least 15 out so the platform clears
+ *   the stage's wall.
+ * - Aimed: 20 above the white X, the full travel out. Fall a little, up-B, and
+ *   hold straight toward the stage. Fox's and Falco's charge drops about 6.
+ * - Donkey Kong, Bowser, Link and Young Link: their up-Bs go a long way
+ *   sideways, farther still with the drift you carry into them. The spots
+ *   that sweetspot form a narrow band, farther out the higher you are, so
+ *   they start just beyond it: fall holding toward the stage and up-B
+ *   (Bowser, who keeps all his drift, after about 10 frames of it). Starting
+ *   inside the band, as they did at first, drifting in overshoots. */
+typedef struct StartSpot {
+    s8 out, up;
+} StartSpot;
+
+static const StartSpot Start_Spots[FTKIND_ROY + 1] = {
+    [FTKIND_MARIO]     = { 25, -35 },
+    [FTKIND_DRMARIO]   = { 25, -35 },
+    [FTKIND_LUIGI]     = { 15, -41 },
+    [FTKIND_MARTH]     = { 17, -44 },
+    [FTKIND_ROY]       = { 19, -42 },
+    [FTKIND_FALCON]    = { 18, -35 },
+    [FTKIND_GANONDORF] = { 21, -39 },
+    [FTKIND_PEACH]     = { 15, -32 },
+    [FTKIND_KIRBY]     = { 15, -41 },
+    [FTKIND_SAMUS]     = { 15, -37 },
+    [FTKIND_GAW]       = { 16, -71 },
+    [FTKIND_FOX]       = { 88, 7 },
+    [FTKIND_FALCO]     = { 67, 7 },
+    [FTKIND_SHEIK]     = { 47, 5 },
+    [FTKIND_ZELDA]     = { 91, 10 },
+    [FTKIND_MEWTWO]    = { 57, 6 },
+    [FTKIND_PIKACHU]   = { 55, 9 },
+    [FTKIND_PICHU]     = { 41, 14 },
+    [FTKIND_DK]        = { 105, 35 },
+    [FTKIND_BOWSER]    = { 110, 15 },
+    [FTKIND_LINK]      = { 85, 35 },
+    [FTKIND_YOUNGLINK] = { 100, 35 },
+};
 
 // Marth's forward smash is out on frames 10 to 13 and his down-tilt from frame
 // 7, each with the tipper as hitbox 3 (20% and 10%). He freezes with the whole
@@ -39,14 +90,10 @@
 // is read as it ends.
 #define SPACIES_CHARGE_FRAMES 43
 
-#define ARC_STEPS 40 // In half a circle.
-// Fox's and Falco's ring: 2/3 of a circle, ending 30 degrees short of level
-// under the stage so it doesn't stick up into the stage.
-#define UNDER_STAGE_SWEEP 240
-#define UNDER_STAGE_STEPS 60
-// Half the length of Fox's and Falco's tick where holding straight toward the
-// stage sweetspots.
-#define LEVEL_TICK 6
+// B0XX Angles' dots, and how close two spots are to be one dot: holding B
+// moves Fox's and Falco's under half a degree.
+#define B0XX_DOT_SIZE 30
+#define B0XX_SAME_SPOT 1.0f
 
 // The side and the totals survive Change Stage's restart; the menu is saved.
 #define UPB_CARRY_TAG 0x55704273 /* "UpBs" */
@@ -174,6 +221,22 @@ static void PlaceOnPlatform(GOBJ *fighter, float x, float y, float facing) {
     UpdateCameraBox(fighter);
 }
 
+// Where the fighter's platform goes, from the ledge on this side.
+static Vec2 PlatformSpot(FighterData *ft, Vec2 ledge, float outward) {
+    StartSpot spot = { PLATFORM_OUT, PLATFORM_UP };
+    if (ft->kind >= 0 && ft->kind <= FTKIND_ROY && Start_Spots[ft->kind].out)
+        spot = Start_Spots[ft->kind];
+    Vec2 at = { ledge.X + outward * spot.out, ledge.Y + spot.up };
+    float lowest = Stage_GetBlastzoneBottom() + PLATFORM_BLAST_MARGIN;
+    if (at.Y < lowest)
+        at.Y = lowest;
+    float side = outward > 0 ? Stage_GetBlastzoneRight() - PLATFORM_SIDE_MARGIN
+                             : Stage_GetBlastzoneLeft() + PLATFORM_SIDE_MARGIN;
+    if (outward * (at.X - side) > 0)
+        at.X = side;
+    return at;
+}
+
 /* Leaving the platform gives respawn invincibility, which Marth's tipper
  * couldn't hit through. At 1 the game ends it next frame, flashing included. */
 static void EndRespawnInvincibility(FighterData *ft) {
@@ -181,140 +244,17 @@ static void EndRespawnInvincibility(FighterData *ft) {
         ft->hurt.intang_frames.respawn = 1;
 }
 
-// Up-B data -------------------------------------------------------------
-
-enum guide {
-    GUIDE_NONE,  // The ledge target only.
-    GUIDE_AIMED, // A ring at the travel distance, and the angle you're holding.
-    GUIDE_PATH,  // Where an animated path should start.
-};
-
-/* Each fighter's up-B. States are its action states from the decompilation,
- * grounded and aerial; clones share their original's numbers. Path numbers
- * are the root motion in the ISO (scripts/fighter_move_data.py) at normal
- * size: the rise and forward movement at the peak, the fastest grab, and at
- * the end of the animation, a slower grab falling back to the ledge. Samus's
- * air Screw Attack is physics instead: 2.5 up against 0.066 gravity.
- * tilt_attr is the special attribute holding how many degrees holding toward
- * the stage turns the move before it locks; FullTilt has Game & Watch's. */
-typedef struct UpBInfo {
-    u16 first, last;
-    u8 guide;
-    u8 tilt_attr;          // GUIDE_PATH; 0 for none.
-    u16 charge;            // GUIDE_AIMED: the aerial start-up, which reads the stick as it ends.
-    float rise, forward;   // GUIDE_PATH
-    float end_rise, end_forward;
-} UpBInfo;
-
-static const UpBInfo UpB_Info[FTKIND_ROY + 1] = {
-    [FTKIND_MARIO]     = { 347, 348, GUIDE_PATH, 0x28, 0, 40.4f, 17.6f, 33.3f, 20.9f },
-    [FTKIND_DRMARIO]   = { 347, 348, GUIDE_PATH, 0x28, 0, 40.4f, 17.6f, 33.3f, 20.9f },
-    [FTKIND_LUIGI]     = { 355, 356, GUIDE_PATH, 0, 0, 45.9f, 0, 37.9f, 0 },
-    [FTKIND_MARTH]     = { 367, 368, GUIDE_PATH, 0x38, 0, 47.3f, 10.2f, 34.5f, 11.5f },
-    [FTKIND_ROY]       = { 367, 368, GUIDE_PATH, 0x38, 0, 44.5f, 12.3f, 32.4f, 13.0f },
-    [FTKIND_FALCON]    = { 353, 356, GUIDE_PATH, 0, 0, 37.6f, 11.9f, 13.1f, 20.2f },
-    [FTKIND_GANONDORF] = { 353, 356, GUIDE_PATH, 0, 0, 41.9f, 13.2f, 14.6f, 22.5f },
-    [FTKIND_PEACH]     = { 361, 364, GUIDE_PATH, 0, 0, 36.8f, 3.4f, 34.4f, 4.1f },
-    [FTKIND_KIRBY]     = { 385, 392, GUIDE_PATH, 0, 0, 52.2f, 0, 0.3f, 0 },
-    [FTKIND_SAMUS]     = { 353, 354, GUIDE_PATH, 0, 0, 47.3f, 0, 44.0f, 0 },
-    [FTKIND_GAW]       = { 373, 374, GUIDE_PATH, 0, 0, 75.6f, 9.1f, 65.8f, 11.9f },
-    [FTKIND_FOX]       = { 353, 359, GUIDE_AIMED, 0, 354 },
-    [FTKIND_FALCO]     = { 353, 359, GUIDE_AIMED, 0, 354 },
-    [FTKIND_SHEIK]     = { 355, 360, GUIDE_AIMED, 0, 358 },
-    [FTKIND_ZELDA]     = { 349, 354, GUIDE_AIMED, 0, 352 },
-    [FTKIND_MEWTWO]    = { 353, 358, GUIDE_AIMED, 0, 356 },
-    [FTKIND_PIKACHU]   = { 353, 358, GUIDE_AIMED, 0, 356 },
-    [FTKIND_PICHU]     = { 353, 358, GUIDE_AIMED, 0, 356 },
-    [FTKIND_DK]        = { 381, 382, GUIDE_NONE },
-    [FTKIND_BOWSER]    = { 359, 360, GUIDE_NONE },
-    [FTKIND_LINK]      = { 356, 357, GUIDE_NONE },
-    [FTKIND_YOUNGLINK] = { 356, 357, GUIDE_NONE },
-    [FTKIND_NESS]      = { 358, 366, GUIDE_NONE },
-    [FTKIND_POPO]      = { 347, 356, GUIDE_NONE },
-    [FTKIND_NANA]      = { 347, 356, GUIDE_NONE },
-    // Yoshi and Jigglypuff have no recovery up-B and aren't on the CSS.
-};
-
-static const UpBInfo *GetUpBInfo(FighterData *ft) {
-    if (ft->kind < 0 || ft->kind > FTKIND_ROY || !UpB_Info[ft->kind].last)
-        return 0;
-    return &UpB_Info[ft->kind];
-}
-
-static bool IsSpacie(FighterData *ft) {
-    return ft->kind == FTKIND_FOX || ft->kind == FTKIND_FALCO;
-}
-
-#define ATTR_F(ft, offset) (((float *)(ft)->special_attributes)[(offset) / 4])
-#define ATTR_I(ft, offset) (((int *)(ft)->special_attributes)[(offset) / 4])
-
-// Degrees a full stick toward the stage turns a path, or 0 if it can't. Game &
-// Watch's attribute is radians per unit of stick past 0x58, not a top angle.
-static float FullTilt(FighterData *ft, const UpBInfo *info) {
-    if (ft->kind == FTKIND_GAW)
-        return (1 - ATTR_F(ft, 0x58)) * ATTR_F(ft, 0x5C) / M_1DEGREE;
-    return info->tilt_attr ? ATTR_F(ft, info->tilt_attr) : 0;
-}
-
-/* The least stick the aimed up-Bs take before they go straight up. Fox and
- * Falco add the two axes (|x| + |y|); the rest use the stick's length. */
-static float AimedThreshold(FighterData *ft) {
-    switch (ft->kind) {
-        case FTKIND_FOX: case FTKIND_FALCO: return ATTR_F(ft, 0x64);
-        case FTKIND_SHEIK: return ATTR_F(ft, 0x40);
-        case FTKIND_ZELDA: return ATTR_F(ft, 0x50);
-        case FTKIND_MEWTWO: return ATTR_F(ft, 0x58);
-        case FTKIND_PIKACHU: case FTKIND_PICHU: return ATTR_F(ft, 0x8C);
-    }
-    return 1;
-}
-
-/* The teleports and Quick Attack's first zip move at a constant speed for a
- * set number of frames: speed = per_tilt * tilt + base. */
-static int TravelFrames(FighterData *ft) {
-    switch (ft->kind) {
-        case FTKIND_SHEIK: return ATTR_I(ft, 0x38);
-        case FTKIND_ZELDA: return ATTR_I(ft, 0x48);
-        case FTKIND_MEWTWO: return ATTR_I(ft, 0x50);
-        case FTKIND_PIKACHU: case FTKIND_PICHU: return ATTR_I(ft, 0x60);
-    }
-    return 0;
-}
-
-static float TravelSpeed(FighterData *ft, float tilt) {
-    switch (ft->kind) {
-        case FTKIND_SHEIK: return ATTR_F(ft, 0x44) * tilt + ATTR_F(ft, 0x48);
-        case FTKIND_ZELDA: return ATTR_F(ft, 0x54) * tilt + ATTR_F(ft, 0x58);
-        case FTKIND_MEWTWO: return ATTR_F(ft, 0x5C) * tilt + ATTR_F(ft, 0x60);
-        case FTKIND_PIKACHU: case FTKIND_PICHU: return ATTR_F(ft, 0x90) * tilt + ATTR_F(ft, 0x94);
-    }
-    return 0;
-}
-
-/* How far the travel goes, from the live attributes, at a stick length of
- * tilt (the threshold up to 1).
- * - Firefox and Firebird ignore tilt: x74 speed for x68 frames, slowing by x78
- *   a frame from frame x70. Fox 81.5, Falco 60.1.
- * - The rest: Sheik 30-40, Zelda 62-84, Mewtwo 40-50, Pikachu 39.5-49.5,
- *   Pichu 26.4-35.2. */
-static float AimedDistance(FighterData *ft, float tilt) {
-    if (!IsSpacie(ft))
-        return TravelFrames(ft) * TravelSpeed(ft, tilt);
-    float speed = ATTR_F(ft, 0x74), slow = ATTR_F(ft, 0x78), distance = 0;
-    int frames = ATTR_F(ft, 0x68), slow_from = ATTR_F(ft, 0x70);
-    for (int i = 1; i <= frames; i++) {
-        if (i >= slow_from)
-            speed -= slow;
-        distance += speed;
-    }
-    return distance;
-}
-
 // Event state -----------------------------------------------------------
 
 static void Exit(GOBJ *menu);
 static void ChangeGuides(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_GUIDES, value);
+}
+static void ChangeB0XX(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_B0XX, value);
+}
+static void ChangeLanding(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_LANDING, value);
 }
 static void ChangeMarth(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH, value);
@@ -326,6 +266,8 @@ static void ChangeCamera(GOBJ *menu, int value) {
 
 enum menu_options {
     OPT_GUIDES,
+    OPT_B0XX,
+    OPT_LANDING,
     OPT_MARTH,
     OPT_CAMERA,
 };
@@ -340,9 +282,27 @@ static EventOption Options_Main[] = {
         .val_prev = 1,
         .OnChange = ChangeGuides,
         .desc = {"Fox, Falco, Sheik, Zelda, Mewtwo, Pikachu, Pichu:",
-                 "up-B on the blue ring, then hold the white line.",
-                 "Mario, Luigi, Marth, Falcon and more: up-B at the",
-                 "blue dot (the dim one is the stick toward the stage)."},
+                 "up-B on the blue ring, then hold the white line. A",
+                 "gap only aims straight, at its tick. Others: up-B",
+                 "at the blue dot (the dim one: stick to the stage)."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "B0XX Angles",
+        .OnChange = ChangeB0XX,
+        .desc = {"Aimed up-Bs: dots where the B0XX's angles sweetspot",
+                 "instead of the ring. White: no modifier. Blue: Mod",
+                 "X or Mod Y, any C-button. Dim: teleports and Quick",
+                 "Attack without B held, which don't go as far."},
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Landing Line",
+        .OnChange = ChangeLanding,
+        .desc = {"Fox and Falco: a pink line for the lowest you can",
+                 "up-B from and still land on the stage. From above",
+                 "it, aim just over the ledge to land. Below it, only",
+                 "the ledge is in reach."},
     },
     {
         .kind = OPTKIND_STRING,
@@ -375,6 +335,7 @@ static EventOption Options_Main[] = {
         .kind = OPTKIND_INFO,
         .name = "Help",
         .desc = {"Leave the platform and recover with your up-B.",
+                 "Coming down, aim at the bar over the X: you grab there.",
                  "D-Pad left/right resets on that ledge.",
                  "A D-Pad reset doesn't count as an attempt."}
     },
@@ -415,6 +376,8 @@ static struct attempt {
     bool done;               // Counted; waiting for the reset.
     bool has_target;
     Vec2 target;             // Where your position grabs the ledge.
+    Vec2 snap;               // Where coming down onto the ledge first grabs it.
+    float reach;             // The grab box's reach out from the ledge.
 } attempt = { 0 };
 
 static struct upb {
@@ -466,14 +429,43 @@ static void CountAttempt(int result) {
     }
 }
 
-/* The fighter's position when the ledge sits in the middle of its ledge-grab
- * box: the box reaches cliffgrab_width past the ECB's side toward the ledge
- * (the side it faces), and is centered cliffgrab_y_offset above the feet. */
-static Vec2 LedgeTarget(FighterData *ft) {
-    Vec2 ledge = ledge_positions[side_idx];
+/* The X, the snap over it and the grab box's reach (UpB_GetTargets), from the
+ * ECB's live side toward the ledge, the side the fighter faces on the platform. */
+static void SetTargets(FighterData *ft) {
     float front = ft->facing_direction > 0 ? ft->coll_data.ecbCurr_right.X : -ft->coll_data.ecbCurr_left.X;
-    float reach = front + ft->coll_data.cliffgrab_width;
-    return (Vec2) { ledge.X + Outward() * reach * 0.5f, ledge.Y - ft->coll_data.cliffgrab_y_offset };
+    UpBTargets t = UpB_GetTargets(ft, ledge_positions[side_idx], Outward(), front);
+    attempt.target = t.target;
+    attempt.snap = t.snap;
+    attempt.reach = t.reach;
+    attempt.has_target = true;
+}
+
+/* Whether a travel from `from` to `to` goes through the grab box's positions
+ * (SetTargets). It only counts moving down, the only time the box is checked. */
+static bool CrossesGrabBox(FighterData *ft, Vec2 from, Vec2 to) {
+    Vec2 ledge = ledge_positions[side_idx];
+    float outward = Outward(), half = ft->coll_data.cliffgrab_height * 0.5f;
+    float bottom = attempt.target.Y - half, top = attempt.target.Y + half;
+    // Liang-Barsky, out from the ledge and up: where the segment is inside.
+    float x = (from.X - ledge.X) * outward, dx = (to.X - from.X) * outward, dy = to.Y - from.Y;
+    float p[4] = { -dx, dx, -dy, dy };
+    float q[4] = { x, attempt.reach - x, from.Y - bottom, top - from.Y };
+    float enter = 0, leave = 1;
+    if (dy >= 0)
+        return false;
+    for (int i = 0; i < 4; i++) {
+        if (p[i] == 0) {
+            if (q[i] < 0)
+                return false;
+            continue;
+        }
+        float t = q[i] / p[i];
+        if (p[i] < 0 && t > enter)
+            enter = t;
+        else if (p[i] > 0 && t < leave)
+            leave = t;
+    }
+    return enter <= leave;
 }
 
 // Marth -----------------------------------------------------------------
@@ -645,53 +637,124 @@ static int Degrees(Vec2 v) {
 
 // Drawing ---------------------------------------------------------------
 
-static const GXColor White = { 0xff, 0xff, 0xff, 0xff };
-static const GXColor Blue = { 0x30, 0xc8, 0xff, 0xff };
-static const GXColor DimBlue = { 0x1c, 0x6c, 0x94, 0xff };
 static const GXColor Green = { 0x00, 0xff, 0x00, 0xff };
 static const GXColor Yellow = { 0xff, 0xe0, 0x00, 0xff };
 static const GXColor Red = { 0xff, 0x00, 0x00, 0xff };
+static const GXColor Pink = { 0xff, 0x60, 0xe0, 0xff };
 
-/* on_top draws over the stage, which is what Fox's and Falco's marks need to be
- * seen from under it. */
-static void DrawLine(Vec2 a, Vec2 b, GXColor color, int width, bool on_top) {
-    event_vars->GFX_Start(2, (GFX_Params) { .shape = GX_LINES, .size = width, .no_depth = on_top });
-    GFX_AddVtx(a.X, a.Y, 0, color);
-    GFX_AddVtx(b.X, b.Y, 0, color);
+/* The B0XX's sticks for the up-B angles in one quadrant, in 80ths toward the
+ * stage and up, as HayBox's Melee mode gives them, "up to date with B0XX V3
+ * specifications" (src/modes/Melee20Button.cpp). Mod X and Mod Y on a diagonal,
+ * alone or with C-Down, C-Left, C-Up or C-Right, step from 23 degrees to 67,
+ * 4.4 apart, and B held too gives the same angles longer: the extended up-B
+ * angles, for the up-Bs that go farther with more tilt. Mod Y with B across
+ * is a full tilt. scripts/upb_overlay_numbers.py has the same tables. */
+static const s8 B0XX_Plain[][2] = { {80, 0}, {0, 80}, {56, 56} };
+static const s8 B0XX_ModB[][2] = {
+    {53, 0}, {0, 43}, {73, 31}, {70, 36}, {68, 42}, {59, 43}, {51, 43}, // Mod X
+    {80, 0}, {0, 59}, {31, 73}, {36, 70}, {42, 68}, {47, 64}, {47, 57}, // Mod Y
+};
+static const s8 B0XX_Mod[][2] = {
+    {53, 0}, {0, 43}, {59, 25}, {56, 29}, {63, 39}, {56, 41}, {49, 42}, // Mod X
+    {27, 0}, {0, 59}, {25, 59}, {29, 56}, {39, 63}, {41, 56}, {51, 61}, // Mod Y
+};
+#define B0XX_SPOTS ((countof(B0XX_Plain) + countof(B0XX_ModB) + countof(B0XX_Mod)) * 4)
+
+/* Where up-B with the stick at (x, y) 80ths, toward the stage and up, has to
+ * start to end at the X, or coming down, at the snap, by the move's own rule
+ * (as AimFromStick has it). False if that's outside the ring's sweep. */
+static bool B0XXSpot(FighterData *ft, const Stick *stick, Vec2 target, Vec2 snap, float x, float y,
+                     float sweep, Vec2 *spot) {
+    if (fabs(x) < stick->least_x)
+        x = 0;
+    if (fabs(y) < stick->least_y)
+        y = 0;
+    float length = sqrtf(x * x + y * y), tilt = length / STICK_UNITS;
+    if (tilt > 1)
+        tilt = 1;
+    bool aimed = IsSpacie(ft) ? (fabs(x) + fabs(y)) / STICK_UNITS >= AimedThreshold(ft)
+                              : tilt > AimedThreshold(ft);
+    if (!aimed) {
+        x = 0, y = 1, length = 1, tilt = 1;
+    }
+    float out = x / length, up = -y / length; // From center back to the start.
+    float angle = atan2(up, out) / M_1DEGREE;
+    if (angle > 90.5f || angle < 89.5f - sweep)
+        return false;
+    float distance = AimedDistance(ft, tilt);
+    Vec2 center = up > 0 ? snap : target;
+    *spot = (Vec2) { center.X + Outward() * out * distance, center.Y + up * distance };
+    return true;
 }
 
-static void DrawDot(Vec2 at, GXColor color, bool on_top) {
-    event_vars->GFX_Start(1, (GFX_Params) { .shape = GX_POINTS, .size = 42, .no_depth = on_top });
-    GFX_AddVtx(at.X, at.Y, 0, color);
+static bool IsDrawn(Vec2 spot, const Vec2 *spots, int count) {
+    for (int i = 0; i < count; i++) {
+        float x = spot.X - spots[i].X, y = spot.Y - spots[i].Y;
+        if (x * x + y * y < B0XX_SAME_SPOT * B0XX_SAME_SPOT)
+            return true;
+    }
+    return false;
 }
 
-static void DrawCross(Vec2 at, float size, GXColor color) {
-    event_vars->GFX_Start(4, (GFX_Params) { .shape = GX_LINES, .size = 12 });
-    GFX_AddVtx(at.X - size, at.Y - size, 0, color);
-    GFX_AddVtx(at.X + size, at.Y + size, 0, color);
-    GFX_AddVtx(at.X - size, at.Y + size, 0, color);
-    GFX_AddVtx(at.X + size, at.Y - size, 0, color);
-}
-
-// An arc around center from straight above, out past the ledge and down,
-// sweep degrees in steps: 180 is the offstage half, to straight below. More
-// carries it on under the stage, drawn over the stage.
-static void DrawArc(Vec2 center, float radius, GXColor color, float sweep, int steps) {
-    event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10,
-                                                    .no_depth = sweep > 180 });
-    float outward = Outward();
-    for (int i = 0; i <= steps; i++) {
-        float angle = (90 - sweep * i / steps) * M_1DEGREE;
-        GFX_AddVtx(center.X + outward * cos(angle) * radius, center.Y + sin(angle) * radius, 0, color);
+/* B0XX Angles: instead of the ring, a dot where each B0XX up-B angle has to
+ * start: white with no modifier, blue with Mod X or Mod Y and B, and dim
+ * without B where that's somewhere else (the teleports and Quick Attack go
+ * less far). Spots that close together are one dot. */
+static void DrawB0XXGuide(FighterData *ft, Vec2 target, Vec2 snap, float sweep, bool on_top) {
+    static const struct { const s8 (*sticks)[2]; int count; } sets[] = {
+        { B0XX_Plain, countof(B0XX_Plain) },
+        { B0XX_ModB, countof(B0XX_ModB) },
+        { B0XX_Mod, countof(B0XX_Mod) },
+    };
+    const GXColor colors[] = { White, Blue, DimBlue };
+    static Vec2 spots[B0XX_SPOTS];
+    static u8 kinds[B0XX_SPOTS];
+    Stick stick = GetStick();
+    int count = 0;
+    for (int set = 0; set < (int)countof(sets); set++)
+        for (int i = 0; i < sets[set].count; i++)
+            for (int sx = 1; sx >= -1; sx -= 2)
+                for (int sy = 1; sy >= -1; sy -= 2) {
+                    Vec2 spot;
+                    float x = sx * sets[set].sticks[i][0], y = sy * sets[set].sticks[i][1];
+                    if (!B0XXSpot(ft, &stick, target, snap, x, y, sweep, &spot) || IsDrawn(spot, spots, count))
+                        continue;
+                    spots[count] = spot;
+                    kinds[count++] = set;
+                }
+    // Dim first, so the brighter dots draw over it.
+    for (int set = countof(sets) - 1; set >= 0; set--) {
+        int dots = 0;
+        for (int i = 0; i < count; i++)
+            dots += kinds[i] == set;
+        if (!dots)
+            continue;
+        event_vars->GFX_Start(dots, (GFX_Params) { .shape = GX_POINTS, .size = B0XX_DOT_SIZE, .no_depth = on_top });
+        for (int i = 0; i < count; i++)
+            if (kinds[i] == set)
+                GFX_AddVtx(spots[i].X, spots[i].Y, 0, colors[set]);
     }
 }
 
-/* Green when the travel ends with the ledge in reach (or passes it on the way
- * down, when the travel itself can grab), yellow when close, red otherwise. */
-static GXColor AimColor(FighterData *ft, Vec2 target) {
+/* What to aim at from the launch: the snap when coming down onto the ledge from
+ * above it, else the X. */
+static Vec2 AimTarget(void) {
+    return upb.launch.Y > attempt.snap.Y ? attempt.snap : attempt.target;
+}
+
+/* Green when the travel crosses the grab box on its way down, or, level or
+ * rising, ends with the ledge in reach; yellow when close (coming down, that
+ * includes ending just above the box and falling into it); red otherwise. */
+static GXColor AimColor(FighterData *ft) {
+    Vec2 end = { upb.launch.X + upb.aim.X * upb.distance, upb.launch.Y + upb.aim.Y * upb.distance };
+    bool down = upb.aim.Y < 0;
+    if (down && CrossesGrabBox(ft, upb.launch, end))
+        return Green;
+    // Coming down, from what the white line aims at; else from the X.
+    Vec2 target = down ? AimTarget() : attempt.target;
     Vec2 to_target = { target.X - upb.launch.X, target.Y - upb.launch.Y };
     float along = upb.distance;
-    if (upb.aim.Y < 0) {
+    if (down) {
         along = to_target.X * upb.aim.X + to_target.Y * upb.aim.Y;
         if (along < 0) along = 0;
         if (along > upb.distance) along = upb.distance;
@@ -701,57 +764,107 @@ static GXColor AimColor(FighterData *ft, Vec2 target) {
     float miss = sqrtf(miss_x * miss_x + miss_y * miss_y);
     float tolerance = ft->coll_data.cliffgrab_height * 0.5f;
     if (tolerance < 3) tolerance = 3;
-    return miss <= tolerance ? Green : miss <= tolerance * 3 ? Yellow : Red;
+    return !down && miss <= tolerance ? Green : miss <= tolerance * 3 ? Yellow : Red;
 }
 
-static void DrawAimedGuide(FighterData *ft, Vec2 target) {
-    // Fox and Falco can recover from under the stage, so their ring carries on
-    // under it, and a white tick on the ring, level with the X, is where holding
-    // straight toward the stage sweetspots.
-    bool spacie = IsSpacie(ft);
-    float distance = AimedDistance(ft, 1);
-    if (spacie)
-        DrawArc(target, distance, Blue, UNDER_STAGE_SWEEP, UNDER_STAGE_STEPS);
-    else
-        DrawArc(target, distance, Blue, 180, ARC_STEPS);
-    if (spacie) {
-        float x = target.X + Outward() * distance;
-        DrawLine((Vec2) { x - LEVEL_TICK, target.Y }, (Vec2) { x + LEVEL_TICK, target.Y }, White, 12, true);
+/* Fox's and Falco's ECB at the end of the Firefox and Firebird travel, from
+ * posing SpecialHi pitched to the travel angle, as ftFox_SpecialHi_RotateModel
+ * turns XRotN: its bottom, above their position, and the height of its sides,
+ * which are at the game's 2-unit minimum from about 60 degrees up, where they
+ * start to matter. The line they give is within 0.3 (Fox) and 0.6 (Falco) of
+ * every angle's own ECB. See "The landing line" in
+ * notes/UPB-SWEETSPOT-RESEARCH.md. */
+#define ECB_MIN_SIDE 2
+typedef struct LandingECB {
+    float bottom, side_y;
+} LandingECB;
+
+static const LandingECB *GetLandingECB(FighterData *ft) {
+    static const LandingECB fox = { 2.2f, 6.8f }, falco = { 2.5f, 7.6f };
+    return ft->kind == FTKIND_FOX ? &fox : ft->kind == FTKIND_FALCO ? &falco : 0;
+}
+
+/* How high above the ledge your position has to be as the travel crosses the
+ * ledge's x, `rise` degrees above level toward the stage, for it to carry you
+ * over the corner without touching it: the ECB's bottom clears it, and on steep
+ * angles its side, which reaches the wall first, has to as well. */
+static float LandingClearance(const LandingECB *ecb, float rise) {
+    float clearance = -ecb->bottom;
+    if (rise > 0) {
+        float a = rise * M_1DEGREE;
+        float side = ECB_MIN_SIDE * sin(a) / cos(a) - ecb->side_y;
+        if (side > clearance)
+            clearance = side;
     }
-    if (!spacie) // Their distance grows with tilt: the inner ring is the least.
-        DrawArc(target, AimedDistance(ft, AimedThreshold(ft)), DimBlue, 180, ARC_STEPS);
+    return clearance;
+}
+
+/* The landing line from ring angle `from` down to `to` (ring angles as for the
+ * ring): where up-B has to start for the travel, aimed back the other way, to
+ * cross the ledge's x just high enough to clear it. */
+static void DrawLandingArc(FighterData *ft, const LandingECB *ecb, float from, float to) {
+    Vec2 ledge = ledge_positions[side_idx];
+    float travel = AimedDistance(ft, 1), outward = Outward();
+    int steps = (int)((from - to) / ARC_STEP) + 1;
+    event_vars->GFX_Start(steps + 1, (GFX_Params) { .shape = GX_LINESTRIP, .size = 10, .no_depth = true });
+    for (int i = 0; i <= steps; i++) {
+        float angle = from - (from - to) * i / steps, a = angle * M_1DEGREE;
+        float y = ledge.Y + LandingClearance(ecb, -angle);
+        GFX_AddVtx(ledge.X + outward * cos(a) * travel, y + sin(a) * travel, 0, Pink);
+    }
+}
+
+/* Landing Line, for Fox and Falco: the lowest you can up-B from and still land
+ * on the stage, for each angle the stick can aim up toward it, and straight
+ * across, with a tick. Above it, aim just over the ledge and the travel itself
+ * carries you over. That leaves out what's left of your speed after it and
+ * wallriding up the stage's side, so it's the safe line. */
+static void DrawLandingLine(FighterData *ft) {
+    const LandingECB *ecb = GetLandingECB(ft);
+    if (!ecb || !Options_Main[OPT_LANDING].val)
+        return;
+    Stick stick = GetStick();
+    float from, to;
+    if (Quarter(&stick, 0, -90, &from, &to))
+        DrawLandingArc(ft, ecb, from, to);
+    DrawLandingArc(ft, ecb, STRAIGHT_ARC, -STRAIGHT_ARC);
+    Vec2 ledge = ledge_positions[side_idx];
+    float travel = AimedDistance(ft, 1), outward = Outward(), y = ledge.Y + LandingClearance(ecb, 0);
+    event_vars->GFX_Start(2, (GFX_Params) { .shape = GX_LINES, .size = 12, .no_depth = true });
+    GFX_AddVtx(ledge.X + outward * (travel - LEVEL_TICK), y, 0, Pink);
+    GFX_AddVtx(ledge.X + outward * (travel + LEVEL_TICK), y, 0, Pink);
+}
+
+static void DrawAimedGuide(FighterData *ft) {
+    // Fox and Falco can recover from under the stage, so their marks carry on
+    // under it, drawn over the stage. The rest get the offstage half.
+    bool spacie = IsSpacie(ft);
+    float sweep = UpB_Sweep(ft);
+    Vec2 target = attempt.target, snap = attempt.snap;
+    DrawLandingLine(ft);
+    if (Options_Main[OPT_B0XX].val)
+        DrawB0XXGuide(ft, target, snap, sweep, spacie);
+    else
+        DrawAimedRing(ft, target, snap, sweep, spacie, Outward(), &UpB_Colors);
+    DrawSnapBar(snap, White);
     if (!upb.aiming)
         return;
-    DrawLine(upb.launch, target, White, 8, spacie);
+    DrawLine(upb.launch, AimTarget(), White, 8, spacie);
     Vec2 end = { upb.launch.X + upb.aim.X * upb.distance, upb.launch.Y + upb.aim.Y * upb.distance };
-    GXColor color = AimColor(ft, target);
+    GXColor color = AimColor(ft);
     DrawLine(upb.launch, end, color, 12, spacie);
     DrawDot(end, color, spacie);
 }
 
-// Where to start, with the path turned `tilt` degrees toward the stage.
-static void DrawPathStart(const UpBInfo *info, Vec2 target, float scale, float tilt, GXColor color) {
-    float a = tilt * M_1DEGREE, c = cos(a), s = sin(a), out = Outward() * scale;
-    Vec2 fast = { target.X + out * (info->forward * c + info->rise * s),
-                  target.Y - scale * (info->rise * c - info->forward * s) };
-    Vec2 slow = { target.X + out * (info->end_forward * c + info->end_rise * s),
-                  target.Y - scale * (info->end_rise * c - info->end_forward * s) };
-    DrawLine(fast, slow, color, 12, false);
-    DrawDot(fast, color, false);
-}
-
 static void DrawPathGuide(FighterData *ft, const UpBInfo *info, Vec2 target) {
-    float scale = ft->scale.Y, tilt = FullTilt(ft, info);
-    if (tilt)
-        DrawPathStart(info, target, scale, tilt, DimBlue);
-    DrawPathStart(info, target, scale, 0, Blue);
+    DrawPathStarts(ft, info, target, Outward(), &UpB_Colors);
     if (!upb.used)
         return;
     if (upb.path_set) {
         DrawLine(upb.start, upb.path_end, Yellow, 12, false);
         DrawDot(upb.path_end, Yellow, false);
     }
-    DrawCross(upb.start, 2.5f, Yellow);
+    DrawCross(upb.start, TARGET_SIZE, Yellow);
 }
 
 static void Draw_Guides(void) {
@@ -772,10 +885,10 @@ static void Draw_Guides(void) {
     GFX_AddVtx(ledge_positions[1].X + 100, ledge_positions[1].Y, 0, White);
 
     if (info && info->guide == GUIDE_AIMED)
-        DrawAimedGuide(ft, attempt.target);
+        DrawAimedGuide(ft);
     else if (info && info->guide == GUIDE_PATH)
         DrawPathGuide(ft, info, attempt.target);
-    DrawCross(attempt.target, 2.5f, White);
+    DrawCross(attempt.target, TARGET_SIZE, White);
 
     CObj_SetCurrent(cur_cam);
 }
@@ -801,7 +914,8 @@ static void DrawHUD(GOBJ *gobj, int pass) {
     const UpBInfo *upb_info = GetUpBInfo(ft);
     int rows = upb_info && upb_info->guide == GUIDE_AIMED ? 3 : 2;
     if (upb.aiming && attempt.has_target) {
-        Vec2 need = { attempt.target.X - upb.launch.X, attempt.target.Y - upb.launch.Y };
+        Vec2 at = AimTarget();
+        Vec2 need = { at.X - upb.launch.X, at.Y - upb.launch.Y };
         sprintf(angle_text, "%d / %d", Degrees(upb.aim), Degrees(need));
     } else {
         sprintf(angle_text, "-");
@@ -821,10 +935,11 @@ static void Reset(int new_side) {
 
     GOBJ *hmn = Fighter_GetGObj(0);
     FighterData *hmn_data = hmn->userdata;
+    Options_Main[OPT_LANDING].disable = !GetLandingECB(hmn_data); // Fox and Falco only.
 
     float outward = Outward();
-    Vec2 ledge = ledge_positions[side_idx];
-    float x = ledge.X + outward * PLATFORM_OUT, y = ledge.Y + PLATFORM_UP;
+    Vec2 spot = PlatformSpot(hmn_data, ledge_positions[side_idx], outward);
+    float x = spot.X, y = spot.Y;
     PlaceOnPlatform(hmn, x, y, -outward);
     GOBJ *hmn_sub = Fighter_GetSubcharGObj(0, 1);
     if (hmn_sub && hmn_data->flags.has_follower) {
@@ -862,6 +977,10 @@ void Event_Init(GOBJ *gobj) {
     restarting = false;
     Options_Main[OPT_GUIDES].val = Options_Main[OPT_GUIDES].val_prev =
         TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_GUIDES);
+    Options_Main[OPT_B0XX].val = Options_Main[OPT_B0XX].val_prev =
+        TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_B0XX);
+    Options_Main[OPT_LANDING].val = Options_Main[OPT_LANDING].val_prev =
+        TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_LANDING);
     Options_Main[OPT_MARTH].val = Options_Main[OPT_MARTH].val_prev =
         TM_GetSetting(TM_SETTING_UPB_SWEETSPOT, TM_UPB_MARTH);
     Options_Main[OPT_CAMERA].val = Options_Main[OPT_CAMERA].val_prev =
@@ -926,10 +1045,8 @@ void Event_Think(GOBJ *menu) {
 
     // The target settles while you stand on the platform, then stays put.
     int state = hmn_data->state_id;
-    if (state == ASID_REBIRTH || state == ASID_REBIRTHWAIT || !attempt.has_target) {
-        attempt.target = LedgeTarget(hmn_data);
-        attempt.has_target = true;
-    }
+    if (state == ASID_REBIRTH || state == ASID_REBIRTHWAIT || !attempt.has_target)
+        SetTargets(hmn_data);
     if (state == ASID_REBIRTH || state == ASID_REBIRTHWAIT)
         return;
     EndRespawnInvincibility(hmn_data);

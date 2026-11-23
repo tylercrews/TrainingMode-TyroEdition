@@ -23,9 +23,11 @@
 #define TM_SETTINGS_COLORS_OFFSET 30
 /* Previously unused capacity: byte 6 bits 1-5 human ID+1, bits 6-7 marker 10;
  * byte 37 bits 1-5 CPU ID+1. Palette occupies byte 37 bit 0 only.
- * Byte 37 bit 6 extends Ledgedash's criterion; bit 7 remains unused.
+ * Byte 37 bit 6 extends Ledgedash's criterion; bit 7 is Escape IC Grab's
+ * Actionable Flash (T10), inverted so an unset bit is On.
  * Byte 43 bit 7 stores Side-B Sweetspot's zoomed-out camera. */
 #define TM_SETTINGS_CRITERION_HIGH_MASK 0x40 /* Byte 37: criterion bit 2. */
+#define TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK 0x80 /* Byte 37 bit 7: inverted; unset defaults On. */
 #define TM_SETTINGS_SIGNATURE_OFFSET 38
 #define TM_SETTINGS_RESERVED_OFFSET 40
 #define TM_SETTINGS_EXTRA_FLAGS_OFFSET 40 /* Bits 0/1/2: TurnRun/protection/CPU OSD override. */
@@ -59,6 +61,19 @@
 #define TM_GLOBAL_DONT_RESET_TIMERS_NAME "Don't Reset Timers"
 #define TM_GLOBAL_BLAST_ZONES_ROW 35 /* Editor-only logical row. */
 #define TM_GLOBAL_BLAST_ZONES_NAME "Blast Zone Overlay"
+#define TM_GLOBAL_INVINCIBILITY_ENDING_ROW 36 /* Editor-only logical row. */
+#define TM_GLOBAL_INVINCIBILITY_ENDING_NAME "Invincibility Stoplight"
+#define TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW 37 /* Editor-only logical row. */
+#define TM_GLOBAL_DEBUG_CONSOLE_OFF_NAME "Disable Dev Debug Menu"
+#define TM_GLOBAL_RANDALL_TIMER_ROW 38 /* Editor-only logical row. */
+#define TM_GLOBAL_RANDALL_TIMER_NAME "Randall Timer Minimap"
+/* Only development builds (TM_DEBUG) have the L/R + Z console, so release
+ * builds leave its editor row a gap. */
+#if TM_DEBUG
+#define TM_EDITOR_DEBUG_CONSOLE_OFF TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW
+#else
+#define TM_EDITOR_DEBUG_CONSOLE_OFF 255
+#endif
 #define TM_GLOBAL_MISSED_LCANCEL_NAME "Missed L Cancel"
 #define TM_GLOBAL_ACTION_CUES_NAME "Actionable Yellow>Green"
 #define TM_GLOBAL_RUN_TURN_NAME "Run Turnaround"
@@ -94,9 +109,14 @@ enum TMSettingsFlag {
     TM_FLAG_RANDALL = TM_FLAG_COUNT, /* TYEX byte 8 bit 3; routed by Settings_Get/Set. */
     TM_FLAG_DONT_RESET_TIMERS, /* TYEX byte 8 bit 7: savestate loads keep the match clock. */
     TM_FLAG_BLAST_ZONES, /* TYEX word 20 bit 23: red lines on every stage's blast zones. */
+    TM_FLAG_INVINCIBILITY_ENDING, /* TYEX word 80 bit 6 (T10): Invincibility Stoplight, red then yellow. */
+    TM_FLAG_DEBUG_CONSOLE_OFF, /* TYEX word 80 bit 9 (T10): L/R + Z never opens the development console. */
+    TM_FLAG_RANDALL_TIMER, /* TYEX word 80 bit 20 (T10): Yoshi's Story's match timer maps Randall's loop. */
 };
 /* Flags whose bit lives in the extension, not the full core record. */
-#define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS ||     (index) == TM_FLAG_BLAST_ZONES)
+#define TM_EXTENSION_FLAG(index) ((index) == TM_FLAG_RANDALL || (index) == TM_FLAG_DONT_RESET_TIMERS || \
+    (index) == TM_FLAG_BLAST_ZONES || (index) == TM_FLAG_INVINCIBILITY_ENDING || (index) == TM_FLAG_DEBUG_CONSOLE_OFF || \
+    (index) == TM_FLAG_RANDALL_TIMER)
 
 /* These field numbers are mirrored in ASM/Globals.s. Append; never reorder. */
 enum TMSettingsField {
@@ -120,7 +140,7 @@ enum TMSettingsField {
     TM_SETTING_TECHCHASE, /* Separate extension; manual chances are session-only. */
     TM_SETTING_LEDGECHASE, /* Separate extension; manual ledge chances are session-only. */
     TM_SETTING_UNDERFIRE, /* Event-local saved preferences in the extension. */
-    TM_SETTING_LOW_LASER, /* Event OSDs, suppression, Puff position/height in the extension. */
+    TM_SETTING_LOW_LASER, /* Event OSDs, suppression, Puff position/height, Lowest Laser Lines in the extension. */
     TM_SETTING_POWERSHIELD, /* Powershield event menu, append-only identity. */
     TM_SETTING_SWEETSPOT_CAMERA, /* Index 0 only: Normal (0) / Zoomed Out (1). */
     TM_SETTING_REVERSAL,
@@ -131,15 +151,33 @@ enum TMSettingsField {
     TM_SETTING_COSTUME, /* Index 0 human / 1 CPU: costume of the saved CHARACTER, in the extension. */
     TM_SETTING_EDGEGUARD, /* Edgeguard event menu and each CPU's recovery toggles, in the extension. */
     TM_SETTING_SWEETSPOT_DJ, /* Index 0 only: Double-Jump Height Indicator, TYEX word 20 bit 22; default Off. */
-    TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29. */
+    TM_SETTING_SWEETSPOT, /* Side-B Sweetspot's Success Criteria and Knockback, TYEX word 20 bits 26-29, and Marth, word 72 bit 31. */
     TM_SETTING_GRAB_PUNISH, /* 2v1 Grab Punish's menu and team colors; see TMGrabPunishPreference. */
-    TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18. */
+    TM_SETTING_UPB_SWEETSPOT, /* Up-B Sweetspot's menu, TYEX word 68 bits 16-18 and word 72 bit 28. */
     TM_SETTING_EGGS_COUNTER, /* Index 0 only: Egg Counter Position, TYEX byte 51 bits 5-7. */
     TM_SETTING_EGGS_SPAWN, /* Free Practice's egg spots, TYEX byte 49 bits 6-7. */
     TM_SETTING_LEDGEGRAB_RESET, /* Index 0 only: Reset Speed, TYEX byte 34 bits 4-5. */
     TM_SETTING_DOOR_ZELDA, /* Index: CSS door. 1 if its Zelda icon means Zelda, not Sheik. Runtime-only. */
+    TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
+    TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 and 31 (v22); see TMEscapeSamusPreference. */
+    TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
+    TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 (T10); see TMGrabercisePreference. */
+    TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
+    TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19, 29 and 30, word 12 bits 6-8 (v24) and word 84 bits 0-12 (v25) (T10); see TMTargetsPreference. */
+    TM_SETTING_EVENT_LIST, /* Internal: All Events' place, TYEX word 80 bits 21-27 (T10); see TMEventListPreference. Use EVENT_PAGE and EVENT_SELECTION. */
+    TM_SETTING_EVENT_HOME, /* Runtime-only, read-only: index is an event on the page shown; returns its index on its own page (Events_HomeEvent). */
 };
 enum TMOSDLayout { TM_OSD_RECENT, TM_OSD_FIXED, TM_OSD_PANEL, TM_OSD_LAYOUT_COUNT };
+/* Event Select pages: Minigames, General Tech, Character-specific Tech and
+ * Doubles (T10) are byte 5's low two bits, so four is the most there. All
+ * Events (Alphabetized) (T10) is page 4, after them; pages wrap, so it's the
+ * one left of Minigames. It's saved in TYEX (TMEventListPreference), and byte
+ * 5 keeps the categorized page and its cursor underneath, so each list keeps
+ * its own place. */
+#define TM_EVENT_PAGES 4
+#define TM_EVENT_PAGE_ALL TM_EVENT_PAGES
+/* TM_SETTING_EVENT_LIST's rows: 1 while All Events is the page shown, and its cursor. */
+enum TMEventListPreference { TM_EVENT_LIST_SHOWN, TM_EVENT_LIST_SELECTION, TM_EVENT_LIST_PREF_COUNT };
 
 /* Stable preference IDs, independent of either event's menu row order. */
 enum TMLedgedashPreference {
@@ -165,10 +203,17 @@ enum TMEventPreferenceID { TM_EVENT_LEDGEDASH, TM_EVENT_EGGS, TM_EVENT_PREF_COUN
 enum TMTechchasePreference {
     TM_TECHCHASE_PRESET, TM_TECHCHASE_REACTION_OSD, TM_TECHCHASE_TIMING_OSD,
     TM_TECHCHASE_RESET, TM_TECHCHASE_INVISIBILITY, TM_TECHCHASE_CAMERA,
-    TM_TECHCHASE_LOCATION, TM_TECHCHASE_SPOTDODGE, TM_TECHCHASE_CPU_COLOR,
-    TM_TECHCHASE_HEIGHT, TM_TECHCHASE_DISTANCE,
+    TM_TECHCHASE_LOCATION, TM_TECHCHASE_FOLLOWUP, TM_TECHCHASE_CPU_COLOR,
+    TM_TECHCHASE_HEIGHT, TM_TECHCHASE_DISTANCE, TM_TECHCHASE_SIDE,
     TM_TECHCHASE_PREF_COUNT,
 };
+#define TM_TECHCHASE_PRESET_COUNT 10 /* Getup Attack Only (T10) is 9; 4 bits hold up to 16. */
+#define TM_TECHCHASE_DISTANCE_COUNT 5 /* Right Next To, Close, Medium, Past Tech Roll, Random (T10). */
+#define TM_TECHCHASE_SIDE_COUNT 3 /* Left, Right, Random (T10). */
+/* CPU Followup Action (T10, was Spotdodge Punish Off/On): None, Spotdodge,
+ * Roll Away, Roll In, Shine, Random. Word 9 bit 14 is its low bit, word 80
+ * bits 4-5 the rest. */
+#define TM_TECHCHASE_FOLLOWUP_COUNT 6
 enum TMLedgechasePreference {
     TM_LEDGECHASE_SIDE, TM_LEDGECHASE_CPU_100, TM_LEDGECHASE_PLAYER_PERCENT,
     TM_LEDGECHASE_PRESET, TM_LEDGECHASE_DISTANCE, TM_LEDGECHASE_CPU_COLOR,
@@ -185,6 +230,7 @@ enum TMUnderFirePreference {
 enum TMLowLaserPreference {
     TM_LOW_LASER_OSDS, TM_LOW_LASER_SUPPRESS_GLOBAL,
     TM_LOW_LASER_POSITION, TM_LOW_LASER_HEIGHT, /* TYEX byte 35, still version 15. */
+    TM_LOW_LASER_LOW_LINE, /* Lowest Laser Lines: TYEX word 12 bit 15, version 24 on, no bump. */
     TM_LOW_LASER_PREF_COUNT
 };
 enum TMPowershieldPreference {
@@ -207,7 +253,8 @@ enum TMAttackShieldPreference {
  * six are a second 5-bit mask each, in word 68's bits 19-23 and 24-28.
  * Knockback Height took over Hit Strength's field; Knockback Distance, word
  * 68's bits 29-31, is stored plus 1, so 0 means that field is still Hit
- * Strength (LoadKnockback in edgeguard.c). */
+ * Strength (LoadKnockback in edgeguard.c). The Player and CPU Up-B Overlays
+ * (T10) are word 12's bits 16 and 17, Off as 0, owned from version 24 on. */
 enum TMEdgeguardPreference {
     TM_EG_KB_MIN, TM_EG_KB_MAX, TM_EG_ANGLE_MIN, TM_EG_ANGLE_MAX,
     TM_EG_PLAYER_PERCENT, TM_EG_CPU_PERCENT_MIN, TM_EG_CPU_PERCENT_MAX,
@@ -217,13 +264,16 @@ enum TMEdgeguardPreference {
     TM_EG_RECOVERY_ICECLIMBERS, TM_EG_RECOVERY_PUFF, TM_EG_RECOVERY_SAMUS,
     TM_EG_PLAYER_POSITION, TM_EG_CAMERA, TM_EG_SIDE,
     TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB, TM_EG_KB_DISTANCE,
-    TM_EG_RECOVERY_FOX_UPB, TM_EG_RECOVERY_FALCO_UPB, TM_EG_RECOVERY_LUIGI2, TM_EG_PREF_COUNT
+    TM_EG_RECOVERY_FOX_UPB, TM_EG_RECOVERY_FALCO_UPB, TM_EG_RECOVERY_LUIGI2,
+    TM_EG_UPB_OVERLAY_PLAYER, TM_EG_UPB_OVERLAY_CPU, TM_EG_PREF_COUNT
 };
 /* Side-B Sweetspot: Success Criteria in word 20 bit 26, Knockback in bits
- * 27-29. Zero, which every record that owns word 20 has there, is the default. */
-enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_PREF_COUNT };
+ * 27-29, and Marth (T10) in word 72 bit 31. Zero, which every record that owns
+ * those words has there, is the default. */
+enum TMSweetspotPreference { TM_SWEETSPOT_SUCCESS, TM_SWEETSPOT_KNOCKBACK, TM_SWEETSPOT_MARTH, TM_SWEETSPOT_PREF_COUNT };
 #define TM_SWEETSPOT_SUCCESS_COUNT 2 /* Sweetspot / Sweetspot + Ledgedash. */
 #define TM_SWEETSPOT_KNOCKBACK_COUNT 8 /* Random, six presets, Random Preset. */
+enum TMSweetspotMarth { TM_SWEETSPOT_MARTH_DTILT, TM_SWEETSPOT_MARTH_OFF, TM_SWEETSPOT_MARTH_COUNT };
 /* 2v1 Grab Punish: its menu rows in row order (Grab Location, Your Location,
  * Enemy Percent, Teammate Percent, CPU Mashing, Teammate Facing and Release
  * Hit = Success), then the teams its character select last started a match with
@@ -240,18 +290,131 @@ enum TMGrabPunishPreference {
 };
 #define TM_GP_LOCATION_COUNT 8 /* Random, then seven spots. */
 #define TM_GP_PERCENT_COUNT 11 /* 0% to 200% in steps of 20. */
-#define TM_GP_MASH_COUNT 6 /* No Mash, Light, Medium, Heavy, Very Heavy, Inhuman. */
+#define TM_GP_MASH_COUNT 6 /* No Mash, Light, Medium, Heavy, Extreme, Inhuman: 0 to 50 inputs a second. */
 #define TM_GP_FACING_COUNT 3
 #define TM_GP_TEAM_COUNT 3 /* Red, Blue, Green. */
 #define TM_GP_CHARACTER_COUNT 27 /* None yet, then the 26 external IDs. */
 #define TM_GP_DEFAULT_PERCENT 3 /* 60% */
-#define TM_GP_DEFAULT_MASH 1 /* Light Mash */
+#define TM_GP_DEFAULT_MASH 2 /* Medium Mash (Light before T10) */
+/* Passing Practice: its menu rows in row order (Teammate Aerial, Enemy Percent,
+ * Percent Mode, Reset If Hitstun Ends, Distance, Your Side, Your Facing), in
+ * word 72's spare bits 14-27, 29 and 30 (version 21, no bump). Each is stored
+ * as its distance from its default, so a record that never wrote them, with
+ * those bits zero, reads the defaults. */
+enum TMPassingPreference {
+    TM_PASS_AERIAL, TM_PASS_PERCENT, TM_PASS_MODE, TM_PASS_HITSTUN, TM_PASS_DISTANCE, TM_PASS_SIDE, TM_PASS_FACING,
+    TM_PASS_PREF_COUNT
+};
+#define TM_PASS_AERIAL_COUNT 5 /* Neutral, Forward, Back, Up and Down Air. */
+#define TM_PASS_PERCENT_COUNT 21 /* 0% to 200% in steps of 10. */
+#define TM_PASS_MODE_COUNT 2 /* Frozen %, Rising %. */
+#define TM_PASS_HITSTUN_COUNT 2 /* Off, On (T10). */
+#define TM_PASS_DISTANCE_COUNT 5 /* Very Close to Very Far. */
+#define TM_PASS_SIDE_COUNT 3 /* Left, Right, Random. */
+#define TM_PASS_FACING_COUNT 2 /* Toward, Away from your teammate (T10). */
+#define TM_PASS_DEFAULT_AERIAL 2 /* Back Air */
+#define TM_PASS_DEFAULT_PERCENT 4 /* 40% */
+#define TM_PASS_DEFAULT_DISTANCE 2 /* Medium */
+/* Escape Samus Up-B and Escape IC Grab (T10): their saved menu rows, in row
+ * order, in word 76, which version 22 appends. Each is stored as its distance
+ * from its default, as Passing Practice's are, so the word's zeros read as the
+ * defaults, and the settings added to it later (Grabs-ercise in bits 16-30,
+ * Escape Samus's Goal in 31) need no bump. */
+enum TMEscapeSamusPreference {
+    TM_ESC_SAMUS_POSITION, TM_ESC_SAMUS_DISTANCE, TM_ESC_SAMUS_SIDE, TM_ESC_SAMUS_PERCENT,
+    TM_ESC_SAMUS_GOAL, /* Added after, in word 76's last spare bit, 31: Escape is stored as 0. */
+    TM_ESC_SAMUS_PREF_COUNT
+};
+enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
+#define TM_ESC_POSITION_COUNT 3 /* Ground, Air, Random. */
+#define TM_ESC_DISTANCE_COUNT 4 /* On Top Of, Side, Far Side, Random. */
+#define TM_ESC_SIDE_COUNT 3 /* Random, Left, Right: where Samus is from you. */
+#define TM_ESC_PERCENT_COUNT 21 /* 0% to 200% in steps of 10. */
+#define TM_ESC_DEFAULT_DISTANCE 1 /* Side */
+#define TM_ESC_GOAL_COUNT 2 /* Escape, Punish. */
+/* Grabs-ercise (T10): its timed best, then its saved menu rows, in word 76's
+ * spare bits 16..30 and byte 51's bits 3-4 (Standing CPU), with no version
+ * bump, and CPU Percent in word 80's bits 0-3, which version 23 appends, and
+ * CPU Movement in its bits 7-8, with no bump. Every
+ * row is stored as its distance from its default, as the escape events' are,
+ * so the zeros every record has there read as the defaults: no best yet, timed
+ * mode, Throw, a Random percent, standing CPUs Random, every movement on,
+ * Fighter Collision off, CPU Movement Random. The IDs follow the menu but for
+ * CPU Movement, appended after; each row's bits are its own
+ * (the two in-place dash dances came later, in bits 29 and 30, and Success
+ * Criteria later still, in bit 22, the best's old top bit). */
+enum TMGrabercisePreference {
+    TM_GRABS_BEST, TM_GRABS_FREE_PRACTICE, TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_STANDING,
+    /* The movements, in menu order. */
+    TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL,
+    TM_GRABS_COLLISION,
+    TM_GRABS_MOVEMENT, /* CPU Movement (T10): its row sits above Standing CPU. */
+    TM_GRABS_PREF_COUNT
+};
+#define TM_GRABS_MOVES 6 /* Walk to Roll, from TM_GRABS_WALK. */
+/* The best is 6 bits. A timed minute can't reach 63: every grab takes a whole
+ * throw and a run to a spot at least 30 away. */
+#define TM_GRABS_BEST_MAX 63
+/* What counts: a grab, or a hit after a grab's throw. */
+enum TMGrabsSuccess { TM_GRABS_SUCCESS_THROW, TM_GRABS_SUCCESS_HIT, TM_GRABS_SUCCESS_COUNT };
+/* The CPU's percent in Hit mode: Random, then 0% to 120% in steps of 10. */
+#define TM_GRABS_PERCENT_RANDOM 0
+#define TM_GRABS_PERCENT_COUNT 14
+#define TM_GRABS_PERCENT_STEP 10
+/* What a CPU that doesn't move does: stands, holds shield, or either. */
+enum TMGrabsStanding { TM_GRABS_STAND, TM_GRABS_SHIELD, TM_GRABS_STAND_RANDOM, TM_GRABS_STANDING_COUNT };
+/* Which CPUs move: half of them (Random), none, or all. */
+enum TMGrabsMovement {
+    TM_GRABS_MOVEMENT_RANDOM, TM_GRABS_MOVEMENT_STILL, TM_GRABS_MOVEMENT_MOVING, TM_GRABS_MOVEMENT_COUNT
+};
+/* Target Practice (T10): its timed best, Free Practice and SH Double Lasers,
+ * in word 80's spare bits 10..19, and Hop Peak Lines, appended, in bit 29,
+ * all with no version bump. Every migration to 23 zeroes the word and every
+ * default is 0 (no best, timed runs, single targets, no lines), so each is
+ * stored as itself. Only a version 23 or later record owns them. FH Multi
+ * Lasers, appended after, is word 12's retired bits 6..8, which version 24
+ * claims by zeroing them: only a version 24 record owns it, and 0 is Off.
+ * Double Jump Height, appended after that, is word 80 bit 30, owned and
+ * stored the way Hop Peak Lines is: 0 is Off. The Hop Peak Lines' colors,
+ * appended after that, had no room left: version 25 appends word 84, and they
+ * are its bits 0..3 (short hop) and 4..7 (full hop). Only a version 25 record
+ * owns them. Target Pointers, appended after, is word 84 bit 8, On by
+ * default, stored as its distance from On the way the colors are, so 0 is On.
+ * Lowest Laser Lines, appended after, is word 84 bits 9..12: Off (0, the
+ * default) or a line color plus one, stored as itself. */
+enum TMTargetsPreference { TM_TARGETS_BEST, TM_TARGETS_FREE_PRACTICE, TM_TARGETS_SHDL, TM_TARGETS_LINES,
+                           TM_TARGETS_FULL_HOP, TM_TARGETS_DOUBLE_JUMP, TM_TARGETS_SH_COLOR, TM_TARGETS_FH_COLOR,
+                           TM_TARGETS_POINTERS, TM_TARGETS_LOW_LINE, TM_TARGETS_PREF_COUNT };
+/* A Hop Peak Line's base color: the OSD palette's White..Lavender, value v
+ * being TM_COLOR_WHITE + v. Each is stored as its distance from its default,
+ * Orange for the short hop's and Teal for the full hop's, so word 84's zeros
+ * read as those. A stored 15 isn't a color and reads as the default. */
+#define TM_TARGETS_COLOR_COUNT (TM_COLOR_COUNT - TM_COLOR_WHITE)
+#define TM_TARGETS_SH_COLOR_DEFAULT (TM_COLOR_ORANGE - TM_COLOR_WHITE)
+#define TM_TARGETS_FH_COLOR_DEFAULT (TM_COLOR_TEAL - TM_COLOR_WHITE)
+/* Lowest Laser Lines: 0 Off, else line color value - 1 (White 1..Lavender 15). */
+#define TM_TARGETS_LOW_LINE_COUNT (TM_TARGETS_COLOR_COUNT + 1)
+/* FH Multi Lasers as saved: Off, every combo at random, or one combo every
+ * spawn. High-Low took Peak-Low's value, and High-Lowest's (6), which nothing
+ * writes now, reads as High-Low too. The menu lists High-Medium before
+ * High-Low (FullHopToSaved in targets.c). */
+enum TMTargetsFullHop {
+    TM_TARGETS_FH_OFF, TM_TARGETS_FH_ALL, TM_TARGETS_FH_HI_HI_LOW, TM_TARGETS_FH_HIGH_MEDHIGH,
+    TM_TARGETS_FH_HIGH_LOW, TM_TARGETS_FH_HIGH_MEDIUM, TM_TARGETS_FH_OLD_HIGH_LOWEST, TM_TARGETS_FH_COUNT
+};
+/* The best is 8 bits. A target takes a laser's flight and usually a jump, so
+ * a minute is nowhere near 255. */
+#define TM_TARGETS_BEST_MAX 255
 /* Up-B Sweetspot: Enable Line Guides (default On), Marth (Forward Smash / Down
  * Tilt / Off, with its top bit in word 56) and Camera (Normal / Zoomed Out), in
- * word 68 (version 20). */
-enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_PREF_COUNT };
+ * word 68 (version 20), B0XX Angles (default Off, T10) in word 72 bit 28, and
+ * Landing Line (default Off, T10) in word 80 bit 28. Landing Line is appended,
+ * though the menu lists it third; each row's bits are its own, wherever it sits. */
+enum TMUpBSweetspotPreference { TM_UPB_GUIDES, TM_UPB_B0XX, TM_UPB_MARTH, TM_UPB_CAMERA, TM_UPB_LANDING,
+                                TM_UPB_PREF_COUNT };
 enum TMUpBMarth { TM_UPB_MARTH_FSMASH, TM_UPB_MARTH_DTILT, TM_UPB_MARTH_OFF, TM_UPB_MARTH_COUNT };
-/* Edgeguard Side choices: which ledge each attempt uses. */
+/* Edgeguard Side choices as saved: which ledge each attempt uses. The menu lists
+ * them Left, Right, Random (edgeguard.h), but 0 stays Random for older saves. */
 enum { TM_EG_SIDE_RANDOM, TM_EG_SIDE_LEFT, TM_EG_SIDE_RIGHT, TM_EG_SIDE_COUNT };
 #define TM_EG_KB_HEIGHT_COUNT 7 /* Random, five heights, Custom. */
 #define TM_EG_KB_DISTANCE_COUNT 5 /* Random, four distances. */
@@ -322,5 +485,8 @@ int Settings_EventCharacters(unsigned step);
 void Settings_ResetEventRecords(void *card);
 void *Settings_EventScoreSlot(unsigned event);
 unsigned Events_ScoreIndex(unsigned page, unsigned event);
+/* An event's index on its own page: itself on a categorized page, and on All
+ * Events the index its descriptor has on its own page. */
+unsigned Events_HomeEvent(unsigned page, unsigned event);
 
 #endif

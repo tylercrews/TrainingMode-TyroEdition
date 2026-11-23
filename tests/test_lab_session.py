@@ -7,8 +7,15 @@ from pathlib import Path
 from test_menu import Machine, ROOT, reg
 
 # Probe tables (Option() in lab_session_probe.c) and lab.h row indices.
-GENERAL, CPU, TECH, INFO, TRAILS, RNG, RECOVERY, ADV, LOG, STADIUM, CONTROLS, RECORD = range(12)
+GENERAL, CPU, TECH, INFO, TRAILS, RNG, RECOVERY, ADV, LOG, STADIUM, CONTROLS, RECORD, STORY = range(13)
 GEN_PCNT, GEN_LOCK, GEN_MODEL, GEN_HIT, GEN_CAM, GEN_HUD, GEN_INPUT, GEN_SPEED = 1, 2, 3, 4, 7, 10, 12, 13
+GEN_TIMER_LOOP = 19
+STORY_RANDALL_ON = 0
+MATCH_TIMER_COUNTDOWN, MATCH_TIMER_COUNTUP = 2, 3
+RANDALL_GROUP = 2  # Its index in the game's collision groups, in the probe.
+# TestLabRandall keys.
+HIDDEN, PUFF_TIMER, COLL_CALLS, LAST_COLL, REQUESTS, REQUESTED, DIGIT_SETS, SECONDS, CENTIS, ANIMS, RANDALL_ON = range(11)
+LOOP = 8 * 60 * 60
 CPU_PCNT, CPU_TDI, CPU_BEHAVE, CPU_INTANG = 0, 3, 8, 17
 TECH_TECH, TECH_AWAY_CHANCE, TECH_CHANCES = 0, 8, (7, 8, 9, 10)
 INFO_PRESET, INFO_ROW2 = 0, 3
@@ -106,9 +113,27 @@ class LabSessionTests(unittest.TestCase):
 
     def test_session_lists_only_unsaved_lab_rows(self):
         lab = Lab(); lab.init()
-        # General 12 (no Input Display), CPU 18, Tech 16, Info 2x10, Trails 2, Peach RNG 2,
-        # Fox recovery 12, Advanced Counter 10x8, Action Log 10x7. Reset adds Stadium's row.
-        self.assertEqual((lab.info(20), lab.info(21)), (232, 233))
+        # General 13 (no Input Display; Timer 8m Inf Loop is one), CPU 18, Tech 16, Info 2x10,
+        # Trails 2, Peach RNG 2, Fox recovery 12, Advanced Counter 10x8, Action Log 10x7.
+        # Reset adds Stadium's row.
+        self.assertEqual((lab.info(20), lab.info(21)), (233, 234))
+        # On Yoshi's Story, Reset adds only the Lab's own Randall row: Randall
+        # Overlay and Randall Timer Minimap are saved Global settings.
+        lab.call('TestLabRandallInit', 1)
+        self.assertEqual((lab.info(20), lab.info(21)), (233, 234))
+        self.assertEqual(lab.call('TestLabRandall', 11), GEN_TIMER_LOOP)
+
+    def test_timer_loop_is_an_unsaved_session_row_that_starts_off(self):
+        old = Lab(); old.init()
+        self.assertEqual(old.value(GENERAL, GEN_TIMER_LOOP), 0)
+        old.choose(GENERAL, GEN_TIMER_LOOP, 1)
+        old.call('TestLabStageSwap', 1)
+        new = Lab(); old.carry_into(new)
+        self.assertEqual(new.init(), 1)
+        new.call('TestLabFirstFrame')
+        self.assertEqual(new.value(GENERAL, GEN_TIMER_LOOP), 1)  # Kept across a stage change...
+        new.call('TestLabReset')
+        self.assertEqual(new.value(GENERAL, GEN_TIMER_LOOP), 0)  # ...and back Off on Reset.
 
     def test_reset_restores_every_default_and_its_effect_in_place(self):
         lab = Lab(); lab.init()
@@ -183,6 +208,164 @@ class LabSessionTests(unittest.TestCase):
             address, size = old.m.symbols[symbol], (2048 if symbol == 'carry_data' else 4)
             new.m.cpu.mem_write(address, bytes(old.m.cpu.mem_read(address, size)))
         self.assertEqual((new.init(), new.init()), (1, 0))
+
+
+def game_countdown(frames, start=8 * 60):
+    """A VS match's timer after this many frames: time_ms counts up from 59, and
+    each time it wraps, seconds go down; it shows 99 - ms * 99 / 59 (8016CD98, 8016AF0C)."""
+    seconds, ms = start, 59
+    for _ in range(frames):
+        ms += 1
+        if ms == 60:
+            ms = 0
+            if seconds:
+                seconds -= 1
+    return seconds, 99 - int(ms * 99.0 / 59.0)
+
+
+class TimerLoopTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.lab = Lab(); self.lab.init()
+
+    def digits(self, frames):
+        value = self.lab.call('TestLabTimerDigits', frames)
+        return value // 100, value % 100
+
+    def test_it_counts_down_from_8_minutes_as_a_vs_match_timer_shows_it(self):
+        self.assertEqual(self.digits(0), (480, 0))  # 8:00.00
+        self.assertEqual(self.digits(1), (479, 99))
+        self.assertEqual(self.digits(60), (479, 0))
+        self.assertEqual(self.digits(582), (470, 31))  # 7:50.31, as a VS match shows it 582 frames in.
+        self.assertEqual(self.digits(LOOP - 1), (0, 2))
+        self.assertEqual(game_countdown(582), (470, 31))
+        # Every frame of the 8 minutes, as the game counts them down.
+        seconds, ms = 480, 59
+        for frames in range(LOOP + 1):
+            with self.subTest(frames=frames):
+                self.assertEqual(self.digits(frames), (seconds, 99 - int(ms * 99.0 / 59.0)))
+            ms += 1
+            if ms == 60:
+                ms = 0
+                seconds = max(0, seconds - 1)
+
+    def test_it_reaches_zero_then_starts_again_from_8_minutes(self):
+        self.assertEqual(self.digits(LOOP), (0, 0))  # 0:00.00...
+        self.assertEqual(self.digits(LOOP + 1), (479, 99))  # ...then the loop starts again.
+        self.assertEqual(self.digits(2 * LOOP), (0, 0))
+        for frames in (1, 582, 12345, LOOP - 1):
+            self.assertEqual(self.digits(frames + 3 * LOOP), self.digits(frames))
+        self.assertEqual(LOOP % 1200, 0)  # 24 of Randall's laps.
+
+    def test_it_redraws_the_timer_only_while_on_and_counting_up(self):
+        lab = self.lab
+        lab.call('TestLabTimer', MATCH_TIMER_COUNTUP, 9, 41)  # 0:09.69 counting up, 581 frames.
+        lab.call('TestLabTimerLoop', 1)
+        self.assertEqual(lab.call('TestLabRandall', DIGIT_SETS), 0)  # Off: the game's own timer.
+        lab.choose(GENERAL, GEN_TIMER_LOOP, 1)
+        lab.call('TestLabTimerLoop', 1)
+        self.assertEqual([lab.call('TestLabRandall', k) for k in (DIGIT_SETS, SECONDS, CENTIS, ANIMS)],
+                         [1, 470, 32, 1])  # The same moment: 7:50.32, applied to the digits.
+        lab.call('TestLabTimer', MATCH_TIMER_COUNTUP, 10, 0)
+        lab.call('TestLabTimerLoop', 1)
+        self.assertEqual((lab.call('TestLabRandall', SECONDS), lab.call('TestLabRandall', CENTIS)), (470, 0))
+        lab.call('TestLabTimerLoop', 0)  # No timer this match.
+        self.assertEqual(lab.call('TestLabRandall', DIGIT_SETS), 0)
+        lab.call('TestLabTimer', MATCH_TIMER_COUNTDOWN, 10, 0)  # Not the Lab's own count-up timer.
+        lab.call('TestLabTimerLoop', 1)
+        self.assertEqual(lab.call('TestLabRandall', DIGIT_SETS), 0)
+
+    def test_timer_frames_read_what_the_timer_shows(self):
+        lab = self.lab
+        lab.call('TestLabTimer', MATCH_TIMER_COUNTUP, 9, 41)
+        self.assertEqual(lab.call('TestLabTimerFrames'), 581)
+        # Counting down from 8:00: a VS match 582 frames in shows 7:50.31.
+        lab.call('TestLabTimerStart', 480, 0)
+        seconds, ms = 480, 59
+        for frames in range(0, 2000):
+            if frames % 97 == 0 or frames in (1, 59, 60, 61, 582):
+                with self.subTest(frames=frames):
+                    lab.call('TestLabTimer', MATCH_TIMER_COUNTDOWN, seconds, ms)
+                    self.assertEqual(lab.call('TestLabTimerFrames'), frames)
+            ms += 1
+            if ms == 60:
+                ms, seconds = 0, seconds - 1
+
+
+class RandallTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls): build()
+
+    def setUp(self):
+        self.lab = Lab(); self.lab.init()
+        self.assertEqual(self.lab.call('TestLabRandallInit', 1), RANDALL_GROUP)
+
+    def r(self, key): return self.lab.call('TestLabRandall', key)
+
+    def test_randall_starts_on(self):
+        self.assertEqual(self.lab.value(STORY, STORY_RANDALL_ON), 1)
+        self.lab.call('TestLabRandallThink')
+        self.assertEqual([self.r(k) for k in (HIDDEN, COLL_CALLS)], [0, 0])
+
+    def test_off_hides_him_and_switches_off_his_platform_and_puffs(self):
+        lab = self.lab
+        lab.choose(STORY, STORY_RANDALL_ON, 0)  # Right away, for a change while paused.
+        self.assertEqual([self.r(k) for k in (HIDDEN, PUFF_TIMER, COLL_CALLS, LAST_COLL)], [1, 0x7FFF, 1, -(RANDALL_GROUP + 1)])
+        self.assertEqual(self.r(13), 0)  # Only the cloud: his other joints keep their flags.
+        for _ in range(3):
+            lab.call('TestLabRandallThink')
+        self.assertEqual([self.r(k) for k in (HIDDEN, PUFF_TIMER, COLL_CALLS)], [1, 0x7FFF, 1])  # Once.
+        lab.choose(STORY, STORY_RANDALL_ON, 1)
+        self.assertEqual([self.r(k) for k in (HIDDEN, PUFF_TIMER, COLL_CALLS, LAST_COLL)], [0, 0, 2, RANDALL_GROUP + 1])
+
+    def test_reset_turns_him_back_on(self):
+        lab = self.lab
+        lab.choose(STORY, STORY_RANDALL_ON, 0)
+        lab.call('TestLabReset')
+        self.assertEqual([self.r(k) for k in (RANDALL_ON, HIDDEN, LAST_COLL)], [1, 0, RANDALL_GROUP + 1])
+
+    def test_he_keeps_to_the_timer_as_a_match_keeps_him(self):
+        lab, offset = self.lab, self.r(12)
+        self.assertEqual(offset, 125)
+        lab.call('TestLabTimer', MATCH_TIMER_COUNTUP, 9, 41)  # 581 frames.
+        now = (581 + offset) % 1200
+        for frame in (now, now - 1, now + 1):  # In step, or a frame off: left alone.
+            with self.subTest(frame=frame):
+                lab.call('TestLabCloudFrame', frame)
+                lab.call('TestLabRandallThink')
+                self.assertEqual(self.r(REQUESTS), 0)
+        for frame in (now - 2, now + 2, 0, 600):  # Off the timer: on it from the next frame.
+            with self.subTest(frame=frame):
+                lab.call('TestLabCloudFrame', frame)
+                lab.call('TestLabRandallThink')
+                self.assertEqual((self.r(REQUESTS), self.r(REQUESTED)), (1, now + 1))
+        # Across the end of his loop: 1199 and 0 are a frame apart.
+        lab.call('TestLabTimer', MATCH_TIMER_COUNTUP, 0, 1199 - offset)
+        for frame in (0, 1198):
+            lab.call('TestLabCloudFrame', frame)
+            lab.call('TestLabRandallThink')
+            self.assertEqual(self.r(REQUESTS), 0)
+        lab.call('TestLabCloudFrame', 1)
+        lab.call('TestLabRandallThink')
+        self.assertEqual(self.r(REQUESTED), 0)  # 1199's next frame.
+
+    def test_switched_off_he_still_keeps_to_the_timer(self):
+        lab = self.lab
+        lab.choose(STORY, STORY_RANDALL_ON, 0)
+        lab.call('TestLabTimer', MATCH_TIMER_COUNTUP, 100, 0)
+        lab.call('TestLabCloudFrame', 3)
+        lab.call('TestLabRandallThink')
+        self.assertEqual(self.r(REQUESTED), (6000 + self.r(12) + 1) % 1200)
+
+    def test_nothing_happens_without_him(self):
+        lab = Lab(); lab.init()
+        self.assertEqual(lab.call('TestLabRandallInit', 0), -1)
+        lab.choose(STORY, STORY_RANDALL_ON, 0)
+        lab.call('TestLabCloudFrame', 500)
+        lab.call('TestLabRandallThink')
+        self.assertEqual([lab.call('TestLabRandall', k) for k in (HIDDEN, COLL_CALLS, REQUESTS)], [0, 0, 0])
 
 
 class FighterSwapTests(unittest.TestCase):

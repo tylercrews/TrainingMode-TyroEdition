@@ -9,7 +9,7 @@ static JOBJ model_joints[2];
 static LowLaserData data;
 static MenuData menu_data;
 static Text texts[3]; /* Laser Start, Fastfall, then the clock. */
-static unsigned preferences[TM_LOW_LASER_PREF_COUNT] = {1, 0, 0, 0}, serial;
+static unsigned preferences[TM_LOW_LASER_PREF_COUNT] = {1, 0, 0, 0, 0}, serial;
 static CollDataStage test_stage;
 static CollLine test_lines[180];
 static CollLineDesc test_descriptors[180];
@@ -24,6 +24,24 @@ static int timer_seconds = -1, timer_fields;
 static const s16 *suppression;
 static int percent_hud, ended, restarted = -1;
 static ftCommonData common;
+/* Drawing: the GX link Event_Init adds, and each GFX_Start's shape, count,
+ * width and depth test. The vertices go to the GX FIFO, which the test records. */
+#define DRAWS 8
+static GOBJ drawer;
+static void (*gx_callback)(GOBJ *, int);
+static int gx_link = -1, gx_priority, draws, draw_info[DRAWS][4];
+static float blast_left = -224, blast_right = 224;
+static void GFXStart(u16 count, GFX_Params params) {
+    if (draws < DRAWS) {
+        draw_info[draws][0] = params.shape; draw_info[draws][1] = count;
+        draw_info[draws][2] = params.size; draw_info[draws][3] = params.no_depth;
+    }
+    ++draws;
+}
+float Stage_GetBlastzoneLeft() { return blast_left; }
+float Stage_GetBlastzoneRight() { return blast_right; }
+GOBJ *GObj_Create(int entity_class, int p_link, int p_priority) { return &drawer; }
+void GObj_AddGXLink(GOBJ *gobj, void *cb, int link, int priority) { gx_callback = cb; gx_link = link; gx_priority = priority; }
 void memset(void *dest, int value, int size) { u8 *p = dest; while (size--) *p++ = value; }
 static u32 Read(unsigned field, unsigned index) { return preferences[index]; }
 static void Write(unsigned field, unsigned index, u32 value) { preferences[index] = value; ++writes; }
@@ -90,7 +108,7 @@ int TestLaserInit(void) {
     *event_vars_ptr_loc = &vars;
     vars.event_gobj = &event; vars.menu_gobj = &menu_object;
     vars.settings = &api; vars.get_restore_serial = Serial; vars.set_osd_suppression = Suppress;
-    vars.restart_on_stage = Restart;
+    vars.restart_on_stage = Restart; vars.GFX_Start = GFXStart;
     event.userdata = &data; menu_object.userdata = &menu_data;
     for (int i = 0; i < 2; ++i) {
         fighters[i].userdata = &ft[i]; fighters[i].hsd_object = &joints[i]; ft[i].ply = i;
@@ -170,6 +188,9 @@ void TestLaserNativeInput(int down) {
     ft[0].input.timer_lstick_tilt_y = 0;
 }
 unsigned TestLaserObject(void) { return (unsigned)&event; }
+// Run the draw callback; returns how many batches it started.
+int TestLaserDraw(int pass) { draws = 0; if (gx_callback) gx_callback(&drawer, pass); return draws; }
+int TestLaserDrawInfo(int draw, int key) { return draw < DRAWS ? draw_info[draw][key] : -1; }
 unsigned TestLaserFighter(int player) { return (unsigned)&ft[player]; }
 unsigned TestLaserText(int i) { return (unsigned)&texts[i]; }
 int TestLaserInfo(int key) {
@@ -233,6 +254,11 @@ int TestLaserInfo(int key) {
     case 53: return texts[2].trans.Y;
     case 54: return texts[2].align;
     case 55: return data.timer == &texts[2] && text_rows[2] == 1 && text_colors[2][0] == 0xFFFFFFFF;
+    case 56: return options[OPT_LOW_LINE].val;
+    case 57: return preferences[TM_LOW_LASER_LOW_LINE];
+    case 58: return options[OPT_LOW_LINE].val_prev;
+    case 59: return gx_callback == LowLaser_GX && gx_link == MATCHGX_EFFECT && gx_priority == 255;
+    case 60: return options[OPT_LOW_LINE].kind == OPTKIND_TOGGLE;
     }
     return -999;
 }

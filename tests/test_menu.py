@@ -143,8 +143,11 @@ class MenuTests(unittest.TestCase):
 
     def test_views_follow_canonical_values(self):
         session = self.m.call("TestMenuTab", 0)
-        option = self.m.call("TestMenuOption", session, 4)
+        # Player Percent, after the selectors, Frame Advance, Game Speed and Timer 8m Inf Loop.
+        option = self.m.call("TestMenuOption", session, 5)
         self.assertEqual(self.m.call("TestMenuOrigin", option), 101)
+        loop = self.m.call("TestMenuOption", session, 4)
+        self.assertEqual(self.m.call("TestMenuOrigin", loop), 119)  # LabOptions_General[OPTGEN_TIMER_LOOP]
         self.m.call("TestMenuWriteSource", 1, 1, 77)
         self.assertEqual(self.m.call("TestMenuValue", option), 77)
 

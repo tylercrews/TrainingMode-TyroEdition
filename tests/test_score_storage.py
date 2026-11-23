@@ -1,7 +1,8 @@
 """Execute native DOL save, checksum, score-access and reset boundaries.
 
-Run with Unicorn available (the settings test dependencies also suffice):
-    PYTHONPATH=build/tangibility-test-deps python tests/test_score_storage.py -v
+Requires Unicorn, installed into build/test-deps or the Python environment,
+like the other settings tests:
+    python tests/test_score_storage.py -v
 
 No card file is written. CARDWrite is intercepted after the native code has
 copied, checksummed and encrypted the payload, and the native decoder verifies
@@ -10,12 +11,14 @@ the captured sector. Real card/Dolphin error handling remains a separate check.
 from pathlib import Path
 import re
 import struct
+import sys
 import unittest
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "build/test-deps"))
 from unicorn import Uc, UC_ARCH_PPC, UC_MODE_32, UC_MODE_BIG_ENDIAN, UC_HOOK_CODE
 from unicorn import ppc_const as reg
 
-ROOT = Path(__file__).resolve().parents[1]
 BASE = 0x8045A6C0
 SCORE_START, SPARE_START, SCORE_END = 0x1A70, 0x1AE0, 0x1B3C
 SPARE_END, SPARE_SIZE = 0x1B38, 88
@@ -116,11 +119,13 @@ class ScoreStorageAudit(unittest.TestCase):
     def test_catalogue_retains_28_legacy_scores_and_reserves_slot_50_for_ledgechase(self):
         source = (ROOT / "src/events.c").read_text()
         counts = []
-        for array in ("Minigames_Events", "General_Events", "CharacterSpecific_Events"):
+        for array in ("Minigames_Events", "General_Events", "CharacterSpecific_Events", "Doubles_Events"):
             body = re.search(r"static EventDesc \*" + array + r"\[\] = \{(.*?)\};",
                              source, re.S).group(1)
             counts.append(len(re.findall(r"&\w+", body)))
-        self.assertEqual(counts, [6, 18, 9])
+        # Grab Punish moved from General Tech's end to the Doubles page in T10,
+        # and Grabs-ercise, then Target Practice, joined the end of Minigames.
+        self.assertEqual(counts, [8, 17, 11, 2])
         self.assertEqual(SCORE_START + 28 * 4, SPARE_START)
         self.assertEqual(SCORE_START + 50 * 4, SPARE_END)
         self.assertEqual((SCORE_END - SCORE_START) // 4, 51)
@@ -225,16 +230,20 @@ class ScoreStorageAudit(unittest.TestCase):
         machine.call(functions[28],33,0,16)  # Split-bit Reversal action is a live preference.
         machine.call(functions[28],34,0,14)
         machine.call(functions[28],34,4,1)
-        machine.cpu.mem_write(BASE + SPARE_START + 76,bytes((index*13+3)&255 for index in range(SPARE_SIZE-76)))  # After the 76-byte TYEX record.
+        machine.cpu.mem_write(BASE + SPARE_START + 84,bytes((index*13+3)&255 for index in range(SPARE_SIZE-84)))  # After the 84-byte TYEX record.
         canary=bytes(machine.cpu.mem_read(BASE+SPARE_START,SPARE_SIZE))
-        # Scored events per page and their slots. 2v1 Grab Punish (page 1, 17),
-        # Up-B Sweetspot (page 2, 3) and Low Laser (page 2, 8) are unscored, and
-        # the events after Up-B Sweetspot keep their original slots.
+        # Scored events per page and their slots. Ledgegrab Speedrun and
+        # Grabs-ercise (page 0, 5 and 6, whose best is in TYEX), Up-B Sweetspot (page 2, 3),
+        # Low Laser (page 2, 8), Escape Samus Up-B and Escape IC Grab (page 2,
+        # 9 and 10) and both Doubles events (page 3) are unscored, and the
+        # events after Up-B Sweetspot keep their original slots. Index 17 on
+        # page 1, where Grab Punish was until T10, is past its end now.
         scored = {0: {event: event for event in range(5)},
                   1: {**{event: 5 + event for event in range(16)}, 16: 50},
-                  2: {event: 21 + event - (event > 3) for event in (0, 1, 2, 4, 5, 6, 7)}}
-        unscored = {0: (5, 6), 1: (17, 18), 2: (3, 8, 9)}
-        for page in range(3):
+                  2: {event: 21 + event - (event > 3) for event in (0, 1, 2, 4, 5, 6, 7)},
+                  3: {}}
+        unscored = {0: (5, 6, 7), 1: (17, 18), 2: (3, 8, 9, 10, 11), 3: (0, 1, 2)}
+        for page in range(4):
             machine.call(functions[28], 2, 0, page)
             for event, slot in scored[page].items():
                 value = 0xAABB0000 | slot

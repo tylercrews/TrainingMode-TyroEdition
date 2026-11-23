@@ -6,10 +6,18 @@
 #include <string.h>
 
 typedef struct ExtensionPreference { uint8_t shift, width; uint16_t count, initial; } ExtensionPreference;
+/* Player Distance's Random (T10) needs a third bit: word 9's spare bit 15 is
+ * its top bit (see top_bit). No version bump: no record ever wrote that bit,
+ * so saved distances keep their meaning, and v1 migration clears it. Player
+ * Side (T10) takes byte 50 bits 3..4 (word 48 bits 19..20), see
+ * preference_offset. CPU Followup Action (T10) grew out of Spotdodge
+ * Punish's one bit, word 9 bit 14, which stays its low bit, so a saved Off or
+ * On still reads as None or Spotdodge. Its high bits are word 80's spare bits
+ * 4..5 (see TECH_FOLLOWUP_HIGH_SHIFT). */
 static const ExtensionPreference tech_preferences[TM_TECHCHASE_PREF_COUNT] = {
-    {0,4,9,0}, {4,1,2,0}, {5,1,2,1}, {6,2,3,0},
-    {8,2,3,0}, {10,2,3,0}, {12,2,4,0}, {14,1,2,0}, {16,3,8,7},
-    {19,2,4,0}, {21,2,4,0},
+    {0,4,TM_TECHCHASE_PRESET_COUNT,0}, {4,1,2,0}, {5,1,2,1}, {6,2,3,0},
+    {8,2,3,0}, {10,2,3,0}, {12,2,4,0}, {14,1,TM_TECHCHASE_FOLLOWUP_COUNT,0}, {16,3,8,7},
+    {19,2,4,0}, {21,2,TM_TECHCHASE_DISTANCE_COUNT,0}, {19,2,TM_TECHCHASE_SIDE_COUNT,0},
 };
 /* The Lava Overlay bit is word 20's former padding: every record that owns
  * word 20 (version 11 on) zeroed it, so no version bump is needed. Remove
@@ -20,17 +28,25 @@ static const ExtensionPreference under_fire_preferences[TM_UNDERFIRE_PREF_COUNT]
  * zeroed padding, word 20 bit 22, also without a version bump. */
 static const ExtensionPreference sweetspot_dj_preference = {22,1,2,0};
 /* Its Success Criteria and Knockback take bits 26..29 of the same padding,
- * which nothing ever wrote, so zero reads as Sweetspot and Random. */
+ * which nothing ever wrote, so zero reads as Sweetspot and Random. Marth (T10)
+ * takes word 72's last spare bit, 31, with no version bump: every migration to
+ * 21 zeroed it, and Down Tilt, the default, is 0. */
 static const ExtensionPreference sweetspot_preferences[TM_SWEETSPOT_PREF_COUNT] = {
     {26,1,TM_SWEETSPOT_SUCCESS_COUNT,0}, {27,3,TM_SWEETSPOT_KNOCKBACK_COUNT,0},
+    {31,1,TM_SWEETSPOT_MARTH_COUNT,0},
 };
 /* The global Blast Zone Overlay flag takes the last bit of that padding, word
  * 20 bit 23 (byte 22 bit 7), the same way. */
 #define BLAST_ZONES_BYTE 22
 #define BLAST_ZONES_BIT 0x80u
-/* Position and height occupy byte 35 (word at 32, bits 24..30). */
+/* Position and height occupy byte 35 (word at 32, bits 24..30). Lowest Laser
+ * Lines (T10), appended after, is back in word 12 next to the toggles: bit 15,
+ * one of the retired bits every migration to version 24 zeroes (see
+ * RETIRED_LEDGE_BITS), with no version bump. Off, the default, is 0, and only
+ * a version 24 or later record owns it. */
+#define LOW_LASER_LOW_LINE_SHIFT 15
 static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {
-    {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0},
+    {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0}, {LOW_LASER_LOW_LINE_SHIFT,1,2,0},
 };
 static const ExtensionPreference powershield_preferences[TM_PS_PREF_COUNT] = {
     {0,2,4,0}, {2,6,61,0}, {8,6,61,20}, {14,3,5,0},
@@ -59,11 +75,17 @@ static const ExtensionPreference ledge_preferences[TM_LEDGECHASE_PREF_COUNT] = {
  * read as Close, the original spot, with no version bump. Camera takes word
  * 56's spare bit 30 the same way: zero is Normal. Side takes word 20's spare
  * bits 24..25: zero is Random. Word 20's padding is kept through migrations,
- * so only a Settings_Set writes Side; an invalid 3 reads as Random. */
+ * so only a Settings_Set writes Side; an invalid 3 reads as Random. The Player
+ * and CPU Up-B Overlays (T10) take word 12's bits 16..17, two of the retired
+ * bits every migration to version 24 zeroes (see RETIRED_LEDGE_BITS), with no
+ * version bump: Off, the default, is 0, and only a version 24 or later record
+ * owns them. */
 #define EDGEGUARD_OFFSET 52
 #define EDGEGUARD_SIZE 12
 #define EDGEGUARD2_OFFSET 64
 #define EDGEGUARD2_SIZE 4
+#define EDGEGUARD_UPB_OVERLAY_OFFSET 12
+#define EDGEGUARD_UPB_OVERLAY_SHIFT 16
 static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     {0,9,301,100}, {9,9,301,120}, {18,7,91,45}, {25,7,91,60},
     {0,10,999,0}, {10,10,1000,50}, {20,10,1000,80},
@@ -81,6 +103,8 @@ static const ExtensionPreference edgeguard_preferences[TM_EG_PREF_COUNT] = {
     /* word 72: Firefox To Ledge, Firebird To Ledge, Luigi's Up B Sweetspot and
      * Backflip Jump Sweetspot */
     {10,1,2,0}, {11,1,2,0}, {12,2,4,0},
+    /* word 12: Player and CPU Up-B Overlay */
+    {EDGEGUARD_UPB_OVERLAY_SHIFT,1,2,0}, {EDGEGUARD_UPB_OVERLAY_SHIFT+1,1,2,0},
 };
 /* Version 20 appends word 68: 2v1 Grab Punish's menu in bits 0..13 and Up-B
  * Sweetspot's in bits 16..18. Every record that owns word 68 zeroed the rest,
@@ -126,6 +150,7 @@ static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
 typedef char TMExtension_GrabPunishTopBits[(TM_GP_PERCENT_COUNT<=16 && TM_GP_MASH_COUNT<=8) ? 1 : -1];
 typedef char TMExtension_UpBMarthTopBit[(TM_UPB_MARTH_COUNT<=4) ? 1 : -1];
 static unsigned top_bit(unsigned field,unsigned index) {
+    if(field==TM_SETTING_TECHCHASE) return index==TM_TECHCHASE_DISTANCE?RECORD_BIT(9,15):0;
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_MARTH?RECORD_BIT(56,31):0;
     if(field!=TM_SETTING_GRAB_PUNISH) return 0;
     return index==TM_GP_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,22):index==TM_GP_MATE_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,23):
@@ -134,9 +159,182 @@ static unsigned top_bit(unsigned field,unsigned index) {
 /* Marth was Tipper / Off, one bit. The menu is now Forward Smash, Down Tilt,
  * Off, so a saved Off keeps its 1 and Down Tilt takes the top bit. */
 #define UPB_MARTH_STORED(value) ((value)?3-(value):0)
+/* B0XX Angles (T10) takes word 72's spare bit 28 with no version bump: every
+ * migration to 21 zeroed it, and its default, Off, is 0. Landing Line (T10)
+ * takes word 80's bit 28 the same way (every migration to 23 zeroes word 80),
+ * so only a version 23 record owns it. */
+#define UPB_LANDING_SHIFT 28
 static const ExtensionPreference upb_sweetspot_preferences[TM_UPB_PREF_COUNT] = {
-    {16,1,2,1}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0},
+    {16,1,2,1}, {28,1,2,0}, {17,1,TM_UPB_MARTH_COUNT,0}, {18,1,2,0}, {UPB_LANDING_SHIFT,1,2,0},
 };
+/* Passing Practice's menu takes word 72's spare bits 14..27, then 29 and 30
+ * for Reset If Hitstun Ends and Your Facing (bit 28 is Up-B Sweetspot's, and
+ * 31 Side-B Sweetspot's Marth), with
+ * no version bump: every migration to 21 zeroed them. Each row is stored as its
+ * distance from its default, so those zeros read as the defaults; a stored
+ * value past the row's choices reads as invalid (count) and is repaired. */
+static const ExtensionPreference passing_preferences[TM_PASS_PREF_COUNT] = {
+    {14,3,TM_PASS_AERIAL_COUNT,TM_PASS_DEFAULT_AERIAL}, {17,5,TM_PASS_PERCENT_COUNT,TM_PASS_DEFAULT_PERCENT},
+    {22,1,TM_PASS_MODE_COUNT,0}, {29,1,TM_PASS_HITSTUN_COUNT,0},
+    {23,3,TM_PASS_DISTANCE_COUNT,TM_PASS_DEFAULT_DISTANCE}, {26,2,TM_PASS_SIDE_COUNT,0},
+    {30,1,TM_PASS_FACING_COUNT,0},
+};
+#define PASS_STORED(p,value) (((value)+(p)->count-(p)->initial)%(p)->count)
+#define PASS_READ(p,stored) ((stored)<(p)->count?((stored)+(p)->initial)%(p)->count:(p)->count)
+/* Version 22 appends word 76: Escape Samus Up-B's menu in bits 0..10 (Your
+ * Position, Distance, Samus Side, Your Percent) and Escape IC Grab's in bits
+ * 11..15 (Your Percent). Escape Samus's Goal, added after, takes bit 31 with
+ * no version bump: Escape, its default, is stored as 0. Each row is stored as its distance from its default,
+ * the way Passing Practice's are, so the zeros every migration to 22 writes
+ * read as the defaults, and bits 16..31 can take a setting whose stored 0 is
+ * its default with no version bump. */
+#define ESCAPES_OFFSET 76
+#define ESCAPES_SIZE 4
+static const ExtensionPreference escape_samus_preferences[TM_ESC_SAMUS_PREF_COUNT] = {
+    {0,2,TM_ESC_POSITION_COUNT,0}, {2,2,TM_ESC_DISTANCE_COUNT,TM_ESC_DEFAULT_DISTANCE},
+    {4,2,TM_ESC_SIDE_COUNT,0}, {6,5,TM_ESC_PERCENT_COUNT,0}, {31,1,TM_ESC_GOAL_COUNT,0},
+};
+static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {{11,5,TM_ESC_PERCENT_COUNT,0}};
+/* Version 23 (T10) appends word 80: Grabs-ercise's CPU Percent in bits 0..3,
+ * stored as its distance from Random, its default, as word 76's rows are.
+ * Every migration to 23 zeroes the word, so bits 4..31 can take a setting
+ * whose stored 0 is its default with no version bump. Techchase's CPU
+ * Followup Action took bits 4..5 for its high bits that way: an older record
+ * reads only its low bit, word 9 bit 14, which is all it ever held. */
+#define GRABS_OFFSET 80
+#define GRABS_SIZE 4
+#define TECH_FOLLOWUP_HIGH_SHIFT 4
+#define TECH_FOLLOWUP_HIGH_MASK 3u
+/* The global Invincibility Stoplight flag takes word 80 bit 6 (byte 80 bit 6)
+ * the same way: Off is 0. Older records read it Off. */
+#define ENDING_BYTE 80
+#define ENDING_BIT 0x40u
+/* So does Disable Dev Debug Menu, word 80 bit 9 (byte 81 bit 1),
+ * above CPU Movement. Older records read Off. */
+#define CONSOLE_OFF_BYTE 81
+#define CONSOLE_OFF_BIT 0x02u
+typedef char TMExtension_TechFollowupBits[(TM_TECHCHASE_FOLLOWUP_COUNT<=8) ? 1 : -1]; /* 1 + 2 bits. */
+static int is_tech_followup(unsigned field,unsigned index) {
+    return field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_FOLLOWUP;
+}
+/* Grabs-ercise (T10) takes word 76's bits 16..30 with no version bump: its
+ * timed best (6 bits, 16-21), Success Criteria (22, which the best had before
+ * T10 shipped), Free Practice (23), the movements (default On, so stored 0)
+ * and Fighter Collision. Walk, Run, Traveling Dash Dance and Roll are bits
+ * 24-27, Collision 28, and the in-place dash dances, added after, 29 and 30.
+ * Bit 31 is Escape Samus's Goal. Standing CPU, which word 76 had no room for, is byte 51's
+ * spare bits 3-4 (bits 27-28 of the word at 48, under Eggs-ercise's counter):
+ * costume writes and repairs keep to the low 3 bits, so they're clear in every
+ * record that owns the byte, and Random, the default, is stored as 0. CPU
+ * Percent, added after, needed a version bump: it's word 80's bits 0..3. CPU
+ * Movement, added after that, is word 80's bits 7..8 (above the Stoplight's
+ * bit 6), with no bump: Random, its default, is stored as 0. */
+#define GRABS_MOVEMENT_SHIFT 7
+static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
+    {16,6,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0}, {22,1,TM_GRABS_SUCCESS_COUNT,TM_GRABS_SUCCESS_THROW},
+    {0,4,TM_GRABS_PERCENT_COUNT,TM_GRABS_PERCENT_RANDOM},
+    {27,2,TM_GRABS_STANDING_COUNT,TM_GRABS_STAND_RANDOM},
+    {24,1,2,1}, {25,1,2,1}, {26,1,2,1}, {29,1,2,1}, {30,1,2,1}, {27,1,2,1}, {28,1,2,0},
+    {GRABS_MOVEMENT_SHIFT,2,TM_GRABS_MOVEMENT_COUNT,TM_GRABS_MOVEMENT_RANDOM},
+};
+/* Word 80: CPU Percent 0..3, the followup's high bits 4..5, the Stoplight's 6,
+ * CPU Movement 7..8, Disable Dev Debug Menu 9. */
+typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT)<ENDING_BIT &&
+    ENDING_BIT==1u<<6 && GRABS_MOVEMENT_SHIFT==7 && ENDING_BYTE==GRABS_OFFSET &&
+    (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1==GRABS_MOVEMENT_SHIFT+2 && CONSOLE_OFF_BIT==1u<<1) ? 1 : -1];
+/* Target Practice (T10) takes word 80's bits 10..19 with no version bump: its
+ * timed best (8 bits, 10-17), Free Practice (18) and SH Double Lasers (19),
+ * above Disable Dev Debug Menu's bit 9. Each is stored as itself, so
+ * the zeros every migration to 23 writes read as the defaults, and every value
+ * fills its bits exactly, so none needs repairing. Only a version 23 record
+ * owns them. */
+#define TARGETS_SHIFT 10
+/* Hop Peak Lines (T10), appended, takes bit 29, after Up-B Sweetspot's
+ * Landing Line, the same way: Off is 0. */
+#define TARGETS_LINES_SHIFT 29
+/* FH Multi Lasers (T10), appended after, had no room in word 80. It takes word
+ * 12's retired bits 6..8, Ledgechase's old preset in versions 2..8. Their
+ * migrations copied the preset out but never cleared it, so version 24 zeroes
+ * all six retired bits (6..8 and the old action's 15..17) in every record it
+ * migrates (RETIRED_LEDGE_BITS), and only a version 24 record owns them. Off,
+ * the default, is 0, and a stored 7, no choice, reads as Off. Bits 15..17
+ * are zero in every version 24 record: Low Laser Puff Practice's Lowest Laser
+ * Lines took bit 15 that way, and Edgeguard's Up-B Overlays 16..17. */
+#define TARGETS_FULL_HOP_OFFSET 12
+#define TARGETS_FULL_HOP_SHIFT 6
+#define RETIRED_LEDGE_BITS (7u<<6 | 7u<<15)
+typedef char TMExtension_LowLaserLowLine[(TM_LOW_LASER_LOW_LINE==4 && TM_LOW_LASER_PREF_COUNT==5 &&
+    (RETIRED_LEDGE_BITS & 1u<<LOW_LASER_LOW_LINE_SHIFT) && TARGETS_FULL_HOP_OFFSET==12) ? 1 : -1];
+typedef char TMExtension_EdgeguardUpBOverlay[(TM_EG_UPB_OVERLAY_CPU==TM_EG_UPB_OVERLAY_PLAYER+1 &&
+    TM_EG_PREF_COUNT==TM_EG_UPB_OVERLAY_CPU+1 && EDGEGUARD_UPB_OVERLAY_OFFSET==TARGETS_FULL_HOP_OFFSET &&
+    (RETIRED_LEDGE_BITS & 3u<<EDGEGUARD_UPB_OVERLAY_SHIFT)==3u<<EDGEGUARD_UPB_OVERLAY_SHIFT &&
+    !(1u<<LOW_LASER_LOW_LINE_SHIFT & 3u<<EDGEGUARD_UPB_OVERLAY_SHIFT)) ? 1 : -1];
+/* Double Jump Height (T10), appended after FH Multi Lasers, is back in word
+ * 80: bit 30, after Hop Peak Lines, the same way (Off is 0, only a version 23
+ * or later record owns it). Bit 31 stays free. */
+#define TARGETS_DOUBLE_JUMP_SHIFT 30
+/* The Hop Peak Lines' colors (T10), appended after, had no room left in the
+ * record: version 25 appends word 84, the last of the free score bytes, and
+ * they're its bits 0..3 (short hop) and 4..7 (full hop). Each is stored as its
+ * distance from its default, Orange and Teal, the way Passing Practice's rows
+ * are, so the zeros every migration to 25 writes read as the defaults, and a
+ * stored 15, no color, reads as the default. Only a version 25 record owns
+ * the word. Target Pointers (T10), appended after, is bit 8 with no version
+ * bump: On by default, stored the same way as its distance from On, so the
+ * zeros read as On. Lowest Laser Lines (T10), appended after, is bits 9..12
+ * with no version bump: Off, its default, or a color plus one, so its 16
+ * values fill the bits and the zeros read as Off. Bits 13..31 are free for a
+ * setting whose stored 0 is its default, with no version bump.
+ * IS_TARGETS_WORD_84 is every row in it. */
+#define TARGETS_COLOR_OFFSET 84
+#define TARGETS_COLOR_SIZE 4
+#define TARGETS_POINTERS_SHIFT 8
+#define TARGETS_LOW_LINE_SHIFT 9
+#define IS_TARGETS_WORD_84(field,index) ((field)==TM_SETTING_TARGETS && \
+    ((index)==TM_TARGETS_SH_COLOR || (index)==TM_TARGETS_FH_COLOR || (index)==TM_TARGETS_POINTERS || \
+     (index)==TM_TARGETS_LOW_LINE))
+static const ExtensionPreference targets_preferences[TM_TARGETS_PREF_COUNT] = {
+    {TARGETS_SHIFT,8,TM_TARGETS_BEST_MAX+1,0}, {TARGETS_SHIFT+8,1,2,0}, {TARGETS_SHIFT+9,1,2,0},
+    {TARGETS_LINES_SHIFT,1,2,0}, {TARGETS_FULL_HOP_SHIFT,3,TM_TARGETS_FH_COUNT,TM_TARGETS_FH_OFF},
+    {TARGETS_DOUBLE_JUMP_SHIFT,1,2,0},
+    {0,4,TM_TARGETS_COLOR_COUNT,TM_TARGETS_SH_COLOR_DEFAULT}, {4,4,TM_TARGETS_COLOR_COUNT,TM_TARGETS_FH_COLOR_DEFAULT},
+    {TARGETS_POINTERS_SHIFT,1,2,1}, {TARGETS_LOW_LINE_SHIFT,4,TM_TARGETS_LOW_LINE_COUNT,0},
+};
+typedef char TMExtension_TargetsColors[(TM_TARGETS_SH_COLOR==6 && TM_TARGETS_FH_COLOR==7 &&
+    TM_TARGETS_POINTERS==8 && TM_TARGETS_LOW_LINE==9 && TM_TARGETS_PREF_COUNT==10 &&
+    TARGETS_POINTERS_SHIFT==4+4 && TARGETS_LOW_LINE_SHIFT==TARGETS_POINTERS_SHIFT+1 &&
+    TM_TARGETS_LOW_LINE_COUNT==1u<<4 &&
+    TM_TARGETS_COLOR_COUNT==15 && TM_TARGETS_SH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT &&
+    TM_TARGETS_FH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT) ? 1 : -1];
+typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 &&
+    TM_TARGETS_LINES==3 && TM_TARGETS_FULL_HOP==4 && TM_TARGETS_DOUBLE_JUMP==5 &&
+    TARGETS_LINES_SHIFT+1==TARGETS_DOUBLE_JUMP_SHIFT &&
+    TM_TARGETS_FH_COUNT<=8 && TM_TARGETS_FH_OFF==0 &&
+    (CONSOLE_OFF_BYTE-GRABS_OFFSET)*8+1<TARGETS_SHIFT && CONSOLE_OFF_BIT==1u<<1 && TARGETS_SHIFT+10<=32) ? 1 : -1];
+/* The global Randall Timer Minimap flag takes word 80 bit 20 (byte 82 bit 4),
+ * just above Target Practice, the same way as the Stoplight: Off is 0, and
+ * every migration to 23 zeroes it. Older records read Off. */
+#define RANDALL_TIMER_BYTE 82
+#define RANDALL_TIMER_BIT 0x10u
+typedef char TMExtension_RandallTimerBit[((RANDALL_TIMER_BYTE-GRABS_OFFSET)*8+4==TARGETS_SHIFT+10 &&
+    RANDALL_TIMER_BIT==1u<<4) ? 1 : -1];
+/* All Events (Alphabetized) (T10) takes word 80's bits 21..27, above the
+ * Randall Timer Minimap, with no version bump: bit 21 is 1 while it's the Event Select
+ * page shown, and bits 22..27 are its cursor, as byte 5's top six bits are the
+ * categorized pages'. Zero, what every migration to 23 writes, is the
+ * categorized pages and the top of All Events, and every value fills its bits,
+ * so none needs repairing. Only a version 23 record owns them. */
+#define EVENT_LIST_SHIFT 21
+static const ExtensionPreference event_list_preferences[TM_EVENT_LIST_PREF_COUNT] = {
+    {EVENT_LIST_SHIFT,1,2,0}, {EVENT_LIST_SHIFT+1,6,64,0},
+};
+typedef char TMExtension_EventListBits[((RANDALL_TIMER_BYTE-GRABS_OFFSET)*8+5==EVENT_LIST_SHIFT &&
+    RANDALL_TIMER_BIT==1u<<4 && TM_EVENT_LIST_PREF_COUNT==2 && EVENT_LIST_SHIFT+7<=32) ? 1 : -1];
+/* Up-B Sweetspot's Landing Line is the bit after All Events' cursor, then
+ * Target Practice's Hop Peak Lines and Double Jump Height. */
+typedef char TMExtension_UpBLandingBit[(EVENT_LIST_SHIFT+7==UPB_LANDING_SHIFT && TM_UPB_LANDING==TM_UPB_PREF_COUNT-1) ? 1 : -1];
+typedef char TMExtension_TargetsLinesBit[(UPB_LANDING_SHIFT+1==TARGETS_LINES_SHIFT) ? 1 : -1];
+#define IS_ESCAPE(field) ((field)==TM_SETTING_ESCAPE_SAMUS || (field)==TM_SETTING_ESCAPE_IC ||     (field)==TM_SETTING_GRABERCISE) /* Everything in word 76. */
 #define EG_POSITION_STORED(value) (((value)+TM_EG_POSITION_COUNT-TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 #define EG_POSITION_READ(stored) (((stored)+TM_EG_POSITION_CLOSE)%TM_EG_POSITION_COUNT)
 /* Reset Speed is stored the same way, so a clear field reads as its default. */
@@ -168,6 +366,10 @@ static int version17(const uint8_t *r) { return format(r,17,44); }
 static int version18(const uint8_t *r) { return format(r,18,56); }
 static int version19(const uint8_t *r) { return format(r,19,60); }
 static int version20(const uint8_t *r) { return format(r,20,64); }
+static int version21(const uint8_t *r) { return format(r,21,68); }
+static int version22(const uint8_t *r) { return format(r,22,72); }
+static int version23(const uint8_t *r) { return format(r,23,76); }
+static int version24(const uint8_t *r) { return format(r,24,76); }
 /* Byte 8: A-Smash Release palette in bits 0..2, Randall Overlay in bit 3,
  * Act OoAttack palette in bits 4..6 (version 14). Don't Reset Timers takes bit
  * 7 without a version bump: every record zeroed byte 8 and no writer set it. */
@@ -197,9 +399,13 @@ static void set_color_extra(uint8_t *r,unsigned slot,unsigned value) {
 #define GRID_BITS 5
 #define GRID_END (GRID_OFFSET+(TM_OSD_GRID_SLOTS*GRID_BITS+7)/8)
 /* Version 17 appends bytes 50..51: the human and CPU costume (0..5) of the
- * saved character. Every migration to 17 zeroes them (Default costume). */
+ * saved character. Every migration to 17 zeroes them (Default costume). A
+ * costume is read and repaired through bits 0..2 only. It used to be bits
+ * 0..4, but every write stored 0..5 there and every repair cleared them, so
+ * bits 3..4 are clear in every record that owns the byte. Techchase's Player
+ * Side (T10) takes byte 50's, with no version bump; byte 51's stay spare. */
 #define COSTUME_OFFSET 50
-#define COSTUME_MASK 0x1Fu
+#define COSTUME_MASK 0x07u
 /* Egg Counter Position takes the top bits of the CPU costume's byte, word 48
  * bits 29..31. A costume is at most 5 and a higher byte always repaired to 0, so
  * every record that owns that byte has them clear: zero is Top Left, the
@@ -220,7 +426,19 @@ typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIO
     GRID_END<=COSTUME_OFFSET && COSTUME_OFFSET+2<=EDGEGUARD_OFFSET &&
     EDGEGUARD_OFFSET+EDGEGUARD_SIZE<=EDGEGUARD2_OFFSET && EDGEGUARD2_OFFSET+EDGEGUARD2_SIZE<=EVENT_MENUS_OFFSET &&
     EVENT_MENUS_OFFSET+EVENT_MENUS_SIZE<=TEAM_CHARACTERS_OFFSET &&
-    TEAM_CHARACTERS_OFFSET+TEAM_CHARACTERS_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
+    TEAM_CHARACTERS_OFFSET+TEAM_CHARACTERS_SIZE<=ESCAPES_OFFSET &&
+    ESCAPES_OFFSET+ESCAPES_SIZE<=GRABS_OFFSET && GRABS_OFFSET+GRABS_SIZE<=TARGETS_COLOR_OFFSET &&
+    TARGETS_COLOR_OFFSET+TARGETS_COLOR_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
+/* Escape Samus Up-B's rows fill bits 0..10 and 31, and Escape IC Grab's 11..15. */
+/* Each Grabs-ercise row but Standing CPU, CPU Percent and CPU Movement fills
+ * its bits exactly, so none needs repairing; a stored 3 in Standing CPU or CPU
+ * Movement, or 14 or 15 in CPU Percent, reads as its default, Random. */
+typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<6 && TM_GRABS_PREF_COUNT==13 &&
+    TM_GRABS_STANDING_COUNT==3 && TM_GRABS_SUCCESS_COUNT==2 && TM_GRABS_PERCENT_COUNT<=16 &&
+    TM_GRABS_MOVEMENT_COUNT==3) ? 1 : -1];
+typedef char TMExtension_EscapeBits[(TM_ESC_POSITION_COUNT<=4 && TM_ESC_DISTANCE_COUNT<=4 &&
+    TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32 && TM_ESC_GOAL_COUNT==2 &&
+    TM_ESC_SAMUS_PREF_COUNT==5) ? 1 : -1];
 static unsigned grid_cell(const uint8_t *r,unsigned slot) {
     unsigned bit=slot*GRID_BITS, at=GRID_OFFSET+bit/8;
     unsigned pair=r[at]|(at+1<GRID_END?(unsigned)r[at+1]<<8:0);
@@ -253,7 +471,13 @@ static unsigned preference_count(unsigned field) {
         field==TM_SETTING_UPB_SWEETSPOT ? TM_UPB_PREF_COUNT :
         field==TM_SETTING_EGGS_COUNTER ? 1 :
         field==TM_SETTING_EGGS_SPAWN ? TM_EGGS_SPAWN_PREF_COUNT :
-        field==TM_SETTING_LEDGEGRAB_RESET ? 1 : 0;
+        field==TM_SETTING_LEDGEGRAB_RESET ? 1 :
+        field==TM_SETTING_PASSING ? TM_PASS_PREF_COUNT :
+        field==TM_SETTING_ESCAPE_SAMUS ? TM_ESC_SAMUS_PREF_COUNT :
+        field==TM_SETTING_ESCAPE_IC ? TM_ESC_IC_PREF_COUNT :
+        field==TM_SETTING_GRABERCISE ? TM_GRABS_PREF_COUNT :
+        field==TM_SETTING_TARGETS ? TM_TARGETS_PREF_COUNT :
+        field==TM_SETTING_EVENT_LIST ? TM_EVENT_LIST_PREF_COUNT : 0;
 }
 static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE && index<TM_TECHCHASE_PREF_COUNT) return &tech_preferences[index];
@@ -271,17 +495,33 @@ static const ExtensionPreference *preference(unsigned field,unsigned index) {
     if(field==TM_SETTING_EGGS_COUNTER && index==0) return &eggs_counter_preference;
     if(field==TM_SETTING_EGGS_SPAWN && index<TM_EGGS_SPAWN_PREF_COUNT) return &eggs_spawn_preferences[index];
     if(field==TM_SETTING_LEDGEGRAB_RESET && index==0) return &ledgegrab_reset_preference;
+    if(field==TM_SETTING_PASSING && index<TM_PASS_PREF_COUNT) return &passing_preferences[index];
+    if(field==TM_SETTING_ESCAPE_SAMUS && index<TM_ESC_SAMUS_PREF_COUNT) return &escape_samus_preferences[index];
+    if(field==TM_SETTING_ESCAPE_IC && index<TM_ESC_IC_PREF_COUNT) return &escape_ic_preferences[index];
+    if(field==TM_SETTING_GRABERCISE && index<TM_GRABS_PREF_COUNT) return &grabercise_preferences[index];
+    if(field==TM_SETTING_TARGETS && index<TM_TARGETS_PREF_COUNT) return &targets_preferences[index];
+    if(field==TM_SETTING_EVENT_LIST && index<TM_EVENT_LIST_PREF_COUNT) return &event_list_preferences[index];
     return 0;
 }
 static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_GRAB_PUNISH)
         return index>=TM_GP_P3_CHARACTER?TEAM_CHARACTERS_OFFSET:
             index==TM_GP_MATE_PERCENT?COSTUME_WORD_OFFSET:index==TM_GP_ENEMY_TEAM?20:EVENT_MENUS_OFFSET;
-    if(field==TM_SETTING_UPB_SWEETSPOT) return EVENT_MENUS_OFFSET;
-    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) return COSTUME_WORD_OFFSET;
+    if(field==TM_SETTING_UPB_SWEETSPOT)
+        return index==TM_UPB_B0XX?TEAM_CHARACTERS_OFFSET:index==TM_UPB_LANDING?GRABS_OFFSET:EVENT_MENUS_OFFSET;
+    if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
+    if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
+    if(field==TM_SETTING_TARGETS && index==TM_TARGETS_FULL_HOP) return TARGETS_FULL_HOP_OFFSET;
+    if(IS_TARGETS_WORD_84(field,index)) return TARGETS_COLOR_OFFSET;
+    if((field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) ||
+        field==TM_SETTING_TARGETS || field==TM_SETTING_EVENT_LIST) return GRABS_OFFSET;
+    if(IS_ESCAPE(field)) return ESCAPES_OFFSET;
+    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
+        (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_LEDGEGRAB_RESET) return LEDGEGRAB_RESET_OFFSET;
     if(field==TM_SETTING_EDGEGUARD)
-        return index>=TM_EG_RECOVERY_FOX_UPB?TEAM_CHARACTERS_OFFSET:
+        return index>=TM_EG_UPB_OVERLAY_PLAYER?EDGEGUARD_UPB_OVERLAY_OFFSET:
+            index>=TM_EG_RECOVERY_FOX_UPB?TEAM_CHARACTERS_OFFSET:
             index>=TM_EG_RECOVERY_FOX_SIDEB?EVENT_MENUS_OFFSET:
             index==TM_EG_PLAYER_POSITION?EDGEGUARD_OFFSET+8:
             index==TM_EG_CAMERA?EDGEGUARD_OFFSET+4:
@@ -291,7 +531,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD || field==TM_SETTING_SWEETSPOT_DJ ||
         field==TM_SETTING_SWEETSPOT || (field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY)) return 20;
     if(field==TM_SETTING_LEDGECHASE && (index==TM_LEDGECHASE_PRESET || index==TM_LEDGECHASE_AIR_ATTACK)) return 16;
-    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION) return 32;
+    if(field==TM_SETTING_LOW_LASER && (index==TM_LOW_LASER_POSITION || index==TM_LOW_LASER_HEIGHT)) return 32;
     if(field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_REMOVE_PILLARS) return 9;
     return field==TM_SETTING_TECHCHASE?9:field==TM_SETTING_POWERSHIELD?16:12;
 }
@@ -307,9 +547,13 @@ static unsigned preference_value(const uint8_t *r,unsigned field,unsigned index)
     if(field==TM_SETTING_EDGEGUARD && index==TM_EG_PLAYER_POSITION) value=EG_POSITION_READ(value);
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_READ(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
+    if(field==TM_SETTING_PASSING || IS_ESCAPE(field) || IS_TARGETS_WORD_84(field,index)) value=PASS_READ(p,value);
     unsigned top=top_bit(field,index);
     if(top) value|=((r[top/8]>>(top%8))&1)<<p->width;
     if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
+    /* Only a version 23 or later record owns word 80. */
+    if(is_tech_followup(field,index) && (supported(r) || version23(r) || version24(r)))
+        value|=((read_bits(r,GRABS_OFFSET)>>TECH_FOLLOWUP_HIGH_SHIFT)&TECH_FOLLOWUP_HIGH_MASK)<<p->width;
     return value;
 }
 static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned value) {
@@ -318,6 +562,7 @@ static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned val
     if(field==TM_SETTING_LEDGEGRAB_RESET) value=LEDGEGRAB_RESET_STORED(value);
     if(field==TM_SETTING_GRAB_PUNISH && index==TM_GP_RELEASE_HITS) value=!value;
     if(field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_MARTH) value=UPB_MARTH_STORED(value);
+    if(field==TM_SETTING_PASSING || IS_ESCAPE(field) || IS_TARGETS_WORD_84(field,index)) value=PASS_STORED(p,value);
     unsigned offset=preference_offset(field,index), mask=((1u<<p->width)-1)<<p->shift;
     unsigned bits=(read_bits(r,offset)&~mask)|((value<<p->shift)&mask);
     if(field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) bits=(bits&~(1u<<20))|((value>>4)<<20);
@@ -327,6 +572,11 @@ static void set_preference(uint8_t *r,unsigned field,unsigned index,unsigned val
         uint8_t *byte=&r[top/8], bit=1u<<top%8;
         *byte=value>>p->width?*byte|bit:*byte&~bit;
     }
+    if(is_tech_followup(field,index) && supported(r)) {
+        unsigned high=read_bits(r,GRABS_OFFSET)&~(TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT);
+        high|=((value>>p->width)&TECH_FOLLOWUP_HIGH_MASK)<<TECH_FOLLOWUP_HIGH_SHIFT;
+        for(unsigned byte=0;byte<4;++byte) r[GRABS_OFFSET+byte]=high>>(byte*8);
+    }
 }
 static void init_shield_preferences(uint8_t *r) {
     memset(r+20,0,4);
@@ -335,9 +585,10 @@ static void init_shield_preferences(uint8_t *r) {
             set_preference(r,field,i,preference(field,i)->initial);
 }
 /* Initialize the Edgeguard preferences from index `first`, whose bytes the
- * caller has just claimed. Side is not in those bytes. */
+ * caller has just claimed. Side and the Up-B Overlays (word 12, which the
+ * migration to version 24 clears) are not in those bytes. */
 static void init_edgeguard_preferences(uint8_t *r, unsigned first) {
-    for(unsigned i=first;i<TM_EG_PREF_COUNT;++i)
+    for(unsigned i=first;i<TM_EG_UPB_OVERLAY_PLAYER;++i)
         if(i!=TM_EG_SIDE) set_preference(r,TM_SETTING_EDGEGUARD,i,edgeguard_preferences[i].initial);
 }
 /* Initialize the event menus in word 68, which the caller has just claimed. */
@@ -346,6 +597,17 @@ static void init_event_menu_preferences(uint8_t *r) {
         if(i!=TM_GP_ENEMY_TEAM) set_preference(r,TM_SETTING_GRAB_PUNISH,i,grab_punish_preferences[i].initial);
     for(unsigned i=0;i<TM_UPB_PREF_COUNT;++i)
         set_preference(r,TM_SETTING_UPB_SWEETSPOT,i,upb_sweetspot_preferences[i].initial);
+    for(unsigned i=0;i<TM_PASS_PREF_COUNT;++i)
+        set_preference(r,TM_SETTING_PASSING,i,passing_preferences[i].initial);
+}
+/* Initialize the escape events' menus in word 76, which the caller has just claimed. */
+static void init_escape_preferences(uint8_t *r) {
+    for(unsigned i=0;i<TM_ESC_SAMUS_PREF_COUNT;++i)
+        set_preference(r,TM_SETTING_ESCAPE_SAMUS,i,escape_samus_preferences[i].initial);
+    for(unsigned i=0;i<TM_ESC_IC_PREF_COUNT;++i)
+        set_preference(r,TM_SETTING_ESCAPE_IC,i,escape_ic_preferences[i].initial);
+    for(unsigned i=0;i<TM_GRABS_PREF_COUNT;++i)
+        set_preference(r,TM_SETTING_GRABERCISE,i,grabercise_preferences[i].initial);
 }
 void TMExtension_Init(uint8_t *r) {
     memset(r,0,TM_EXTENSION_SIZE);
@@ -364,18 +626,21 @@ void TMExtension_Init(uint8_t *r) {
         set_preference(r,TM_SETTING_POWERSHIELD,i,powershield_preferences[i].initial);
     init_edgeguard_preferences(r,0);
     init_event_menu_preferences(r);
+    init_escape_preferences(r);
 }
 int TMExtension_Prepare(uint8_t *r) {
     if(!signature(r)) return TM_EXTENSION_ABSENT;
-    int v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r), v20=version20(r), migrated=legacy(r),
-        keep_shield=version11(r)||version12(r)||version13(r)||v14||v15||v16||v17||v18||v19||v20, keep_randall=version13(r)||v14||v15||v16||v17||v18||v19||v20;
+    int v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r), v20=version20(r), v21=version21(r), v22=version22(r), v23=version23(r), v24=version24(r), migrated=legacy(r),
+        keep_shield=version11(r)||version12(r)||version13(r)||v14||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24, keep_randall=version13(r)||v14||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24;
     if(migrated) {
         uint8_t old[TM_EXTENSION_LEGACY_SIZE]; memcpy(old,r,sizeof(old));
         TMExtension_Init(r);
         /* Existing palette/Tech fields and still-unclaimed padding retain
          * their bits. Initialize CPU color to Lavender and the two new selectors
-         * to zero in byte 11, preserving its remaining high padding bit. */
+         * to zero in byte 11, preserving its remaining high padding bit.
+         * Byte 10's top padding bit is now Player Distance's top bit. */
         memcpy(r+8,old+8,3);
+        r[10]&=0x7F;
         r[11]=(old[11]&0x80)|(r[11]&7);
     } else if(version11(r)) {
         /* Keep every previous preference/padding bit except the newly claimed
@@ -387,7 +652,7 @@ int TMExtension_Prepare(uint8_t *r) {
         set_preference(r,TM_SETTING_REVERSAL,TM_REV_ATTACK,attack<14?attack:0);
         r[4]=TM_EXTENSION_VERSION;
         migrated=1;
-    } else if(version12(r) || version13(r) || v14 || v15 || v16 || v17 || v18 || v19 || v20) {
+    } else if(version12(r) || version13(r) || v14 || v15 || v16 || v17 || v18 || v19 || v20 || v21 || v22 || v23 || v24) {
         r[4]=TM_EXTENSION_VERSION; /* Only the byte-8 bits below and appended bytes are newly owned. */
         migrated=1;
     } else if(version10(r)) {
@@ -425,9 +690,12 @@ int TMExtension_Prepare(uint8_t *r) {
     if(migrated && !keep_shield) init_shield_preferences(r);
     /* Older records never owned these padding bits; they must not turn anything on. */
     if(migrated && !keep_randall) r[8]&=~RANDALL_BIT;
-    if(migrated && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) r[8]&=~ACT_OO_ATTACK_BITS;
-    /* Version 20 ends at byte 71: claim only the team select's word, keeping
-     * the event menus. Version 19 ends at byte 67: claim the event menus' word
+    if(migrated && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) r[8]&=~ACT_OO_ATTACK_BITS;
+    /* Versions 23 and 24 end at byte 83: claim word 84, and for 23 word 12's
+     * retired bits below. Version 22 ends at byte 79: claim only Grabs-ercise's word 80. Version 21
+     * ends at byte 75: claim the escape events' word too. Version
+     * 20 ends at byte 71: claim the team select's word too, keeping the event
+     * menus. Version 19 ends at byte 67: claim the event menus' word
      * too. Version 18 ends at byte 63: claim the second Edgeguard word too.
      * Version 17 ends at
      * byte 51: claim all the Edgeguard words. Version 16 ends at byte 49: claim
@@ -435,10 +703,20 @@ int TMExtension_Prepare(uint8_t *r) {
      * Laser byte and claim the grid cells too. Every older record ends at byte
      * 23: claim the color bytes as all-legacy too. */
     if(migrated) {
-        unsigned from=v20?TEAM_CHARACTERS_OFFSET:v19?EVENT_MENUS_OFFSET:v18?EDGEGUARD2_OFFSET:v17?EDGEGUARD_OFFSET:v16?COSTUME_OFFSET:v15?GRID_OFFSET:COLOR_EXTRA_OFFSET;
+        unsigned from=v23||v24?TARGETS_COLOR_OFFSET:v22?GRABS_OFFSET:v21?ESCAPES_OFFSET:v20?TEAM_CHARACTERS_OFFSET:v19?EVENT_MENUS_OFFSET:v18?EDGEGUARD2_OFFSET:v17?EDGEGUARD_OFFSET:v16?COSTUME_OFFSET:v15?GRID_OFFSET:COLOR_EXTRA_OFFSET;
         r[5]=TM_EXTENSION_SIZE-8; memset(r+from,0,TM_EXTENSION_SIZE-from);
-        if(!v19 && !v20) init_edgeguard_preferences(r,v18?TM_EG_RECOVERY_YOSHI:0);
-        if(!v20) init_event_menu_preferences(r);
+        if(!v19 && !v20 && !v21 && !v22 && !v23 && !v24) init_edgeguard_preferences(r,v18?TM_EG_RECOVERY_YOSHI:0);
+        if(!v20 && !v21 && !v22 && !v23 && !v24) init_event_menu_preferences(r);
+        if(!v22 && !v23 && !v24) init_escape_preferences(r);
+        else if(v22) set_preference(r,TM_SETTING_GRABERCISE,TM_GRABS_PERCENT,grabercise_preferences[TM_GRABS_PERCENT].initial);
+        /* Version 24 claims word 12's retired bits from every older record,
+         * after the version 2..8 migration above has read the old preset out
+         * of them. FH Multi Lasers reads 0 there: Off. A version 24 record
+         * already owns them, and keeps its FH Multi Lasers. */
+        if(!v24) {
+            unsigned word12=read_bits(r,TARGETS_FULL_HOP_OFFSET)&~RETIRED_LEDGE_BITS;
+            for(unsigned byte=0;byte<4;++byte) r[TARGETS_FULL_HOP_OFFSET+byte]=word12>>(byte*8);
+        }
     }
     int changed=0;
     for(unsigned slot=0;slot<TM_OSD_CATEGORIES;++slot)
@@ -449,7 +727,12 @@ int TMExtension_Prepare(uint8_t *r) {
         if((r[COSTUME_OFFSET+player]&COSTUME_MASK)>=TM_EXTENSION_COSTUMES) { r[COSTUME_OFFSET+player]&=~COSTUME_MASK; changed=1; }
     static const uint8_t fields[]={TM_SETTING_TECHCHASE,TM_SETTING_LEDGECHASE,TM_SETTING_UNDERFIRE,
         TM_SETTING_LOW_LASER,TM_SETTING_POWERSHIELD,TM_SETTING_REVERSAL,TM_SETTING_ATTACK_SHIELD,TM_SETTING_EDGEGUARD,
-        TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER};
+        TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER,TM_SETTING_PASSING,
+        TM_SETTING_ESCAPE_SAMUS,TM_SETTING_ESCAPE_IC};
+    /* Grabs-ercise is left out: every value of each of its rows is valid but
+     * Standing CPU's and CPU Movement's 3 and CPU Percent's 14 and 15, which read as their
+     * defaults (see TMExtension_GrabsBits), so checking them would only cost
+     * time. */
     for(unsigned f=0;f<sizeof(fields);++f) {
         unsigned field=fields[f], count=preference_count(field);
         for(unsigned i=0;i<count;++i) {
@@ -466,73 +749,109 @@ int TMExtension_Prepare(uint8_t *r) {
     return migrated?TM_EXTENSION_MIGRATED:changed?TM_EXTENSION_REPAIRED:TM_EXTENSION_READY;
 }
 uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
-    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r), v10=version10(r), v11=version11(r), v12=version12(r), v13=version13(r), v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r), v20=version20(r),
-        current=supported(r)||older||v4||v5||v6||v7||v8||v9||v10||v11||v12||v13||v14||v15||v16||v17||v18||v19||v20, old=legacy(r);
+    int v2=version2(r), older=v2||version3(r), v4=version4(r), v5=version5(r), v6=version6(r), v7=version7(r), v8=version8(r), v9=version9(r), v10=version10(r), v11=version11(r), v12=version12(r), v13=version13(r), v14=version14(r), v15=version15(r), v16=version16(r), v17=version17(r), v18=version18(r), v19=version19(r), v20=version20(r), v21=version21(r), v22=version22(r), v23=version23(r), v24=version24(r),
+        current=supported(r)||older||v4||v5||v6||v7||v8||v9||v10||v11||v12||v13||v14||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24, old=legacy(r);
     if(field==TM_SETTING_OSD_COLOR_EXTRA) {
-        unsigned value=(supported(r)||v15||v16||v17||v18||v19||v20) && index<TM_OSD_CATEGORIES?color_extra(r,index):0;
+        unsigned value=(supported(r)||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24) && index<TM_OSD_CATEGORIES?color_extra(r,index):0;
         return value<COLOR_EXTRA_COUNT?value:0;
     }
     if(field==TM_SETTING_OSD_GRID_CELL) {
-        unsigned value=(supported(r)||v16||v17||v18||v19||v20) && index<TM_OSD_GRID_SLOTS?grid_cell(r,index):0;
+        unsigned value=(supported(r)||v16||v17||v18||v19||v20||v21||v22||v23||v24) && index<TM_OSD_GRID_SLOTS?grid_cell(r,index):0;
         return value<=TM_OSD_GRID_POSITIONS?value:0;
     }
     if(field==TM_SETTING_COSTUME) {
-        unsigned value=(supported(r)||v17||v18||v19||v20) && index<2?r[COSTUME_OFFSET+index]&COSTUME_MASK:0;
+        unsigned value=(supported(r)||v17||v18||v19||v20||v21||v22||v23||v24) && index<2?r[COSTUME_OFFSET+index]&COSTUME_MASK:0;
         return value<TM_EXTENSION_COSTUMES?value:0;
     }
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ASMASH_RELEASE_ID)
         return current||old?r[8]&7:0;
     if(field==TM_SETTING_OSD_COLOR && index==TM_GLOBAL_ACT_OO_ATTACK_ID)
-        return supported(r)||v14||v15||v16||v17||v18||v19||v20?(r[8]&ACT_OO_ATTACK_BITS)>>ACT_OO_ATTACK_SHIFT:0;
+        return supported(r)||v14||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24?(r[8]&ACT_OO_ATTACK_BITS)>>ACT_OO_ATTACK_SHIFT:0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL)
-        return supported(r)||v13||v14||v15||v16||v17||v18||v19||v20?!!(r[8]&RANDALL_BIT):0;
+        return supported(r)||v13||v14||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24?!!(r[8]&RANDALL_BIT):0;
     if(field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS)
         return current||old?!!(r[8]&DONT_RESET_TIMERS_BIT):0;
     /* Records before version 11 end before word 20. */
     if(field==TM_SETTING_FLAG && index==TM_FLAG_BLAST_ZONES)
-        return supported(r)||v11||v12||v13||v14||v15||v16||v17||v18||v19||v20?!!(r[BLAST_ZONES_BYTE]&BLAST_ZONES_BIT):0;
+        return supported(r)||v11||v12||v13||v14||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24?!!(r[BLAST_ZONES_BYTE]&BLAST_ZONES_BIT):0;
+    /* Only a version 23 or later record owns word 80. */
+    if(field==TM_SETTING_FLAG && index==TM_FLAG_INVINCIBILITY_ENDING)
+        return supported(r)||v23||v24?!!(r[ENDING_BYTE]&ENDING_BIT):0;
+    if(field==TM_SETTING_FLAG && index==TM_FLAG_DEBUG_CONSOLE_OFF)
+        return supported(r)||v23||v24?!!(r[CONSOLE_OFF_BYTE]&CONSOLE_OFF_BIT):0;
+    if(field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL_TIMER)
+        return supported(r)||v23||v24?!!(r[RANDALL_TIMER_BYTE]&RANDALL_TIMER_BIT):0;
     const ExtensionPreference *p=preference(field,index);
     if(!p) return 0;
     /* Version 18 records own the first Edgeguard words, version 19 the rest
-     * but word 68, which version 20 records own too, and version 21 word 72. */
+     * but word 68, which version 20 records own too, and version 21 word 72.
+     * Only a version 24 or later record owns the Up-B Overlays' word 12 bits:
+     * before that, they could still hold Ledgechase's old action. */
     if(field==TM_SETTING_EDGEGUARD) {
-        int owned=supported(r)||(index<TM_EG_RECOVERY_FOX_UPB && (v20||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)))));
+        int owned=index>=TM_EG_UPB_OVERLAY_PLAYER?supported(r)||v24:
+            supported(r)||v21||v22||v23||v24||(index<TM_EG_RECOVERY_FOX_UPB && (v20||(index<TM_EG_RECOVERY_FOX_SIDEB && (v19||(v18 && index<TM_EG_RECOVERY_YOSHI)))));
         unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
     /* Version 17 is the first to own the costume bytes. */
-    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN) {
-        unsigned value=supported(r)||v17||v18||v19||v20?preference_value(r,field,index):p->initial;
+    if(field==TM_SETTING_EGGS_COUNTER || field==TM_SETTING_EGGS_SPAWN ||
+        (field==TM_SETTING_TECHCHASE && index==TM_TECHCHASE_SIDE)) {
+        unsigned value=supported(r)||v17||v18||v19||v20||v21||v22||v23||v24?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
     /* Version 15 is the first to own byte 34. */
     if(field==TM_SETTING_LEDGEGRAB_RESET)
-        return supported(r)||v15||v16||v17||v18||v19||v20?preference_value(r,field,index):p->initial;
-    /* Version 20 is the first to own the event menus' word, and version 21 the
-     * team select's. */
-    if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) {
-        int team_word=field==TM_SETTING_GRAB_PUNISH && index>=TM_GP_P3_CHARACTER;
-        unsigned value=supported(r)||(v20 && !team_word)?preference_value(r,field,index):p->initial;
+        return supported(r)||v15||v16||v17||v18||v19||v20||v21||v22||v23||v24?preference_value(r,field,index):p->initial;
+    /* Only a version 23 or later record owns word 80, only a version 24 or
+     * later record FH Multi Lasers' bits in word 12, and only a version 25
+     * record the colors' word 84: older ones read the defaults. A stored FH
+     * Multi Lasers or color past its choices reads as the default. */
+    if(field==TM_SETTING_TARGETS || field==TM_SETTING_EVENT_LIST) {
+        unsigned offset=preference_offset(field,index);
+        int owned=supported(r)||((v23||v24) && offset==GRABS_OFFSET)||(v24 && offset==TARGETS_FULL_HOP_OFFSET);
+        unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
-    if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
+    /* Version 22 records own word 76, and only version 23 and later records word 80. */
+    if(IS_ESCAPE(field)) {
+        int owned=supported(r)||v23||v24||(v22 && preference_offset(field,index)!=GRABS_OFFSET);
+        unsigned value=owned?preference_value(r,field,index):p->initial;
+        return value<p->count?value:p->initial;
+    }
+    /* Version 20 is the first to own the event menus' word, and version 21 the
+     * team select's. */
+    /* Only version 21 records own word 72. */
+    if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) {
+        unsigned value=supported(r)||v21||v22||v23||v24?preference_value(r,field,index):p->initial;
+        return value<p->count?value:p->initial;
+    }
+    if(field==TM_SETTING_GRAB_PUNISH || field==TM_SETTING_UPB_SWEETSPOT) {
+        int team_word=field==TM_SETTING_GRAB_PUNISH?index>=TM_GP_P3_CHARACTER:index==TM_UPB_B0XX;
+        int word80=field==TM_SETTING_UPB_SWEETSPOT && index==TM_UPB_LANDING;
+        unsigned value=supported(r)||v23||v24||(!word80 && (v21||v22||(v20 && !team_word)))?preference_value(r,field,index):p->initial;
+        return value<p->count?value:p->initial;
+    }
+    if((field==TM_SETTING_REVERSAL || field==TM_SETTING_ATTACK_SHIELD) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
     /* Records before version 11 end before word 20. */
-    if(((field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY) || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
+    if(((field==TM_SETTING_UNDERFIRE && index==TM_UNDERFIRE_LAVA_OVERLAY) || field==TM_SETTING_SWEETSPOT_DJ || field==TM_SETTING_SWEETSPOT) && !supported(r) && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_SHIELD_DI) return p->initial;
     if(v11 && field==TM_SETTING_ATTACK_SHIELD && index==TM_AOS_ACTION) {
         unsigned action=(read_bits(r,20)>>9)&15;
         return action<10?action:0;
     }
     if(v11 && field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) return (r[20]&15)<14?r[20]&15:0;
-    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
+    if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
+    /* Only a version 24 or later record owns word 12's retired bits: before
+     * that, bit 15 could still hold Ledgechase's old action. */
+    if(field==TM_SETTING_LOW_LASER && index==TM_LOW_LASER_LOW_LINE && !supported(r) && !v24) return p->initial;
     /* Older records end before byte 35. */
-    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION && !supported(r) && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
-    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) return p->initial;
-    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20) {
+    if(field==TM_SETTING_LOW_LASER && index>=TM_LOW_LASER_POSITION && !supported(r) && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
+    if(field==TM_SETTING_LOW_LASER && !supported(r) && !v6 && !v7 && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
+    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) {
         if(index==TM_LEDGECHASE_ENTRY || index==TM_LEDGECHASE_HOP_HEIGHT) return p->initial;
         if(v9 && index==TM_LEDGECHASE_PRESET) return (r[19]&15)<14?r[19]&15:0;
     }
-    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v9) {
+    if(field==TM_SETTING_LEDGECHASE && !supported(r) && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24 && !v9) {
         if(index==TM_LEDGECHASE_AIR_ATTACK) return p->initial;
         if(index==TM_LEDGECHASE_PRESET) {
             unsigned preset=current?(read_bits(r,12)>>6)&7:0;
@@ -554,21 +873,27 @@ int TMExtension_Write(uint8_t *r,unsigned field,unsigned index,uint32_t value) {
     int randall=field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL;
     int timers=field==TM_SETTING_FLAG && index==TM_FLAG_DONT_RESET_TIMERS;
     int blast=field==TM_SETTING_FLAG && index==TM_FLAG_BLAST_ZONES;
+    int ending=field==TM_SETTING_FLAG && index==TM_FLAG_INVINCIBILITY_ENDING;
+    int console=field==TM_SETTING_FLAG && index==TM_FLAG_DEBUG_CONSOLE_OFF;
+    int randall_timer=field==TM_SETTING_FLAG && index==TM_FLAG_RANDALL_TIMER;
     int extra=field==TM_SETTING_OSD_COLOR_EXTRA && index<TM_OSD_CATEGORIES;
     int grid=field==TM_SETTING_OSD_GRID_CELL && index<TM_OSD_GRID_SLOTS;
     int costume=field==TM_SETTING_COSTUME && index<2;
     const ExtensionPreference *p=preference(field,index);
-    if(!color && !attack && !randall && !timers && !blast && !extra && !grid && !costume && !p) return 0;
-    if(value >= (color||attack?8:randall||timers||blast?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
-    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r) && !version19(r) && !version20(r)) return 0;
+    if(!color && !attack && !randall && !timers && !blast && !ending && !console && !randall_timer && !extra && !grid && !costume && !p) return 0;
+    if(value >= (color||attack?8:randall||timers||blast||ending||console||randall_timer?2:extra?COLOR_EXTRA_COUNT:grid?TM_OSD_GRID_POSITIONS+1:costume?TM_EXTENSION_COSTUMES:p->count)) return 0;
+    if(signature(r) && !supported(r) && !legacy(r) && !version2(r) && !version3(r) && !version4(r) && !version5(r) && !version6(r) && !version7(r) && !version8(r) && !version9(r) && !version10(r) && !version11(r) && !version12(r) && !version13(r) && !version14(r) && !version15(r) && !version16(r) && !version17(r) && !version18(r) && !version19(r) && !version20(r) && !version21(r) && !version22(r) && !version23(r) && !version24(r)) return 0;
     uint8_t before[TM_EXTENSION_SIZE]; memcpy(before,r,sizeof(before));
-    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r) || version19(r) || version20(r)) TMExtension_Prepare(r);
+    if(legacy(r) || version2(r) || version3(r) || version4(r) || version5(r) || version6(r) || version7(r) || version8(r) || version9(r) || version10(r) || version11(r) || version12(r) || version13(r) || version14(r) || version15(r) || version16(r) || version17(r) || version18(r) || version19(r) || version20(r) || version21(r) || version22(r) || version23(r) || version24(r)) TMExtension_Prepare(r);
     else if(!supported(r)) TMExtension_Init(r);
     if(color) r[8]=(r[8]&~7u)|value;
     else if(attack) r[8]=(r[8]&~ACT_OO_ATTACK_BITS)|(value<<ACT_OO_ATTACK_SHIFT);
     else if(randall) r[8]=(r[8]&~RANDALL_BIT)|(value?RANDALL_BIT:0);
     else if(timers) r[8]=(r[8]&~DONT_RESET_TIMERS_BIT)|(value?DONT_RESET_TIMERS_BIT:0);
     else if(blast) r[BLAST_ZONES_BYTE]=(r[BLAST_ZONES_BYTE]&~BLAST_ZONES_BIT)|(value?BLAST_ZONES_BIT:0);
+    else if(ending) r[ENDING_BYTE]=(r[ENDING_BYTE]&~ENDING_BIT)|(value?ENDING_BIT:0);
+    else if(console) r[CONSOLE_OFF_BYTE]=(r[CONSOLE_OFF_BYTE]&~CONSOLE_OFF_BIT)|(value?CONSOLE_OFF_BIT:0);
+    else if(randall_timer) r[RANDALL_TIMER_BYTE]=(r[RANDALL_TIMER_BYTE]&~RANDALL_TIMER_BIT)|(value?RANDALL_TIMER_BIT:0);
     else if(extra) set_color_extra(r,index,value);
     else if(grid) set_grid_cell(r,index,value);
     else if(costume) r[COSTUME_OFFSET+index]=(r[COSTUME_OFFSET+index]&~COSTUME_MASK)|value;

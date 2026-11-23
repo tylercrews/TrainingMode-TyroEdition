@@ -31,7 +31,7 @@ Lavender only shows up on blue team in teams mode, so it can't be mistaken for a
 
 It only changes how fighters are drawn, never game state, so it can't cause a desync. Your opponent doesn't need it.
 
-It hooks `80080E18`, so it can run alongside [Actionable Yellow-Green](../actionable/README.md) (`800805C8` and `8006D9EC`), the [Randall Overlay](../randall-overlay/README.md) (`8016E8C8`), the [Blast Zone Overlay](../blast-zone-overlay/README.md) (`8016E8C0`) and the [Double-Jump Height Indicators](../dj-height-indicator/README.md) (`8016E8E0` and `8016E8E8`). With Actionable Yellow-Green, its yellow and green win over the invincibility tint, the same as in Training Mode.
+It hooks `80080E18`, so it can run alongside [Actionable Yellow-Green](../actionable/README.md) (`800805C8` and `8006D9EC`), the [Randall Overlay](../randall-overlay/README.md) (`8016E8C8`), the [Blast Zone Overlay](../blast-zone-overlay/README.md) (`8016E8C0`) and the [Double-Jump Height Indicators](../dj-height-indicator/README.md) (`8016E8E0` and `8016E8E8`). With Actionable Yellow-Green, its yellow and green win over the invincibility tint, the same as in Training Mode. The [Invincibility Stoplight](../invincibility-stoplight/README.md) (`80080E1C`) runs inside this code's draw: with both on, a fighter turns red, then yellow over their last four invincible frames.
 
 ## What counts as invincible
 

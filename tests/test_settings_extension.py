@@ -6,8 +6,14 @@ import test_settings as fixtures
 from test_settings import Machine, RECORD, ROOT
 
 EXT = 0x8045A6C0 + 0x1AE0
-COUNTS = (9, 2, 2, 3, 3, 3, 4, 2, 8, 4, 4)
-DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0)
+# Techchase. Player Distance (index 10) gained Random (T10), its top bit in word
+# 9's spare bit 15; Player Side (index 11, T10) is byte 50 bits 3-4. CPU
+# Followup Action (index 7, T10) was Spotdodge Punish's word 9 bit 14, still its
+# low bit; its high bits are word 80's bits 4-5, so an older record reads only
+# the low bit.
+COUNTS = (10, 2, 2, 3, 3, 3, 4, 6, 8, 4, 5, 3)
+DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0, 0)
+TECH_FOLLOWUP, TECH_DISTANCE, TECH_SIDE = 7, 10, 11
 LEDGE_COUNTS = (4, 2, 7, 15, 5, 8, 33, 12, 3, 3)
 LEDGE_DEFAULTS = (0, 0, 0, 0, 1, 7, 0, 0, 2, 0)
 PS_COUNTS = (4,61,61,5,2,4,2,2,2,2)
@@ -15,13 +21,14 @@ PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
-CURRENT, PAYLOAD = 21, 68  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
-HEADER = b'TYEX\x15\x44\xA5\x5A'
+CURRENT, PAYLOAD = 25, 80  # TM_EXTENSION_VERSION, TM_EXTENSION_SIZE - 8
+HEADER = b'TYEX\x19\x50\xA5\x5A'
 # Bytes 52..63 appended by version 18: Edgeguard's three words at their defaults
 # (Custom Hit Strength 100-120 / 45-60 / 50-80%, player 0%, Normal, and each
 # CPU's default recovery toggles).
 EDGEGUARD = 39  # TM_SETTING_EDGEGUARD
 LOW_LASER = 30  # TM_SETTING_LOW_LASER
+LOW_LASER_LOW_LINE = 4  # TM_LOW_LASER_LOW_LINE: word 12 bit 15.
 # Recovery masks: Fox, Falco, Sheik, Falcon, Marth, then (word 64, version 19)
 # Yoshi, Peach, Luigi, Dr. Mario, Ice Climbers, Jigglypuff, Samus. Then Player
 # Position (At Ledge / Close / Halfway / Mid Stage) in word 60's spare bits 30-31,
@@ -30,9 +37,12 @@ LOW_LASER = 30  # TM_SETTING_LOW_LASER
 # their first six in word 68's spare bits 19-23 and 24-28, and Knockback
 # Distance, stored plus 1 so 0 is a save from before it, in bits 29-31. Then
 # word 72's spare bits: Firefox and Firebird To Ledge in 10 and 11, and Luigi's
-# Up B Sweetspot and Backflip Jump Sweetspot in 12-13.
-EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 7, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32, 6, 2, 2, 4)
-EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0, 0, 0, 0, 0)
+# Up B Sweetspot and Backflip Jump Sweetspot in 12-13. Then the Player and CPU
+# Up-B Overlays (T10) in word 12's retired bits 16-17, owned from version 24.
+EDGEGUARD_COUNTS = (301, 301, 91, 91, 999, 1000, 1000, 7, 64, 64, 64, 32, 16, 32, 32, 32, 32, 8, 16, 32, 4, 2, 3, 32, 32, 6, 2, 2, 4,
+                    2, 2)
+EDGEGUARD_DEFAULTS = (100, 120, 45, 60, 0, 50, 80, 1, 1, 1, 7, 3, 3, 7, 7, 7, 3, 3, 15, 15, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+                      0, 0)
 EG_COUNT = len(EDGEGUARD_COUNTS)
 EG_FIRST_NEW = 13  # TM_EG_RECOVERY_YOSHI: the first index added after version 18
 EG_POSITION = 20  # TM_EG_PLAYER_POSITION
@@ -41,29 +51,100 @@ EG_SIDE = 22  # TM_EG_SIDE
 EG_FOX_SIDEB, EG_FALCO_SIDEB = 23, 24  # TM_EG_RECOVERY_FOX_SIDEB, TM_EG_RECOVERY_FALCO_SIDEB
 EG_KB_DISTANCE = 25  # TM_EG_KB_DISTANCE
 EG_FOX_UPB, EG_FALCO_UPB, EG_LUIGI2 = 26, 27, 28  # TM_EG_RECOVERY_FOX_UPB, _FALCO_UPB, _LUIGI2
+EG_UPB_PLAYER, EG_UPB_CPU = 29, 30  # TM_EG_UPB_OVERLAY_PLAYER, _CPU: word 12 bits 16 and 17.
 EDGEGUARD_BYTES = bytes.fromhex('64f0b47800c800050982630c')
 EDGEGUARD2_BYTES = bytes.fromhex('e79cb17f')
-# Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Light
+# Word 68, appended by version 20: 2v1 Grab Punish (Random, Random, 60%, Medium
 # Mash, Random, Release Hit = Success stored inverted so clear is On) in bits
-# 0-13 and Up-B Sweetspot (Line Guides On, Tipper, Normal) in bits 16-18.
+# 0-13 and Up-B Sweetspot (Line Guides On, Tipper, Normal) in bits 16-18. Its
+# B0XX Angles (T10, Off) is word 72's bit 28, with no version bump.
 GRAB_PUNISH = 42  # TM_SETTING_GRAB_PUNISH
 UPB_SWEETSPOT = 43  # TM_SETTING_UPB_SWEETSPOT
 # Its menu rows, with Teammate Percent in byte 50's top bits, then your team in
 # word 68's bits 14-15 and the enemy's in word 20's bits 30-31. Enemy Percent,
 # Teammate Percent and CPU Mashing keep their top bits in bytes 34 and 35.
 # P3's and P4's last characters follow, in word 72: 0 none yet, else ID + 1.
-GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3, 27, 27), (0, 0, 3, 0, 1, 0, 1, 0, 0, 0, 0)
+GRAB_PUNISH_COUNTS, GRAB_PUNISH_DEFAULTS = (8, 8, 11, 11, 6, 3, 2, 3, 3, 27, 27), (0, 0, 3, 0, 2, 0, 1, 0, 0, 0, 0)
 GP_PERCENT, GP_MATE_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM, GP_ENEMY_TEAM = 2, 3, 4, 6, 7, 8
 GP_P3_CHARACTER, GP_P4_CHARACTER = 9, 10
 LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET
-UPB_COUNTS, UPB_DEFAULTS = (2, 3, 2), (1, 0, 0)
-UPB_MARTH, MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 1, 0, 1, 2
-EVENT_MENU_BYTES = bytes.fromhex('c0020100')
-# Bytes 24..75 appended by versions 15 to 21: one color nibble per OSD (all
+# Passing Practice (T10) takes word 72's spare bits 14-27, 29 and 30 with no
+# version bump: Teammate Aerial (Back Air), Enemy Percent (40%), Percent Mode
+# (Frozen %), Reset If Hitstun Ends (Off), Distance (Medium), Your Side (Left)
+# and Your Facing (Toward), each stored as its distance from its default, so
+# the zeros every migration to 21 left there read as the defaults.
+PASSING = 48  # TM_SETTING_PASSING
+PASSING_COUNTS, PASSING_DEFAULTS = (5, 21, 2, 2, 5, 3, 2), (2, 4, 0, 0, 2, 0, 0)
+PASSING_HITSTUN, PASSING_FACING = 3, 6
+# (shift, width) in word 72, in menu order.
+PASSING_FIELDS = ((14, 3), (17, 5), (22, 1), (29, 1), (23, 3), (26, 2), (30, 1))
+PASSING_MASK = 0x3FFF << 14 | 3 << 29
+UPB_COUNTS, UPB_DEFAULTS = (2, 2, 3, 2, 2), (1, 0, 0, 0, 0)
+# TMUpBSweetspotPreference. Landing Line (T10) was appended, in word 80 bit 28,
+# though the menu lists it third.
+UPB_B0XX, UPB_MARTH, UPB_CAMERA, UPB_LANDING = 1, 2, 3, 4
+MARTH_FSMASH, MARTH_DTILT, MARTH_OFF = 0, 1, 2
+EVENT_MENU_BYTES = bytes.fromhex('c0040100')
+# Word 76, appended by version 22 (T10): Escape Samus Up-B (Your Position,
+# Distance, Samus Side, Your Percent) in bits 0-10 and Escape IC Grab (Your
+# Percent) in bits 11-15, each stored as its distance from its default, so the
+# defaults (Ground, Side, Random, 0%; 0%) are all zeros. Escape Samus's Goal
+# (Escape / Punish), added after, is bit 31, Escape stored as 0.
+ESCAPE_SAMUS, ESCAPE_IC = 49, 50  # TM_SETTING_ESCAPE_SAMUS, TM_SETTING_ESCAPE_IC
+ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS = (3, 4, 3, 21, 2), (0, 1, 0, 0, 0)
+ESCAPE_SAMUS_FIELDS = ((0, 2), (2, 2), (4, 2), (6, 5), (31, 1))  # (shift, width) in word 76, in menu order.
+ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS = (21,), (0,), ((11, 5),)
+ESCAPE_MASK = 0x8000FFFF  # Bits 16-30 are Grabs-ercise's.
+# Grabs-ercise (T10) in word 76's spare bits 16-28, no version bump: its timed
+# best (7 bits), Free Practice, the four movements and Fighter Collision, each
+# stored as its distance from its default, so word 76's zeros read as no best,
+# timed runs, every movement on and collision off.
+GRABS = 51  # TM_SETTING_GRABERCISE
+# In menu order: best, Free Practice, Success Criteria, CPU Percent, Standing
+# CPU, Walk, Run, Traveling, Full and Half Dash Dance, Rolling, Fighter
+# Collision. The in-place dances came later (word 76 bits 29-30), then Standing
+# CPU, with no room left in word 76, in byte 51's bits 3-4 (bits 27-28 of the
+# word at 48), then Success Criteria in bit 22, the 7-bit best's top bit before
+# T10 shipped, then CPU Percent (Random, 0% to 120%) in word 80, which version
+# 23 appends, then CPU Movement (Random, Still Only, Moving Only), appended
+# after Fighter Collision, in word 80 bits 7-8. (offset, shift, width).
+GRABS_COUNTS, GRABS_DEFAULTS = (64, 2, 2, 14, 3, 2, 2, 2, 2, 2, 2, 2, 3), (0, 0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0, 0)
+GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (80, 0, 4), (48, 27, 2), (76, 24, 1), (76, 25, 1),
+                (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1), (80, 7, 2))
+GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT = 2, 3, 4, 5, 12
+# Target Practice (T10): its timed best (8 bits), Free Practice and SH Double
+# Lasers in word 80 bits 10-17, 18 and 19, and Hop Peak Lines, appended, in bit
+# 29, each stored as itself. FH Multi Lasers, appended after (Off, All Combos and
+# five combos), is word 12's retired bits 6-8, which version 24 claims. Double
+# Jump Height, appended after that, is word 80 bit 30, stored as itself. The
+# Hop Peak Lines' colors, appended after that, are word 84 (version 25) bits 0-3
+# and 4-7, each stored as its distance from its default (Orange, Teal), and
+# Target Pointers, appended after them, bit 8, the same way: On, its default,
+# is 0. Lowest Laser Lines, appended after that, is bits 9-12: Off (0, its
+# default) or a line color plus one, stored as itself.
+TARGETS = 53  # TM_SETTING_TARGETS
+TARGETS_LINES, TARGETS_FULL_HOP, TARGETS_DOUBLE_JUMP = 3, 4, 5  # TM_TARGETS_LINES, _FULL_HOP, _DOUBLE_JUMP
+TARGETS_SH_COLOR, TARGETS_FH_COLOR, TARGETS_POINTERS = 6, 7, 8  # TM_TARGETS_SH_COLOR, _FH_COLOR, _POINTERS
+TARGETS_LOW_LINE = 9  # TM_TARGETS_LOW_LINE
+TARGETS_FH_COUNT, TARGETS_COLORS, TARGETS_LOW_LINES = 7, 15, 16
+ORANGE, TEAL = 7, 10  # In the OSD palette, less Off: the colors' defaults.
+TARGETS_DEFAULTS = (0, 0, 0, 0, 0, 0, ORANGE, TEAL, 1, 0)
+TARGETS_COUNT = len(TARGETS_DEFAULTS)
+# Word 12's six retired bits: Ledgechase's preset (6-8) and action (15-17) in
+# versions 2-8. Every migration to version 24 zeroes them.
+RETIRED_LEDGE_BITS = 7 << 6 | 7 << 15
+# All Events (Alphabetized) (T10): page 4. Word 80 bit 21 is 1 while it's the
+# page shown, and bits 22-27 are its cursor; byte 5 keeps the categorized page
+# and its cursor underneath.
+EVENT_PAGE, EVENT_SELECTION, EVENT_LIST = 2, 26, 54  # EVENT_LIST is TM_SETTING_EVENT_LIST.
+ALL_EVENTS = 4  # TM_EVENT_PAGE_ALL
+# Bytes 24..87 appended by versions 15 to 25: one color nibble per OSD (all
 # original colors), Low Laser's byte 35, the Fixed Grid cells (all Auto), the
-# human/CPU costumes (Default), the Edgeguard defaults, the event menus and the
-# team select's characters (none yet).
-COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES + bytes(4)
+# human/CPU costumes (Default), the Edgeguard defaults, the event menus, the
+# team select's characters (none yet), the escape events' menus,
+# Grabs-ercise's CPU Percent (Random) and Target Practice's line colors (Orange
+# and Teal, stored as 0).
+COLOR_BYTES = bytes(28) + EDGEGUARD_BYTES + EDGEGUARD2_BYTES + EVENT_MENU_BYTES + bytes(4) + bytes(4) + bytes(4) + bytes(4)
 RANDALL = 0x08  # Byte 8 bit 3, claimed by version 13 and cleared by older migrations.
 ATTACK = 0x70  # Byte 8 bits 4-6: Act OoAttack palette, claimed by version 14.
 NEW_BITS = RANDALL | ATTACK  # Padding that pre-13 records never owned.
@@ -74,19 +155,22 @@ def upgraded(raw):
     value[4:6] = bytes((CURRENT,PAYLOAD))
     value[16:20] = PS_DEFAULT_BYTES
     value[20:24] = SHIELD_DEFAULT_BYTES
-    value[24:76] = COLOR_BYTES
+    value[24:OWNED_SIZE] = COLOR_BYTES
     preset = (int.from_bytes(value[12:16], 'little') >> 6) & 7
     value[19] = preset if preset < 7 else 0
+    value[12:16] = (int.from_bytes(value[12:16], 'little') & ~RETIRED_LEDGE_BITS).to_bytes(4, 'little')
     value[14] = (value[14] & 0x3F) | 0x80
     value[15] &= 0x3F
     value[8] &= ~NEW_BITS
     return bytes(value)
 
 FIELDS = ((27, COUNTS, DEFAULTS), (28, LEDGE_COUNTS, LEDGE_DEFAULTS), (29, (2,2), (0,0)), (30, (2,2,10,5), (1,0,0,0)), (31, PS_COUNTS, PS_DEFAULTS))
-REGION_SIZE, OWNED_SIZE = 88, 76
+REGION_SIZE, OWNED_SIZE = 88, 88
 # Under Fire's Lava Overlay (index 2) and Remove Fleshy Pillars (index 3) live outside
-# FIELDS' tables: word 20 and word 9.
-PREF_COUNTS = {29: 4}
+# FIELDS' tables: word 20 and word 9. Low Laser's Lowest Laser Lines (index 4) is word 12's
+# bit 15, which only version 24 and later records own, so the old-version migrations
+# FIELDS drives can't keep it; its own tests cover it.
+PREF_COUNTS = {29: 4, LOW_LASER: 5}
 GRID = 37  # TM_SETTING_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 EGGS_COUNTER = 44  # TM_SETTING_EGGS_COUNTER: byte 51's top three bits.
@@ -95,7 +179,11 @@ LEDGEGRAB_RESET = 46  # TM_SETTING_LEDGEGRAB_RESET: byte 34 bits 4-5.
 RESET_INSTANT, RESET_SHORT, RESET_LINGER = 0, 1, 2
 SWEETSPOT_DJ = 40  # TM_SETTING_SWEETSPOT_DJ: word 20 bit 22.
 SWEETSPOT = 41  # TM_SETTING_SWEETSPOT: Success Criteria word 20 bit 26, Knockback bits 27-29.
+SWEETSPOT_MARTH = 2  # TM_SWEETSPOT_MARTH: word 72 bit 31, 0 Down Tilt (the default) / 1 Off.
 BLAST_ZONES = 11  # TM_FLAG_BLAST_ZONES, a flag (field 11): word 20 bit 23, no version bump.
+STOPLIGHT = 12  # TM_FLAG_INVINCIBILITY_ENDING, a flag (field 11): word 80 bit 6, no version bump.
+DEBUG_OFF = 13  # TM_FLAG_DEBUG_CONSOLE_OFF, a flag (field 11): word 80 bit 9 (byte 81 bit 1), no version bump.
+RANDALL_TIMER = 14  # TM_FLAG_RANDALL_TIMER, a flag (field 11): word 80 bit 20 (byte 82 bit 4), no version bump.
 
 class ExtensionTests(unittest.TestCase):
     def setUp(self):
@@ -354,7 +442,7 @@ class ExtensionTests(unittest.TestCase):
         m = self.m
         m.call('Settings_Set', GRAB_PUNISH, GP_PERCENT, 7); m.call('Settings_Set', GRAB_PUNISH, GP_MASH, 5)
         m.call('Settings_Set', GRAB_PUNISH, GP_RELEASE_HITS, 0); m.call('Settings_Set', GRAB_PUNISH, GP_YOUR_TEAM, 2)
-        m.call('Settings_Set', UPB_SWEETSPOT, 2, 1); m.call('Settings_Set', EDGEGUARD, EG_FOX_SIDEB, 5)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1); m.call('Settings_Set', EDGEGUARD, EG_FOX_SIDEB, 5)
         m.call('Settings_Set', COSTUME, 1, 2)
         old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
         old[4:6] = bytes((20, 64))
@@ -370,7 +458,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
         self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_PERCENT, GP_MASH, GP_RELEASE_HITS, GP_YOUR_TEAM)),
                          (7, 5, 0, 2))
-        self.assertEqual((m.call('Settings_Get', UPB_SWEETSPOT, 2), m.call('Settings_Get', EDGEGUARD, EG_FOX_SIDEB),
+        self.assertEqual((m.call('Settings_Get', UPB_SWEETSPOT, UPB_CAMERA), m.call('Settings_Get', EDGEGUARD, EG_FOX_SIDEB),
                           m.call('Settings_Get', COSTUME, 1)), (1, 5, 2))
 
     def test_version_20_records_read_their_settings_and_no_team_characters_without_writing(self):
@@ -382,7 +470,7 @@ class ExtensionTests(unittest.TestCase):
             read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
             self.assertEqual((read(GRAB_PUNISH, GP_P3_CHARACTER), read(GRAB_PUNISH, GP_P4_CHARACTER)), (0, 0))
             self.assertEqual((read(GRAB_PUNISH, GP_PERCENT), read(GRAB_PUNISH, GP_MASH), read(GRAB_PUNISH, GP_RELEASE_HITS),
-                              read(GRAB_PUNISH, GP_YOUR_TEAM), read(UPB_SWEETSPOT, 2), read(EDGEGUARD, EG_FOX_SIDEB),
+                              read(GRAB_PUNISH, GP_YOUR_TEAM), read(UPB_SWEETSPOT, UPB_CAMERA), read(EDGEGUARD, EG_FOX_SIDEB),
                               read(COSTUME, 1)), (7, 5, 0, 2, 1, 5, 2))
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
@@ -398,6 +486,1003 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT + 72, (31 | 21 << 5).to_bytes(4, 'little'))  # A damaged P3 is none yet.
         self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_P3_CHARACTER, GP_P4_CHARACTER)), (0, 21))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little'), 21 << 5)
+
+    def test_up_b_b0xx_angles_use_only_word_72_bit_28(self):
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's other rows,
+        m.call('Settings_Set', PASSING, 1, 12)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)  # and its row neighbors in word 68.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, value)
+            self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            word, old = (int.from_bytes(record[72:76], 'little') for record in (after, before))
+            self.assertEqual((word >> 28 & 1, word & ~(1 << 28)), (value, old))
+            self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
+        self.assertEqual(tuple(m.call('Settings_Get', UPB_SWEETSPOT, i) for i in (0, UPB_MARTH, UPB_CAMERA)), (1, 0, 1))
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_P3_CHARACTER), m.call('Settings_Get', PASSING, 1)),
+                         (26, 12))
+
+    def test_version_20_records_read_b0xx_angles_off_without_writing(self):
+        m = self.m
+        old = self.version_20_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 20 never owned word 72.
+            old[72:76] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_B0XX), 0)
+            self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_CAMERA), 1)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_up_b_landing_line_uses_only_word_80_bit_28(self):
+        m = self.m
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)  # Its row neighbors in words 68 and 72,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', 11, RANDALL_TIMER, 1)  # word 80 below it,
+        word = int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        m.cpu.mem_write(EXT + 80, (word | 0x7F << 21).to_bytes(4, 'little'))  # and All Events' bits 21-27.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, value)
+            self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            word, old = (int.from_bytes(record[80:84], 'little') for record in (after, before))
+            self.assertEqual((word >> 28 & 1, word & ~(1 << 28)), (value, old))
+            self.assertEqual(after[:80] + after[84:], before[:80] + before[84:])
+        self.assertEqual(tuple(m.call('Settings_Get', UPB_SWEETSPOT, i) for i in range(4)), (1, 1, 0, 1))
+        self.assertEqual((m.call('Settings_Get', TARGETS, 0), m.call('Settings_Get', 11, RANDALL_TIMER),
+                          m.call('Settings_Get', EVENT_LIST, 1)), (200, 1, 63))
+        # Bits 29-31 (Target Practice's Hop Peak Lines and Double Jump Height,
+        # then spare) keep what's there, and they don't read as the row.
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 0)
+        word = int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        m.cpu.mem_write(EXT + 80, (word | 7 << 29).to_bytes(4, 'little'))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), 0)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little') >> 28, 0xF)
+
+    def test_version_22_records_read_the_landing_line_off_without_writing(self):
+        m = self.m
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_LANDING), 0)
+        self.assertEqual(m.call('TMExtension_Read', EXT, UPB_SWEETSPOT, UPB_CAMERA), 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in bit 28 alone.
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 1 << 28)
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_CAMERA), 1)
+
+    def test_side_b_marth_uses_only_word_72_bit_31(self):
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's other rows,
+        m.call('Settings_Set', PASSING, PASSING_FACING, 1)  # bit 30 right beside it,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)
+        m.call('Settings_Set', SWEETSPOT, 1, 7)  # and Side-B's own rows in word 20.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', SWEETSPOT, SWEETSPOT_MARTH), 0)  # Down Tilt.
+        for value in (1, 0, 1):
+            m.call('Settings_Set', SWEETSPOT, SWEETSPOT_MARTH, value)
+            self.assertEqual(m.call('Settings_Get', SWEETSPOT, SWEETSPOT_MARTH), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            word, old = (int.from_bytes(record[72:76], 'little') for record in (after, before))
+            self.assertEqual((word >> 31, word & ~(1 << 31)), (value, old))
+            self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', SWEETSPOT, SWEETSPOT_MARTH, 2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        self.assertEqual([m.call('Settings_Get', SWEETSPOT, i) for i in range(2)], [0, 7])
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_P3_CHARACTER), m.call('Settings_Get', PASSING, PASSING_FACING),
+                          m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX)), (26, 1, 1))
+
+    def test_version_20_records_read_side_b_marth_as_down_tilt_without_writing(self):
+        m = self.m
+        old = self.version_20_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 20 never owned word 72.
+            old[72:76] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, SWEETSPOT, SWEETSPOT_MARTH), 0)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        old[4:6] = bytes((21, 68))  # Version 21 does, so its bit is read as is.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, SWEETSPOT, SWEETSPOT_MARTH), 1)
+
+    def passing(self, machine=None):
+        machine = machine or self.m
+        return tuple(machine.call('Settings_Get', PASSING, i) for i in range(len(PASSING_COUNTS)))
+
+    def test_passing_menu_reads_its_defaults_without_a_record_and_from_word_72s_zeros(self):
+        m = self.m
+        self.assertEqual(self.passing(), PASSING_DEFAULTS)
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        word = int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little')
+        self.assertEqual(word & PASSING_MASK, 0)
+        self.assertEqual(self.passing(), PASSING_DEFAULTS)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', PASSING, len(PASSING_COUNTS), 1)  # Not a row.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+
+    def test_passing_menu_round_trips_in_word_72_bits_14_to_27_29_and_30_beside_its_other_rows(self):
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's bits 0-9,
+        m.call('Settings_Set', GRAB_PUNISH, GP_P4_CHARACTER, 21)
+        m.call('Settings_Set', EDGEGUARD, EG_FOX_UPB, 1)  # 10-13,
+        m.call('Settings_Set', EDGEGUARD, EG_LUIGI2, 3)
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)  # and 28.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        neighbors = int.from_bytes(before[72:76], 'little')
+        values = list(PASSING_DEFAULTS)
+        for index, count in enumerate(PASSING_COUNTS):
+            for value in list(range(count)) + [PASSING_DEFAULTS[index]]:
+                m.call('Settings_Set', PASSING, index, value)
+                values[index] = value
+                self.assertEqual(self.passing(), tuple(values))
+                after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                self.assertEqual(after[:72] + after[76:], before[:72] + before[76:])
+                word = int.from_bytes(after[72:76], 'little')
+                self.assertEqual(word & ~PASSING_MASK, neighbors)  # Bit 31, Side-B's Marth, is kept too.
+                shift, width = PASSING_FIELDS[index]
+                default = PASSING_DEFAULTS[index]
+                self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - default) % count)
+            snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
+                m.call('Settings_Set', PASSING, index, value)
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        self.assertEqual(tuple(m.call('Settings_Get', GRAB_PUNISH, i) for i in (GP_P3_CHARACTER, GP_P4_CHARACTER)), (26, 21))
+        self.assertEqual((m.call('Settings_Get', EDGEGUARD, EG_FOX_UPB), m.call('Settings_Get', EDGEGUARD, EG_LUIGI2)), (1, 3))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_B0XX), 1)
+
+    def test_passing_menu_repairs_stored_values_past_its_choices_to_their_defaults(self):
+        m = self.m
+        m.call('Settings_Set', PASSING, 1, 12)  # 120%: a real choice to keep.
+        m.call('Settings_Set', PASSING, PASSING_HITSTUN, 1)  # On and Away: one-bit rows are always valid.
+        m.call('Settings_Set', PASSING, PASSING_FACING, 1)
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 5)
+        word = int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little')
+        # Aerial 5..7, Distance 5..7 and Side 3 aren't choices; the rest are kept.
+        damaged = word | 7 << 14 | 7 << 23 | 3 << 26
+        m.cpu.mem_write(EXT + 72, damaged.to_bytes(4, 'little'))
+        expected = list(PASSING_DEFAULTS)
+        expected[1], expected[PASSING_HITSTUN], expected[PASSING_FACING] = 12, 1, 1
+        self.assertEqual(self.passing(), tuple(expected))
+        repaired = int.from_bytes(m.cpu.mem_read(EXT + 72, 4), 'little')
+        self.assertEqual(repaired, word)  # Back to the defaults' zeros, the rest kept.
+        m.cpu.mem_write(EXT + 72, (word | 31 << 17).to_bytes(4, 'little'))  # Percent 21..31 isn't one either.
+        self.assertEqual(self.passing()[1], PASSING_DEFAULTS[1])
+
+    # Version 22 (T10): word 76, the escape events' menus.
+    def version_21_record(self):
+        """A version 21 record, with settings in word 72 and the words before it."""
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_PERCENT, 7); m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)
+        m.call('Settings_Set', PASSING, 1, 12); m.call('Settings_Set', UPB_SWEETSPOT, UPB_B0XX, 1)
+        m.call('Settings_Set', EDGEGUARD, EG_LUIGI2, 3); m.call('Settings_Set', COSTUME, 1, 2)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((21, 68))
+        return old
+
+    def word_72_settings(self, read):
+        return (read(GRAB_PUNISH, GP_PERCENT), read(GRAB_PUNISH, GP_P3_CHARACTER), read(PASSING, 1),
+                read(UPB_SWEETSPOT, UPB_B0XX), read(EDGEGUARD, EG_LUIGI2), read(COSTUME, 1))
+
+    def escape(self, field, count):
+        return tuple(self.m.call('Settings_Get', field, i) for i in range(count))
+
+    def test_version_21_migration_keeps_every_byte_and_claims_only_word_76(self):
+        m = self.m
+        old = self.version_21_record()
+        old[76:84] = b'\xFF' * 8  # Version 21 never owned words 76 and 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(self.escape(ESCAPE_SAMUS, 5), ESCAPE_SAMUS_DEFAULTS)
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[76:84] = bytes(8)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(self.word_72_settings(lambda f, i: m.call('Settings_Get', f, i)), (7, 26, 12, 1, 3, 2))
+
+    def test_version_21_records_read_word_72_and_the_escape_defaults_without_writing(self):
+        m = self.m
+        old = self.version_21_record()
+        for spare in (bytes(8), b'\xFF' * 8):  # Spare score bytes are not menus.
+            old[76:84] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual(tuple(read(ESCAPE_SAMUS, i) for i in range(5)), ESCAPE_SAMUS_DEFAULTS)
+            self.assertEqual(read(ESCAPE_IC, 0), ESCAPE_IC_DEFAULTS[0])
+            self.assertEqual(self.word_72_settings(read), (7, 26, 12, 1, 3, 2))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_escape_menus_read_their_defaults_without_a_record_and_from_word_76s_zeros(self):
+        m = self.m
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), 0)
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', ESCAPE_SAMUS, 5, 1)  # Not rows.
+        m.call('Settings_Set', ESCAPE_IC, 1, 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+
+    def test_escape_menus_round_trip_in_word_76_bits_0_to_15_and_31_alone(self):
+        m = self.m
+        m.call('Settings_Set', GRAB_PUNISH, GP_P3_CHARACTER, 26)  # Word 72's rows.
+        m.call('Settings_Set', PASSING, 1, 12)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for field, counts, defaults, fields in ((ESCAPE_SAMUS, ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS, ESCAPE_SAMUS_FIELDS),
+                                                (ESCAPE_IC, ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS)):
+            values = list(defaults)
+            for index, count in enumerate(counts):
+                for value in list(range(count)) + [defaults[index]]:
+                    m.call('Settings_Set', field, index, value)
+                    values[index] = value
+                    self.assertEqual(self.escape(field, len(counts)), tuple(values))
+                    after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                    self.assertEqual(after[:76] + after[80:], before[:76] + before[80:])
+                    word = int.from_bytes(after[76:80], 'little')
+                    shift, width = fields[index]
+                    self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - defaults[index]) % count)
+                    self.assertEqual(word & ~ESCAPE_MASK, 0)  # Grabs-ercise's bits stay clear.
+                snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
+                    m.call('Settings_Set', field, index, value)
+                    self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 20)
+        m.call('Settings_Set', ESCAPE_IC, 0, 13)  # Neither event's rows move the other's.
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, GP_P3_CHARACTER), m.call('Settings_Get', PASSING, 1)), (26, 12))
+
+    def test_escape_menus_repair_stored_values_past_their_choices_to_their_defaults(self):
+        m = self.m
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 15)  # 150%: a real choice to keep.
+        m.call('Settings_Set', ESCAPE_IC, 0, 9)
+        word = int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little')
+        # Position 3 and Samus Side 3 aren't choices; all four distances are.
+        m.cpu.mem_write(EXT + 76, (word | 3 << 0 | 3 << 4).to_bytes(4, 'little'))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 15, 0), (9,)))
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), word)
+        m.cpu.mem_write(EXT + 76, (word | 31 << 6 | 31 << 11).to_bytes(4, 'little'))  # Nor are percents 21..31.
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5)[3], self.escape(ESCAPE_IC, 1)[0]), (0, 0))
+
+    def grabs(self):
+        return tuple(self.m.call('Settings_Get', GRABS, i) for i in range(len(GRABS_COUNTS)))
+
+    def test_grabercise_reads_its_defaults_without_a_record_and_from_word_76s_zeros(self):
+        m = self.m
+        self.assertEqual(self.grabs(), GRABS_DEFAULTS)
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), 0)
+        self.assertEqual(self.grabs(), GRABS_DEFAULTS)
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', GRABS, len(GRABS_COUNTS), 1)  # Not a row.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+
+    def test_grabercise_round_trips_in_word_76_bits_16_to_28_alone(self):
+        m = self.m
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 20)  # The escape events' rows below it.
+        m.call('Settings_Set', ESCAPE_IC, 0, 13)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        values = list(GRABS_DEFAULTS)
+        for index, count in enumerate(GRABS_COUNTS):
+            for value in sorted({0, 1, count - 1, count // 2, GRABS_DEFAULTS[index]}) + [GRABS_DEFAULTS[index]]:
+                m.call('Settings_Set', GRABS, index, value)
+                values[index] = value
+                self.assertEqual(self.grabs(), tuple(values))
+                after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                offset, shift, width = GRABS_FIELDS[index]
+                word = int.from_bytes(after[offset:offset + 4], 'little')
+                self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - GRABS_DEFAULTS[index]) % count)
+                # Nothing else in the record moves: the escape events' bits, bit
+                # 31, and byte 51's costume and Egg Counter Position included.
+                changed = bytearray(a ^ b for a, b in zip(after, before))
+                for k, byte in enumerate((((1 << width) - 1) << shift).to_bytes(4, 'little')):
+                    changed[offset + k] &= ~byte & 0xFF
+                self.assertEqual(bytes(changed), bytes(len(changed)))
+            snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
+                m.call('Settings_Set', GRABS, index, value)
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        m.call('Settings_Set', GRABS, 0, 63)
+        m.call('Settings_Set', GRABS, GRABS_SUCCESS, 1)  # Hit
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 13)  # 120%
+        m.call('Settings_Set', GRABS, GRABS_STANDING, 1)  # Shield
+        m.call('Settings_Set', GRABS, 7, 0)
+        m.call('Settings_Set', GRABS, 9, 0)
+        m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 2)  # Moving Only
+        self.assertEqual(self.grabs(), (63, 0, 1, 13, 1, 1, 1, 0, 1, 0, 1, 0, 2))
+        self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
+
+    def test_standing_cpu_shares_byte_51_with_the_cpu_costume_and_egg_counter(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 1, 4)
+        m.call('Settings_Set', EGGS_COUNTER, 0, 3)
+        for choice in range(3):
+            m.call('Settings_Set', GRABS, GRABS_STANDING, choice)
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_STANDING), choice)
+            self.assertEqual((m.call('Settings_Get', COSTUME, 1), m.call('Settings_Get', EGGS_COUNTER, 0)), (4, 3))
+            # Stored as its distance from Random, the default, in bits 3-4.
+            self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0] >> 3 & 3, (choice + 1) % 3)
+        m.call('Settings_Set', COSTUME, 1, 2)  # A costume change keeps it.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_STANDING), 2)
+        byte = m.cpu.mem_read(EXT + 51, 1)[0]
+        m.cpu.mem_write(EXT + 51, bytes((byte | 3 << 3,)))  # 3 isn't a choice: it reads as Random.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_STANDING), 2)
+        self.assertEqual((m.call('Settings_Get', COSTUME, 1), m.call('Settings_Get', EGGS_COUNTER, 0)), (2, 3))
+
+    def cost(self, name, *args):
+        """The instructions a settings call takes, and what it returns. Unicorn's
+        translated blocks don't call a hook added after they were made, so they
+        are flushed first, or code that already ran isn't counted."""
+        from unicorn import UC_HOOK_CODE
+        count = [0]
+        hook = self.m.cpu.hook_add(UC_HOOK_CODE, lambda cpu, address, size, user: count.__setitem__(0, count[0] + 1))
+        self.m.cpu.ctl_flush_tb()
+        try:
+            value = self.m.call(name, *args)
+        finally:
+            self.m.cpu.hook_del(hook)
+        return count[0], value
+
+    def test_extension_reads_validate_the_record_only_after_its_bytes_change(self):
+        # A full validation checks every row of every event, about 10,000
+        # instructions, and the Blast Zone and Randall overlays read the
+        # extension every frame. A read that finds the bytes unchanged is
+        # about 1,400.
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        m.call('Settings_Get', GRABS, GRABS_WALK)
+        steady, value = self.cost('Settings_Get', GRABS, GRABS_WALK)
+        self.assertLess(steady, 3000)
+        self.assertEqual(value, 1)
+        blast_zones, _ = self.cost('Settings_Get', 11, 11)  # TM_SETTING_FLAG, TM_FLAG_BLAST_ZONES
+        self.assertLess(blast_zones, 3000)
+        # Bytes changed behind the service's back are still validated and repaired.
+        word = int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little')
+        m.cpu.mem_write(EXT + 76, (word | 3).to_bytes(4, 'little'))  # Your Position 3 isn't a choice.
+        changed, value = self.cost('Settings_Get', ESCAPE_SAMUS, 0)
+        self.assertGreater(changed, 6000)
+        self.assertEqual(value, ESCAPE_SAMUS_DEFAULTS[0])
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), word)
+        again, _ = self.cost('Settings_Get', ESCAPE_SAMUS, 0)
+        self.assertLess(again, 3000)
+
+    # Version 23 (T10): word 80, Grabs-ercise's CPU Percent.
+    def version_22_record(self):
+        """A version 22 record, with settings in word 76, byte 51 and the words before it."""
+        m = self.m
+        m.call('Settings_Set', ESCAPE_SAMUS, 3, 20); m.call('Settings_Set', ESCAPE_IC, 0, 13)
+        m.call('Settings_Set', GRABS, 0, 41); m.call('Settings_Set', GRABS, GRABS_SUCCESS, 1)
+        m.call('Settings_Set', GRABS, GRABS_STANDING, 1); m.call('Settings_Set', PASSING, 1, 12)
+        m.call('Settings_Set', COSTUME, 1, 2)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((22, 72))
+        return old
+
+    def word_76_settings(self, read):
+        return (read(ESCAPE_SAMUS, 3), read(ESCAPE_IC, 0), read(GRABS, 0), read(GRABS, GRABS_SUCCESS),
+                read(GRABS, GRABS_STANDING), read(PASSING, 1), read(COSTUME, 1))
+
+    def test_version_22_migration_keeps_every_byte_and_claims_only_word_80(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)  # Random.
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[80:84] = bytes(4)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))
+
+    def test_version_22_records_read_word_76_and_a_random_percent_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Spare score bytes are not a percent.
+            old[80:84] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual(read(GRABS, GRABS_PERCENT), 0)
+            self.assertEqual(self.word_76_settings(read), (20, 13, 41, 1, 1, 12, 2))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_cpu_percent_reads_random_from_word_80s_zeros_and_its_two_spare_values(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # 80%
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 9)
+        for stored in (14, 15):  # No choice: they read as Random, and the rest of word 80 stays.
+            m.cpu.mem_write(EXT + 80, (stored | 0xABCDE0).to_bytes(4, 'little'))
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 0)
+            self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), stored | 0xABCDE0)
+
+    def test_cpu_movement_shares_word_80_and_reads_random_from_zeros_and_its_spare_value(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_MOVEMENT), 0)  # Random.
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # Bits 0-3.
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 4)  # Bits 4-5 (and word 9 bit 14).
+        m.call('Settings_Set', 11, 12, 1)  # TM_FLAG_INVINCIBILITY_ENDING: bit 6.
+        word = lambda: int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        for choice in (1, 2, 0):  # Still Only, Moving Only, Random: stored as themselves.
+            m.call('Settings_Set', GRABS, GRABS_MOVEMENT, choice)
+            self.assertEqual(word(), choice << 7 | 1 << 6 | 2 << 4 | 9)
+            self.assertEqual((m.call('Settings_Get', GRABS, GRABS_MOVEMENT), m.call('Settings_Get', GRABS, GRABS_PERCENT),
+                              m.call('Settings_Get', 27, TECH_FOLLOWUP), m.call('Settings_Get', 11, 12)), (choice, 9, 4, 1))
+        m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 2)
+        m.cpu.mem_write(EXT + 80, (word() | 3 << 7).to_bytes(4, 'little'))  # 3 isn't a choice: it reads as Random.
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_MOVEMENT), 0)
+        self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP)), (9, 4))
+
+    # Target Practice (T10): word 80 bits 10-19, no version bump.
+    def test_target_practice_reads_its_defaults_from_word_80s_zeros(self):
+        m = self.m
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)), TARGETS_DEFAULTS)  # No record.
+        m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 12, 4), 'little') & RETIRED_LEDGE_BITS, 0)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)), TARGETS_DEFAULTS)
+
+    def test_target_practice_round_trips_in_word_80_bits_10_to_19_alone(self):
+        m = self.m
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # Bits 0-3.
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 4)  # Bits 4-5.
+        m.call('Settings_Set', 11, STOPLIGHT, 1)  # Bit 6.
+        m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 2)  # Bits 7-8.
+        m.call('Settings_Set', 11, DEBUG_OFF, 1)  # Bit 9.
+        word = lambda: int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        below = word()
+        self.assertEqual(below >> 10, 0)
+        for (best, free, shdl) in ((1, 0, 0), (255, 1, 0), (0, 0, 1), (137, 1, 1), (0, 0, 0)):
+            for index, value in enumerate((best, free, shdl)):
+                m.call('Settings_Set', TARGETS, index, value)
+            self.assertEqual(word(), below | best << 10 | free << 18 | shdl << 19)
+            self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(3)), (best, free, shdl))
+        self.assertEqual((m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', 27, TECH_FOLLOWUP),
+                          m.call('Settings_Get', 11, STOPLIGHT), m.call('Settings_Get', GRABS, GRABS_MOVEMENT),
+                          m.call('Settings_Get', 11, DEBUG_OFF)), (9, 4, 1, 2, 1))
+        # Bits 20-28 (the Randall Timer Minimap's 20, All Events' 21-27 and Up-B's
+        # Landing Line 28), 30 (Double Jump Height) and 31 (spare) keep what
+        # they hold, and the neighbors' writes leave Target Practice alone.
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
+        m.cpu.mem_write(EXT + 80, (word() | 0xDFF00000).to_bytes(4, 'little'))
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 3); m.call('Settings_Set', 11, DEBUG_OFF, 0)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), (200, 0, 1, 0))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 1)  # Bit 30 is its own.
+        self.assertEqual(word() >> 20, 0xDFF)
+
+    def test_target_practice_ignores_values_past_its_bits(self):
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 77); m.call('Settings_Set', TARGETS, 1, 1)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for index, value in ((0, 256), (1, 2), (2, 2), (TARGETS_LINES, 2), (TARGETS_FULL_HOP, TARGETS_FH_COUNT),
+                             (TARGETS_DOUBLE_JUMP, 2), (TARGETS_SH_COLOR, TARGETS_COLORS),
+                             (TARGETS_FH_COLOR, TARGETS_COLORS), (TARGETS_POINTERS, 2),
+                             (TARGETS_LOW_LINE, TARGETS_LOW_LINES), (TARGETS_COUNT, 1)):
+            m.call('Settings_Set', TARGETS, index, value)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_COUNT), 0)
+
+    def test_hop_peak_lines_uses_only_word_80_bit_29(self):
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 255); m.call('Settings_Set', TARGETS, 2, 1)  # Its rows in bits 10-19,
+        m.call('Settings_Set', 11, RANDALL_TIMER, 1)  # bit 20,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)  # and the bit under it.
+        word = lambda record: int.from_bytes(record[80:84], 'little')
+        m.cpu.mem_write(EXT + 80, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 3 << 30).to_bytes(4, 'little'))  # Double Jump Height and spare.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LINES), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', TARGETS, TARGETS_LINES, value)
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LINES), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> 29 & 1, word(after) & ~(1 << 29)), (value, word(before)))
+            self.assertEqual(after[:80] + after[84:], before[:80] + before[84:])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(4)), (255, 0, 1, 1))
+        self.assertEqual((m.call('Settings_Get', 11, RANDALL_TIMER), m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING)),
+                         (1, 1))
+        # Its neighbors' writes keep it.
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 0); m.call('Settings_Set', TARGETS, 2, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LINES), 1)
+
+    def test_version_22_records_read_hop_peak_lines_off_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, TARGETS, TARGETS_LINES), 0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in bit 29 alone.
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 1 << 29)
+
+    def test_double_jump_height_uses_only_word_80_bit_30(self):
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 255); m.call('Settings_Set', TARGETS, 2, 1)  # Its rows in bits 10-19,
+        m.call('Settings_Set', UPB_SWEETSPOT, UPB_LANDING, 1)  # bit 28,
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 1)  # and Hop Peak Lines under it.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)  # FH Multi Lasers, in word 12.
+        word = lambda record: int.from_bytes(record[80:84], 'little')
+        m.cpu.mem_write(EXT + 80, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 1 << 31).to_bytes(4, 'little'))  # Spare.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 0)
+        for value in (1, 0, 1):
+            m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, value)
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> 30 & 1, word(after) & ~(1 << 30)), (value, word(before)))
+            self.assertEqual(after[:80] + after[84:], before[:80] + before[84:])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(6)), (255, 0, 1, 1, 3, 1))
+        self.assertEqual(m.call('Settings_Get', UPB_SWEETSPOT, UPB_LANDING), 1)
+        # Its neighbors' writes keep it, and the spare bit doesn't read as it.
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 0); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 1)
+        m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_DOUBLE_JUMP), 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 30, 2)
+
+    def test_version_22_records_read_double_jump_height_off_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, TARGETS, TARGETS_DOUBLE_JUMP), 0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in bit 30 alone.
+        m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 1 << 30)
+
+    def test_version_22_records_read_the_target_practice_defaults_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, TARGETS, i) for i in range(TARGETS_COUNT)), TARGETS_DEFAULTS)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 80, and a write lands in it.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)), TARGETS_DEFAULTS)
+        m.call('Settings_Set', TARGETS, 0, 12)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 12 << 10)
+        self.assertEqual(self.word_76_settings(lambda f, i: m.call('Settings_Get', f, i)), (20, 13, 41, 1, 1, 12, 2))
+
+    # Version 24 (T10): Target Practice's FH Multi Lasers in word 12's retired bits 6-8.
+    def version_23_record(self):
+        """A version 23 record with settings in words 80 and 12, and the retired bits of word
+        12 set, as a record that came up from versions 2-8 can have them."""
+        m = self.m
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', TARGETS, 2, 1)
+        m.call('Settings_Set', TARGETS, TARGETS_LINES, 1); m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)
+        m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 1)
+        # Ledgechase's side, distance, CPU action and entry, all in word 12.
+        m.call('Settings_Set', 28, 0, 2); m.call('Settings_Set', 28, 4, 3)
+        m.call('Settings_Set', 28, 6, 5); m.call('Settings_Set', 28, 8, 1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((23, 76))
+        old[12:16] = (int.from_bytes(old[12:16], 'little') | RETIRED_LEDGE_BITS).to_bytes(4, 'little')
+        old[84:88] = b'\xFF' * 4  # Version 23 never owned word 84.
+        return old
+
+    def word_80_and_12_settings(self, read):
+        return (read(TARGETS, 0), read(TARGETS, 2), read(TARGETS, TARGETS_LINES), read(GRABS, GRABS_PERCENT),
+                read(28, 0), read(28, 4), read(28, 6), read(28, 8), read(TARGETS, TARGETS_DOUBLE_JUMP))
+
+    def test_version_23_migration_claims_only_word_12s_retired_bits(self):
+        m = self.m
+        old = self.version_23_record()
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 0)  # Off, not the old bits' 7.
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[84:88] = bytes(4)
+        expected[12:16] = (int.from_bytes(old[12:16], 'little') & ~RETIRED_LEDGE_BITS).to_bytes(4, 'little')
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+        self.assertEqual(self.word_80_and_12_settings(lambda f, i: m.call('Settings_Get', f, i)),
+                         (200, 1, 1, 9, 2, 3, 5, 1, 1))
+        self.assertEqual((m.call('Settings_Get', TARGETS, TARGETS_SH_COLOR), m.call('Settings_Get', TARGETS, TARGETS_FH_COLOR),
+                          m.call('Settings_Get', TARGETS, TARGETS_POINTERS), m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE)),
+                         (ORANGE, TEAL, 1, 0))
+
+    def test_version_23_records_read_fh_multi_lasers_off_and_the_rest_without_writing(self):
+        m = self.m
+        old = self.version_23_record()
+        for retired in (RETIRED_LEDGE_BITS, 5 << 6):  # Old bits are never a combo.
+            word = int.from_bytes(old[12:16], 'little') & ~RETIRED_LEDGE_BITS | retired
+            old[12:16] = word.to_bytes(4, 'little')
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual(read(TARGETS, TARGETS_FULL_HOP), 0)
+            self.assertEqual((read(TARGETS, TARGETS_SH_COLOR), read(TARGETS, TARGETS_FH_COLOR)), (ORANGE, TEAL))
+            self.assertEqual(read(TARGETS, TARGETS_POINTERS), 1)  # Word 84's 1s aren't Off,
+            self.assertEqual(read(TARGETS, TARGETS_LOW_LINE), 0)  # nor a lowest laser line.
+            self.assertEqual(self.word_80_and_12_settings(read), (200, 1, 1, 9, 2, 3, 5, 1, 1))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_fh_multi_lasers_uses_only_word_12_bits_6_to_8(self):
+        m = self.m
+        self.version_23_record()  # Word 12's settings around the bits.
+        m.call('Settings_Set', 29, 0, 1); m.call('Settings_Set', LOW_LASER, 1, 1)  # Under Fire's and Low Laser's.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[:8], HEADER)
+        word = lambda record: int.from_bytes(record[12:16], 'little')
+        self.assertEqual(word(before) & RETIRED_LEDGE_BITS, 0)
+        for value in (1, 6, 3, 0, 2):
+            m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual(word(after), word(before) | value << 6)
+            self.assertEqual(after[:12] + after[16:], before[:12] + before[16:])
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), value)
+        # A stored 7 isn't a choice: it reads as Off and stays.
+        m.cpu.mem_write(EXT + 12, (word(before) | 7 << 6).to_bytes(4, 'little'))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(before) | 7 << 6)
+        # Its neighbors' writes keep it.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 4)
+        m.call('Settings_Set', 28, 0, 1); m.call('Settings_Set', 28, 4, 0); m.call('Settings_Set', 28, 6, 9)
+        m.call('Settings_Set', TARGETS, 0, 7)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 4)
+        self.assertEqual((m.call('Settings_Get', 28, 0), m.call('Settings_Get', 28, 4), m.call('Settings_Get', 28, 6)),
+                         (1, 0, 9))
+        # Bit 15 (Low Laser's Lowest Laser Lines) and 16-17 (Edgeguard's Up-B Overlays) stay 0, Off.
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 0)
+
+    # Low Laser Puff Practice's Lowest Laser Lines (T10): word 12's retired bit 15, no version bump.
+    def test_low_laser_lowest_laser_lines_uses_only_word_12_bit_15_with_off_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Word 12's settings around the bit.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 6)
+        m.call('Settings_Set', 29, 0, 1)  # Under Fire's.
+        m.call('Settings_Set', LOW_LASER, 0, 0); m.call('Settings_Set', LOW_LASER, 1, 1)  # Event OSDs, Suppress,
+        m.call('Settings_Set', LOW_LASER, 2, 7); m.call('Settings_Set', LOW_LASER, 3, 4)  # Position, Height.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[:8], HEADER)
+        word = lambda record: int.from_bytes(record[12:16], 'little')
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 0)  # Off by default.
+        self.assertEqual(word(before) >> 15 & 1, 0)
+        rows = lambda: tuple(m.call('Settings_Get', LOW_LASER, i) for i in range(5))
+        self.assertEqual(rows(), (0, 1, 7, 4, 0))
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(word(after), word(before) | 1 << 15)
+        self.assertEqual(after[:12] + after[16:], before[:12] + before[16:])
+        self.assertEqual(rows(), (0, 1, 7, 4, 1))
+        # Its neighbors' writes keep it: the other Low Laser rows, FH Multi Lasers and Ledgechase.
+        m.call('Settings_Set', LOW_LASER, 0, 1); m.call('Settings_Set', LOW_LASER, 1, 0)
+        m.call('Settings_Set', LOW_LASER, 2, 3); m.call('Settings_Set', LOW_LASER, 3, 1)
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 2); m.call('Settings_Set', 28, 6, 9)
+        self.assertEqual(rows(), (1, 0, 3, 1, 1))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 2)
+        self.assertEqual(m.call('Settings_Get', 28, 6), 9)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 15 & 7, 1)  # Edgeguard's 16-17 stay Off.
+        # A bad write is ignored, and Off clears the bit.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 2)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(before) & ~(1 << 15))
+        self.assertEqual(rows(), (1, 0, 3, 1, 0))
+
+    def test_low_laser_lowest_laser_lines_is_off_in_version_23_records_migrated_or_not(self):
+        m = self.m
+        old = self.version_23_record()  # Its retired bits set, as Ledgechase's old action left them.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, LOW_LASER, LOW_LASER_LOW_LINE), 0)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))  # Read without writing.
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 0)  # Migrated: the bit is cleared.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 12, 4), 'little') >> 15 & 1, 0)
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 1)
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 1)
+
+    def test_low_laser_lowest_laser_lines_carries_over_from_version_24(self):
+        m = self.m
+        old = self.version_24_record()  # Version 24 zeroed bits 15-17: Off.
+        self.assertEqual(int.from_bytes(old[12:16], 'little') >> 15 & 7, 0)
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, LOW_LASER, LOW_LASER_LOW_LINE), 0)
+        # Version 24 owns the bit, so On reads as On and migrating to 25 keeps it.
+        old[12:16] = (int.from_bytes(old[12:16], 'little') | 1 << 15).to_bytes(4, 'little')
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, LOW_LASER, LOW_LASER_LOW_LINE), 1)
+        self.assertEqual(m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), 1)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 12, 4)), bytes(old[12:16]))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 5)
+
+    # Edgeguard's Player and CPU Up-B Overlays (T10): word 12's retired bits 16-17, no version bump.
+    def test_edgeguard_up_b_overlays_use_only_word_12_bits_16_17_with_off_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Word 12's settings around the bits.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 6)
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 1)
+        m.call('Settings_Set', EDGEGUARD, EG_CAMERA, 1); m.call('Settings_Set', EDGEGUARD, EG_LUIGI2, 3)
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        word = lambda record: int.from_bytes(record[12:16], 'little')
+        overlays = lambda: (m.call('Settings_Get', EDGEGUARD, EG_UPB_PLAYER), m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU))
+        self.assertEqual(overlays(), (0, 0))  # Off by default.
+        self.assertEqual(word(before) >> 16 & 3, 0)
+        for player, cpu in ((1, 0), (0, 1), (1, 1)):
+            m.call('Settings_Set', EDGEGUARD, EG_UPB_PLAYER, player); m.call('Settings_Set', EDGEGUARD, EG_UPB_CPU, cpu)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual(overlays(), (player, cpu))
+            self.assertEqual(word(after), word(before) | player << 16 | cpu << 17)
+            self.assertEqual(after[:12] + after[16:], before[:12] + before[16:])
+        # Their neighbors' writes keep them: Low Laser's bit 15, FH Multi Lasers, Ledgechase and Edgeguard's other rows.
+        m.call('Settings_Set', LOW_LASER, LOW_LASER_LOW_LINE, 0); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 2)
+        m.call('Settings_Set', 28, 6, 9); m.call('Settings_Set', EDGEGUARD, EG_CAMERA, 0)
+        self.assertEqual(overlays(), (1, 1))
+        self.assertEqual((m.call('Settings_Get', LOW_LASER, LOW_LASER_LOW_LINE), m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP),
+                          m.call('Settings_Get', 28, 6), m.call('Settings_Get', EDGEGUARD, EG_LUIGI2)), (0, 2, 9, 3))
+        # A bad write is ignored, and Off clears only its own bit.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', EDGEGUARD, EG_UPB_CPU, 2)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set', EDGEGUARD, EG_UPB_PLAYER, 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(before) & ~(1 << 16))
+        self.assertEqual(overlays(), (0, 1))
+
+    def test_edgeguard_up_b_overlays_are_off_in_version_23_records_migrated_or_not(self):
+        m = self.m
+        old = self.version_23_record()  # Its retired bits set, as Ledgechase's old action left them.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual([m.call('TMExtension_Read', EXT, EDGEGUARD, i) for i in (EG_UPB_PLAYER, EG_UPB_CPU)], [0, 0])
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))  # Read without writing.
+        self.assertEqual(m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU), 0)  # Migrated: the bits are cleared.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 12, 4), 'little') >> 16 & 3, 0)
+        m.call('Settings_Set', EDGEGUARD, EG_UPB_CPU, 1)
+        self.assertEqual((m.call('Settings_Get', EDGEGUARD, EG_UPB_PLAYER), m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU)), (0, 1))
+
+    def test_edgeguard_up_b_overlays_carry_over_from_version_24(self):
+        m = self.m
+        old = self.version_24_record()  # Version 24 zeroed bits 15-17: Off.
+        old[12:16] = (int.from_bytes(old[12:16], 'little') | 3 << 16).to_bytes(4, 'little')
+        m.cpu.mem_write(EXT, bytes(old))
+        # Version 24 owns the bits, so On reads as On and migrating to 25 keeps them.
+        self.assertEqual([m.call('TMExtension_Read', EXT, EDGEGUARD, i) for i in (EG_UPB_PLAYER, EG_UPB_CPU)], [1, 1])
+        self.assertEqual((m.call('Settings_Get', EDGEGUARD, EG_UPB_PLAYER), m.call('Settings_Get', EDGEGUARD, EG_UPB_CPU)), (1, 1))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT + 12, 4)), bytes(old[12:16]))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 5)
+
+    # Version 25 (T10): the Hop Peak Lines' colors in word 84, the last free score bytes.
+    def version_24_record(self):
+        """A version 24 record with settings in words 80 and 12, FH Multi Lasers among them, and
+        the spare score bytes after it set."""
+        m = self.m
+        self.version_23_record()  # Its settings, in the current record.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 5)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((24, 76))
+        old[84:88] = b'\xFF' * 4  # Version 24 never owned word 84.
+        return old
+
+    def test_version_24_migration_keeps_every_byte_and_claims_only_word_84(self):
+        m = self.m
+        old = self.version_24_record()
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_SH_COLOR), ORANGE)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 1)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 0)
+        expected = bytearray(old); expected[4:6] = bytes((CURRENT, PAYLOAD)); expected[84:88] = bytes(4)
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))  # FH Multi Lasers' bits stay.
+        self.assertEqual(self.word_80_and_12_settings(lambda f, i: m.call('Settings_Get', f, i)),
+                         (200, 1, 1, 9, 2, 3, 5, 1, 1))
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_FULL_HOP), 5)
+
+    def test_version_24_records_read_the_default_colors_and_the_rest_without_writing(self):
+        m = self.m
+        old = self.version_24_record()
+        for spare in (bytes(4), b'\xFF' * 4, bytes((0x56, 0x35, 0x12, 0))):  # Spare score bytes are no colors,
+            old[84:88] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda field, index: m.call('TMExtension_Read', EXT, field, index)
+            self.assertEqual((read(TARGETS, TARGETS_SH_COLOR), read(TARGETS, TARGETS_FH_COLOR)), (ORANGE, TEAL))
+            self.assertEqual(read(TARGETS, TARGETS_POINTERS), 1)  # nor Target Pointers Off,
+            self.assertEqual(read(TARGETS, TARGETS_LOW_LINE), 0)  # nor a lowest laser line.
+            self.assertEqual(read(TARGETS, TARGETS_FULL_HOP), 5)
+            self.assertEqual(self.word_80_and_12_settings(read), (200, 1, 1, 9, 2, 3, 5, 1, 1))
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 84, and a write lands in its bits alone.
+        m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 0)  # White: 5 past Teal, wrapping.
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 84, 4), 'little'), 5 << 4)
+
+    def test_line_colors_use_only_word_84_bits_0_to_7_as_their_distance_from_the_default(self):
+        m = self.m
+        self.version_23_record()  # Settings in words 80 and 12 around it.
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
+        word = lambda record: int.from_bytes(record[84:88], 'little')
+        # Bit 8 On, bits 9-12 Lowest Laser Lines' 7 (Magenta), and bits 13-31 spare.
+        m.cpu.mem_write(EXT + 84, (0xABCDEE << 8).to_bytes(4, 'little'))
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[:8], HEADER)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in (TARGETS_SH_COLOR, TARGETS_FH_COLOR)),
+                         (ORANGE, TEAL))  # Zeros are the defaults.
+        for sh, fh in ((0, 14), (ORANGE, TEAL), (1, 12), (14, 0), (9, 10), (6, 9)):
+            m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, sh); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, fh)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            stored = ((sh + TARGETS_COLORS - ORANGE) % TARGETS_COLORS, (fh + TARGETS_COLORS - TEAL) % TARGETS_COLORS)
+            self.assertEqual(word(after), 0xABCDEE << 8 | stored[1] << 4 | stored[0])
+            self.assertEqual(after[:84], before[:84])
+            self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in (TARGETS_SH_COLOR, TARGETS_FH_COLOR)),
+                             (sh, fh))
+        # A stored 15 is no color: it reads as the default and stays.
+        m.cpu.mem_write(EXT + 84, (0xABCDEE << 8 | 0xFF).to_bytes(4, 'little'))
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in (TARGETS_SH_COLOR, TARGETS_FH_COLOR)),
+                         (ORANGE, TEAL))
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), 0xABCDEE << 8 | 0xFF)
+        # Its neighbors' writes keep it, and the rest of Target Practice reads as it was.
+        m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)
+        m.call('Settings_Set', TARGETS, 0, 99); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 6)
+        m.call('Settings_Set', TARGETS, TARGETS_DOUBLE_JUMP, 0)
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)),
+                         (99, 0, 1, 1, 6, 0, 2, 4, 1, 7))
+
+    def test_target_pointers_use_only_word_84_bit_8_with_on_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Settings in words 80 and 12 around it,
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
+        m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)  # and under it.
+        word = lambda record: int.from_bytes(record[84:88], 'little')
+        # Lowest Laser Lines' 14 (Sky Blue) in bits 9-12, and spare bits over it.
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABCDE << 9).to_bytes(4, 'little'))
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(word(before) >> 8 & 1, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 1)  # 0 is On.
+        for value in (0, 1, 0):
+            m.call('Settings_Set', TARGETS, TARGETS_POINTERS, value)
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> 8 & 1, word(after) & ~(1 << 8)), (1 - value, word(before)))
+            self.assertEqual(after[:84], before[:84])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)),
+                         (200, 0, 1, 1, 3, 1, 2, 4, 0, 14))
+        # Its neighbors' writes keep it.
+        m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, TEAL); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 0)
+        m.call('Settings_Set', TARGETS, 0, 5); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 9, 0x5ABCDE)
+
+    def test_lowest_laser_lines_use_only_word_84_bits_9_to_12_with_off_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Settings in words 80 and 12 around it,
+        m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
+        m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)
+        m.call('Settings_Set', TARGETS, TARGETS_POINTERS, 0)  # and under it.
+        word = lambda record: int.from_bytes(record[84:88], 'little')
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABCD << 13).to_bytes(4, 'little'))  # Spare.
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(word(before) >> 9 & 15, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 0)  # 0 is Off.
+        for value in (1, 15, ORANGE + 1, 0, 11):  # Every value fills the bits: Off and 15 colors.
+            m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, value)
+            self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> 9 & 15, word(after) & ~(15 << 9)), (value, word(before)))
+            self.assertEqual(after[:84], before[:84])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in range(TARGETS_COUNT)),
+                         (200, 0, 1, 1, 3, 1, 2, 4, 0, 11))
+        # Its neighbors' writes keep it.
+        m.call('Settings_Set', TARGETS, TARGETS_POINTERS, 1); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 0)
+        m.call('Settings_Set', TARGETS, 0, 5); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
+        self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 11)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 13, 0x5ABCD)
+
+    def test_all_events_keeps_its_own_cursor_in_word_80_and_leaves_byte_5_alone(self):
+        m = self.m
+        place = lambda: (m.call('Settings_Get', EVENT_PAGE, 0), m.call('Settings_Get', EVENT_SELECTION, 0))
+        word = lambda: int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little')
+        untouched = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        # The categorized pages alone never make the extension record.
+        m.call('Settings_Set', EVENT_PAGE, 0, 2); m.call('Settings_Set', EVENT_SELECTION, 0, 7)
+        m.call('Settings_Set', EVENT_PAGE, 0, 2)
+        self.assertEqual(place(), (2, 7))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), untouched)
+        m.call('Settings_Set', TARGETS, 0, 200); m.call('Settings_Set', 11, RANDALL_TIMER, 1)  # Bits 10-17 and 20.
+        neighbors = word()
+        core = bytes(m.cpu.mem_read(RECORD, 44))
+        m.call('Settings_Set', EVENT_PAGE, 0, ALL_EVENTS)
+        self.assertEqual(place(), (ALL_EVENTS, 0))
+        for selection in (37, 63, 1):
+            m.call('Settings_Set', EVENT_SELECTION, 0, selection)
+            self.assertEqual(place(), (ALL_EVENTS, selection))
+            self.assertEqual(word(), neighbors | 1 << 21 | selection << 22)
+            self.assertEqual(bytes(m.cpu.mem_read(RECORD, 44)), core)  # Byte 5 keeps Character-specific's 7.
+        m.call('Settings_Set', EVENT_SELECTION, 0, 64)  # Past its six bits: ignored.
+        self.assertEqual(place(), (ALL_EVENTS, 1))
+        # Back to the page it was entered from: both cursors are still there.
+        m.call('Settings_Set', EVENT_PAGE, 0, 2)
+        self.assertEqual((place(), word()), ((2, 7), neighbors | 1 << 22))
+        m.call('Settings_Set', EVENT_PAGE, 0, ALL_EVENTS)
+        self.assertEqual(place(), (ALL_EVENTS, 1))
+        # Any other page starts at the top, and that's what's remembered under All Events.
+        m.call('Settings_Set', EVENT_PAGE, 0, 3)
+        self.assertEqual(place(), (3, 0))
+        self.assertEqual(m.cpu.mem_read(RECORD + 5, 1)[0], 3)
+        m.call('Settings_Set', EVENT_PAGE, 0, 1)
+        self.assertEqual(place(), (1, 0))
+        m.call('Settings_Set', EVENT_PAGE, 0, 5)  # Not a page: ignored.
+        self.assertEqual(place(), (1, 0))
+        self.assertEqual((m.call('Settings_Get', TARGETS, 0), m.call('Settings_Get', 11, RANDALL_TIMER)), (200, 1))
+        # It's internal: only EVENT_PAGE and EVENT_SELECTION write it.
+        before = word()
+        m.call('Settings_Set', EVENT_LIST, 0, 1); m.call('Settings_Set', EVENT_LIST, 1, 9)
+        self.assertEqual(word(), before)
+        self.assertEqual(tuple(m.call('Settings_Get', EVENT_LIST, i) for i in range(2)), (0, 1))
+
+    def test_version_22_records_read_the_categorized_pages_without_writing(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(tuple(m.call('TMExtension_Read', EXT, EVENT_LIST, i) for i in range(2)), (0, 0))
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        m.cpu.mem_write(RECORD + 5, bytes((5 << 2 | 1,)))  # General Tech, its sixth event.
+        self.assertEqual((m.call('Settings_Get', EVENT_PAGE, 0), m.call('Settings_Get', EVENT_SELECTION, 0)), (1, 5))
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)  # Migrated: word 80 zeroed.
+
+    def test_version_22_records_read_cpu_movement_as_random(self):
+        m = self.m
+        old = self.version_22_record()
+        old[80:84] = b'\xFF' * 4  # Version 22 never owned word 80.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read', EXT, GRABS, GRABS_MOVEMENT), 0)
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_MOVEMENT), 0)  # Migrated: word 80 zeroed.
+
+    def test_tech_followup_keeps_spotdodge_punishs_bit_and_takes_word_80_bits_4_and_5(self):
+        m = self.m
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # Word 80's bits 0-3 are Grabs-ercise's.
+        word = lambda offset: int.from_bytes(m.cpu.mem_read(EXT + offset, 4), 'little')
+        for value in list(range(6)) + [0]:  # None, Spotdodge, Roll Away, Roll In, Shine, Random.
+            m.call('Settings_Set', 27, TECH_FOLLOWUP, value)
+            self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), value)
+            self.assertEqual(word(9) >> 14 & 1, value & 1)  # Spotdodge Punish's bit is the low bit.
+            self.assertEqual(word(80), (value >> 1) << 4 | 9)
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 9)
+        for value in (6, 7):  # Not choices: ignored.
+            m.call('Settings_Set', 27, TECH_FOLLOWUP, value)
+            self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 0)
+        # A damaged 6 or 7 repairs to None, keeping the rest of both words.
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 4)
+        word9 = word(9)
+        for stored in (6, 7):
+            m.cpu.mem_write(EXT + 9, (word9 | (stored & 1) << 14).to_bytes(4, 'little'))
+            m.cpu.mem_write(EXT + 80, ((stored >> 1) << 4 | 9 | 0xABCD00).to_bytes(4, 'little'))
+            self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 0)
+            self.assertEqual((word(9), word(80)), (word9, 9 | 0xABCD00))
+            self.assertEqual(m.call('Settings_Get', GRABS, GRABS_PERCENT), 9)
+
+    def test_older_records_read_the_followup_from_word_9_alone(self):
+        m = self.m
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 1)  # Spotdodge, as Spotdodge Punish On saved.
+        old = self.version_22_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 22 never owned word 80.
+            old[80:84] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, 27, TECH_FOLLOWUP), 1)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating keeps Spotdodge, and the high bits start clear.
+        self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 80, 4), 'little'), 0)
+        m.call('Settings_Set', 27, TECH_FOLLOWUP, 5)
+        self.assertEqual(m.call('Settings_Get', 27, TECH_FOLLOWUP), 5)
+
+    def test_version_21_records_read_the_grabercise_defaults_without_writing(self):
+        m = self.m
+        old = self.version_21_record()
+        for spare in (bytes(8), b'\xFF' * 8):  # Version 21 never owned words 76 and 80.
+            old[76:84] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            read = lambda index: m.call('TMExtension_Read', EXT, GRABS, index)
+            self.assertEqual(tuple(read(i) for i in range(len(GRABS_COUNTS))), GRABS_DEFAULTS)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+
+    def test_version_20_records_read_the_passing_defaults_without_writing(self):
+        m = self.m
+        old = self.version_20_record()
+        for spare in (bytes(4), b'\xFF' * 4):  # Version 20 never owned word 72.
+            old[72:76] = spare
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(tuple(m.call('TMExtension_Read', EXT, PASSING, i) for i in range(len(PASSING_COUNTS))),
+                             PASSING_DEFAULTS)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
 
     def test_knockback_distance_uses_only_word_68_bits_29_to_31(self):
         m = self.m
@@ -416,7 +1501,7 @@ class ExtensionTests(unittest.TestCase):
     def test_spacie_side_b_masks_use_only_word_68_bits_19_to_28(self):
         m = self.m
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
-        m.call('Settings_Set', GRAB_PUNISH, 4, 2); m.call('Settings_Set', UPB_SWEETSPOT, 2, 1)  # Word 68's neighbors.
+        m.call('Settings_Set', GRAB_PUNISH, 4, 2); m.call('Settings_Set', UPB_SWEETSPOT, UPB_CAMERA, 1)  # Word 68's neighbors.
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         for fox, falco in ((31, 0), (0, 31), (21, 10)):
             m.call('Settings_Set', EDGEGUARD, EG_FOX_SIDEB, fox); m.call('Settings_Set', EDGEGUARD, EG_FALCO_SIDEB, falco)
@@ -427,7 +1512,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual((word >> 19 & 31, word >> 24 & 31), (fox, falco))
             self.assertEqual(after[:68] + after[72:], before[:68] + before[72:])
             self.assertEqual(word & ~(0x3FF << 19), int.from_bytes(before[68:72], 'little'))
-        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, 4), m.call('Settings_Get', UPB_SWEETSPOT, 2)), (2, 1))
+        self.assertEqual((m.call('Settings_Get', GRAB_PUNISH, 4), m.call('Settings_Get', UPB_SWEETSPOT, UPB_CAMERA)), (2, 1))
         self.assertEqual(m.call('Settings_Get', EDGEGUARD, 8), 1)  # Fox's first mask is its own field.
 
     def test_up_b_marth_keeps_a_saved_off_and_stores_down_tilt_in_its_top_bit(self):
@@ -479,13 +1564,15 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set', field, len(counts), 0)  # and so is another index.
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
         after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        # Only word 68 changes, but for Teammate Percent, the enemy's team and the top bits.
+        # Only word 68 changes, but for Teammate Percent, the enemy's team, the
+        # top bits and Up-B Sweetspot's Landing Line (word 80 bit 28).
         def others(record):
             record = bytearray(record)
-            record[23] &= 0x3F; record[34] &= 0x3F; record[35] &= 0x7F; record[50] &= 0x1F
+            record[23] &= 0x3F; record[34] &= 0x3F; record[35] &= 0x7F; record[50] &= 0x1F; record[83] &= 0xEF
             return bytes(record[:68] + record[76:])
         self.assertEqual(others(after), others(before))
-        self.assertEqual((after[23] >> 6, after[34] >> 6, after[35] >> 7, after[50] >> 5), (2, 3, 1, 2))
+        self.assertEqual((after[23] >> 6, after[34] >> 6, after[35] >> 7, after[50] >> 5, after[83] >> 4 & 1),
+                         (2, 3, 1, 2, 1))
         word = int.from_bytes(after[68:72], 'little')
         self.assertEqual(word & ~0x7FFFF, 0)  # Bits 19-31 stay spare.
         self.assertEqual(m.record(), core)
@@ -495,9 +1582,9 @@ class ExtensionTests(unittest.TestCase):
         # A damaged Enemy Percent (15, with its top bit), CPU Mashing (7, with
         # its) and Teammate Facing (3) repair to their defaults and leave their neighbors.
         m.cpu.mem_write(EXT + 68, (word | 7 << 6 | 3 << 9 | 3 << 11).to_bytes(4, 'little'))
-        self.assertEqual(saved(), ((7, 7, 3, 10, 1, 0, 1, 2, 2, 26, 26), (1, 2, 1)))
+        self.assertEqual(saved(), ((7, 7, 3, 10, 2, 0, 1, 2, 2, 26, 26), (1, 1, 2, 1, 1)))
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 68, 4), 'little'),
-                         word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 1 << 9)
+                         word & ~(7 << 6 | 3 << 9 | 3 << 11) | 3 << 6 | 2 << 9)
         self.assertEqual((m.cpu.mem_read(EXT + 34, 1)[0] >> 6, m.cpu.mem_read(EXT + 35, 1)[0] >> 7), (2, 0))
 
     def test_recovery_menu_defaults_match_saved_initial_masks(self):
@@ -634,9 +1721,9 @@ class ExtensionTests(unittest.TestCase):
         for index, value in ((0, 6), (1, 0xFFFFFFFF), (2, 1)):
             m.call('Settings_Set', COSTUME, index, value)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
-        m.cpu.mem_write(EXT + 51, b'\x09')  # A damaged byte repairs to Default.
+        m.cpu.mem_write(EXT + 51, b'\x0E')  # A damaged costume (6) repairs to Default,
         self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', COSTUME, 1)), (5, 0))
-        self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0)
+        self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 0x08)  # leaving the spare bits 3-4 alone.
 
     def test_teammate_percent_shares_the_human_costume_byte_without_disturbing_it(self):
         m = self.m
@@ -732,7 +1819,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.record(), core)
 
     def test_records_that_own_the_grid_bytes_read_egg_spawn_options_as_off(self):
-        for version, payload in ((17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (22, 72), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)
@@ -766,7 +1853,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.call('Settings_Get', LEDGEGRAB_RESET, 0), RESET_SHORT)
 
     def test_records_that_own_byte_34_read_its_clear_bits_as_short(self):
-        for version, payload in ((15, 28), (16, 42), (17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+        for version, payload in ((15, 28), (16, 42), (17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (22, 72), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)  # Create the record.
@@ -815,7 +1902,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(m.cpu.mem_read(EXT + 51, 1)[0], 2)
 
     def test_records_that_own_the_costume_bytes_read_their_clear_top_bits_as_top_left(self):
-        for version, payload in ((17, 44), (18, 56), (19, 60), (CURRENT, PAYLOAD)):
+        for version, payload in ((17, 44), (18, 56), (19, 60), (20, 64), (21, 68), (22, 72), (CURRENT, PAYLOAD)):
             with self.subTest(version=version):
                 m = fixtures.Machine(); m.init()
                 m.call('Settings_Set', COSTUME, 1, 4)
@@ -998,8 +2085,12 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Get', 27, 0)
         after = bytes(m.cpu.mem_read(EXT, OWNED_SIZE))
         self.assertEqual(after[:9], before[:9])
-        self.assertEqual(after[10] & 0x80, 0x80)
-        self.assertEqual(after[11], 0xA5)
+        # Byte 10 bit 7 is Player Distance's top bit, so the damaged distance
+        # (5, with low bits 1) repairs to Right Next To; color, height and
+        # Under Fire's pillar bit keep their bits.
+        self.assertEqual(after[10] & 0x80, 0)
+        self.assertEqual(after[11], 0x85)
+        self.assertEqual(m.call('Settings_Get', 27, TECH_DISTANCE), 0)
         self.assertEqual(after[14]&0xF8, 0xB8)
         self.assertEqual(after[15], 0x80)
         self.assertEqual(m.call('Settings_Get', 27, 0), 0)
@@ -1018,10 +2109,11 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(0x80432A68, struct.pack('>2I', 0x80409000, 0x8040A000))
         self.assertEqual(m.call('Settings_Get', 14, 30), 5)
         self.assertEqual(tuple(m.call('Settings_Get', 27, i) for i in range(len(COUNTS))),
-                         (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0))
+                         (8, 1, 0, 2, 2, 2, 3, 1, 7, 0, 0, 0))
         self.assertEqual(tuple(m.call('Settings_Get', 28, i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
+        # Byte 10's padding bit 7 becomes Player Distance's top bit, so it is cleared.
         self.assertEqual(bytes(m.cpu.mem_read(EXT, OWNED_SIZE)),
-                         HEADER + b'\x85\x98\xFA\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES + COLOR_BYTES)
+                         HEADER + b'\x85\x98\x7A\x87\x00\x72\x90\x00' + PS_DEFAULT_BYTES + SHIELD_DEFAULT_BYTES + COLOR_BYTES)
         self.assertEqual(bytes(m.cpu.mem_read(EXT + OWNED_SIZE, REGION_SIZE - OWNED_SIZE)),
                          b'\xE5' * (REGION_SIZE - OWNED_SIZE))
         self.assertEqual(m.record(), core)
@@ -1058,10 +2150,13 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(after[24:OWNED_SIZE], COLOR_BYTES)
             self.assertEqual(after[6:8], legacy[6:8])
             self.assertEqual(after[8], legacy[8] & ~NEW_BITS)  # Newly owned bits are cleared.
-            self.assertEqual(after[9:11], legacy[9:11])
+            self.assertEqual(after[9], legacy[9])
+            self.assertEqual(after[10], legacy[10] & 0x7F)  # Bit 15 is Player Distance's top bit; v2 had no distance.
             self.assertEqual(after[11], legacy[11] & 0x87)
-            mask = ~((15 << 18) | (3 << 22)) & 0xFFFFFF
+            mask = ~((15 << 18) | (3 << 22) | RETIRED_LEDGE_BITS) & 0xFFFFFF
             self.assertEqual(int.from_bytes(after[12:15], 'little') & mask, int.from_bytes(legacy[12:15], 'little') & mask)
+            # Version 24 claims the retired bits once the old action is read out of them.
+            self.assertEqual(int.from_bytes(after[12:16], 'little') & RETIRED_LEDGE_BITS, 0)
             self.assertEqual(after[15], (1,13,31,11)[action])
             self.assertEqual(after[16:20], PS_DEFAULT_BYTES)
             self.assertEqual(after[OWNED_SIZE:], b'\xE5' * (REGION_SIZE - OWNED_SIZE))
@@ -1090,7 +2185,7 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(tuple(m.call('Settings_Get',27,i) for i in (9,10)),(0,0))
             self.assertEqual(m.call('Settings_Get',29,0),0)
             after=bytes(m.cpu.mem_read(EXT,REGION_SIZE))
-            expected=bytearray(legacy);expected[4]=7;expected[11]&=0x87;expected[14]=(expected[14]&0xC3)|0x10;expected[15]=(expected[15]&0xC0)|(0,1,13,31,11)[action]
+            expected=bytearray(legacy);expected[4]=7;expected[10]&=0x7F;expected[11]&=0x87;expected[14]=(expected[14]&0xC3)|0x10;expected[15]=(expected[15]&0xC0)|(0,1,13,31,11)[action]
             self.assertEqual(after,upgraded(expected)+b'\xE5'*(REGION_SIZE-OWNED_SIZE))
 
     def test_v4_migration_preserves_particle_height_distance_and_clears_score_marker(self):
@@ -1126,7 +2221,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field >= 30: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                             tuple(5 if field == 28 and i == 3 else 11 if field == 28 and i == 6 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else count - 1
+                             tuple(0 if field == 27 and i == TECH_SIDE else 1 if field == 27 and i == TECH_FOLLOWUP else 5 if field == 28 and i == 3 else 11 if field == 28 and i == 6 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else count - 1
                                    for i, count in enumerate(counts)))
 
     def test_v6_migration_preserves_all_other_preferences_and_spare_bits(self):
@@ -1162,7 +2257,7 @@ class ExtensionTests(unittest.TestCase):
         for field, counts, _ in FIELDS:
             if field == 31: continue
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),
-                tuple(6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
+                tuple(0 if field == 27 and i == TECH_SIDE else 1 if field == 27 and i == TECH_FOLLOWUP else 6 if field == 28 and i == 3 else 0 if field == 28 and i in (7,9) else 2 if field == 28 and i == 8 else 0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))
         self.assertEqual(m.record(),core)
 
     def test_opaque_future_extension_cannot_be_claimed_by_powershield(self):
@@ -1191,6 +2286,8 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(m.call('Settings_Get', 28, 3), preset)
             expected = bytearray(old); expected[4:6] = bytes((CURRENT,PAYLOAD)); expected[20:24] = SHIELD_DEFAULT_BYTES; expected[24:OWNED_SIZE] = COLOR_BYTES; expected[19] = preset; expected[8] &= ~NEW_BITS
             expected[14] = (expected[14] & 0x3F) | 0x80; expected[15] &= 0x3F
+            # The preset moved to byte 19, and version 24 claims the bits it came from.
+            expected[12:16] = (int.from_bytes(expected[12:16], 'little') & ~RETIRED_LEDGE_BITS).to_bytes(4, 'little')
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
             self.assertEqual(m.call('Settings_Get', 28, 7), 0)
 
@@ -1248,7 +2345,7 @@ class ExtensionTests(unittest.TestCase):
         expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD));expected[20:24]=SHIELD_DEFAULT_BYTES;expected[24:OWNED_SIZE]=COLOR_BYTES; expected[8] &= ~NEW_BITS
         self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(expected))
         for field, counts, _ in FIELDS:
-            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if field == 30 and i >= 2 else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15
+            self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),tuple(0 if (field == 30 and i >= 2) or (field == 27 and i == TECH_SIDE) else 1 if field == 27 and i == TECH_FOLLOWUP else n-1 for i,n in enumerate(counts)))  # Byte 35 is new in 15, byte 50 in 17, word 80 in 23 (only the followup's low bit is older)
         for field, counts, defaults in SHIELD_FIELDS:
             self.assertEqual(tuple(m.call('Settings_Get',field,i) for i in range(len(counts))),defaults)
 
@@ -1267,6 +2364,8 @@ class ExtensionTests(unittest.TestCase):
             self.assertEqual(bytes(m.cpu.mem_read(EXT,REGION_SIZE)),bytes(old))
             self.assertEqual(m.call('Settings_Get',34,0),action if action<10 else 0)
             expected=bytearray(old);expected[4:6]=bytes((CURRENT,PAYLOAD)); expected[8] &= ~NEW_BITS; expected[35]=0  # Version 15 claims byte 35
+            expected[50]&=~0x18  # and version 17 byte 50, Techchase's Player Side,
+            expected[80]&=~0x30  # and version 23 word 80, its CPU Followup Action's high bits.
             expected[20]=(expected[20]&0xF0) # Version-11 invalid attack padding repairs to choice zero.
             word=int.from_bytes(expected[20:24],'little')&~((1<<19)|(1<<20))
             if action>=10:word&=~(15<<9)
@@ -1311,6 +2410,9 @@ class ExtensionTests(unittest.TestCase):
     def test_low_laser_byte_35_invalid_values_read_and_repair_to_defaults(self):
         m = self.m
         m.call('Settings_Set',30,1,1)
+        # Bit 7 is CPU Mashing's top bit. On Light's low bits it reads as a valid
+        # Inhuman, so only Low Laser's nibbles need repairing.
+        m.call('Settings_Set', GRAB_PUNISH, GP_MASH, 1)
         record = bytearray(m.cpu.mem_read(EXT, REGION_SIZE)); record[35] = 0xFF  # Position 15, height 7, spare bit 7.
         m.cpu.mem_write(EXT, bytes(record))
         self.assertEqual((m.call('TMExtension_Read',EXT,30,2), m.call('TMExtension_Read',EXT,30,3)), (0,0))
@@ -1351,6 +2453,53 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual([m.call('Settings_Get',27,i) for i in range(11)], tech)
         m.call('Settings_Set',29,3,0)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_techchase_random_distance_and_player_side_take_spare_bits_without_a_version_bump(self):
+        m = self.m
+        m.call('Settings_Set', COSTUME, 0, 5)  # Create the record. Side shares the human costume's byte
+        m.call('Settings_Set', GRAB_PUNISH, GP_MATE_PERCENT, 7)  # with Teammate Percent's low bits.
+        core = m.record()
+        self.assertEqual((m.call('Settings_Get', 27, TECH_DISTANCE), m.call('Settings_Get', 27, TECH_SIDE)), (0, 0))
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        self.assertEqual(before[50] & 0x18, 0)
+        self.assertEqual(before[10] & 0x80, 0)
+        def unchanged_neighbors():
+            self.assertEqual((m.call('Settings_Get', COSTUME, 0), m.call('Settings_Get', GRAB_PUNISH, GP_MATE_PERCENT)), (5, 7))
+            self.assertEqual(tuple(m.call('Settings_Get', 27, i) for i in range(TECH_DISTANCE)), DEFAULTS[:TECH_DISTANCE])
+        for side in range(3):  # Left, Right, Random in byte 50 bits 3-4.
+            m.call('Settings_Set', 27, TECH_SIDE, side)
+            expected = bytearray(before); expected[50] = (expected[50] & ~0x18) | side << 3
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(expected))
+            self.assertEqual(m.call('Settings_Get', 27, TECH_SIDE), side)
+            unchanged_neighbors()
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set', 27, TECH_SIDE, 3)  # Out of range is ignored.
+        m.call('Settings_Set', 27, TECH_SIDE + 1, 1)  # So is another index.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        m.call('Settings_Set', COSTUME, 0, 2)  # A costume change keeps the side.
+        self.assertEqual((m.call('Settings_Get', 27, TECH_SIDE), m.call('Settings_Get', COSTUME, 0)), (2, 2))
+        m.call('Settings_Set', COSTUME, 0, 5)
+        # Random (4) is the top bit, word 9 bit 15 (byte 10 bit 7), over clear low bits 21-22.
+        for distance in range(5):
+            m.call('Settings_Set', 27, TECH_DISTANCE, distance)
+            record = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((record[10] >> 7, record[11] >> 5 & 3), (distance >> 2, distance & 3))
+            self.assertEqual(m.call('Settings_Get', 27, TECH_DISTANCE), distance)
+            unchanged_neighbors()
+        self.assertEqual(m.call('Settings_Get', 27, TECH_SIDE), 2)
+        self.assertEqual(m.record(), core)  # The full core record is untouched.
+        # A damaged side (3) or distance (5..7) repairs to its default alone.
+        damaged = bytearray(m.cpu.mem_read(EXT, REGION_SIZE)); damaged[50] |= 0x18; damaged[10] |= 0x80; damaged[11] |= 0x60
+        m.cpu.mem_write(EXT, bytes(damaged))
+        self.assertEqual((m.call('Settings_Get', 27, TECH_DISTANCE), m.call('Settings_Get', 27, TECH_SIDE)), (0, 0))
+        unchanged_neighbors()
+        # Version 17 is the first record to own byte 50; older ones read Left.
+        m.call('Settings_Set', 27, TECH_SIDE, 2)
+        current = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for (version, payload), side in (((20, 64), 2), ((17, 44), 2), ((16, 42), 0), ((15, 28), 0), ((11, 16), 0)):
+            old = bytearray(current); old[4:6] = bytes((version, payload))
+            m.cpu.mem_write(EXT, bytes(old))
+            self.assertEqual(m.call('TMExtension_Read', EXT, 27, TECH_SIDE), side, version)
 
     def test_older_records_read_the_pillars_bit_as_off_and_migrating_keeps_it_off(self):
         for version, payload in ((19,60), (18,56), (11,16), (6,8)):
@@ -1432,7 +2581,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get',SWEETSPOT_DJ,0), m.call('Settings_Get',EDGEGUARD,EG_SIDE)), (1, 2))
         m.call('Settings_Set',SWEETSPOT,0,2)  # Out of range is ignored,
         m.call('Settings_Set',SWEETSPOT,1,8)
-        m.call('Settings_Set',SWEETSPOT,2,0)  # and so is a third index.
+        m.call('Settings_Set',SWEETSPOT,3,0)  # and so is a fourth index (the third is Marth's).
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
         # Version 11..18 records own word 20, so the bits are read as is.
         old = bytearray(after); old[4:6] = bytes((18,56))
@@ -1480,6 +2629,132 @@ class ExtensionTests(unittest.TestCase):
         m.cpu.mem_write(EXT, after)
         m.call('Settings_Set',11,BLAST_ZONES,0)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+
+    def test_invincibility_stoplight_flag_lives_in_word_80_bit_6(self):
+        m = self.m
+        m.call('Settings_Set',27,TECH_FOLLOWUP,5)  # Word 80 bits 4-5 and word 9 bit 14.
+        m.call('Settings_Set',GRABS,GRABS_PERCENT,13)  # Word 80 bits 0-3.
+        m.call('Settings_Set',11,BLAST_ZONES,1)
+        self.assertEqual(m.call('Settings_Get',11,STOPLIGHT), 0)
+        core = m.record()
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',11,STOPLIGHT,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[80] |= 0x40
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(after[:8], HEADER)  # Still the current version.
+        self.assertEqual(m.record(), core)
+        self.assertEqual([m.call('Settings_Get',*key) for key in ((11,STOPLIGHT), (27,TECH_FOLLOWUP),
+            (GRABS,GRABS_PERCENT), (11,BLAST_ZONES), (11,10), (11,9))], [1,5,13,1,0,0])
+        m.call('Settings_Set',11,STOPLIGHT,2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        m.call('Settings_Set',16,36,0)  # Its logical editor row, as the native hooks write it.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set',16,36,1)
+        self.assertEqual((m.call('Settings_Get',16,36), m.call('Settings_Get',11,STOPLIGHT)), (1,1))
+
+    def test_version_22_records_never_read_the_stoplight_bit_and_migration_clears_it(self):
+        m = self.m
+        m.call('Settings_Set',11,STOPLIGHT,1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((22,72)); old[80] = 0xFF  # Valid-looking spare score bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,11,STOPLIGHT), 0)
+        m.call('Settings_Set',11,BLAST_ZONES,1)  # Any edit migrates and claims word 80.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.call('Settings_Get',11,STOPLIGHT), 0)
+        m.call('Settings_Set',11,STOPLIGHT,1)  # A write to an old record migrates it first.
+        m.cpu.mem_write(EXT, bytes(old))
+        m.call('Settings_Set',11,STOPLIGHT,1)
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[80], 0x40)
+        self.assertEqual(m.call('Settings_Get',11,STOPLIGHT), 1)
+
+    def test_debug_menu_flag_lives_in_word_80_bit_9_above_cpu_movement(self):
+        m = self.m
+        m.call('Settings_Set',GRABS,GRABS_MOVEMENT,2)  # Word 80 bits 7-8, just below it.
+        m.call('Settings_Set',GRABS,GRABS_PERCENT,13)  # Bits 0-3.
+        m.call('Settings_Set',11,STOPLIGHT,1)  # Bit 6.
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 0)
+        core = m.record()
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',11,DEBUG_OFF,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[81] |= 0x02
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(after[:8], HEADER)  # Still the current version.
+        self.assertEqual(m.record(), core)
+        self.assertEqual([m.call('Settings_Get',*key) for key in ((11,DEBUG_OFF), (GRABS,GRABS_MOVEMENT),
+            (GRABS,GRABS_PERCENT), (11,STOPLIGHT))], [1,2,13,1])
+        m.call('Settings_Set',GRABS,GRABS_MOVEMENT,0)  # Its neighbor's writes keep it.
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 1)
+        m.call('Settings_Set',GRABS,GRABS_MOVEMENT,2)
+        m.call('Settings_Set',11,DEBUG_OFF,2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        m.call('Settings_Set',16,37,0)  # Its logical editor row, as the native hooks write it.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set',16,37,1)
+        self.assertEqual((m.call('Settings_Get',16,37), m.call('Settings_Get',11,DEBUG_OFF)), (1,1))
+
+    def test_randall_timer_flag_lives_in_word_80_bit_20_above_target_practice(self):
+        m = self.m
+        m.call('Settings_Set',TARGETS,0,255); m.call('Settings_Set',TARGETS,2,1)  # Bits 10-17 and 19, just below it.
+        m.call('Settings_Set',11,DEBUG_OFF,1)  # Bit 9.
+        m.call('Settings_Set',11,9,1)  # Randall Overlay (flag 9), byte 8 bit 3.
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 0)
+        core = m.record()
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        m.call('Settings_Set',11,RANDALL_TIMER,1)
+        after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        expected = bytearray(before); expected[82] |= 0x10
+        self.assertEqual(after, bytes(expected))
+        self.assertEqual(after[:8], HEADER)  # Still the current version.
+        self.assertEqual(m.record(), core)
+        self.assertEqual([m.call('Settings_Get',*key) for key in ((11,RANDALL_TIMER), (TARGETS,0), (TARGETS,2),
+            (11,DEBUG_OFF), (11,9))], [1,255,1,1,1])
+        m.call('Settings_Set',TARGETS,2,0)  # Its neighbor's writes keep it.
+        m.call('Settings_Set',TARGETS,0,0)
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 1)
+        m.call('Settings_Set',TARGETS,0,255); m.call('Settings_Set',TARGETS,2,1)
+        m.call('Settings_Set',11,RANDALL_TIMER,2)  # Out of range is ignored.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), after)
+        m.call('Settings_Set',16,38,0)  # Its logical editor row, as the native hooks write it.
+        self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), before)
+        m.call('Settings_Set',16,38,1)
+        self.assertEqual((m.call('Settings_Get',16,38), m.call('Settings_Get',11,RANDALL_TIMER)), (1,1))
+        self.assertEqual(m.call('Settings_Get',11,9), 1)  # Independent of Randall Overlay.
+
+    def test_version_22_records_never_read_the_randall_timer_bit_and_migration_clears_it(self):
+        m = self.m
+        m.call('Settings_Set',11,RANDALL_TIMER,1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((22,72)); old[82] = 0xFF  # Valid-looking spare score bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,11,RANDALL_TIMER), 0)
+        m.call('Settings_Set',11,BLAST_ZONES,1)  # Any edit migrates and claims word 80.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 0)
+        m.cpu.mem_write(EXT, bytes(old))
+        m.call('Settings_Set',11,RANDALL_TIMER,1)  # A write to an old record migrates it first.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[82], 0x10)
+        self.assertEqual(m.call('Settings_Get',11,RANDALL_TIMER), 1)
+
+    def test_version_22_records_never_read_the_debug_menu_bit_and_migration_clears_it(self):
+        m = self.m
+        m.call('Settings_Set',11,DEBUG_OFF,1)
+        old = bytearray(m.cpu.mem_read(EXT, REGION_SIZE))
+        old[4:6] = bytes((22,72)); old[81] = 0xFF  # Valid-looking spare score bytes.
+        m.cpu.mem_write(EXT, bytes(old))
+        self.assertEqual(m.call('TMExtension_Read',EXT,11,DEBUG_OFF), 0)
+        m.call('Settings_Set',11,BLAST_ZONES,1)  # Any edit migrates and claims word 80.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 0)
+        m.cpu.mem_write(EXT, bytes(old))
+        m.call('Settings_Set',11,DEBUG_OFF,1)  # A write to an old record migrates it first.
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[4], CURRENT)
+        self.assertEqual(m.cpu.mem_read(EXT, REGION_SIZE)[81], 0x02)
+        self.assertEqual(m.call('Settings_Get',11,DEBUG_OFF), 1)
 
     def test_records_before_version_11_never_read_the_blast_zone_overlay_bit(self):
         for version, payload in ((10,12), (6,8)):
@@ -1560,7 +2835,7 @@ class RelocatedExtensionTests(unittest.TestCase):
         core = m.record()
         self.assertEqual(m.call('DAT_Get',14,30), 6)
         self.assertEqual(tuple(m.call('DAT_Get',27,i) for i in range(len(COUNTS))),
-                         (8,1,0,2,2,2,3,1,7,0,0))
+                         (8,1,0,2,2,2,3,1,7,0,0,0))
         self.assertEqual(tuple(m.call('DAT_Get',28,i) for i in range(len(LEDGE_COUNTS))), LEDGE_DEFAULTS)
         self.assertEqual(bytes(m.cpu.mem_read(EXT,8)), HEADER)
         self.assertEqual(bytes(m.cpu.mem_read(EXT+OWNED_SIZE,REGION_SIZE-OWNED_SIZE)),

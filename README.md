@@ -55,24 +55,18 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T10
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T11
+- Ice Climbers Handoff options for Escape IC Grab (Beta), telling you which way to DI out of each. See [the research notes](notes/ESCAPE-EVENTS-RESEARCH.md#what-adding-a-handoff-would-take)
 - add an edgeguarding distance for edgeguarding event where the cpu gets knocked from the edge of the stage as if they just got fox shined. practicing punishing that distance in particular would be extremely helpful. and seeing the hitstun
-- notch marks boxx marks in settings for up b sweetspot
-- add the 2/3 ring and level tick to the rest of the up-b overlay gecko codes. Only Fox's has them so far. Falco's event already has them so his code should match, and Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `UNDER_STAGE` in scripts/upb_overlay_numbers.py
-- add rolling as an option in the techchase event
+- add the 2/3 ring and level tick to the rest of the up-b overlay gecko codes. Fox's and Falco's have them, but Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `UNDER_STAGE` in scripts/upb_overlay_numbers.py. Before giving the rest the 2/3 ring: Sheik's travel only checks for the ledge in the direction she faces, and aiming up and out from under the stage turns her to face away from it
 - punish roll event?
-- passing teams event, But you can build it INTO the 2v1 event!! Select between them in game, reuses memory. 
-Another 2v1 Doubles event where you pick a teammate and an opponent, and choose a percent and a move. The opponent will be at that percent, get hit by a cpu. If you hit it towards the cpu They will try to jump up and hit it back. There's a counter and you see how many hits you can get up to.
-Frozen % and rising percent. The rising % doesn't reset the menu so you can go in and click a to reset, or click down on the d pad to reset. left and right swap sides.
 - MORE DOUBLES!! WHAT CAN I DO TO PRACTICE DOUBLES
 - a doubles event where you try to shoot or get hit by a falco laser to recover
 - teams shield pressure practice event?
 - edge cancelling moves event, with overlays on platforms where you need to hit, different overlays for every character with gecko codes
 - expand up b sweetspot event to include differences for wallriding
 - sdi practice where you're trying to get out of like falcon nair
-- anti handoff event where it tells you what direction to DI, and where you try to mash out as fast as possible
 - double jump sweet spot event (really good for luigi where you have to do like a reverse double jump in a specific spot)
-- improve up-b overlay and sweetspot event with indicators on angled characters's arcs where the fixed angle spots are for boxx players
 - new objects in eggsercise. practice hitting in other spots other than on the floor
 - expand the edgeguarding event, i want at least doc and game and watch if I didn't already do doc. get some more in there like dk and all the mid tiers
 - test pikachu's recovery in both the up b sweet spot event and the recovery event. It might be too much for me to try to build out as a non-pika player, but would be nice to expand
@@ -83,9 +77,83 @@ Frozen % and rising percent. The rising % doesn't reset the menu so you can go i
 - Edgeguard Training Beta Changes:
     - Luigi feels like they reset a little early
 
+- hints section of grabs-ercise where you talk about different ways you can grab like how you can shield grab (L+A) out of crouch instead of waiting out the standup animation to push Z. 
+
 ## Tyro branch changelog
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
+
+### T10 (V1.4.1T10) - *2026-11-08 to 2026-11-23*
+
+- **New events**
+    - **Passing Practice** (Doubles): your CPU teammate passes the enemy CPU to you with an aerial, you hit it back, and your teammate jumps up and passes it again. It's for keeping a pass going with a teammate in doubles.
+        - Shares Grab Punish Practice's VS team select and saved teams and characters.
+        - **Hits** under the match timer counts your hits in a row until the enemy lands or grabs the ledge, with a session best for each percent mode.
+        - Pick your teammate's aerial, the enemy's percent (**Frozen %** or **Rising %**), the distance, and your side and facing (D-pad left/right and down). **Reset If Hitstun Ends** ends the volley when the enemy gets out of hitstun, so every hit has to combo.
+        - Your teammate reads where the enemy will fly to pick when to jump, how high, when to aerial and which way to drift, then fast-falls, L-cancels and walks back to its spot.
+    - **Escape Samus Up-B** (Character-specific Tech): Samus Screw Attacks you on Battlefield, and you SDI out before her last hit launches you.
+        - Start on the ground or in the air (D-pad down), anywhere from on top of her to the edge of her hitbox, at any percent, on either side (D-pad left/right).
+        - A big SDI count under the match timer turns green when you escape and red when you're launched. The HUD tracks escapes, hits taken and average SDI inputs. **Goal: Punish** also needs you to hit or grab Samus before she can act after landing.
+        - **Help** in the menu explains SDI, ASDI, which way to SDI, and why the C-stick can't SDI.
+    - **Escape IC Grab (Beta)** (Character-specific Tech): the Ice Climbers grab you on Final Destination and you mash out. No handoffs yet, so Popo just holds you.
+        - Your percent (D-pad up/down) sets how long the grab lasts if you don't mash.
+        - A big **Mash** count under the match timer shows the inputs the game counted. The HUD shows how long you were held, your best at that percent and your mash speed, and **Session Bests** lists your fastest escape at every percent.
+        - **Actionable Flash** (On by default) flashes you yellow, then green as you get out, like Actionable Yellow>Green.
+        - **Help** covers what counts as a mash, how to mash faster, and what gets an air release instead of a ground one. [The research notes](notes/ESCAPE-EVENTS-RESEARCH.md#ice-climbers-handoffs-research-for-a-later-version) cover the handoffs for later.
+    - **Grabs-ercise** (Minigames): Eggs-ercise with a CPU to grab. Grab and throw it, and it shows up somewhere else; knock it off the top and the next one shows up at once. Hit it and it holds still for half a second, so a follow-up grab (like nair or shine into grab) counts.
+        - The CPU stands or shields, or moves across its floor with real controller inputs: walking, running, traveling dash dance, rolling, or a full or half dash dance in place.
+        - A timed minute counts your grabs and saves your best. **Free Practice** takes the clock away and adds movement picks, **Fighter Collision** and **CPU Movement** (**Random**, **Still Only** or **Moving Only**).
+        - **Success Criteria: Hit** (Free Practice) counts a grab only once you hit the CPU after the throw, for follow-ups like up throw up air. **Hits** counts the juggle, and when it knocks the CPU down it techs or misses with Techchase's **Tyro setting** chances so you can chase it. **CPU Percent** sets its percent, or a random one from 0% to 120%.
+        - **Change Stage** and **Change Characters** in the pause menu restart without the character and stage select.
+    - **Target Practice** (Minigames, Fox and Falco): shoot small bullseye targets over the stage with your blaster; the next appears as soon as you hit one. See [the doc](docs/TARGET-PRACTICE.md).
+        - Targets range from the lowest laser you can shoot off the floor below up to a full hop double jump laser off the highest platform, small enough that a standing laser passes over the lowest ones.
+        - A timed minute counts your targets and saves your best, like Eggs-ercise. **Free Practice** takes the clock away.
+        - **SH Double Lasers** (Free Practice, Fox only) makes about half the targets high-low pairs over the floor or a platform, for one short hop double laser with B on any of your first three airborne frames.
+        - **FH Multi Lasers** (Free Practice) stacks targets for one full hop: **Hi-Hi-Low**, **High-MedHigh**, **High-Medium**, or **High-Low** (shoot at the peak, keep shooting, and fastfall for the lowest second laser). Pick one combo to drill it, or **All Combos** to mix them into about half the targets. See [the combos](docs/TARGET-PRACTICE.md#fh-multi-laser-combos).
+        - **Hop Peak Lines** marks where the highest short hop and full hop lasers fly, off the main floor and each platform. The highest laser takes B on your second airborne frame or later, since B on the first lowers the hop. **Short Hop Line Color** and **Full Hop Line Color** pick from the 15 OSD colors (Orange and Teal by default), darker over the main floor and lighter over the top platform. [Slippi Gecko codes](slippi-gecko-codes/hop-peak-lines/README.md) for Fox and Falco draw the same lines in any match (not tested in Dolphin yet).
+        - **Lowest Laser Lines** (Off by default) marks where your lowest laser flies off the main floor and each platform, in any of the 15 OSD colors, shaded like the Hop Peak Lines.
+        - **Double Jump Height** draws a red line across the stage where a laser at your double jump's peak would fly. It follows you in the air, then holds once you double jump until you land, and hides while you can't double jump.
+        - **Target Pointers** (On by default) draws four short lines around each target so it's easy to spot zoomed out.
+        - Six legal stages only. **Change Stage** and **Change Character** restart without the character and stage select, and **Counter Position** is shared with Eggs-ercise and Grabs-ercise.
+- **Globals and all events**
+    - **Actionable Yellow>Green** now covers grab releases, on the ground and in the air.
+    - New **Invincibility Stoplight** (Global Overlays page, under Invincibility Overlay, and the Training Lab's Global Visuals): a fighter's last eight invincible frames are four red, then four yellow, and then they're hittable. It covers ledge, respawn and starman invincibility, and dodges, techs and moves that end their own. It skips counters, Yoshi's armor, invincibility that ends with its action (like a waveland's landing) or that an event keeps renewing, and a move's invincibility during hitlag. It works with or without the Invincibility Overlay, and Actionable Yellow>Green still shows over it. A [Slippi Gecko code](slippi-gecko-codes/invincibility-stoplight/README.md) does the same in any match, alongside the Invincibility Overlay and Actionable Yellow-Green codes (not tested in Dolphin yet).
+    - New **Disable Dev Debug Menu** (Global Overlays page, development builds only) stops L/R + Z from opening the debug console, and closes it if it's open.
+    - New **Randall Timer Minimap** (Global Overlays page, under Randall Overlay, and the Training Lab's Stage Options): on Yoshi's Story, a red arrow rides a dotted track around the match timer, showing where Randall is and which way it's moving. The timer stands for the stage: the arrow goes behind the numbers while Randall is behind the stage, and out past them while it's out on that side (about 5 seconds behind, then 5 out, every 20-second lap). It follows the real Randall, or where it would be with hazards off, on a timer counting up or down, except in a timed match's last 5 seconds. Don't Reset Timers moves down a row. A [Slippi Gecko code](slippi-gecko-codes/randall-timer-minimap/README.md) draws it in any match (not tested in Dolphin yet). See [the doc](docs/RANDALL-TIMER-MINIMAP.md).
+- **Event changes**
+    - New **Doubles** page of events, after Character-specific Tech. **Grab Punish Practice** (was 2v1 Grab Punish Practice) moved there.
+    - New **All Events (Alphabetized)** page, left of Minigames: every event A to Z, with the same high scores and settings. Pages now wrap around (L on Minigames goes to it, R on Doubles comes back), and each list keeps its own place, with the event select opening on the one you used last.
+    - **Grab Punish Practice:** grabbing the enemy yourself during the release counts like a hit there: the countdown stops and shows **Regrab** (an Enemy Hit with Release Hit = Success). A grab after they can act shows **Late Regrab**, and the event waits for your throw before it resets.
+    - **Techchase**
+        - **Player Distance** has a new **Random** choice, anywhere from Right Next To through Medium.
+        - New **Player Side** setting (**Left**, **Right** or **Random**, or D-pad left/right) picks which side of the CPU you start on.
+        - New **Getup Attack Only** preset: the CPU always misses the tech and getup attacks.
+        - **Spotdodge Punish** is now **CPU Followup Action**: right after its tech the CPU can **Spotdodge**, **Roll Away** or **Roll In** (from stage center), **Shine** (Fox and Falco: it jumps out and wavelands), or pick one at **Random**, then it's intangible again like after a tech.
+        - A clock in the bottom left shows how long you've been practicing, not counting the pause menu.
+    - **Training Lab**
+        - On Fountain of Dreams, **Left/Right Platform Height** (Stage Options) holds a platform at any height the game can stop it at, 12.375 to 27.375 in steps of 0.375, replacing the old presets. **Random** stays, **Hidden** now sinks the platform the way the game does, and the platform and its water column move as soon as you change the row. See [the doc](docs/FOUNTAIN-PLATFORMS.md).
+        - On Yoshi's Story, Randall now stays with Hazards Off (the Shy Guys still go). A new **Randall** row at the top of Stage Options (On by default) hides it and its platform without stopping it, so the minimap keeps following it, and it stays in step with the timer through savestates.
+        - New **Timer 8m Inf Loop** (Session, Off by default) shows the timer as an 8 minute countdown that starts over at 0:00. Both timers show the same moment, so you can switch any time, and Randall is where an 8 minute match has it. See [the doc](docs/RANDALL-TIMER-MINIMAP.md#in-the-training-lab).
+    - **Edgeguard Training**
+        - D-pad left/right picks the **Side** ledge and restarts.
+        - New **Player Up-B Overlay** and **CPU Up-B Overlay** settings (Off by default) draw your character's and the CPU's up-B sweetspots at both ledges, as Up-B Sweetspot and the Up-B Gecko codes do: the ring or dot to up-B from, and the X where you grab. The CPU's is orange. Each is greyed out for a character with no guide.
+    - **Low Laser Puff Practice:** new **Lowest Laser Lines** setting (Off by default): for Fox and Falco, red lines where your lowest laser flies off the main floor and each platform, like Target Practice's.
+    - **Side-B Sweetspot:** new **Marth** setting turns off his down tilt, so you can practice shortens onto the stage.
+    - **Up-B Sweetspot**
+        - The rings for aimed up-Bs leave out the angles no stick can aim (Melee reads anything near straight as exactly straight), with a white tick where holding straight sweetspots. The teleports' and Quick Attack's inner ring follows the least tilt that aims each way.
+        - New **B0XX Angles** setting: a dot where each of the B0XX's up-B angles sweetspots, instead of the ring.
+        - Each character starts from their own spot, so Donkey Kong and Bowser can sweetspot. [The research notes](notes/UPB-SWEETSPOT-RESEARCH.md#start-spots-t10) list the spots.
+        - Aimed up-Bs coming down aim at a white bar where the ledge snaps (4.5 above the X for Fox and Falco), since the game grabs as soon as you're falling with the ledge in reach. The ring, B0XX dots, Held / Need and the live line's color follow it. [The research notes](notes/UPB-SWEETSPOT-RESEARCH.md#coming-down-where-the-ledge-snaps-t10) have the numbers.
+        - New **Landing Line** setting (Fox and Falco): a pink line for the lowest you can up-B from and still land on the stage. From above it, aim just over the ledge and you land without touching the stage's side. See [the research notes](notes/UPB-SWEETSPOT-RESEARCH.md#the-landing-line-t10).
+        - The [Up-B Gecko codes](slippi-gecko-codes/up-b-overlay/README.md) leave out the same gaps and draw the bar, and Falco's gets his 2/3 ring and ticks. Seven new B0XX codes draw B0XX Angles in any match, and two add-ons draw Fox's and Falco's Landing Line.
+- **Program changes**
+    - The save record is now version 25 (88 bytes), and older saves update on their own. T10's settings use words 72 to 84 and the last spare bits elsewhere, including the core record's last free bit, and version 24 reuses bits Ledgechase dropped in T4. The 88-byte region is now full, with 20 spare bits inside it. Grabs-ercise's and Target Practice's bests aren't in score slots, so Reset Records doesn't clear them. See [the save map](notes/SAVE-DATA-MEMORY-MAP.md).
+    - The settings service checks the save extension only when its bytes change, cutting the Blast Zone and Randall overlays' per-frame reads from about 23,000 instructions to 2,400.
+    - Events can ask the global actionable cue how far a fighter is from acting (`event_vars->cue_remaining`).
+    - New tests for [Passing Practice](tests/test_passing.py), [Grabs-ercise](tests/test_grabercise.py), [Target Practice](tests/test_targets.py), the escape events ([Samus](tests/test_escapesamus.py), [IC](tests/test_escapeic.py)), [All Events](tests/test_all_events.py), the Lab's [Fountain platforms](tests/test_fountain.py) (against the game's own platform code), its [Randall row and Timer 8m Inf Loop](tests/test_lab_session.py) (against the game's own countdown), and [Edgeguard's Up-B Overlays](tests/test_edgeguard.py) (against the Up-B Gecko codes' shapes). Up-B Sweetspot's guides are in [src/upb_guides.h](src/upb_guides.h), shared with Edgeguard. [scripts/laser_heights.py](scripts/laser_heights.py) measures Fox's and Falco's laser heights from the ISO.
+    - New [escape events research notes](notes/ESCAPE-EVENTS-RESEARCH.md), and the [up-B research notes](notes/UPB-SWEETSPOT-RESEARCH.md#the-sticks-dead-zones-and-b0xx-angles-t10) now cover the stick's dead zones and the B0XX's angles.
+
+For T10 I'm working with Claude Opus 5.5 Max and Extra High
 
 ### T9 (V1.4.1T9) - 2026-11-02
 

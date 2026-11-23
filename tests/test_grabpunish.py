@@ -11,8 +11,8 @@ HMN, MATE, ENEMY = 0, 1, 2
 WAIT, CATCH = 14, 0xD4
 DPAD_LEFT = 1
 PERCENT_ROW, MATE_PERCENT_ROW, MASH_ROW, RELEASE_ROW = 2, 3, 4, 6
-NO_MASH, MEDIUM, VERY_HEAVY = 0, 2, 4
-MASH_RATES = (1, 2, 3, 4, 7, 13)  # Timer taken a frame by each setting, in menu order.
+NO_MASH, MEDIUM, EXTREME, INHUMAN = 0, 2, 4, 5
+MASH_RATES = (1, 2, 3, 4, 5, 6)  # Timer taken a frame by each setting, in menu order.
 RED, WHITE, YELLOW = 0xFF2828, 0xFFFFFF, 0xFFF000
 RED_PULSE = (180, 140, 100, 60, 20, 60, 100, 140)
 SETUP, GRAB, RELEASE, RESOLVE, FOLLOWUP = range(5)
@@ -267,6 +267,64 @@ class GrabPunishTests(unittest.TestCase):
             self.assertEqual(self.info(16), sound)
             self.assertFalse(self.red())
 
+    # Regrabs: grabbing them yourself in the release.
+    def regrab(self, holding=True):
+        self.m.call('TestGPYourGrab', int(holding))
+        self.step()
+
+    def test_a_regrab_in_the_release_freezes_the_count_and_counts_like_a_release_hit(self):
+        for setting, shown, sound in ((0, '0/1 (0.0%)', FAILURE_SFX), (1, '1/1 (100.0%)', SUCCESS_SFX)):
+            self.setUp()
+            self.m.call('TestGPChoose', RELEASE_ROW, setting)
+            self.grab()
+            self.let_go()
+            self.step(9)
+            self.regrab()  # Like a hit, the frame before the grab showed.
+            self.assertEqual((self.phase(), self.time(), self.big()), (RESOLVE, 'Regrab 21f', '21'))
+            self.assertEqual(self.info(14), YELLOW)
+            self.finish()
+            self.step(5)
+            self.assertEqual((self.time(), self.big()), ('Regrab 21f', '21'))
+            self.assertEqual(self.shown()[1:], [shown, '0/1 (0.0%)'])
+            self.assertEqual(self.info(16), sound)
+            self.assertEqual(self.info(13), 0)  # Never red.
+
+    def test_a_regrab_right_after_hitting_your_teammate_is_still_a_regrab(self):
+        self.grab()
+        self.hit(MATE)
+        self.let_go()
+        self.step(2)
+        self.regrab()  # Not the rest of the attack that let go of them.
+        self.assertEqual(self.time(), 'Regrab 28f')
+        self.finish()
+        self.assertEqual(self.shown()[1:], ['1/1 (100.0%)', '1/1 (100.0%)'])
+        self.assertEqual(self.info(16), PARTIAL_SFX)
+
+    def test_a_regrab_after_they_can_act_stops_the_late_count(self):
+        self.grab()
+        self.let_go()
+        self.step(34)
+        self.assertEqual(self.time(), 'Escaped 5f')
+        self.regrab()
+        self.assertEqual((self.time(), self.big(), self.info(14)), ('Late Regrab 5f', '5', RED))
+        self.step(3)
+        self.assertEqual(self.time(), 'Late Regrab 5f')
+        self.assertEqual(self.shown()[1], '0/1 (0.0%)')  # Still a missed punish.
+
+    def test_the_follow_up_waits_while_you_hold_them(self):
+        self.grab()
+        self.let_go()
+        self.step(9)
+        self.regrab()
+        self.finish()
+        self.step(100)  # Past FOLLOWUP_MIN, with no hitstun.
+        self.assertEqual(self.phase(), FOLLOWUP)
+        self.regrab(False)
+        self.step(43)
+        self.assertEqual(self.phase(), FOLLOWUP)
+        self.step()  # Settled for FOLLOWUP_IDLE frames once you let go.
+        self.assertEqual(self.phase(), SETUP)
+
     def test_a_hit_after_they_can_act_is_too_late(self):
         self.m.call('TestGPChoose', RELEASE_ROW, 1)
         self.grab()
@@ -429,7 +487,7 @@ class GrabPunishTests(unittest.TestCase):
             self.assertEqual(taken, 48 * rate, row)
 
     def test_the_countdown_uses_the_new_rates(self):
-        for row, frames in ((MEDIUM, 132), (VERY_HEAVY, 57)):
+        for row, frames in ((MEDIUM, 132), (EXTREME, 79), (INHUMAN, 66)):
             self.setUp()
             self.m.call('TestGPChoose', MASH_ROW, row)
             self.grab(395)  # 200%.

@@ -8,17 +8,20 @@ const uint8_t TMSettings_OSDIDs[TM_SETTINGS_OSDS] = {
 /* Read down the left column, then the right. 255 marks a display-only gap.
  * Page 0, Global OSDs: movement/tech, Act Oo*, then (right column) shield and
  * escape, punish, ledge/items, and both overrides in the bottom-right corner.
- * Page 1, Global Overlays & Gameplay: character overlays, character gameplay
- * (Infinite Shields), stage overlays (Blast Zones, Randall), then the match
- * clock (Don't Reset Timers), separated by blank rows.
+ * Page 1, Global Overlays & Gameplay: character overlays (Invincibility
+ * Stoplight under Invincibility Overlay), character gameplay (Infinite
+ * Shields), stage overlays (Blast Zones, Randall, Randall Timer Minimap under
+ * Randall Overlay), then the match clock (Don't Reset Timers) in the left column's
+ * last row, separated by blank rows. The right column starts with the
+ * development builds' Disable Dev Debug Menu (a gap in release builds).
  * Page 2, Fixed Grid OSD Positions: page 0's OSD rows in the same places; JC
  * Shine and Reset All take the overrides' corner. Its rows edit positions, so
  * their native Booleans mirror each OSD's On/Off and saving them is a no-op. */
 const uint8_t TMSettings_EditorIDs[TM_EDITOR_PAGES][TM_EDITOR_ROWS] = {
     { 0,1,20,19,5,8,30,255,3,16,27,18,28,255,255,
       9,10,24,12,255,21,22,255,26,13,14,255,29,6, },
-    { 2,4,7,17,11,25,255,23,255,TM_GLOBAL_BLAST_ZONES_ROW,31,255,TM_GLOBAL_DONT_RESET_TIMERS_ROW,255,255,
-      255,255,255,255,255,255,255,255,255,255,255,255,255,255, },
+    { 2,4,7,17,11,25,TM_GLOBAL_INVINCIBILITY_ENDING_ROW,255,23,255,TM_GLOBAL_BLAST_ZONES_ROW,31,TM_GLOBAL_RANDALL_TIMER_ROW,255,TM_GLOBAL_DONT_RESET_TIMERS_ROW,
+      TM_EDITOR_DEBUG_CONSOLE_OFF,255,255,255,255,255,255,255,255,255,255,255,255,255, },
     { 0,1,20,19,5,8,30,255,3,16,27,18,28,255,255,
       9,10,24,12,255,21,22,255,26,13,14,255,TM_GRID_JC_SHINE_ROW,TM_GRID_RESET_ROW, },
 };
@@ -47,6 +50,9 @@ int TMSettings_NativeFlag(unsigned row) {
     case TM_GLOBAL_RANDALL_ROW: return TM_FLAG_RANDALL;
     case TM_GLOBAL_DONT_RESET_TIMERS_ROW: return TM_FLAG_DONT_RESET_TIMERS;
     case TM_GLOBAL_BLAST_ZONES_ROW: return TM_FLAG_BLAST_ZONES;
+    case TM_GLOBAL_INVINCIBILITY_ENDING_ROW: return TM_FLAG_INVINCIBILITY_ENDING;
+    case TM_GLOBAL_DEBUG_CONSOLE_OFF_ROW: return TM_FLAG_DEBUG_CONSOLE_OFF;
+    case TM_GLOBAL_RANDALL_TIMER_ROW: return TM_FLAG_RANDALL_TIMER;
     default: return -1;
     }
 }
@@ -154,7 +160,7 @@ void TMSettings_Init(uint8_t r[TM_SETTINGS_SIZE]) {
 
 static void validate_prefix(uint8_t *r) {
     if (r[4] >= 4) r[4] = 1;
-    if ((r[5] & 3) >= 3) r[5] = 1;
+    if ((r[5] & 3) >= TM_EVENT_PAGES) r[5] = 1;
     /* Old writers only produce 0/1 here. 10 in the top bits identifies the
      * character extension, so old palette padding cannot initialize it.
      * Codes 1..26 are playable external IDs + 1; 0 is unset. */
@@ -190,6 +196,7 @@ int TMSettings_Prepare(uint8_t r[TM_SETTINGS_SIZE], int owns_save) {
          * initialize it only on the first explicit event preference write. */
         r[40] &= ~TM_SETTINGS_EVENT_INITIALIZED;
         r[40] &= ~TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK; /* Older formats default guides On. */
+        r[37] &= ~TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK; /* And the flash On: their padding isn't owned. */
         r[43] &= ~(TM_SETTINGS_LAYOUT_MASK | TM_SETTINGS_SWEETSPOT_CAMERA_MASK);
     }
     if (!signed_format) {
@@ -212,7 +219,7 @@ int TMSettings_Prepare(uint8_t r[TM_SETTINGS_SIZE], int owns_save) {
     }
     /* Older layouts only own the page, never an event selection. */
     if (!signed_format || old_version < TM_SETTINGS_VERSION) {
-        if (r[5] >= 3) r[5] = 1;
+        if (r[5] >= TM_EVENT_PAGES) r[5] = 1;
     }
     validate_prefix(r);
     preference_validate(r);
@@ -245,6 +252,8 @@ uint32_t TMSettings_Read(const uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsi
         return index == 0 ? !(r[40] & TM_SETTINGS_SWEETSPOT_LINES_OFF_MASK) : 0;
     case TM_SETTING_SWEETSPOT_CAMERA:
         return index == 0 ? !!(r[43] & TM_SETTINGS_SWEETSPOT_CAMERA_MASK) : 0;
+    case TM_SETTING_ESCAPE_IC_FLASH:
+        return index == 0 ? !(r[37] & TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK) : 0;
     case TM_SETTING_CHARACTER: {
         if (index > 1 || (r[6] & 0xC0) != 0x80) return UINT32_MAX;
         unsigned code = (r[index ? 37 : 6] >> 1) & 31;
@@ -297,6 +306,13 @@ int TMSettings_Write(uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsigned index
         r[43] = (r[43] & ~TM_SETTINGS_SWEETSPOT_CAMERA_MASK) |
             (value ? TM_SETTINGS_SWEETSPOT_CAMERA_MASK : 0);
         return r[43] != old;
+    }
+    if (field == TM_SETTING_ESCAPE_IC_FLASH) {
+        if (index != 0 || value > 1) return 0;
+        uint8_t old = r[37];
+        r[37] = (r[37] & ~TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK) |
+            (value ? 0 : TM_SETTINGS_ESCAPE_IC_FLASH_OFF_MASK);
+        return r[37] != old;
     }
     if (field == TM_SETTING_SWEETSPOT_LINES) {
         if (index != 0 || value > 1) return 0;
@@ -365,7 +381,7 @@ int TMSettings_Write(uint8_t r[TM_SETTINGS_SIZE], unsigned field, unsigned index
     unsigned byte, shift = 0, width = 8, count;
     switch (field) {
     case TM_SETTING_OSD_POSITION: byte = 4; count = 4; break;
-    case TM_SETTING_EVENT_PAGE: byte = 5; width = 2; count = 3; break;
+    case TM_SETTING_EVENT_PAGE: byte = 5; width = 2; count = TM_EVENT_PAGES; break;
     case TM_SETTING_EVENT_SELECTION: byte = 5; width = 6; shift = 2; count = 64; break;
     case TM_SETTING_RECOMMENDED: byte = 6; width = 1; count = 2; break;
     case TM_SETTING_ADVANCE: byte = 7; width = 4; count = 5; break;

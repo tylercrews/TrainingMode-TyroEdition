@@ -74,6 +74,101 @@ static const void *Take(u32 tag, u32 size) {
     carry_tag = 0; return carry_data;
 }
 
+/* Yoshi's Story's Randall and the match timer, for the Lab's Randall row,
+ * Randall's sync and Timer 8m Inf Loop: map GObj 2 over a scale joint, the
+ * file's root, the cloud (with its path animation) and its child, which holds
+ * his collision group. Collision group calls are logged as +/-(index + 1). */
+static int story_internal = -1, randall_present = 1;
+static GOBJ randall_map, timer_gobj;
+static MapData randall_data;
+static JOBJ randall_scale, randall_root, randall_cloud, randall_platform, timer_root;
+static AOBJ randall_anim;
+static CollGroup coll_groups[4];
+static int coll_log[8], coll_log_num, reqs, timer_set[2] = {-1, -1}, timer_set_num, timer_anims;
+static float requested;
+int Stage_ExternalToInternal(int external) { return story_internal; }
+GOBJ *Stage_GetMapGObj(int id) { return id == RANDALL_MAP_GOBJ && randall_present ? &randall_map : 0; }
+JOBJ *Stage_GetMapGObjJObj(GOBJ *map, int index) {
+    return map == &randall_map && index == RANDALL_CLOUD_JOINT ? &randall_cloud : 0;
+}
+void Stage_EnableLineGroup(int index) { if (coll_log_num < 8) coll_log[coll_log_num++] = index + 1; }
+void Stage_DisableLineGroup(int index) { if (coll_log_num < 8) coll_log[coll_log_num++] = -(index + 1); }
+void JOBJ_SetFlags(JOBJ *joint, int flags) { joint->flags |= flags; }
+void JOBJ_ClearFlags(JOBJ *joint, int flags) { joint->flags &= ~flags; }
+void AOBJ_ReqAnim(int *aobj, float frame) { ((AOBJ *)aobj)->curr_frame = requested = frame; ++reqs; }
+void Match_SetTimerDigits(JOBJ *timer, int seconds, int centiseconds) {
+    if (timer == &timer_root) { timer_set[0] = seconds; timer_set[1] = centiseconds; ++timer_set_num; }
+}
+void JOBJ_AnimAll(JOBJ *joint) { if (joint == &timer_root) ++timer_anims; }
+
+/* Randall on the stage, his group second in the enabled list (third in the
+ * game's array), then the Lab's own lookup. */
+int TestLabRandallInit(int present) {
+    story_internal = GRKIND_STORY;
+    randall_present = present;
+    randall_data.index = RANDALL_MAP_GOBJ;
+    randall_map.userdata = &randall_data;
+    randall_map.hsd_object = &randall_scale;
+    randall_scale.child = &randall_root;
+    randall_root.child = &randall_cloud;
+    randall_cloud.child = &randall_platform;
+    randall_cloud.aobj = &randall_anim;
+    *stc_collgroup = coll_groups;
+    *stc_firstcollgroup = &coll_groups[0];
+    coll_groups[0].next = &coll_groups[2];
+    coll_groups[0].jobj = &timer_root; /* Some other joint. */
+    coll_groups[2].jobj = &randall_platform;
+    LabOptions_Main[OPTLAB_STAGE].disable = 0;
+    LabOptions_Main[OPTLAB_STAGE].menu = &LabMenu_Stage_Story;
+    LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_ON].val = LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_ON].val_prev = 1;
+    Lab_RandallFind();
+    Lab_SessionInit();
+    return lab_randall_coll;
+}
+void TestLabRandallThink(void) { Lab_RandallThink(); }
+void TestLabTimer(int mode, int seconds, int ms) {
+    stc_match->match.timer = mode;
+    stc_match->time_seconds = seconds;
+    stc_match->time_ms = ms;
+}
+void TestLabTimerStart(int seconds, int subseconds) {
+    stc_match->match.timer_seconds = seconds;
+    stc_match->match.timer_subseconds = subseconds;
+}
+int TestLabTimerFrames(void) { return Match_TimerFrames(); }
+void TestLabCloudFrame(int frame) { randall_anim.curr_frame = frame; reqs = 0; requested = -1; }
+int TestLabTimerDigits(int frames) {
+    int seconds, centiseconds;
+    Lab_TimerLoopDigits(frames, &seconds, &centiseconds);
+    return seconds * 100 + centiseconds;
+}
+void TestLabTimerLoop(int has_timer) {
+    stc_matchhud->timer_gobj = has_timer ? &timer_gobj : 0;
+    timer_gobj.hsd_object = &timer_root;
+    timer_set_num = timer_anims = 0;
+    timer_set[0] = timer_set[1] = -1;
+    Lab_TimerLoopThink(&timer_gobj);
+}
+int TestLabRandall(int key) {
+    switch (key) {
+    case 0: return !!(randall_cloud.flags & JOBJ_HIDDEN);
+    case 1: return *(s16 *)((u8 *)&randall_data + RANDALL_PUFF_TIMER);
+    case 2: return coll_log_num;
+    case 3: return coll_log_num ? coll_log[coll_log_num - 1] : 0;
+    case 4: return reqs;
+    case 5: return (int)requested;
+    case 6: return timer_set_num;
+    case 7: return timer_set[0];
+    case 8: return timer_set[1];
+    case 9: return timer_anims;
+    case 10: return LabOptions_Stage_Story[OPTSTAGE_STORY_RANDALL_ON].val;
+    case 11: return OPTGEN_TIMER_LOOP;
+    case 12: return RANDALL_TIMER_OFFSET;
+    case 13: return !!(randall_platform.flags | randall_root.flags | randall_scale.flags);
+    }
+    return -999;
+}
+
 int TestLabBoot(void) {
     *event_vars_ptr_loc = &vars;
     vars.settings = &settings_api; vars.trails = &trails_api; vars.rng = &rng;
@@ -127,6 +222,7 @@ static EventOption *Option(int table, int index) {
     case 9: return &LabOptions_Stage_Stadium[index];
     case 10: return &LabOptions_Controls[index];
     case 11: return &LabOptions_Record[index];
+    case 12: return &LabOptions_Stage_Story[index];
     }
     return 0;
 }
