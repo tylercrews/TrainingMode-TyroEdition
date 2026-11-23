@@ -93,7 +93,10 @@ EVENT_MENU_BYTES = bytes.fromhex('c0040100')
 ESCAPE_SAMUS, ESCAPE_IC = 49, 50  # TM_SETTING_ESCAPE_SAMUS, TM_SETTING_ESCAPE_IC
 ESCAPE_SAMUS_COUNTS, ESCAPE_SAMUS_DEFAULTS = (3, 4, 3, 21, 2), (0, 1, 0, 0, 0)
 ESCAPE_SAMUS_FIELDS = ((0, 2), (2, 2), (4, 2), (6, 5), (31, 1))  # (shift, width) in word 76, in menu order.
-ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS = (21,), (0,), ((11, 5),)
+ESCAPE_IC_COUNTS, ESCAPE_IC_DEFAULTS, ESCAPE_IC_FIELDS = (21,), (0,), ((11, 5),)  # Word 76's rows.
+# Escape IC Grab's Handoff (T11, no version bump) is word 84 (version 25) bits 13-15, stored as
+# itself: None, the default, is 0, and values past the choices read as None.
+ESCAPE_IC_HANDOFF, ESCAPE_IC_HANDOFFS, ESCAPE_IC_HANDOFF_SHIFT = 1, 2, 13
 ESCAPE_MASK = 0x8000FFFF  # Bits 16-30 are Grabs-ercise's.
 # Grabs-ercise (T10) in word 76's spare bits 16-28, no version bump: its timed
 # best (7 bits), Free Practice, the four movements and Fighter Collision, each
@@ -700,9 +703,10 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', COSTUME, 0, 1)  # Create the record.
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 76, 4), 'little'), 0)
         self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), (ESCAPE_SAMUS_DEFAULTS, ESCAPE_IC_DEFAULTS))
+        self.assertEqual(m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), 0)  # None.
         snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         m.call('Settings_Set', ESCAPE_SAMUS, 5, 1)  # Not rows.
-        m.call('Settings_Set', ESCAPE_IC, 1, 1)
+        m.call('Settings_Set', ESCAPE_IC, 2, 1)
         self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
 
     def test_escape_menus_round_trip_in_word_76_bits_0_to_15_and_31_alone(self):
@@ -1287,8 +1291,10 @@ class ExtensionTests(unittest.TestCase):
         self.version_23_record()  # Settings in words 80 and 12 around it.
         m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
         word = lambda record: int.from_bytes(record[84:88], 'little')
-        # Bit 8 On, bits 9-12 Lowest Laser Lines' 7 (Magenta), and bits 13-31 spare.
-        m.cpu.mem_write(EXT + 84, (0xABCDEE << 8).to_bytes(4, 'little'))
+        # Bit 8 On, bits 9-12 Lowest Laser Lines' 7 (Magenta), bits 13-15 Escape IC Grab's Handoff
+        # (Down Throw: past the choices, the repair pass would set it back to None), and bits 16-31 spare.
+        around = 0xABCD2E00
+        m.cpu.mem_write(EXT + 84, around.to_bytes(4, 'little'))
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         self.assertEqual(before[:8], HEADER)
         self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in (TARGETS_SH_COLOR, TARGETS_FH_COLOR)),
@@ -1297,15 +1303,15 @@ class ExtensionTests(unittest.TestCase):
             m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, sh); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, fh)
             after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
             stored = ((sh + TARGETS_COLORS - ORANGE) % TARGETS_COLORS, (fh + TARGETS_COLORS - TEAL) % TARGETS_COLORS)
-            self.assertEqual(word(after), 0xABCDEE << 8 | stored[1] << 4 | stored[0])
+            self.assertEqual(word(after), around | stored[1] << 4 | stored[0])
             self.assertEqual(after[:84], before[:84])
             self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in (TARGETS_SH_COLOR, TARGETS_FH_COLOR)),
                              (sh, fh))
         # A stored 15 is no color: it reads as the default and stays.
-        m.cpu.mem_write(EXT + 84, (0xABCDEE << 8 | 0xFF).to_bytes(4, 'little'))
+        m.cpu.mem_write(EXT + 84, (around | 0xFF).to_bytes(4, 'little'))
         self.assertEqual(tuple(m.call('Settings_Get', TARGETS, i) for i in (TARGETS_SH_COLOR, TARGETS_FH_COLOR)),
                          (ORANGE, TEAL))
-        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), 0xABCDEE << 8 | 0xFF)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), around | 0xFF)
         # Its neighbors' writes keep it, and the rest of Target Practice reads as it was.
         m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)
         m.call('Settings_Set', TARGETS, 0, 99); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 6)
@@ -1319,8 +1325,10 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 3)
         m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)  # and under it.
         word = lambda record: int.from_bytes(record[84:88], 'little')
-        # Lowest Laser Lines' 14 (Sky Blue) in bits 9-12, and spare bits over it.
-        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABCDE << 9).to_bytes(4, 'little'))
+        # Lowest Laser Lines' 14 (Sky Blue) in bits 9-12, the Handoff's Down Throw in 13-15, and spare
+        # bits over it.
+        above = 0x5ABC9E
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | above << 9).to_bytes(4, 'little'))
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         self.assertEqual(word(before) >> 8 & 1, 0)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 1)  # 0 is On.
@@ -1337,7 +1345,7 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, TEAL); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 0)
         m.call('Settings_Set', TARGETS, 0, 5); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_POINTERS), 0)
-        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 9, 0x5ABCDE)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 9, above)
 
     def test_lowest_laser_lines_use_only_word_84_bits_9_to_12_with_off_stored_as_0(self):
         m = self.m
@@ -1346,7 +1354,9 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 4)
         m.call('Settings_Set', TARGETS, TARGETS_POINTERS, 0)  # and under it.
         word = lambda record: int.from_bytes(record[84:88], 'little')
-        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABCD << 13).to_bytes(4, 'little'))  # Spare.
+        # Escape IC Grab's Handoff (13-15: Down Throw) and the spare bits over it.
+        above = 0x5ABC9
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | above << 13).to_bytes(4, 'little'))
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         self.assertEqual(word(before) >> 9 & 15, 0)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 0)  # 0 is Off.
@@ -1363,7 +1373,62 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_POINTERS, 1); m.call('Settings_Set', TARGETS, TARGETS_FH_COLOR, 0)
         m.call('Settings_Set', TARGETS, 0, 5); m.call('Settings_Set', TARGETS, TARGETS_FULL_HOP, 0)
         self.assertEqual(m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE), 11)
-        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 13, 0x5ABCD)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 13, above)
+
+    def test_escape_ic_handoff_uses_only_word_84_bits_13_to_15_with_none_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Settings in words 80 and 12,
+        m.call('Settings_Set', ESCAPE_IC, 0, 13)  # its own event's percent in word 76,
+        m.call('Settings_Set', TARGETS, TARGETS_SH_COLOR, 2); m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, 11)
+        word = lambda record: int.from_bytes(record[84:88], 'little')
+        # and Target Practice's bits under it in word 84, with spare bits over it.
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x5ABC << 16).to_bytes(4, 'little'))
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        mask = 7 << ESCAPE_IC_HANDOFF_SHIFT
+        self.assertEqual(word(before) & mask, 0)
+        self.assertEqual(m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), 0)  # 0 is None.
+        for value in (1, 0, 1):
+            m.call('Settings_Set', ESCAPE_IC, ESCAPE_IC_HANDOFF, value)
+            self.assertEqual(m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> ESCAPE_IC_HANDOFF_SHIFT & 7, word(after) & ~mask), (value, word(before)))
+            self.assertEqual(after[:84], before[:84])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for value in (ESCAPE_IC_HANDOFFS, 7, 0xFFFFFFFF):  # Out of range is ignored.
+            m.call('Settings_Set', ESCAPE_IC, ESCAPE_IC_HANDOFF, value)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        # Stored values past the choices are repaired to None, as word 76's rows are, and the rest of
+        # the word stays.
+        for stored in range(ESCAPE_IC_HANDOFFS, 8):
+            m.cpu.mem_write(EXT + 84, (word(snapshot) & ~mask | stored << ESCAPE_IC_HANDOFF_SHIFT).to_bytes(4, 'little'))
+            self.assertEqual(m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), 0)
+            self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(snapshot) & ~mask)
+        m.cpu.mem_write(EXT + 84, word(snapshot).to_bytes(4, 'little'))
+        # Its neighbors' writes keep it, and they read as they were.
+        m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, 3); m.call('Settings_Set', ESCAPE_IC, 0, 20)
+        self.assertEqual((m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), m.call('Settings_Get', ESCAPE_IC, 0)), (1, 20))
+        self.assertEqual((m.call('Settings_Get', TARGETS, TARGETS_SH_COLOR), m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE)),
+                         (2, 3))
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 16, 0x5ABC)
+
+    def test_records_before_version_25_read_the_handoff_as_none_without_writing(self):
+        m = self.m
+        m.call('Settings_Set', ESCAPE_IC, 0, 13)  # A percent in word 76, which they all own.
+        down_throw = (1 << ESCAPE_IC_HANDOFF_SHIFT).to_bytes(4, 'little')  # What a version 25 record would read as Down Throw.
+        for version, old in ((24, self.version_24_record()), (23, None), (22, self.version_22_record())):
+            with self.subTest(version=version):
+                if old is None:
+                    old = self.version_24_record(); old[4:6] = bytes((23, 76))
+                old[84:88] = down_throw  # Spare score bytes are not a handoff.
+                m.cpu.mem_write(EXT, bytes(old))
+                self.assertEqual(m.call('TMExtension_Read', EXT, ESCAPE_IC, ESCAPE_IC_HANDOFF), 0)
+                self.assertEqual(m.call('TMExtension_Read', EXT, ESCAPE_IC, 0), 13)  # Word 76 is still theirs.
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 84: None, and a write lands in its bits alone.
+        m.call('Settings_Set', ESCAPE_IC, ESCAPE_IC_HANDOFF, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 84, 4), 'little'), 1 << ESCAPE_IC_HANDOFF_SHIFT)
+        self.assertEqual(m.call('Settings_Get', ESCAPE_IC, 0), 13)
 
     def test_all_events_keeps_its_own_cursor_in_word_80_and_leaves_byte_5_alone(self):
         m = self.m

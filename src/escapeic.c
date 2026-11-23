@@ -3,9 +3,9 @@
 /* Escape IC Grab (Character-specific Tech, beta): the Ice Climbers grab you in
  * the middle of Final Destination and you mash out as fast as you can. The
  * counter shows the mash inputs the game counted, and each percent keeps its
- * fastest escape for the session. This beta has no handoff: Popo just holds
- * you. notes/ESCAPE-EVENTS-RESEARCH.md has the handoffs a later version could
- * do, and how the numbers below were read from the DOL.
+ * fastest escape for the session. With Handoff set to Down Throw, they hand you
+ * off instead: Popo down throws and Nana regrabs you. notes/ESCAPE-EVENTS-RESEARCH.md
+ * has the handoffs and how the numbers below were read from the DOL.
  *
  * How long a grab holds. When it connects (800DA8E4) the game sets the grabbed
  * fighter's timer (8007DBCC) from PlCo.dat's ftLoadCommonData:
@@ -43,12 +43,42 @@
  * actions from its 30th frame (PlCo 0x3B8) and falls at its end (50). The
  * Actionable Flash shows that end with the global Actionable Yellow>Green cue:
  * event_vars->cue_remaining is the same check, and action_cues.c (compiled
- * into this event) the same yellow and green. */
+ * into this event) the same yellow and green.
+ *
+ * The handoff (Down Throw). Popo down throws on his first CatchWait frame, the
+ * stick crossing PlCo 0xB0 (-0.25) down (CatchWait's IASA, ftCo_800DD1E4).
+ * ThrowLw's script (PlPp.dat) releases you on its frame 36, and the throw runs
+ * at 1 / (your weight x PlCo 0x37C (0.01)) frames a frame (ftCo_800DD4B0), so
+ * you're released ceil(36 x weight / 100) frames in: Fox 27, Bowser 43. The
+ * release (ftCo_800DDDE4, in his animation callback) puts you at his TransN2
+ * bone with knockback, DI applied at once (ftCo_800DE7C0: throws have no
+ * hitlag), and a state change that clears the Thrown state's grab immunity
+ * (x1A6A, fighter.c's Fighter_ChangeMotionState). Nana stands on top of Popo,
+ * and her Catch puts its grab boxes out on its script frames 6 and 7 for
+ * grounded and aerial fighters alike (PlPp.dat), so she presses Z when the
+ * release is 6 frames away and her grab meets you on the frame you're
+ * released. That's the first frame of every regrab window in Nicki's data
+ * sheet, for DI in and away alike, so no DI escapes it.
+ *
+ * Nana's grab. With a fighter in CatchWait her AI runs the CPU grab routine
+ * (ftCo_800B683C, ftcpuattack.c; nothing Nana-specific): it pummels with
+ * chance 0.5 / (1 + pummels so far), or else throws toward the nearer edge of
+ * her floor if it's within 30, or else up, down, forward or back at 1 in 4
+ * each. The event does the same with no AI running, so it can time her
+ * regrab. Her down throw is handed back: Popo, on top of her, regrabs it the
+ * same way. Any other throw ends the chain. */
 
 #define SETUP_FRAMES 40   // A grab that hasn't connected by then is tried again.
 #define RESULT_FRAMES 60  // The result stays up this long before the next grab.
-#define NANA_GAP 6        // Nana stands this far behind Popo.
+#define THROWN_FRAMES 120 // A throw ends the attempt by then at the latest (releases come by 43).
+#define NANA_GAP 6        // Nana stands this far behind Popo, with no handoff.
 #define MAX_INPUTS 2      // A button and a stick direction a frame.
+#define THROW_LW_RELEASE 36.f // ThrowLw's script frame that releases you (PlPp.dat).
+#define GRAB_LEAD 6       // Catch's grab boxes come out on its script frame 6 (PlPp.dat).
+#define GRAB_LAST_FRAME 8 // Its script clears them on frame 8.
+#define STAGE_EDGE 85.5656967f // Final Destination's ledges, the floor Nana's AI throws toward.
+#define EDGE_THROW_RANGE 30.f  // The CPU grab routine throws toward an edge this close.
+#define STICK 127
 
 // The big mash count under the match timer, where Grab Punish draws its countdown.
 #define BIG_X -5.f
@@ -65,17 +95,31 @@ static const char *Values_Percent[] = {
     "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%",
     "110%", "120%", "130%", "140%", "150%", "160%", "170%", "180%", "190%", "200%",
 };
-// Handoffs to come; see the research notes. The row stays disabled until then.
-static const char *Values_Handoff[] = { "None" };
+/* The handoffs the event can do. Help covers the other IC regrabs too. */
+enum handoff { HANDOFF_NONE, HANDOFF_DOWN_THROW };
+static const char *Values_Handoff[] = { "None", "Down Throw" };
+/* Each handoff's hint: the Handoff row shows the chosen one's. */
+static char *Handoff_Hints[][MENU_DESCLINEMAX] = {
+    {"Popo just holds you while you mash out. Down",
+     "Throw has the Ice Climbers hand you off. Help",
+     "has how to escape each IC regrab. This",
+     "setting is saved."},
+    {"Popo down throws and Nana regrabs you the frame",
+     "you're released, so DI can't save you. Mash in",
+     "Nana's grab: she pummels first half the time.",
+     "Only her down throw hands you back to Popo."},
+};
 
-enum menu_options { OPT_PERCENT, OPT_FLASH, OPT_HANDOFF, OPT_BESTS, OPT_HELP };
+enum menu_options { OPT_PERCENT, OPT_HANDOFF, OPT_FLASH, OPT_BESTS, OPT_HELP };
 // Each TM_SETTING_ESCAPE_IC row's preference ID is its row number. The
 // Actionable Flash is saved on its own (TM_SETTING_ESCAPE_IC_FLASH).
-typedef char escape_ic_saved_rows[((int)OPT_PERCENT == TM_ESC_IC_PERCENT && TM_ESC_IC_PREF_COUNT == 1 &&
-    countof(Values_Percent) == TM_ESC_PERCENT_COUNT) ? 1 : -1];
+typedef char escape_ic_saved_rows[((int)OPT_PERCENT == TM_ESC_IC_PERCENT && (int)OPT_HANDOFF == TM_ESC_IC_HANDOFF &&
+    TM_ESC_IC_PREF_COUNT == 2 && countof(Values_Percent) == TM_ESC_PERCENT_COUNT &&
+    countof(Values_Handoff) == TM_ESC_IC_HANDOFF_COUNT && countof(Handoff_Hints) == TM_ESC_IC_HANDOFF_COUNT) ? 1 : -1];
 
 static void Exit(GOBJ *menu);
 static void SaveSettings(GOBJ *menu, int value);
+static void ChangeHandoff(GOBJ *menu, int value);
 static void SaveFlash(GOBJ *menu, int value);
 
 // Session Bests: one row a percent. Its value is the fastest escape and its inputs.
@@ -84,8 +128,8 @@ static char best_text[TM_ESC_PERCENT_COUNT][16] = {
     "-", "-", "-", "-", "-", "-", "-", "-", "-", "-",
 };
 #define BEST_ROW(i, label) { .kind = OPTKIND_INFO, .name = label, .value_string = best_text[i], \
-    .desc = {"Your fastest escape at this percent this", "session, in frames, with its mash inputs.", \
-             "Kept until you leave the event."} }
+    .desc = {"Your fastest escape at this percent this", "session with Handoff on None, in frames, with", \
+             "its mash inputs. Kept until you leave the", "event."} }
 static EventOption Options_Bests[] = {
     BEST_ROW(0, "0%"), BEST_ROW(1, "10%"), BEST_ROW(2, "20%"), BEST_ROW(3, "30%"), BEST_ROW(4, "40%"),
     BEST_ROW(5, "50%"), BEST_ROW(6, "60%"), BEST_ROW(7, "70%"), BEST_ROW(8, "80%"), BEST_ROW(9, "90%"),
@@ -104,15 +148,17 @@ static EventMenu Menu_Bests = {
  * the game: 8007DC08 takes a fresh press in input.down & 0x80000F00, and input.down
  * is held & ~held_prev (8006B0E0); bit 31 is set for digital L/R, analog past PlCo
  * 0x10 (0.3), and Z, which also sets A (8006B070..8006B0D8). The stick's sticky
- * direction flips past PlCo 0x308 (0.5) on either axis. See the research notes. */
+ * direction flips past PlCo 0x308 (0.5) on either axis. The handoff rows follow
+ * the top of this file; the other IC regrabs, which this event doesn't do, are
+ * from the sources in the research notes. */
 #define HELP_ROW(label, line1, line2, line3, line4) \
     { .kind = OPTKIND_INFO, .name = label, .desc = {line1, line2, line3, line4} }
 static EventOption Options_Help[] = {
     HELP_ROW("About This Event",
              "The Ice Climbers grab you as each attempt",
-             "starts: mash out as fast as you can. D-Pad",
-             "up/down changes your percent, left/right",
-             "restarts. Beta: no handoffs yet."),
+             "starts: mash out as fast as you can, or pick",
+             "a Handoff to escape. D-Pad up/down changes",
+             "your percent, left/right restarts."),
     HELP_ROW("How Escaping Works",
              "A grab holds you 75 frames + 1.6 a percent.",
              "It drops 1 a frame on its own, and 6 more for",
@@ -189,15 +235,70 @@ static EventOption Options_Help[] = {
              "can act. It's the Actionable Yellow>Green",
              "cue, shown for you after a mash out only."),
     HELP_ROW("Pummels",
-             "In a match, a pummel's hitlag freezes you:",
-             "the grab timer stops and mashing doesn't",
-             "count. The rest of the flinch counts. Not in",
-             "this beta: Popo just holds you."),
+             "A pummel's hitlag freezes you: the grab",
+             "timer stops and mashing doesn't count. The",
+             "rest of the flinch counts, but you only get",
+             "out once it's over. Nana pummels on Down Throw."),
     HELP_ROW("Reading the HUD",
              "Mash is the inputs the game took this grab.",
              "Held For against No-Mash Hold is what your",
              "mashing saved. Mash Speed is inputs a",
              "second: 120 (2 a frame) is the most."),
+    HELP_ROW("Handoffs",
+             "The Ice Climbers' chain grab: one throws you",
+             "and the other regrabs you before you can act.",
+             "Popo down throws, and Nana, on top of him,",
+             "regrabs you the frame you're released."),
+    HELP_ROW("DI on a Handoff",
+             "Nana's grab meets you on your release frame,",
+             "so no DI escapes a well-timed one at low and",
+             "mid percents. DI only beats a late regrab:",
+             "Fox DI'd away gives a 3-frame window, not 4."),
+    HELP_ROW("Nana's Grab",
+             "When Nana holds you, her AI pummels first half",
+             "the time, then a quarter, then a sixth. When it",
+             "doesn't, she throws: up, down, forward or back,",
+             "1 in 4 each, or toward the ledge if it's close."),
+    HELP_ROW("Mash in Nana's Grab",
+             "Mash the moment she has you. When she doesn't",
+             "pummel she throws within a few frames, but a",
+             "pummel's flinch gives you time: at low percent",
+             "a fast mash gets out before her next move."),
+    HELP_ROW("Back to Popo",
+             "Only Nana's down throw keeps the chain going:",
+             "Popo, on top of her, regrabs it the same way.",
+             "Her other throws end it, so DI and tech those",
+             "as usual. Mid-stage that's 3 throws in 4."),
+    HELP_ROW("At the Ledge",
+             "Near the ledge (within 30 units), Nana's throw",
+             "always goes toward it, so ICs can loop handoffs",
+             "there (and the cookhold). Mash in her grab, and",
+             "DI her throw up and in to make it back."),
+    HELP_ROW("Down Air Regrab",
+             "Nana down airs you during Popo's down throw,",
+             "which forces a stand-up they regrab. Escape it",
+             "with SDI: quarter circles down and away on the",
+             "stick, holding down on the C-stick."),
+    HELP_ROW("Forward Air Regrab",
+             "Nana short hops a forward air, a meteor, after",
+             "Popo's down throw, then Popo regrabs. SDI it",
+             "like the down air, though players say its",
+             "timing makes it much harder to SDI."),
+    HELP_ROW("Back Throw Regrab",
+             "Popo back throws and Nana wavedashes back to",
+             "regrab you, on fast fallers up to about 120%.",
+             "You come down in tumble: DI changes where, so",
+             "tech or act the moment you can."),
+    HELP_ROW("Popo Alone",
+             "Without Nana, Popo can still chain down throw",
+             "a few characters (Sheik, Ganondorf, Roy) at",
+             "low percents. He has to react to your DI, and",
+             "at some percents you can jump out."),
+    HELP_ROW("Wobbling",
+             "Popo pummels while Nana hits you in rhythm, so",
+             "you never leave the pummel's flinch, where you",
+             "can't get out. Mash before it starts. Most",
+             "tournaments ban it."),
 };
 static EventMenu Menu_Help = {
     .name = "Help",
@@ -218,6 +319,14 @@ static EventOption Options_Main[] = {
                  "D-Pad up/down changes it and restarts."},
     },
     {
+        .kind = OPTKIND_STRING,
+        .name = "Handoff",
+        .values = Values_Handoff,
+        .value_num = countof(Values_Handoff),
+        .OnChange = ChangeHandoff,
+        // The chosen handoff's hint, set by ShowHandoffHint.
+    },
+    {
         .kind = OPTKIND_TOGGLE,
         .name = "Actionable Flash",
         .val = 1,
@@ -228,29 +337,20 @@ static EventOption Options_Main[] = {
                  "out only. Defaults On. This setting is saved."},
     },
     {
-        .kind = OPTKIND_STRING,
-        .name = "Handoff (Coming Soon)",
-        .values = Values_Handoff,
-        .value_num = countof(Values_Handoff),
-        .disable = 1,
-        .desc = {"Have the Ice Climbers throw and regrab you,",
-                 "so you DI the handoff instead of only mashing.",
-                 "Not in this beta: Popo just holds you."},
-    },
-    {
         .kind = OPTKIND_MENU,
         .name = "Session Bests",
         .menu = &Menu_Bests,
-        .desc = {"Your fastest escape at each percent,",
-                 "kept until you leave the event."},
+        .desc = {"Your fastest escape at each percent with",
+                 "Handoff on None, kept until you leave the",
+                 "event."},
     },
     {
         .kind = OPTKIND_MENU,
         .name = "Help",
         .menu = &Menu_Help,
-        .desc = {"How this event works and how to mash out",
-                 "faster: what the game counts as a mash input",
-                 "and what it doesn't."},
+        .desc = {"How this event works, how to mash out",
+                 "faster, and how to escape each of the Ice",
+                 "Climbers' regrabs."},
     },
     {
         .kind = OPTKIND_FUNC,
@@ -268,10 +368,22 @@ static EventMenu Menu_Main = {
 };
 EventMenu *Event_Menu = &Menu_Main;
 
+static void ShowHandoffHint(void) {
+    int handoff = Options_Main[OPT_HANDOFF].val;
+    if (handoff < 0 || handoff >= TM_ESC_IC_HANDOFF_COUNT) handoff = HANDOFF_NONE;
+    for (int i = 0; i < MENU_DESCLINEMAX; i++)
+        Options_Main[OPT_HANDOFF].desc[i] = Handoff_Hints[handoff][i];
+}
+
 // The menu is saved to the memory card as it changes.
 static void SaveSettings(GOBJ *menu, int value) {
     for (int i = 0; i < TM_ESC_IC_PREF_COUNT; i++)
         TM_SetSetting(TM_SETTING_ESCAPE_IC, i, Options_Main[i].val);
+}
+// The menu redraws the row's hint after this (EventMenu_UpdateText).
+static void ChangeHandoff(GOBJ *menu, int value) {
+    ShowHandoffHint();
+    SaveSettings(menu, value);
 }
 static void SaveFlash(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_ESCAPE_IC_FLASH, 0, Options_Main[OPT_FLASH].val);
@@ -280,23 +392,48 @@ static void LoadSettings(void) {
     for (int i = 0; i < TM_ESC_IC_PREF_COUNT; i++)
         Options_Main[i].val = Options_Main[i].val_prev = TM_GetSetting(TM_SETTING_ESCAPE_IC, i);
     Options_Main[OPT_FLASH].val = Options_Main[OPT_FLASH].val_prev = !!TM_GetSetting(TM_SETTING_ESCAPE_IC_FLASH, 0);
+    ShowHandoffHint();
 }
 
 enum phase {
     PHASE_SETUP,  // Popo is grabbing you.
     PHASE_GRAB,   // You're held and mashing.
+    PHASE_THROWN, // You've been thrown, and maybe regrabbed next.
     PHASE_RESULT, // Out; the next grab follows.
 };
 static int phase = PHASE_SETUP, phase_timer;
 static bool ready, restart;
 
+// How an attempt with a handoff ended.
+enum out { OUT_NONE, OUT_MASH, OUT_MISSED, OUT_THROWN };
+
 // This attempt. A D-pad restart starts a new one without counting it.
 static struct attempt {
     int percent;  // Its Your Percent choice.
+    int handoff;  // Its Handoff choice.
     int side;     // Popo's side of you: -1 or 1.
     int tries;    // Grabs tried; picks the gap.
     Vec3 you;
+    int regrabs;  // Times the other climber caught you after a throw.
+    int out;      // How it ended (handoffs only).
+    int out_throw; // The throw that ended it, for OUT_THROWN.
 } attempt;
+
+/* The hand-off in flight: who threw you and who regrabs. */
+static struct chain {
+    GOBJ *holder;      // Who holds you, or threw you last.
+    GOBJ *regrabber;   // Who regrabs this throw; 0 if nobody does.
+    int throw_state;   // The holder's throw, once it starts.
+    bool pressed;      // The regrabber's Z is in.
+} chain;
+
+/* Nana's grab, as her AI would do it (ftCo_800B683C). */
+static struct nana_ai {
+    int pummels;     // This hold's pummels: the AI's x94.
+    bool decided;    // This CatchWait stint has its decision.
+    s8 throw_x, throw_y; // The throw's stick, pushed the frame after deciding.
+    bool throw_next;
+} nana_ai;
 
 // This grab, kept on screen until the next one connects. (FighterData's own
 // nested struct already has the tag grab.)
@@ -324,6 +461,7 @@ static GOBJ *Nana(void) {
     if (!popo || !((FighterData *)popo->userdata)->flags.has_follower) return 0;
     return Fighter_GetSubcharGObj(1, 1);
 }
+static bool Handoffs(void) { return attempt.handoff != HANDOFF_NONE && Nana(); }
 
 /* Frames the grab holds without mashing, tied (first of four places) with
  * handicap off. Every one is a whole number of frames: 75 + 16 a step. */
@@ -413,11 +551,52 @@ static void HoldStill(GOBJ *fighter) {
     Fighter_ZeroCPUInputs(ft);
 }
 
+/* A climber's input this frame. CPU input processing has already run, so this
+ * sets the processed input the IASA reads now and the raw input the next frame
+ * decodes, as Shield Training's QueueInput does: Z is also A and the shield
+ * bit. Then the state's own IASA decides, so the game's checks apply. */
+static void Press(GOBJ *fighter, int buttons, int x, int y) {
+    if (!fighter) return;
+    FighterData *ft = fighter->userdata;
+    ft->cpu.held = buttons;
+    ft->cpu.lstickX = x;
+    ft->cpu.lstickY = y;
+    unsigned processed = buttons;
+    if (buttons & PAD_TRIGGER_Z) processed |= PAD_BUTTON_A | 0x80000000u;
+    ft->input.down = processed & ~ft->input.held;
+    ft->input.held = processed;
+    ft->input.lstick = (Vec2){x / 127.f, y / 127.f};
+    ft->input.trigger = processed & 0x80000000u ? 1 : 0;
+    if (x) ft->input.timer_lstick_tilt_x = 0;
+    if (y) ft->input.timer_lstick_tilt_y = 0;
+    if (processed & 0x80000000u) ft->input.timer_trigger_analog = ft->input.timer_trigger_digital = 0;
+    if (ft->flags.dead || ft->flags.freeze || ft->flags.hitlag || ft->dmg.hitlag_frames > 0) return;
+    if (ft->cb.IASA) ft->cb.IASA(fighter);
+}
+
+/* A throw takes the stick pushed past a quarter from inside it (CatchWait's
+ * IASA, ftCo_800DD1E4, against last frame's stick), so it's only pushed from
+ * neutral. A push that didn't take is tried again once the stick is back. */
+static bool StickWasNeutral(FighterData *ft) {
+    return fabs(ft->input.lstick_prev.X) < .25f && fabs(ft->input.lstick_prev.Y) < .25f;
+}
+
 static bool IsCaptured(FighterData *ft) {
     return ft->state_id >= ASID_CAPTUREPULLEDHI && ft->state_id <= ASID_CAPTUREDAMAGELW;
 }
 static bool IsGrabbing(FighterData *ft) {
     return ft->state_id >= ASID_CATCH && ft->state_id <= ASID_CATCHWAIT;
+}
+// Holding someone: pulling them in, holding or pummeling them.
+static bool IsHolding(FighterData *ft) {
+    int state = ft->state_id;
+    return state == ASID_CATCHPULL || state == ASID_CATCHDASHPULL || state == ASID_CATCHWAIT || state == ASID_CATCHATTACK;
+}
+static bool IsThrowing(FighterData *ft) {
+    return ft->state_id >= ASID_THROWF && ft->state_id <= ASID_THROWLW;
+}
+static bool IsThrown(FighterData *ft) {
+    return ft->state_id >= ASID_THROWNF && ft->state_id <= ASID_THROWNLWWOMEN;
 }
 static bool IsReleased(FighterData *ft) {
     return ft->state_id == ASID_CAPTURECUT || ft->state_id == ASID_CAPTUREJUMP;
@@ -447,14 +626,110 @@ static void UpdateFlash(void) {
     ShowFlash(Options_Main[OPT_FLASH].val ? color : TM_CUE_NONE);
 }
 
+// The handoff ---------------------------------------------------------------
+
+/* Frames until the down throw lets you go: its animation runs `rate` frames a
+ * frame, and its script releases you once the frame reaches 36. The same float
+ * steps the game takes, so a rate like 4/3 lands on the same frame. */
+static int FramesUntilRelease(FighterData *thrower) {
+    float frame = thrower->state.frame, rate = thrower->state.rate;
+    if (rate <= 0) return 255;
+    int frames = 0;
+    while (frame < THROW_LW_RELEASE && frames < 255) {
+        frame += rate;
+        frames++;
+    }
+    return frames;
+}
+
+static GOBJ *OtherClimber(GOBJ *climber) {
+    return climber == Fighter_GetGObj(1) ? Nana() : Fighter_GetGObj(1);
+}
+
+/* The throw stick Nana's AI picks once it's done pummeling (ftCo_800B683C):
+ * toward the nearer edge of her floor if it's within 30, or else up, down,
+ * forward or back at 1 in 4 each. */
+static void ChooseNanaThrow(FighterData *nana) {
+    int facing = nana->facing_direction > 0 ? 1 : -1;
+    float x = nana->phys.pos.X;
+    float to_left = fabs(x + STAGE_EDGE), to_right = fabs(x - STAGE_EDGE);
+    int edge = to_right > to_left ? (to_left < EDGE_THROW_RANGE ? -1 : 0)
+                                  : (to_right < EDGE_THROW_RANGE ? 1 : 0);
+    nana_ai.throw_x = nana_ai.throw_y = 0;
+    if (edge) {
+        nana_ai.throw_x = edge * STICK;
+        return;
+    }
+    switch (HSD_Randi(4)) {
+        case 0: nana_ai.throw_y = STICK; break;
+        case 1: nana_ai.throw_y = -STICK; break;
+        case 2: nana_ai.throw_x = facing * STICK; break;
+        default: nana_ai.throw_x = -facing * STICK; break;
+    }
+}
+
+/* Nana holding you, each time she's back in CatchWait: a pummel with chance
+ * 0.5 / (1 + pummels so far), or a throw. The AI sets the stick to neutral for
+ * a frame and then pushes it (CpuCmd_WaitFor 1), so the throw starts the frame
+ * after it decides. */
+static void NanaHolds(GOBJ *nana_gobj) {
+    FighterData *nana = nana_gobj->userdata;
+    if (nana->state_id != ASID_CATCHWAIT) {
+        nana_ai.decided = nana_ai.throw_next = false;
+        return;
+    }
+    if (nana_ai.throw_next) {
+        if (StickWasNeutral(nana)) Press(nana_gobj, 0, nana_ai.throw_x, nana_ai.throw_y);
+        if (IsThrowing(nana)) nana_ai.throw_next = false;
+        return;
+    }
+    if (nana_ai.decided) return;
+    nana_ai.decided = true;
+    if (HSD_Randi(2 * (1 + nana_ai.pummels)) == 0) {
+        nana_ai.pummels++;
+        Press(nana_gobj, PAD_BUTTON_A, 0, 0);
+        return;
+    }
+    ChooseNanaThrow(nana);
+    nana_ai.throw_next = true;
+}
+
+/* Whoever holds you. Popo, when a handoff follows, down throws on his first
+ * CatchWait frame, before a mash can get you out. */
+static void HolderActs(void) {
+    GOBJ *holder = chain.holder;
+    if (!holder) return;
+    FighterData *ft = holder->userdata;
+    if (holder == Nana()) NanaHolds(holder);
+    else if (ft->state_id == ASID_CATCHWAIT && StickWasNeutral(ft)) Press(holder, 0, 0, -STICK);
+    if (!IsThrowing(ft)) return;
+    // The throw is on: the other climber regrabs only a down throw.
+    chain.throw_state = ft->state_id;
+    chain.regrabber = chain.throw_state == ASID_THROWLW ? OtherClimber(holder) : 0;
+    chain.pressed = false;
+    phase = PHASE_THROWN;
+    phase_timer = 0;
+}
+
+/* The regrabber, on top of the thrower, presses Z so its grab boxes come out
+ * on the frame you're released (GRAB_LEAD frames after the press). */
+static void RegrabberActs(void) {
+    if (!chain.regrabber || chain.pressed) return;
+    FighterData *thrower = chain.holder->userdata;
+    if (thrower->state_id != ASID_THROWLW || FramesUntilRelease(thrower) > GRAB_LEAD) return;
+    chain.pressed = true;
+    Press(chain.regrabber, PAD_TRIGGER_Z, 0, 0);
+}
+
 // The attempt -------------------------------------------------------------
 
-/* Popo facing you, a gap away that changes with each try, and Nana behind him. */
+/* Popo facing you, a gap away that changes with each try, and Nana behind him,
+ * or on top of him for a handoff. */
 static void PlaceClimbers(void) {
     float gap = Grab_Gaps[attempt.tries % countof(Grab_Gaps)];
     float x = attempt.you.X + attempt.side * gap;
     StandAt(Fighter_GetGObj(1), x, -attempt.side);
-    StandAt(Nana(), x + attempt.side * NANA_GAP, -attempt.side);
+    StandAt(Nana(), x + attempt.side * (Handoffs() ? 0 : NANA_GAP), -attempt.side);
     Match_CorrectCamera();
 }
 
@@ -462,7 +737,13 @@ static void Reset(void) {
     restart = false;
     event_vars->Savestate_Load_v1(event_vars->savestate, Savestate_Silent);
     ClearFlash();
-    attempt =(struct attempt) { .percent = Options_Main[OPT_PERCENT].val, .side = HSD_Randi(2) ? 1 : -1 };
+    attempt = (struct attempt) {
+        .percent = Options_Main[OPT_PERCENT].val, .handoff = Options_Main[OPT_HANDOFF].val,
+        .side = HSD_Randi(2) ? 1 : -1,
+    };
+    if (attempt.handoff < 0 || attempt.handoff >= TM_ESC_IC_HANDOFF_COUNT) attempt.handoff = HANDOFF_NONE;
+    chain = (struct chain) {0};
+    nana_ai = (struct nana_ai) {0};
     int line;
     FloorUnder(0, &attempt.you, &line);
     StandAt(Fighter_GetGObj(0), attempt.you.X, attempt.side);
@@ -476,12 +757,17 @@ static void Reset(void) {
     HoldYou();
 }
 
-/* As if the match were tied with handicap off (see the top of this file). */
+/* As if the match were tied with handicap off (see the top of this file). The
+ * grabber is whichever climber is holding you. */
 static void StartGrab(FighterData *you) {
     ftCommonData *common = *stc_ftcommon;
     you->grab.grab_timer += common->grab_placing_mult * Fighter_GetCurrentPlacing(you->ply)
         - common->grab_mash_per_handicap * (common->grab_max_handicap - Fighter_GetHandicap(you->ply));
     grab = (struct held_grab) { .timer = you->grab.grab_timer };
+    GOBJ *nana = Nana();
+    chain.holder = nana && IsHolding(nana->userdata) ? nana : Fighter_GetGObj(1);
+    chain.regrabber = 0;
+    nana_ai = (struct nana_ai) {0};
     phase = PHASE_GRAB;
     phase_timer = 0;
 }
@@ -494,26 +780,55 @@ static void CountInputs(float drop) {
     if (inputs > MAX_INPUTS) inputs = MAX_INPUTS;
     if (grab.inputs < 9999) grab.inputs += inputs;
 }
-static void Escaped(void) {
-    struct best *best = &bests[attempt.percent];
-    grab.done = true;
-    grab.new_best = !best->frames || grab.frames < best->frames;
-    if (grab.new_best) {
-        best->frames = grab.frames;
-        best->inputs = grab.inputs;
-        sprintf(best_text[attempt.percent], "%df (%d)", grab.frames, grab.inputs);
-    }
-    SFX_Play(grab.new_best ? 303 : 0xAD);
+static void EndAttempt(int out) {
+    attempt.out = out;
     phase = PHASE_RESULT;
     phase_timer = 0;
+}
+/* You mashed out. Session Bests are for Popo's plain hold, Handoff on None. */
+static void Escaped(void) {
+    grab.done = true;
+    grab.new_best = false;
+    if (attempt.handoff == HANDOFF_NONE) {
+        struct best *best = &bests[attempt.percent];
+        grab.new_best = !best->frames || grab.frames < best->frames;
+        if (grab.new_best) {
+            best->frames = grab.frames;
+            best->inputs = grab.inputs;
+            sprintf(best_text[attempt.percent], "%df (%d)", grab.frames, grab.inputs);
+        }
+    }
+    SFX_Play(grab.new_best ? 303 : 0xAD);
+    EndAttempt(OUT_MASH);
     flash = (struct flash) { .armed = true };
+}
+
+/* After a throw, at s_link 15: caught again, or out. A down throw the other
+ * climber regrabs is a miss once its grab is over without you in it; any other
+ * throw ends the chain as it lets you go. */
+static void WatchThrow(FighterData *you) {
+    if (IsCaptured(you)) {
+        attempt.regrabs++;
+        StartGrab(you);
+        return;
+    }
+    if (IsThrown(you)) return;
+    if (!chain.regrabber) {
+        attempt.out_throw = chain.throw_state;
+        EndAttempt(OUT_THROWN);
+        return;
+    }
+    FighterData *regrabber = chain.regrabber->userdata;
+    bool grab_over = !chain.pressed || regrabber->state_id != ASID_CATCH || regrabber->state.frame >= GRAB_LAST_FRAME;
+    if (grab_over) EndAttempt(OUT_MISSED);
 }
 
 /* At s_link 15, after the frame's hits: on the frame Popo's grab connects you
  * hold the timer it set. Once he's pulled you in, each frame's animation
  * callback (s_link 1) has taken that frame's mash off it, up to the frame you
  * get out. The pull's frames, before the first drop, aren't counted: the
- * No-Mash Hold is the timer's, and the pull's length depends on his frame. */
+ * No-Mash Hold is the timer's, and the pull's length depends on his frame. A
+ * throw ends the hold without counting: the thrown state zeroes the timer. */
 static void MeasureGrab(GOBJ *gobj) {
     if (!ready || Pause_CheckStatus(1) == 2) return;
     FighterData *you = You();
@@ -522,8 +837,17 @@ static void MeasureGrab(GOBJ *gobj) {
         if (held) StartGrab(you);
         return;
     }
+    if (phase == PHASE_THROWN) {
+        WatchThrow(you);
+        return;
+    }
     if (phase != PHASE_GRAB) {
         UpdateFlash();
+        return;
+    }
+    if (!held && !IsReleased(you)) {
+        // Thrown: the think has seen it already; the hold doesn't count it.
+        if (IsThrown(you)) phase = PHASE_THROWN;
         return;
     }
     if (!grab.ticking) {
@@ -563,28 +887,54 @@ static void ReadDPad(FighterData *you) {
 
 // HUD ---------------------------------------------------------------------
 
+static const char *OutText(void) {
+    switch (attempt.out) {
+        case OUT_MASH: return "Mashed Out";
+        case OUT_MISSED: return "Regrab Miss";
+        case OUT_THROWN:
+            switch (attempt.out_throw) {
+                case ASID_THROWF: return "Fwd Throw";
+                case ASID_THROWB: return "Back Throw";
+                case ASID_THROWHI: return "Up Throw";
+                default: return "Down Throw";
+            }
+    }
+    return "-";
+}
+
 static void DrawHUD(GOBJ *gobj, int pass) {
     if (pass != 2 || !ready)
         return;
-    static char held_text[16], hold_text[16], best_label[24], best_hud[16], speed_text[16], big_text[16];
+    static char held_text[16], hold_text[16], best_label[24], best_hud[16], speed_text[16], big_text[16],
+        regrabs_text[16];
     int percent = Options_Main[OPT_PERCENT].val;
     struct best *best = &bests[percent];
-    if (phase == PHASE_GRAB || grab.done) sprintf(held_text, "%df", grab.frames);
+    if (phase == PHASE_GRAB || grab.done || grab.frames) sprintf(held_text, "%df", grab.frames);
     else sprintf(held_text, "-");
-    sprintf(hold_text, "%df", NoMashHold(percent));
-    sprintf(best_label, "Best at %s", Values_Percent[percent]);
-    if (best->frames) sprintf(best_hud, "%df", best->frames);
-    else sprintf(best_hud, "-");
     if (grab.frames) sprintf(speed_text, "%.1f/s", grab.inputs * 60.f / grab.frames);
     else sprintf(speed_text, "-");
-    const char *labels[] = { "Held For", "No-Mash Hold", best_label, "Mash Speed" };
-    const char *info[] = { held_text, hold_text, best_hud, speed_text };
-    event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
+    if (attempt.handoff != HANDOFF_NONE) {
+        sprintf(regrabs_text, "%d", attempt.regrabs);
+        const char *labels[] = { "Regrabs", "Got Out", "Held For", "Mash Speed" };
+        const char *info[] = { regrabs_text, OutText(), held_text, speed_text };
+        event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
+    } else {
+        sprintf(hold_text, "%df", NoMashHold(percent));
+        sprintf(best_label, "Best at %s", Values_Percent[percent]);
+        if (best->frames) sprintf(best_hud, "%df", best->frames);
+        else sprintf(best_hud, "-");
+        const char *labels[] = { "Held For", "No-Mash Hold", best_label, "Mash Speed" };
+        const char *info[] = { held_text, hold_text, best_hud, speed_text };
+        event_vars->HUD_DrawInfoPanel(labels, info, countof(labels));
+    }
 
-    // The mash count, big: cyan when the grab that just ended is a new best.
+    // The mash count, big, until the next grab connects: cyan when the grab
+    // you mashed out of is a new best, green when it was a handoff's.
     Rect rect = { BIG_X, BIG_Y, BIG_WIDTH, BIG_HEIGHT };
-    GXColor color = phase != PHASE_GRAB && grab.done && grab.new_best
-        ? (GXColor){0, 255, 255, 255} : (GXColor){255, 255, 255, 255};
+    GXColor color = (GXColor){255, 255, 255, 255};
+    if (phase != PHASE_GRAB && phase != PHASE_THROWN && grab.done)
+        color = grab.new_best ? (GXColor){0, 255, 255, 255}
+            : attempt.handoff != HANDOFF_NONE ? (GXColor){80, 255, 90, 255} : color;
     sprintf(big_text, "Mash %d", grab.inputs);
     event_vars->HUD_DrawTextEx(big_text, &rect, BIG_SIZE, color, (GXColor){0, 0, 0, 255}, BIG_BORDER, 1);
 }
@@ -621,14 +971,16 @@ void Event_Think(GOBJ *gobj) {
 
     FighterData *you = You(), *popo = Popo();
     ReadDPad(you);
-    if (restart || you->flags.dead || popo->flags.dead) {
+    GOBJ *nana = Nana();
+    bool nana_dead = Handoffs() && ((FighterData *)nana->userdata)->flags.dead;
+    if (restart || you->flags.dead || popo->flags.dead || nana_dead) {
         Reset();
         KeepDPadHeld(You());
         return;
     }
 
     HoldStill(Fighter_GetGObj(1));
-    HoldStill(Nana());
+    HoldStill(nana);
     phase_timer++;
 
     switch (phase) {
@@ -644,7 +996,13 @@ void Event_Think(GOBJ *gobj) {
             }
             break;
         case PHASE_GRAB:
-            break; // Measured after the frame's hits.
+            // Measured after the frame's hits. With a handoff, the holder acts.
+            if (Handoffs()) HolderActs();
+            break;
+        case PHASE_THROWN:
+            RegrabberActs();
+            if (phase_timer > THROWN_FRAMES) EndAttempt(OUT_MISSED); // Never let go, or never caught.
+            break;
         case PHASE_RESULT:
             if (phase_timer >= RESULT_FRAMES)
                 Reset();

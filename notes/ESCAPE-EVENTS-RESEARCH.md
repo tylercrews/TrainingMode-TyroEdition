@@ -1,8 +1,8 @@
-# Escape events research (T10)
+# Escape events research (T10, T11)
 
-The numbers behind **Escape Samus Up-B** ([src/escapesamus.c](../src/escapesamus.c)) and **Escape IC Grab (Beta)** ([src/escapeic.c](../src/escapeic.c)), and research on the Ice Climbers' handoffs for a later version of the IC event.
+The numbers behind **Escape Samus Up-B** ([src/escapesamus.c](../src/escapesamus.c)) and **Escape IC Grab (Beta)** ([src/escapeic.c](../src/escapeic.c)), and the Ice Climbers' handoffs: the down throw handoff the IC event does since T11, and the other IC regrabs, with how to escape each.
 
-Move data comes from the vanilla NTSC 1.02 ISO's `PlSs.dat` and `PlPp.dat` subaction scripts. Common constants come from `PlCo.dat`'s `ftLoadCommonData`. Native behavior was read from the disassembled `Start.dol` (devkitPPC's `powerpc-eabi-objdump` on the DOL's text sections). Frame numbers in the move tables are the scripts' own timer counts. The events never depend on how those map to "frame 1" conventions: they identify hits by their properties, not by frame.
+Move data comes from the vanilla NTSC 1.02 ISO's `PlSs.dat` and `PlPp.dat` subaction scripts. Common constants come from `PlCo.dat`'s `ftLoadCommonData`. Native behavior was read from the disassembled `Start.dol` (devkitPPC's `powerpc-eabi-objdump` on the DOL's text sections) and, for T11, from the Melee decomp ([doldecomp/melee](https://github.com/doldecomp/melee)). Frame numbers in the move tables are the scripts' own timer counts. The events never depend on how those map to "frame 1" conventions: they identify hits by their properties, not by frame.
 
 ## Escape Samus Up-B
 
@@ -101,7 +101,7 @@ An input every 6 frames (10 a second) takes 2 a frame on average. 20 a second ta
 
 ### How the event counts
 
-Because the tick is an animation callback (s_link 1), the event measures in an s_link 15 proc. On the frame the grab connects it sees the full timer the grab set. It counts from the first frame the timer drops, after the pull, and from then on it sees the timer after each frame's tick: the drop is 1 + 6 x that frame's inputs, rounded and capped at 2 inputs. The frame you get out is counted too, so not mashing at 0% reads exactly 75. (Before T10's Actionable Flash it counted the pull's frame or two as well.) Popo presses Z on the setup's second frame, as Grab Punish's teammate does. A missed grab is tried again from the next of four gaps (8, 5, 11, 14). You can't act until the grab connects (Wait's interrupt callback is cleared), so mashing early can't dodge it. Both climbers run with no AI, so Nana stands still.
+Because the tick is an animation callback (s_link 1), the event measures in an s_link 15 proc. On the frame the grab connects it sees the full timer the grab set. It counts from the first frame the timer drops, after the pull, and from then on it sees the timer after each frame's tick: the drop is 1 + 6 x that frame's inputs, rounded and capped at 2 inputs. The frame you get out is counted too, so not mashing at 0% reads exactly 75. (Before T10's Actionable Flash it counted the pull's frame or two as well.) Popo presses Z on the setup's second frame, as Grab Punish's teammate does. A missed grab is tried again from the next of four gaps (8, 5, 11, 14). You can't act until the grab connects (Wait's interrupt callback is cleared), so mashing early can't dodge it. Both climbers run with no AI: Nana stands still, unless a handoff has the event press her buttons (see the handoffs below). Each later hold, after a regrab, is counted the same way from its own first drop.
 
 ### Ground and air releases
 
@@ -128,58 +128,128 @@ The event's **Actionable Flash** (T10, default On) is the global Actionable Yell
 - Popo's pull lasts a frame or two: a mash on the grab's first frame doesn't count, and a stick held through the pull counts once.
 - An X or Y press in the first 16 frames, or holding up as you get out, gives an air release. Neither gives a ground release. Both still end the attempt.
 - The Actionable Flash: yellow on the last two frames of either release, green on your first two actionable frames (Wait after a ground release, frame 30 of an air release), and nothing during the grab or after the green.
-- Nana doesn't follow Popo or act while he holds you.
+- With Handoff on None, Nana doesn't follow Popo or act while he holds you.
 
-## Ice Climbers handoffs (research for a later version)
+<a id="ice-climbers-handoffs-research-for-a-later-version"></a>
+
+## Ice Climbers handoffs (T11)
 
 ### What a handoff is
 
-A **handoff** is a chain grab: one climber throws, and the other, acting separately (desynced), regrabs you before you can act. Handoffs became the Ice Climbers' main grab game after most tournaments banned wobbling (from 2019-2020). The other climber can act during grabs and throws in Melee, so the desync comes free with the grab.
+A **handoff** is the Ice Climbers' chain grab: one climber throws, and the other, acting separately (desynced), regrabs you before you can act. Handoffs became the Ice Climbers' main grab game after most tournaments banned wobbling (from 2019-2020). In Melee the other climber can act during grabs and throws, so the desync comes free with the grab ([SmashWiki: Desyncing](https://www.ssbwiki.com/Desyncing)). The basic handoff is Popo's down throw into Nana's regrab. "Re-grabbing is capable from both directions": when Nana holds you and down throws, Popo regrabs the same way.
 
 ### Popo's grab and throws, from `PlPp.dat`
 
-| Move | Damage | Angle | KB growth | Base KB | Notes |
-| --- | --- | --- | --- | --- | --- |
-| Grab (Catch) | 0% | - | - | - | out frames 6-7: radius 4.49 on the hand (bone 26), 3.12 on bone 22 |
-| Pummel | 3% | 80 | 100 | 0 | set KB 30, frame 12 |
-| Forward throw | 5% | 45 | 60 | 70 | plus a 6% hitbox on frame 24 |
-| Back throw | 7% | 60 | 30 | 80 | |
-| Up throw | 5% | 88 | 28 | 110 | plus 6% hitboxes on frame 25 |
-| Down throw | 6% | 80 | 40 | 70 | puts you right in front of them |
-| Release | 3% | 361 | 100 | 40 | the throws' release hitbox |
+| Move | Damage | Angle | KB growth | Base KB | Script frames (release) | Length | Speed |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Grab (Catch) | 0% | - | - | - | grab boxes on 6-7 | 30 | fixed |
+| Dash grab (CatchDash) | 0% | - | - | - | grab boxes on 6-7 | 40 | fixed |
+| Pummel (CatchAttack) | 3% | 80 | 100 | set KB 30 | hit on 12 | 25 | fixed |
+| Forward throw | 5% | 45 | 60 | 70 | releases on 28; a 6% kick on 24 | 50 | fixed |
+| Back throw | 7% | 60 | 30 | 80 | turns on 8, releases on 17 | 40 | your weight |
+| Up throw | 5% | 88 | 28 | 110 | releases on 31; 6% kicks on 25 | 60 | fixed |
+| Down throw | 6% | 80 | 40 | 70 | releases on 36 | 50 | your weight |
+| Down air | 9% | 361 | 110 | set KB 36 | one hitbox from 3 to 53 | 66 | fixed |
 
-Melee plays a throw faster or slower with the victim's weight, so its release frame depends on who's thrown.
+The grab boxes are a 4.49 sphere on the hand (bone 26) and a 3.13 one on bone 22, and they catch grounded and airborne fighters alike (the hitbox command's ground and air bits). Posing the skeleton on Catch's script frames 6 and 7 puts the hand about 6.7 forward and 7.8 up from Popo's feet, then 6.1 and 5.8 (CatchDash: 7.9 and 7.1, then 7.5 and 6.0). Hit and hurt radii scale with the player's size (`x34_scale`, 1 normally), not the model's 1.15. Every throw's release command is the `0x50` command with value 0, which sets the flag `ftCo_800DD724` releases you on (the same one that ends CatchPull). Nana's archive (`PlNn.dat`) has only her specials: she runs Popo's common moves.
+
+**Throw speed.** `ftCo_800DD4B0` plays a throw at `1 / (your weight x PlCo 0x37C)`, and `0x37C` is 0.01, unless the thrower's weight-independent mask (`ftData` attributes `+0x180`) has that throw's bit. Popo's mask is `0x05`, forward and up throw, so his down and back throws run at 100 / your weight frames a frame. In the game's float steps, a down throw releases you `ceil(36 x weight / 100)` frames after it starts: Pichu 20, Jigglypuff 22, Fox 27, Falco and Pikachu 29, Marth and the Ice Climbers 32, Sheik 33, Mario 36, Falcon 38, Ganondorf 40, Bowser 43. That's the release column of Nicki's data sheet for every character it lists.
+
+**Throw knockback.** The release (`ftCo_800DDDE4`) works out knockback with PlCo `0x10C` as your weight, and `0x10C` is 100: every character takes the same knockback from a throw. The down throw at 0% is 78.5 (from 3% on, 80 or more), the back throw's is 86.7. A down throw's release (`ftCo_800DE7C0` with `motion_id == 222`) also forces knockback level 3 and DamageFlyTop, a tumble state, whatever the knockback.
+
+**DI, and no SDI.** The release puts you at the thrower's TransN2 bone, sets your knockback, and applies trajectory DI on the spot (`ftCo_8008E5A4`, right after `ftCo_8008DCE0`). A throw has no hitlag, so there's no SDI or ASDI on it: only the DI angle, up to 18 degrees, from your stick as of the release frame.
+
+**Grabbable again at once.** Being held or thrown sets your grab immunity mask (`x1A6A`) to `0x1FF`, and the release's state change clears it (`Fighter_ChangeMotionState`, `fighter.c`). The grab check (`ftColl_80078A2C`) needs that mask clear of the grabber's bit, the grab box's ground or air bit for your state, no intangibility, and a grabbable hurtbox in the sphere. So the other climber can catch you the frame you're released.
+
+### The down throw handoff, frame by frame
+
+Nicki's data sheet ("Ice Climbers Information and Data Sheet", section 1.2) lists, for each character, the release frame and "on which of the following frames they can be regrabbed by the other climber (when the other climber's grab hitbox needs to be active)", for DI in and DI away, at about 50%. Every window starts on the release frame, for both DIs:
+
+| Character | Release | Window DI in / away |
+| --- | --- | --- |
+| Jigglypuff | 22 | 3 / 3 |
+| Kirby | 26 | 4 / 4 |
+| Fox | 27 | 4 / 3 |
+| Falco | 29 | 3 / 2 |
+| Pikachu | 29 | 5 / 4 |
+| Mewtwo | 31 | 5 / 6 |
+| Marth | 32 | 2 / 3 |
+| Sheik | 33 | 5 / 4 |
+| Mario | 36 | 3 / 3 |
+| Captain Falcon | 38 | 3 / 4 |
+| Ganondorf | 40 | 3 / 4 |
+| Bowser | 43 | 6 / 7 |
+
+Nicki's notes: "handoff windows often become 1 frame smaller as an opponent gains more percent", and are larger at 0%. Against characters whose window is smaller DI'd away, like Falco, Nana can walk forward a little during the throw. Against Marth or Luigi she has to be right on top of Popo, or DI in can't be regrabbed. Pichu "only works when walking forward with Nana".
+
+So a climber standing on top of the thrower, with its grab out on the release frame, catches every DI at low and mid percents. DI only beats a late regrab, by a frame for the lighter characters DI'd away (Fox: 3 frames instead of 4).
+
+### Nana's grab, from the decomp
+
+When Nana holds someone, her AI's grab mode (`x18 = 9`, from `ftCo_IsGrabbing` in `ftCo_0A01.c`) runs the CPU grab routine `ftCo_800B683C` (`ftcpuattack.c`). Nothing in it is Nana's own:
+
+1. It pummels if `HSD_Randf() x (1 + pummels so far) < 0.5`: half the time first, then a quarter, then a sixth.
+2. Otherwise, if she's within 30 of either edge of the floor under her (`mpIsland_8005AC14` and its extents), she pushes the stick toward that edge: forward if she faces it, back if not. Off the ledge this is what makes her throw predictable.
+3. Otherwise she throws up, down, forward or back at 1 in 4 each (`HSD_Randf()` against 0.25, 0.5 and 0.75).
+
+The throw input is the stick at neutral for a frame, then pushed (`CpuCmd_WaitFor 1`), so her throw starts a frame after the decision. Her AI level is Popo's percent / 20 (`ftCo_800B101C`), which this routine doesn't use. HDR's frame data page lists 50% up, 20% down, 15% forward and 15% back for Nana's random throw. The decomp's routine has no such weights, so the event uses 1 in 4.
+
+### What the event does (Handoff: Down Throw)
+
+- Nana stands on top of Popo, facing you.
+- Popo down throws on his first CatchWait frame (stick down past PlCo `0xB0`, -0.25, from neutral: CatchWait's IASA, `ftCo_800DD1E4`), before a mash can get you out.
+- Each frame of the throw, the event steps Popo's animation frame by his rate, in floats as the game does, to the frame the script releases you (36). With 6 frames to go, Nana presses Z (A and the shield bit, through Wait's own IASA), so her grab boxes come out on your release frame and the one after.
+- Nana then holds you the way her AI would (above), with the event pressing her buttons and no AI running.
+- If she down throws, Popo, now on top of her, regrabs it the same way, and down throws again. Any other throw ends the chain, and so does mashing out, or a regrab that misses.
+- Each new hold is normalized as if tied with handicap off, as Popo's first grab is.
 
 ### The techniques
 
-1. **Down throw, Nana regrab.** This is the basic handoff. The down throw pops you low and almost straight up (80 degrees), and Nana, a step behind, grabs you once you land. Players describe the cue as "once they hit the ground, regrab", with a small walk forward first. One handoff is always possible, while a second is "possible but iffy" ([Smashboards Q&A](https://smashboards.com/threads/general-ics-q-a-thread.199633/page-106), [Smashboards](https://smashboards.com/threads/ice-climbers-grabs-and-desynces.344412/page-3)).
-2. **Handoff chains near the ledge.** Popo down throws (sometimes forward throws) and Nana regrabs. Nana's throw is chosen by her AI, and near the edge she always throws toward it, so the chain becomes predictable. SmashWiki calls handoffs "only a true infinite when done near the edge of the stage (due to the CPU AI's throw behavior)" ([SmashWiki: Wobbling](https://www.ssbwiki.com/Wobbling), [SmashWiki: Chain grab](https://www.ssbwiki.com/Chaingrab)).
-3. **The cookhold.** SmashWiki lists it as a variation of handoffs that, like them, needs the climbers close to the ledge so Nana's throw is predictable ([SmashWiki: Ice Climbers' grab](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Grab)). I couldn't find a step-by-step description.
-4. **Down throw, Nana down air, regrab.** Nana's down air during Popo's down throw holds you on the ground and forces a stand-up that can be regrabbed. It's escapable with SDI ([SmashWiki: Ice Climbers' grab](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Grab), [SmashWiki: Chain grab](https://www.ssbwiki.com/Chaingrab)).
-5. **Down throw into Nana's smash attacks.** At kill percents, Popo down throws and Nana up-smashes, forward-smashes or down-smashes you as you land (the "down throw forward smash" idea).
-6. **Wobbling (banned).** Popo pummels while Nana forward-tilts or down-tilts in rhythm (about 200 BPM), so every hit puts you back in the grab flinch. You "cannot get out of the grab while they are in a special form of grab hitstun" ([SmashWiki: Wobbling](https://www.ssbwiki.com/Wobbling)). The DOL agrees, though not because the timer stops. Each hit's hitlag does freeze it. Between hits CaptureDamage ticks and counts your mashing, but only CaptureWait lets go, and every hit starts the 20-frame flinch again before you get back to it (above). **Blizzobbling** does the same with Blizzard.
-7. **Popo's solo down throw chain grab.** Even without Nana, Popo can chain down throw Sheik, Ganondorf and Roy until about 50% ([SmashWiki: Chain grab](https://www.ssbwiki.com/Chaingrab)).
-8. **The freeze glitch.** Banned, and fixed in PAL. It freezes the opponent in place ([SmashWiki: Ice Climbers](https://www.ssbwiki.com/Ice_Climbers_(SSBM))).
+1. **Down throw handoff.** Above. One handoff is always possible, while a second is "possible but iffy" ([Smashboards Q&A](https://smashboards.com/threads/general-ics-q-a-thread.199633/page-106)): the second depends on Nana's random throw.
+2. **Ledge handoffs and the cookhold.** Near the edge Nana always throws toward it, so the chain becomes predictable. SmashWiki calls handoffs "only a true infinite when done near the edge of the stage (due to the CPU AI's throw behavior)" ([SmashWiki: Wobbling](https://www.ssbwiki.com/Wobbling)). The cookhold is a harder variation, pioneered by CookBook ([SmashWiki: CookBook](https://www.ssbwiki.com/Smasher:CookBook)), with a [video](https://www.youtube.com/watch?v=2c23FZJK6Hs&t=128s) linked from the grab page. No step-by-step description was found. Nicki's sheet lists back throw handoffs that "work when synced" against Marth, the Ice Climbers, Sheik, Ness, Falcon, Peach, Zelda, the Marios, Pikachu, Samus, Link, Young Link, Ganondorf, DK, Bowser and Mewtwo, with an unexplained "L" on some.
+3. **Down throw, Nana down air, regrab.** Nana's down air during Popo's down throw holds you down and forces a stand-up that can be regrabbed. It's escapable with SDI ([SmashWiki: Ice Climbers' grab](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Grab)). The down air is one long hitbox (frames 3 to 53) with set knockback, so its hit gives 6 frames of hitlag to SDI in.
+4. **Down throw, Nana forward air, Popo regrab.** Grab and down throw with Popo, short hop forward air (a meteor) with Nana, then regrab with Popo. A Smashboards tech thread says it's "significantly harder to smash DI than d-throw dair" (seen only in a search summary).
+5. **Back throw regrab ("pitching").** Popo back throws and Nana wavedashes back to regrab, on fast fallers, to about 120% (Smashboards tech thread, the author's own testing).
+6. **Down throw into Nana's smash attacks.** At kill percents, Nana's up smash, forward smash or down smash as you leave the throw. Nicki times the smash "so that it hits them right as they leave your grab".
+7. **Wobbling (banned).** Popo pummels while Nana forward-tilts or down-tilts in rhythm (about 200 BPM), so every hit puts you back in the grab flinch. The DOL agrees: each hit's hitlag freezes the timer, CaptureDamage ticks and counts your mash, but only CaptureWait lets go, and every hit starts the 20-frame flinch again (see Mashing above). **Blizzobbling** does the same with Blizzard.
+8. **Popo's solo down throw chain grab.** Even without Nana, Popo can chain down throw Sheik, Ganondorf and Roy until about 50% ([SmashWiki: Chain grab](https://www.ssbwiki.com/Chaingrab)). Nicki's sheet has percent bands for each DI (No DI, DI In, DI Away) with Popo's answer to each (standing, walk or dash jump-canceled grab, walk turn, dash, wavedash), and "Jump Out" bands.
+9. **The freeze glitch.** Banned, and fixed in PAL ([SmashWiki: Ice Climbers](https://www.ssbwiki.com/Ice_Climbers_(SSBM))).
 
 ### Getting out, as the victim
 
-From a Fox-against-Ice-Climbers guide ([Dignitas](https://dignitas.gg/articles/blogs/smash/13619/fox-vs-ice-climbers-common-mistakes-to-avoid-as-fox)):
+These are the hints in the event's Help, with where each comes from.
 
-- **Down throw, down air:** hold down on the C-stick, and quarter-circle SDI down and away on the control stick.
-- **Down throw, up-smash:** DI away, and be ready to tech the landing, or you'll most likely be jab reset.
-- **Blizzard:** SDI up and away in the air, down and away on the ground.
-- In general, DI away from the follow-up they're setting up, and tech on landing. Mashing only helps before the throw: a handoff throws you before you can mash out.
+| Technique | How to get out | Source |
+| --- | --- | --- |
+| Down throw handoff | DI doesn't stop a well-timed regrab at low and mid percents. It only beats a late one, by a frame for lighter characters DI'd away. Mash in Nana's grab: she pummels before throwing half the time, and a pummel's flinch gives a fast masher time to get out at low percent. Away from the ledge 3 of her 4 throws end the chain. | Nicki's windows; the decomp's grab routine; the DOL's mash rules |
+| At the ledge | Her throw is always toward the ledge there. Mash in her grab, and DI her throw up and in to make it back. | The decomp; general DI |
+| Down air regrab | SDI down and away with quarter circles on the control stick while holding down on the C-stick. | [Dignitas](https://dignitas.gg/articles/blogs/smash/13619/fox-vs-ice-climbers-common-mistakes-to-avoid-as-fox), SmashWiki |
+| Forward air regrab | SDI it like the down air, though players say its timing makes it much harder to SDI. | Smashboards (search summary) |
+| Back throw regrab | You come down in tumble: DI changes where you land, so tech or act as soon as you can. Which DI escapes isn't documented for Melee. A fandom wiki that may be about Project+ says to DI it up. | Physics above; unverified |
+| Popo alone | Only a few characters, at low percents, and he has to react to your DI. At some percents you can jump out. | SmashWiki, Nicki's sheet |
+| Wobbling | It can't be escaped once it's going. Mash before it starts. | SmashWiki, the DOL |
+| Down throw, up smash | DI away, and be ready to tech the landing, or you'll most likely be jab reset. | Dignitas |
+| Blizzard | SDI up and away in the air, down and away on the ground. | Dignitas |
 
-### What adding a handoff would take
+### What the other handoffs would take
 
-The event already runs both climbers with no AI, so a handoff means scripting them frame by frame:
+The event has only the down throw handoff because it's the one whose timing is fully known: the release frame from your weight, Nana on top of Popo, her grab on the release frame. The others need things no source documents:
 
-1. **The throw.** Popo throws (the stick down in CatchWait for a down throw) on a chosen frame of the hold, before a fast masher gets out (at 0%, the fastest possible mash takes 6 frames).
-2. **Your path.** Where and when you land depends on your weight (throw speed), your percent, your DI and the throw's knockback. Passing Practice already predicts a launched fighter's flight (`PredictEnemy` in [src/passing.c](../src/passing.c): gravity, knockback decay, hitlag), and that would carry over.
-3. **Nana's regrab.** Nana has to stand near where you'll land and press Z so her grab, out on frames 6-7, meets your first frames where you can be grabbed. That's a window of a few frames, and it moves with every character and DI. She'd need to re-plan every frame, the way Passing Practice's teammate does.
-4. **The loop and the lesson.** Nana throws, Popo regrabs, and so on. The anti-handoff version from the to-do list would show which way to DI each throw.
+1. **Back and forward throw regrabs** need Nana to move to where you'll come down and grab you there. That means predicting your flight (Passing Practice's `PredictEnemy` does that), the grab geometry above, and a wavedash or dash for her. How a real Nana moves for "pitching" isn't written down, and the escape advice depends on it.
+2. **Down and forward air regrabs** need Nana's short hop aerial timed to the release (like Passing Practice's aerials), and Popo's regrab after his throw ends. What the down air does to you next ("forces a stand-up") needs checking in Dolphin.
+3. **Popo alone** needs Popo to react to your DI after his own throw ends: walking, dashing, turning and jump-canceled grabs, per Nicki's percent bands.
+4. **Ledge handoffs** need Popo to regrab Nana's back throw toward the ledge, which is where Nicki's back throw handoff list comes in.
 
-**Confidence.** Moderate for one down throw regrab, low for full chains, until it's tried in Dolphin. The pieces exist in this codebase, but the windows are a few frames wide and depend on the character, the percent and your DI. None of that can be tuned offline. Down Throw Regrab is the one to build first: Popo down throws at a set hold frame and Nana regrabs where you land. Test it in Dolphin on a few characters (light, heavy, fast faller) before adding Nana's throws, the down air, smash attacks or the ledge chain.
+### To check in Dolphin
+
+- On Down Throw, Nana's grab catches you on the frame Popo's down throw lets you go, for a light, a middle and a heavy character (Pichu, Fox, Mario, Bowser), with no DI, DI in and DI away. The event's timing matches Nicki's release frames exactly, so a miss would mean the grab box doesn't reach where you're released, not a wrong frame.
+- Pichu: Nicki's sheet says the handoff only works if Nana walks forward. Nana standing on top of Popo may miss Pichu, which would be correct.
+- At high percents, whether the regrab still connects, and from what percent it stops (Nicki: the window shrinks as you take damage).
+- Nana's pummels and throws: about half her first decisions are pummels, and her throws spread evenly over up, down, forward and back.
+- How quickly Nana acts after her grab: the event decides on her first CatchWait frame. The real AI may take a frame or two longer.
+- Mashing out of Nana's grab during a pummel at 0% to 20%.
+- Popo regrabs Nana's down throw, and the chain goes on until a throw other than down.
+- Nana's AI level is Popo's percent / 20, and the event leaves Popo at 0%. Nothing in the grab routine reads the level.
 
 ## Sources
 
@@ -195,3 +265,9 @@ The event already runs both climbers with no AI, so a handoff means scripting th
 - [Smashboards: C-stick ASDI](https://smashboards.com/threads/proper-way-to-sdi-out-of-uair.398521/post-18959077): the C-stick only does ASDI, and its ASDI replaces the control stick's.
 - [Dignitas: Fox vs Ice Climbers](https://dignitas.gg/articles/blogs/smash/13619/fox-vs-ice-climbers-common-mistakes-to-avoid-as-fox): how to SDI and DI out of the common follow-ups.
 - Smashboards threads on [handoff timing](https://smashboards.com/threads/hand-off-timing-w-pictures-frames.394226/), [grabs and desyncs](https://smashboards.com/threads/ice-climbers-grabs-and-desynces.344412/page-3) and the [IC Q&A](https://smashboards.com/threads/general-ics-q-a-thread.199633/page-106). Smashboards blocks automated reading, so only search summaries of these were seen.
+- T11: Nicki's [Ice Climbers Information and Data Sheet](https://docs.google.com/document/d/1e2WfuNH1I86On59O53FubxYzA-zYMZKZVIrCPNVEqhk/edit) (linked from SmashWiki's grab page, majority of its information compiled by Nopia): the down throw handoff's release frames and regrab windows for DI in and away, back throw handoffs, Popo's chain grab by percent and DI, in-grab combos and frame data.
+- T11: the Melee decomp, [doldecomp/melee](https://github.com/doldecomp/melee): `ftcpuattack.c` (`ftCo_800B683C`, the CPU grab routine), `ftCo_0A01.c` (Nana's AI, its grab mode), `ftCo_Throw.c` and `ftCo_Thrown.c` (throw speed, release, knockback, DI), `ftcoll.c` (`ftColl_80078A2C`, the grab check), `ftaction.c` and `lb/types.h` (the subaction commands' bitfields), `ft/types.h` (the attributes and the weight-independent throw mask).
+- T11: [SmashWiki: back throw](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Back_throw), [forward throw](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Forward_throw) and [up throw](https://www.ssbwiki.com/Ice_Climbers_(SSBM)/Up_throw): their frame data, and which throws depend on your weight (matches the ISO). [SmashWiki: CookBook](https://www.ssbwiki.com/Smasher:CookBook): he pioneered the cookhold.
+- T11: [Smashboards: New Ice Climbers Tech (20IC)](https://smashboards.com/threads/new-ice-climbers-tech-20ic.483823/): the down throw, forward air, regrab, "pitching" (back throw into Nana's wavedash regrab, fast fallers to about 120%), and Nana's throws being random but at the ledge. Seen only in search summaries.
+- T11: the [HDR frame data page](https://hdr-development.github.io/hdr-website/characters/melee/popo.html) gives Nana's random throw as 50% up, 20% down, 15% forward, 15% back. The decomp's grab routine has 1 in 4 each, which the event uses.
+- T11: the [Ice Climber Plus wiki's Hand-offs page](https://ice-climber-plus.fandom.com/wiki/Hand-offs) couldn't be read (paywalled). Search summaries of it give "DI as far up as possible" against a back throw regrab, but the wiki may be about Project+, so the event's Help doesn't use it.

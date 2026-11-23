@@ -3646,13 +3646,13 @@ class EscapeSamusSaveTests(EventMenuSaveTests, unittest.TestCase):
 class EscapeICSaveTests(EventMenuSaveTests, unittest.TestCase):
     dat_path = ROOT / 'build/escapeic-test.dat'
     field = 50  # TM_SETTING_ESCAPE_IC
-    saved = (('Your Percent', 21, 0),)
+    saved = (('Your Percent', 21, 0), ('Handoff', 2, 0))
     natives = EventMenuSaveTests.natives + ('GObj_AddProc',)
 
     def test_actionable_flash_saves_in_the_core_record(self):
         m = self.m
         m.call('DAT_EventInit', 0)
-        flash = self.rows[0] + 44  # Row 1, after Your Percent.
+        flash = self.rows[0] + 88  # Row 2, after Your Percent and Handoff.
         self.assertEqual(self.text(self.word(flash+12)), 'Actionable Flash')
         self.assertEqual(struct.unpack('>2h', m.cpu.mem_read(flash+6, 4)), (1, 1))  # On by default.
         extension = bytes(m.cpu.mem_read(self.extension, 88))

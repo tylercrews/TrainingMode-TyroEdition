@@ -160,7 +160,7 @@ enum TMSettingsField {
     TM_SETTING_DOOR_ZELDA, /* Index: CSS door. 1 if its Zelda icon means Zelda, not Sheik. Runtime-only. */
     TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
     TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 and 31 (v22); see TMEscapeSamusPreference. */
-    TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22); see TMEscapeICPreference. */
+    TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22) and word 84 bits 13-15 (v25, T11); see TMEscapeICPreference. */
     TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 (T10); see TMGrabercisePreference. */
     TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
     TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19, 29 and 30, word 12 bits 6-8 (v24) and word 84 bits 0-12 (v25) (T10); see TMTargetsPreference. */
@@ -319,13 +319,19 @@ enum TMPassingPreference {
  * order, in word 76, which version 22 appends. Each is stored as its distance
  * from its default, as Passing Practice's are, so the word's zeros read as the
  * defaults, and the settings added to it later (Grabs-ercise in bits 16-30,
- * Escape Samus's Goal in 31) need no bump. */
+ * Escape Samus's Goal in 31) need no bump. Escape IC Grab's Handoff (T11) had
+ * no room left there: it's word 84's bits 13-15, the same way. */
 enum TMEscapeSamusPreference {
     TM_ESC_SAMUS_POSITION, TM_ESC_SAMUS_DISTANCE, TM_ESC_SAMUS_SIDE, TM_ESC_SAMUS_PERCENT,
     TM_ESC_SAMUS_GOAL, /* Added after, in word 76's last spare bit, 31: Escape is stored as 0. */
     TM_ESC_SAMUS_PREF_COUNT
 };
-enum TMEscapeICPreference { TM_ESC_IC_PERCENT, TM_ESC_IC_PREF_COUNT };
+enum TMEscapeICPreference {
+    TM_ESC_IC_PERCENT,
+    TM_ESC_IC_HANDOFF, /* T11: word 84 bits 13-15 (version 25, no bump). None, the default, is stored as 0. */
+    TM_ESC_IC_PREF_COUNT
+};
+#define TM_ESC_IC_HANDOFF_COUNT 2 /* None, Down Throw. Its 3 bits leave room for 8. */
 #define TM_ESC_POSITION_COUNT 3 /* Ground, Air, Random. */
 #define TM_ESC_DISTANCE_COUNT 4 /* On Top Of, Side, Far Side, Random. */
 #define TM_ESC_SIDE_COUNT 3 /* Random, Left, Right: where Samus is from you. */

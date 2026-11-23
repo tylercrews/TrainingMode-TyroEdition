@@ -194,7 +194,18 @@ static const ExtensionPreference escape_samus_preferences[TM_ESC_SAMUS_PREF_COUN
     {0,2,TM_ESC_POSITION_COUNT,0}, {2,2,TM_ESC_DISTANCE_COUNT,TM_ESC_DEFAULT_DISTANCE},
     {4,2,TM_ESC_SIDE_COUNT,0}, {6,5,TM_ESC_PERCENT_COUNT,0}, {31,1,TM_ESC_GOAL_COUNT,0},
 };
-static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {{11,5,TM_ESC_PERCENT_COUNT,0}};
+/* Escape IC Grab's Handoff (T11) had no room in word 76: it's word 84's bits
+ * 13..15 (ESCAPE_IC_HANDOFF_SHIFT), above Target Practice's Lowest Laser
+ * Lines, with no version bump. None, its default, is stored as 0, the way word
+ * 76's rows are, so the zeros every migration to 25 writes read as None. Only
+ * a version 25 record owns it. Like word 76's rows, a stored value past the
+ * choices is repaired to None (TMExtension_Prepare), so a later handoff can
+ * take the next value with no migration: an older build sets it back to None. */
+#define ESCAPE_IC_HANDOFF_SHIFT 13
+static const ExtensionPreference escape_ic_preferences[TM_ESC_IC_PREF_COUNT] = {
+    {11,5,TM_ESC_PERCENT_COUNT,0}, {ESCAPE_IC_HANDOFF_SHIFT,3,TM_ESC_IC_HANDOFF_COUNT,0},
+};
+#define IS_ESCAPE_IC_HANDOFF(field,index) ((field)==TM_SETTING_ESCAPE_IC && (index)==TM_ESC_IC_HANDOFF)
 /* Version 23 (T10) appends word 80: Grabs-ercise's CPU Percent in bits 0..3,
  * stored as its distance from Random, its default, as word 76's rows are.
  * Every migration to 23 zeroes the word, so bits 4..31 can take a setting
@@ -283,9 +294,10 @@ typedef char TMExtension_EdgeguardUpBOverlay[(TM_EG_UPB_OVERLAY_CPU==TM_EG_UPB_O
  * bump: On by default, stored the same way as its distance from On, so the
  * zeros read as On. Lowest Laser Lines (T10), appended after, is bits 9..12
  * with no version bump: Off, its default, or a color plus one, so its 16
- * values fill the bits and the zeros read as Off. Bits 13..31 are free for a
- * setting whose stored 0 is its default, with no version bump.
- * IS_TARGETS_WORD_84 is every row in it. */
+ * values fill the bits and the zeros read as Off. Escape IC Grab's Handoff
+ * (T11) took bits 13..15 the same way (see escape_ic_preferences). Bits 16..31
+ * are free for a setting whose stored 0 is its default, with no version bump.
+ * IS_TARGETS_WORD_84 is every Target Practice row in it. */
 #define TARGETS_COLOR_OFFSET 84
 #define TARGETS_COLOR_SIZE 4
 #define TARGETS_POINTERS_SHIFT 8
@@ -306,6 +318,10 @@ typedef char TMExtension_TargetsColors[(TM_TARGETS_SH_COLOR==6 && TM_TARGETS_FH_
     TM_TARGETS_LOW_LINE_COUNT==1u<<4 &&
     TM_TARGETS_COLOR_COUNT==15 && TM_TARGETS_SH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT &&
     TM_TARGETS_FH_COLOR_DEFAULT<TM_TARGETS_COLOR_COUNT) ? 1 : -1];
+/* Escape IC Grab's Handoff sits right above Lowest Laser Lines in word 84. */
+typedef char TMExtension_EscapeICHandoffBits[(ESCAPE_IC_HANDOFF_SHIFT==TARGETS_LOW_LINE_SHIFT+4 &&
+    TM_ESC_IC_HANDOFF==1 && TM_ESC_IC_PREF_COUNT==2 && TM_ESC_IC_HANDOFF_COUNT<=1u<<3 &&
+    ESCAPE_IC_HANDOFF_SHIFT+3<=32) ? 1 : -1];
 typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 &&
     TM_TARGETS_LINES==3 && TM_TARGETS_FULL_HOP==4 && TM_TARGETS_DOUBLE_JUMP==5 &&
     TARGETS_LINES_SHIFT+1==TARGETS_DOUBLE_JUMP_SHIFT &&
@@ -512,7 +528,7 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_TARGETS && index==TM_TARGETS_FULL_HOP) return TARGETS_FULL_HOP_OFFSET;
-    if(IS_TARGETS_WORD_84(field,index)) return TARGETS_COLOR_OFFSET;
+    if(IS_TARGETS_WORD_84(field,index) || IS_ESCAPE_IC_HANDOFF(field,index)) return TARGETS_COLOR_OFFSET;
     if((field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) ||
         field==TM_SETTING_TARGETS || field==TM_SETTING_EVENT_LIST) return GRABS_OFFSET;
     if(IS_ESCAPE(field)) return ESCAPES_OFFSET;
@@ -812,9 +828,12 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
-    /* Version 22 records own word 76, and only version 23 and later records word 80. */
+    /* Version 22 records own word 76, only version 23 and later records word
+     * 80, and only a version 25 record Escape IC Grab's Handoff in word 84. */
     if(IS_ESCAPE(field)) {
-        int owned=supported(r)||v23||v24||(v22 && preference_offset(field,index)!=GRABS_OFFSET);
+        unsigned offset=preference_offset(field,index);
+        int owned=supported(r)||((v23||v24) && offset!=TARGETS_COLOR_OFFSET)||
+            (v22 && offset!=GRABS_OFFSET && offset!=TARGETS_COLOR_OFFSET);
         unsigned value=owned?preference_value(r,field,index):p->initial;
         return value<p->count?value:p->initial;
     }
