@@ -83,7 +83,7 @@ Right now my favorite events are infinite mode Eggsercise and the Ledgedash trai
 
 This section summarizes implemented Tyro-specific changes, newest version first. Keep one concise bullet per major feature within each version, updating that bullet for related adjustments. Changes to an earlier feature may receive a new bullet in a later version. Proposed changes stay in the relevant [OSD investigation](notes/OSD-GLOBAL-SETTINGS-INVESTIGATION.md) or [Training Lab menu investigation](notes/TRAINING-LAB-MENU-INVESTIGATION.md) until implemented.
 
-### T10 (V1.4.1T10) - *2026-11-08 to 2026-11-22*
+### T10 (V1.4.1T10) - *2026-11-08 to 2026-11-23*
 
 - **New events**
     - **Passing Practice** (Doubles): your CPU teammate passes the enemy CPU to you with an aerial, you hit it back, and your teammate jumps up and passes it again. It's for keeping a pass going with a teammate in doubles.
