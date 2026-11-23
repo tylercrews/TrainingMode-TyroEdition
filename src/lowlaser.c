@@ -6,9 +6,9 @@
 /* Squat startup, never SquatWait. A zero animation rate holds the compressed
  * pose while normal hurtbox collision and percent accumulation remain live. */
 #define PUFF_CROUCH_FRAME 2.f
-/* Lowest Laser Lines' color: Magenta, an index into LineColors, shaded per
+/* Lowest Laser Lines' color: Red, an index into LineColors, shaded per
  * floor the way Target Practice's are. */
-#define LOW_LINE_COLOR (TM_COLOR_MAGENTA - TM_COLOR_WHITE)
+#define LOW_LINE_COLOR (TM_COLOR_RED - TM_COLOR_WHITE)
 enum { OPT_POSITION, OPT_HEIGHT, OPT_STAGE, OPT_OSDS, OPT_SUPPRESS, OPT_LOW_LINE, OPT_EXIT, OPT_RESET_PERCENT };
 enum {
     POS_CENTER, POS_FAR_LEFT, POS_CENTER_LEFT, POS_CENTER_RIGHT, POS_FAR_RIGHT,
@@ -59,7 +59,7 @@ static EventOption options[] = {
     {.kind = OPTKIND_TOGGLE, .name = "Suppress Global OSDs", .OnChange = ChangeSuppression,
      .desc = {"Hide global OSDs during this event only.", "Event OSDs keep their own On/Off setting.", "Defaults Off. This setting is saved."}},
     {.kind = OPTKIND_TOGGLE, .name = "Lowest Laser Lines", .OnChange = ChangeLowLine,
-     .desc = {"Fox and Falco: magenta lines where the lowest", "laser you can shoot flies, off the floor and",
+     .desc = {"Fox and Falco: red lines where the lowest", "laser you can shoot flies, off the floor and",
               "each platform. Other characters show none.", "Defaults Off. This setting is saved."}},
     {.kind = OPTKIND_FUNC, .name = "Exit", .OnSelect = Exit,
      .desc = {"Return to the Event Selection Screen."}},

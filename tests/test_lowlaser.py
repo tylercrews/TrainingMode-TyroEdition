@@ -458,12 +458,12 @@ class LowLaserStageTests(unittest.TestCase):
         return batches, [(a[0], b[0], a[1], a[3]) for a, b in zip(vertices[::2], vertices[1::2])]
 
     def assertLowLines(self, got, floors, kind):
-        """Target Practice's Lowest Laser Lines in Magenta: each floor's (peak_floors in
+        """Target Practice's Lowest Laser Lines in Red: each floor's (peak_floors in
         test_targets, the same layout and shade) at the fighter's lowest laser over it."""
         import test_targets as targets
-        magenta = targets.LINE_NAMES.index('Magenta')
+        red = targets.LINE_NAMES.index('Red')
         low = {FOX: 5.1149, FALCO: 4.0994}[kind]
-        wanted = [(left, right, y + low, targets.line_color(magenta, shade)) for left, right, y, shade in floors]
+        wanted = [(left, right, y + low, targets.line_color(red, shade)) for left, right, y, shade in floors]
         self.assertEqual(len(got), len(wanted))
         for g, w in zip(got, wanted):
             self.assertAlmostEqual(g[0], w[0], delta=.001)

@@ -135,7 +135,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - On Yoshi's Story, Randall now stays with Hazards Off (the Shy Guys still go). A new **Randall** row at the top of Stage Options (On by default) hides it and its platform without stopping it, so the minimap keeps following it, and it stays in step with the timer through savestates.
         - New **Timer 8m Inf Loop** (Session, Off by default) shows the timer as an 8 minute countdown that starts over at 0:00. Both timers show the same moment, so you can switch any time, and Randall is where an 8 minute match has it. See [the doc](docs/RANDALL-TIMER-MINIMAP.md#in-the-training-lab).
     - **Edgeguard Training:** D-pad left/right picks the **Side** ledge and restarts.
-    - **Low Laser Puff Practice:** new **Lowest Laser Lines** setting (Off by default): for Fox and Falco, magenta lines where your lowest laser flies off the main floor and each platform, like Target Practice's.
+    - **Low Laser Puff Practice:** new **Lowest Laser Lines** setting (Off by default): for Fox and Falco, red lines where your lowest laser flies off the main floor and each platform, like Target Practice's.
     - **Side-B Sweetspot:** new **Marth** setting turns off his down tilt, so you can practice shortens onto the stage.
     - **Up-B Sweetspot**
         - The rings for aimed up-Bs leave out the angles no stick can aim (Melee reads anything near straight as exactly straight), with a white tick where holding straight sweetspots. The teleports' and Quick Attack's inner ring follows the least tilt that aims each way.
