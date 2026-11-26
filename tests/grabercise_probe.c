@@ -43,6 +43,15 @@ int sprintf(char *out, const char *format, ...) {
         if (format[0] == '%' && format[1] == 's') {
             for (const char *s = va_arg(args, const char *); *s; ++s) *out++ = *s;
             ++format;
+        } else if (format[0] == '%' && format[1] == 'd') {
+            int value = va_arg(args, int);
+            char digits[12];
+            int count = 0;
+            unsigned magnitude = value < 0 ? -(unsigned)value : (unsigned)value;
+            if (value < 0) *out++ = '-';
+            do { digits[count++] = '0' + magnitude % 10; magnitude /= 10; } while (magnitude);
+            while (count) *out++ = digits[--count];
+            ++format;
         } else *out++ = *format;
     }
     *out = 0;
@@ -197,7 +206,28 @@ void Fighter_EnterWait(GOBJ *fighter) {
     else ((FighterData *)fighter->userdata)->state_id = ASID_WAIT;
 }
 float Fighter_GetCurrentAnimLength(GOBJ *fighter) { return eng.anim_len; }
-int Pause_CheckStatus(int kind) { return 0; }
+static int menu_open; // The pause menu (Pause_CheckStatus(1) is 2).
+int Pause_CheckStatus(int kind) { return kind == 1 && menu_open ? 2 : 0; }
+/* The event's GX link, the CPU's timing overlay, and what its GX link draws
+ * through HUD_DrawTextEx. */
+static void (*gx_link)(GOBJ *gobj, int pass);
+void GObj_AddGXLink(GOBJ *gobj, void *cb, int gx_link_id, int gx_pri) { gx_link = cb; }
+static struct { int active; GXColor color; } overlay;
+static void SetTimingOverlay(GOBJ *fighter, const GXColor *color) {
+    if (fighter != &fighters[1]) return;
+    overlay.active = color != 0;
+    if (color) overlay.color = *color;
+}
+static struct { int count; char text[24]; Rect rect; GXColor color; } drawn;
+static void DrawTextEx(const char *text, Rect *pos, float size, GXColor text_color, GXColor border_color,
+                       float border_offset, int align) {
+    drawn.count++;
+    int i = 0;
+    for (; text[i] && i < 23; ++i) drawn.text[i] = text[i];
+    drawn.text[i] = 0;
+    drawn.rect = *pos;
+    drawn.color = text_color;
+}
 int SFX_PlayCommon(int sfx) { if (sfx == 3) error_sfx++; return 0; }
 void Memcard_SaveIfChanged(void) { }
 void Match_EndVS(void) { retries++; }
@@ -685,6 +715,11 @@ void TestGrabsPref(int index, int value) { prefs[index] = value; }
 void TestGrabsInit(int stage_id, int character, int signed_timer) {
     *event_vars_ptr_loc = &vars;
     vars.settings = &api;
+    vars.set_timing_overlay = SetTimingOverlay;
+    vars.HUD_DrawTextEx = DrawTextEx;
+    overlay.active = 0;
+    menu_open = 0;
+    gx_link = 0;
     *stc_ftcommon = &common;
     common.x260 = 60;
     BuildStage(stage_id);
@@ -850,6 +885,11 @@ int TestGrabsInfo(int key) {
         case 30: return Units(f->input.lstick.X);
         case 31: return Units(f->input.lstick.Y);
         case 32: return target.di;
+        // The late count, the CPU's timing overlay, and a stopped count still shown.
+        case 33: return target.late;
+        case 34: return overlay.active;
+        case 35: return overlay.color.r << 24 | overlay.color.g << 16 | overlay.color.b << 8 | overlay.color.a;
+        case 36: return late_show_frames ? late_shown : 0;
     }
     return -1;
 }
@@ -922,6 +962,23 @@ void TestGrabsFall(int vy1000, int hitstun) {
 void TestGrabsHuman(int x1000) { ft[HMN_FT].phys.pos.X = x1000 / 1000.f; }
 void TestGrabsFace(int dir) { ft[CPU_FT].facing_direction = dir; }
 void TestGrabsResetStats(void) { ResetStats(); }
+void TestGrabsPause(int open) { menu_open = open; }
+/* Runs the event's GX link's HUD pass: how many texts it drew. TestGrabsDrawn
+ * reads the last: its text, its rect's y (x 1000) and its color. */
+int TestGrabsDraw(void) {
+    drawn.count = 0;
+    drawn.text[0] = 0;
+    if (gx_link) gx_link(&event, 2);
+    return drawn.count;
+}
+unsigned TestGrabsDrawn(int key) {
+    switch (key) {
+        case 0: return (unsigned)drawn.text;
+        case 1: return (int)(drawn.rect.y * 1000);
+        case 2: return drawn.color.r << 24 | drawn.color.g << 16 | drawn.color.b << 8 | drawn.color.a;
+    }
+    return 0;
+}
 /* A frame up to the native checks: animation, the event's think and the input
  * proc, without the probe's own interrupts or physics. */
 void TestGrabsThinkInput(void) {

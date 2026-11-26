@@ -76,6 +76,9 @@ Every user-facing change goes in the README changelog, under the current version
 - Write brief descriptions of features, organized by event, the way the existing sections are: **New
   events**, **Globals and all events**, **Event changes** (a sub-list per event) and **Program changes**.
 - One concise bullet per feature. A later adjustment updates that feature's bullet instead of adding another.
+- Keep the reason for a change in its bullet when there is one (what wasn't working, or what it's for): it's part of
+  the summary and keeps the changelog in the user's voice. Tightening the README never drops a reason. Self-explanatory
+  changes don't need one.
 - No bugfix bullets for an event that's new in the current version. Fix it and, if what it does changed,
   update its description so the entry says what the event does now.
 - Don't rewrite an older version's entries. A change to a feature from an earlier version gets a new bullet

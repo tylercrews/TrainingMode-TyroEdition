@@ -21,9 +21,11 @@
  * while the CPU stays up to be juggled, with every hit counted apart, from a
  * percent you pick or a random one. A juggle that knocks it down is a tech
  * chase: it techs in place, away or toward you, or misses and gets up, with
- * Techchase's Tyro setting's chances, and comes back somewhere else if it's
- * back on its feet unhit. Hit mode's CPU DI has it DI the throw and every hit
- * a random way, or not at all. Knocked off the top, it comes back at once.
+ * Techchase's Tyro setting's chances. Once it could act again, after the
+ * throw, a hit, or its tech or getup, you're late: it pulses red, Late Frames
+ * OSD counts the frames, and after half a second of it the CPU comes back
+ * somewhere else. Hit mode's CPU DI has it DI the throw and every hit a random
+ * way, or not at all. Knocked off the top, it comes back at once.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
  * runs before the fighters' input proc. The rules below are the native
@@ -91,7 +93,8 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define SPAWN_FROM_LAST 25.f
 #define SPAWN_TRIES 40
 /* A hit CPU stays this long after the hitlag of the last hit, pressing nothing,
- * so an attack can lead into a grab, then comes back somewhere else. */
+ * so an attack can lead into a grab, then comes back somewhere else. In Hit
+ * mode's juggle, it's this long once the CPU could act (target.late). */
 #define GRAB_WINDOW 30
 // An airborne CPU this long, or this far off the stage, comes back.
 #define AIR_FRAMES 120
@@ -115,7 +118,8 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_MOVEMENT, OPT_STANDING,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_LATE_OSD,
+    OPT_MOVEMENT, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -142,6 +146,7 @@ static void ChangeStanding(GOBJ *menu, int value);
 static void ChangeSuccess(GOBJ *menu, int value);
 static void ChangePercent(GOBJ *menu, int value);
 static void ChangeDI(GOBJ *menu, int value);
+static void ChangeLateOSD(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
@@ -230,6 +235,17 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "Hit only: Throw and timed runs never DI."},
         .disable = 1,
         .OnChange = ChangeDI,
+    },
+    {
+        .kind = OPTKIND_TOGGLE,
+        .name = "Late Frames OSD",
+        .val = 1,
+        .desc = {"Hit only. Once the CPU can act again after your",
+                 "throw or hit, it pulses red, and this shows how",
+                 "many frames late you are under the match timer.",
+                 "30 frames late, it comes back somewhere else."},
+        .disable = 1,
+        .OnChange = ChangeLateOSD,
     },
     {
         .kind = OPTKIND_STRING,
@@ -393,6 +409,7 @@ static struct target {
     int hit_frames;    // this many frames after the last hit's hitlag pass GRAB_WINDOW.
     int di;            // Hit mode's CPU DI: the way (DI_Sticks) this throw or hit holds,
     float di_lag;      // -1 until picked, and last frame's hitlag: more now is a new hit.
+    int late;          // Hit mode: the frames it could have acted since the last hit or throw, 0 until it can.
     bool chase;        // Hit mode: knocked down or teching, until it's up again.
     int landing;       // Hit mode: how its next knockback landing goes (TC_TECH_*),
     int getup;         // and a missed tech's getup (TC_GETUP_*): -1 until picked.
@@ -406,14 +423,14 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN,
-    OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_DI, TM_GRABS_MOVEMENT, TM_GRABS_STANDING,
-    TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL,
-    TM_GRABS_COLLISION};
+static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_LATE_OSD, OPT_MOVEMENT, OPT_STANDING, OPT_WALK,
+    OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_DI, TM_GRABS_LATE_OSD, TM_GRABS_MOVEMENT,
+    TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF,
+    TM_GRABS_ROLL, TM_GRABS_COLLISION};
 typedef char grabercise_saved_rows[countof(saved_rows) == countof(saved_ids) ? 1 : -1];
 /* Each saved row's default: Throw, Random percents, no DI, Random movement and
- * standing, every movement on, Fighter Collision off. */
+ * standing, every movement and Late Frames OSD on, Fighter Collision off. */
 static int SavedDefault(unsigned row) {
     if (row == OPT_SUCCESS) return TM_GRABS_SUCCESS_THROW;
     if (row == OPT_PERCENT) return TM_GRABS_PERCENT_RANDOM;
@@ -423,8 +440,10 @@ static int SavedDefault(unsigned row) {
 }
 // Hit mode: a grab counts once a hit follows its throw. Free Practice only.
 static bool HitMode(void) { return FreePractice() && Options_Main[OPT_SUCCESS].val == TM_GRABS_SUCCESS_HIT; }
-// CPU Percent and CPU DI only do anything in Hit mode, so they're greyed out otherwise.
-static void GateHitRows(void) { Options_Main[OPT_PERCENT].disable = Options_Main[OPT_DI].disable = !HitMode(); }
+// CPU Percent, CPU DI and Late Frames OSD only do anything in Hit mode, so they're greyed out otherwise.
+static void GateHitRows(void) {
+    Options_Main[OPT_PERCENT].disable = Options_Main[OPT_DI].disable = Options_Main[OPT_LATE_OSD].disable = !HitMode();
+}
 /* CPU Movement, Free Practice's: Random in timed runs. */
 static int Movement(void) {
     int movement = FreePractice() ? Options_Main[OPT_MOVEMENT].val : TM_GRABS_MOVEMENT_RANDOM;
@@ -456,6 +475,7 @@ static void ChangePercent(GOBJ *menu, int value) {
 }
 // The next throw or hit DIs as it says (DIInputs).
 static void ChangeDI(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_DI, value); }
+static void ChangeLateOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_LATE_OSD, value); }
 static void LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_rows); ++i) {
         EventOption *option = &Options_Main[saved_rows[i]];
@@ -749,6 +769,8 @@ static void Respawn(void) {
     target.air_frames = 0;
     target.di = -1;
     target.di_lag = 0;
+    target.late = 0;
+    event_vars->set_timing_overlay(cpu, 0);
     target.spot = spot;
 }
 
@@ -1225,6 +1247,58 @@ static void DIInputs(FighterData *ft, int state) {
     ft->input.timer_lstick_tilt_x = ft->input.timer_lstick_tilt_y = 254;
 }
 
+// Hit mode: late ----------------------------------------------------------------
+
+/* Once the juggled CPU could act again, you're late (target.late): out of
+ * hitlag and hitstun it takes any action (ftCo_Damage_IASA and DamageFly's
+ * fall through to Fall's or Wait's once hitstun is over, and DamageFall's
+ * always do), and so it does in its own states after a tech or getup. A tech,
+ * a knockdown and its getup can't act until they're over (Chased). */
+static bool CanAct(FighterData *ft) { return !Frozen(ft) && !ft->flags.hitstun; }
+#define LATE_SHOW_FRAMES 60 // A count your hit or grab stopped stays up this long.
+static int late_shown;       // That count,
+static int late_show_frames; // and how long it has left.
+/* The Missed L Cancel and Run Turnaround overlays' red pulse, as Grab Punish
+ * pulses its enemy, through the timing overlay, over every other overlay. */
+static void PulseLate(void) {
+    static const u8 pulse[TM_CUE_PULSE_FRAMES] = TM_CUE_RED_PULSE;
+    GXColor color = TM_CUE_RED_COLOR;
+    color.a = pulse[(target.late - 1) % TM_CUE_PULSE_FRAMES];
+    event_vars->set_timing_overlay(Fighter_GetGObj(1), &color);
+}
+/* The count stops: at a hit or grab, or as it runs out, it stays up for a
+ * second; at a chase, it's dropped, and starts over once the chase is over. */
+static void StopLate(bool shown) {
+    if (!target.late) return;
+    late_shown = target.late;
+    late_show_frames = shown ? LATE_SHOW_FRAMES : 0;
+    target.late = 0;
+    event_vars->set_timing_overlay(Fighter_GetGObj(1), 0);
+}
+/* Late Frames OSD: the count, big and red, under the match timer, where Grab
+ * Punish's late count and the escape events' big counts go (the OSD grid's
+ * second row, middle column), or a grid row lower when Counter Position has
+ * the grab count there. */
+#define LATE_X -5.f
+#define LATE_Y 12.9f
+#define LATE_UNDER_COUNTER 6.65f
+#define LATE_WIDTH 10.f
+#define LATE_HEIGHT 2.5f
+#define LATE_SIZE 1.f
+#define LATE_BORDER 2.f
+static void DrawLate(GOBJ *gobj, int pass) {
+    if (pass != 2 || !HitMode() || !Options_Main[OPT_LATE_OSD].val || Pause_CheckStatus(1) == 2) return;
+    int late = target.late ? target.late : late_show_frames ? late_shown : 0;
+    if (!late) return;
+    float under = Options_Main[OPT_COUNTER].val == TM_EGGS_COUNTER_UNDER_TIMER ? LATE_UNDER_COUNTER : 0;
+    Rect rect = { LATE_X, LATE_Y - under, LATE_WIDTH, LATE_HEIGHT };
+    GXColor color = TM_CUE_RED_COLOR;
+    color.a = 255;
+    static char text[16];
+    sprintf(text, "Late %df", late);
+    event_vars->HUD_DrawTextEx(text, &rect, LATE_SIZE, color, (GXColor){0, 0, 0, 255}, LATE_BORDER, 1);
+}
+
 static void Score(void) {
     if (grab_count < 999) grab_count++;
 }
@@ -1259,6 +1333,7 @@ static void UpdateTarget(void) {
         // Hit mode: a grab in the juggle (a tech regrabbed) starts the juggle over at its throw.
         target.juggle = target.chase = false;
         target.landing = target.getup = -1;
+        StopLate(true); // A late grab: the count stops at it.
         DIInputs(ft, state); // The throw's DI.
         return;
     }
@@ -1269,10 +1344,11 @@ static void UpdateTarget(void) {
     bool juggle = target.grabbed && HitMode();
     if (juggle) {
         if (!target.juggle) {
-            target.juggle = target.hit = true; // A window, as after a hit,
+            target.juggle = target.hit = true; // Pressing nothing, as after a hit,
             target.hit_frames = target.air_frames = 0;
             target.landing = target.getup = -1;
         } else if (ft->dmg.hitlag_frames > target.last_lag) {
+            StopLate(true); // A late hit: the count stops at it.
             target.air_frames = 0;
             // A hit on a tech or a getup: the juggle goes on, and its next landing is picked anew.
             target.chase = false;
@@ -1289,18 +1365,23 @@ static void UpdateTarget(void) {
     bool away = target.held && !juggle;
     /* A hit doesn't send it away at once: it stays, pressing nothing but its DI, for
      * GRAB_WINDOW frames after the hitlag, so a hit can lead into a grab, and
-     * each new hit's hitlag starts the window over. A juggle's window starts
-     * only once it lands. A knockdown, which no grab can catch, ends it then
-     * and there, but in a juggle, it's a tech chase: a tech, or a knockdown and
-     * its getup, holds the window, and once it's up unhit, it's gone. */
+     * each new hit's hitlag starts the window over. A knockdown, which no grab
+     * can catch, ends it then and there. In a juggle, the window is the late
+     * count (target.late): from the first frame the CPU could act after the
+     * throw or a hit, in the air or not, through its landing, until a hit or a
+     * grab stops it, or GRAB_WINDOW frames of it send the CPU away. A knockdown
+     * there is a tech chase: a tech, or a knockdown and its getup, drops the
+     * count, which starts over once the CPU could act again. */
     if (!away && !Moving(state)) target.hit = true;
-    if (juggle && !away) {
-        if (Chased(state)) target.chase = true;
-        else if (target.chase && Moving(state)) away = true;
-        else target.chase = false;
-    }
-    if (!away && target.hit) {
-        if (Frozen(ft) || (juggle && (ft->phys.air_state != 0 || target.chase))) target.hit_frames = 0;
+    if (juggle) {
+        target.chase = Chased(state);
+        if (target.chase) StopLate(false);
+        else if (target.late >= GRAB_WINDOW) {
+            StopLate(true);
+            away = true;
+        } else if (target.late || CanAct(ft)) target.late++;
+    } else if (!away && target.hit) {
+        if (Frozen(ft)) target.hit_frames = 0;
         else if (++target.hit_frames > GRAB_WINDOW || Down(state)) away = true;
     }
     if (ft->phys.air_state != 0) {
@@ -1323,6 +1404,7 @@ static void UpdateTarget(void) {
     }
     if (juggle) ChaseInputs(ft);
     DIInputs(ft, state); // Each hit's DI, in its hitlag.
+    if (target.late) PulseLate();
     if (target.hit) return; // Left alone to be grabbed: back to its movement only at a new spot.
     Move(cpu, ft);
 }
@@ -1397,6 +1479,8 @@ void Event_Init(GOBJ *gobj) {
     Text_AddSubtext(hud_score_text, 0, 0, "-");
     Text_AddSubtext(hud_best_text, 0, 0, "-");
     Text_AddSubtext(hud_hits_text, 0, 0, "-");
+    late_shown = late_show_frames = 0;
+    GObj_AddGXLink(gobj, DrawLate, GXLINK_HUD, 80);
 
     stc_match->end_kind = MATCHENDKIND_NONE;
 }
@@ -1413,6 +1497,7 @@ void Event_Think(GOBJ *event) {
         reset_clock = false;
     }
 
+    if (late_show_frames > 0 && Pause_CheckStatus(1) != 2) late_show_frames--;
     if (Fighter_GetGObj(0) && Fighter_GetGObj(1) && Pause_CheckStatus(1) != 2)
         UpdateTarget();
     UpdateHUD();

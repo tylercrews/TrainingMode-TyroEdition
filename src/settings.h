@@ -161,7 +161,7 @@ enum TMSettingsField {
     TM_SETTING_PASSING, /* Passing Practice's menu, TYEX word 72 bits 14-27, 29 and 30; see TMPassingPreference. */
     TM_SETTING_ESCAPE_SAMUS, /* Escape Samus Up-B's menu, TYEX word 76 bits 0-10 and 31 (v22); see TMEscapeSamusPreference. */
     TM_SETTING_ESCAPE_IC, /* Escape IC Grab's menu, TYEX word 76 bits 11-15 (v22) and word 84 bits 13-15 (v25, T11); see TMEscapeICPreference. */
-    TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 and 7-8 (T10), and word 84 bits 16-17 (T11); see TMGrabercisePreference. */
+    TM_SETTING_GRABERCISE, /* Grabs-ercise's timed best and menu, TYEX word 76 bits 16-30, byte 51 bits 3-4 and word 80 bits 0-3 and 7-8 (T10), and word 84 bits 16-18 (T11); see TMGrabercisePreference. */
     TM_SETTING_ESCAPE_IC_FLASH, /* Index 0 only: Escape IC Grab's Actionable Flash, core byte 37 bit 7 (T10); default On. */
     TM_SETTING_TARGETS, /* Target Practice's timed best and menu, TYEX word 80 bits 10-19, 29 and 30, word 12 bits 6-8 (v24) and word 84 bits 0-12 (v25) (T10); see TMTargetsPreference. */
     TM_SETTING_EVENT_LIST, /* Internal: All Events' place, TYEX word 80 bits 21-27 (T10); see TMEventListPreference. Use EVENT_PAGE and EVENT_SELECTION. */
@@ -341,13 +341,14 @@ enum TMEscapeICPreference {
 /* Grabs-ercise (T10): its timed best, then its saved menu rows, in word 76's
  * spare bits 16..30 and byte 51's bits 3-4 (Standing CPU), with no version
  * bump, and CPU Percent in word 80's bits 0-3, which version 23 appends, and
- * CPU Movement in its bits 7-8, with no bump, and CPU DI (T11) in word 84's
- * bits 16-17, which version 25 appends, with no bump. Every
+ * CPU Movement in its bits 7-8, with no bump, and CPU DI and Late Frames OSD
+ * (T11) in word 84's bits 16-18, which version 25 appends, with no bump. Every
  * row is stored as its distance from its default, as the escape events' are,
  * so the zeros every record has there read as the defaults: no best yet, timed
  * mode, Throw, a Random percent, standing CPUs Random, every movement on,
- * Fighter Collision off, CPU Movement Random, CPU DI None. The IDs follow the
- * menu but for CPU Movement and CPU DI, appended after; each row's bits are its own
+ * Fighter Collision off, CPU Movement Random, CPU DI None, Late Frames OSD On.
+ * The IDs follow the menu but for CPU Movement, CPU DI and Late Frames OSD,
+ * appended after; each row's bits are its own
  * (the two in-place dash dances came later, in bits 29 and 30, and Success
  * Criteria later still, in bit 22, the best's old top bit). */
 enum TMGrabercisePreference {
@@ -357,6 +358,7 @@ enum TMGrabercisePreference {
     TM_GRABS_COLLISION,
     TM_GRABS_MOVEMENT, /* CPU Movement (T10): its row sits above Standing CPU. */
     TM_GRABS_DI, /* CPU DI (T11): word 84 bits 16-17 (version 25, no bump); its row sits under CPU Percent. */
+    TM_GRABS_LATE_OSD, /* Late Frames OSD (T11): word 84 bit 18, On stored as 0; its row sits under CPU DI. */
     TM_GRABS_PREF_COUNT
 };
 #define TM_GRABS_MOVES 6 /* Walk to Roll, from TM_GRABS_WALK. */

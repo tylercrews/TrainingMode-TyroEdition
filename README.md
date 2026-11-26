@@ -96,8 +96,9 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - With a handoff on, the HUD shows how many times you were regrabbed and how you got out: by mashing, a missed regrab, or Nana's throw. **Session Bests** only count None.
     - **Grabs-ercise**
         - New **CPU DI** setting (saved) for **Success Criteria: Hit**. **Random** has the CPU DI your throw and every hit: it holds the stick all the way in one of the 8 directions, a new one each time, and never Smash DIs. **None** is the old no-DI CPU.
+        - In **Success Criteria: Hit**, once the CPU can act again after your throw, a hit, or its tech or getup, it pulses red like the Missed L Cancel overlay and comes back somewhere else half a second later. CPUs were sometimes hanging in the air too long, because the juggle waited for them to land. New **Late Frames OSD** (saved, On by default) shows how many frames late you are under the match timer.
 - **Program changes**
-    - The save record is still version 25: the Handoff uses 3 of word 84's spare bits and Grabs-ercise's CPU DI 2.
+    - The save record is still version 25: the Handoff uses 3 of word 84's spare bits and Grabs-ercise's CPU DI and Late Frames OSD 3.
 
 ### T10 (V1.4.1T10) - *2026-11-08 to 2026-11-23*
 

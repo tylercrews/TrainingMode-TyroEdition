@@ -29,13 +29,18 @@ FLOORS = {
 FD_EDGE = 85.6
 INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 NEAR_END = 4  # A moving CPU's feet get this close to each end of its floor before it turns.
-GRAB_WINDOW = 30  # Frames a hit CPU stays, after the hitlag, for a follow-up grab.
+GRAB_WINDOW = 30  # Frames a hit CPU stays, after the hitlag, for a follow-up grab, and a juggled one once it can act.
+LATE_SHOW_FRAMES = 60  # A late count a hit or grab stopped stays up this long.
+LATE_RED = (255, 40, 40)  # TM_CUE_RED_COLOR, the Missed L Cancel overlay's red,
+LATE_PULSE = [180, 140, 100, 60, 20, 60, 100, 140]  # and its pulse (TM_CUE_RED_PULSE).
+LATE_Y, LATE_UNDER_COUNTER = 12.9, 6.65  # Late Frames OSD: under the match timer, or a grid row lower.
+COUNTER_UNDER_TIMER = 4  # Counter Position's Under Timer.
 # Menu rows and saved preferences.
-(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_MOVEMENT,
- OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER,
- OPT_DEFAULTS, OPT_EXIT) = range(19)
+(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_LATE_OSD,
+ OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
+ OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(20)
 (BEST, FREE_PRACTICE, SUCCESS, PERCENT, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF,
- PREF_ROLL, COLLISION, MOVEMENT, DI) = range(14)  # CPU Movement came last, then CPU DI.
+ PREF_ROLL, COLLISION, MOVEMENT, DI, LATE_OSD) = range(15)  # CPU Movement came last, then CPU DI and Late Frames OSD.
 STAND_STILL, STAND_SHIELD, STAND_RANDOM = range(3)  # Standing CPU's choices.
 MOVEMENT_RANDOM, MOVEMENT_STILL, MOVEMENT_MOVING = range(3)  # CPU Movement's.
 THROW, HIT = range(2)  # Success Criteria's.
@@ -84,7 +89,8 @@ class Probe:
         self.m = fixtures.Machine()
         load_probe(self.m, 'grabercise-probe.elf', 'TestGrabsLoaded')
         defaults = {BEST: 0, FREE_PRACTICE: 0, SUCCESS: THROW, PERCENT: RANDOM_PERCENT, STANDING: STAND_RANDOM,
-                    COLLISION: 0, MOVEMENT: MOVEMENT_RANDOM, DI: DI_NONE, **{pref: 1 for pref in MOVE_PREFS}}
+                    COLLISION: 0, MOVEMENT: MOVEMENT_RANDOM, DI: DI_NONE, LATE_OSD: 1,
+                    **{pref: 1 for pref in MOVE_PREFS}}
         defaults.update(prefs or {})
         for index, value in defaults.items():
             self.m.call('TestGrabsPref', index, value)
@@ -125,9 +131,10 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_the_menu_has_the_stage_and_character_selects(self):
         p = Probe()
-        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(19)]
+        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(20)]
         self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice',
-                                 'Success Criteria', 'CPU Percent', 'CPU DI', 'CPU Movement', 'Standing CPU',
+                                 'Success Criteria', 'CPU Percent', 'CPU DI', 'Late Frames OSD', 'CPU Movement',
+                                 'Standing CPU',
                                  'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
                                  'Full Dash Dance', 'Half Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
@@ -292,11 +299,11 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_reset_event_settings_restores_the_defaults_but_keeps_your_best(self):
         p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 9, PREF_WALK: 0, PREF_DASH: 0,
-                         COLLISION: 1, MOVEMENT: MOVEMENT_STILL, DI: DI_RANDOM})
+                         COLLISION: 1, MOVEMENT: MOVEMENT_STILL, DI: DI_RANDOM, LATE_OSD: 0})
         p.menu(OPT_COUNTER, 3)
         p.select(OPT_DEFAULTS)
-        self.assertEqual([p.pref(i) for i in range(14)],
-                         [17, 0, THROW, RANDOM_PERCENT, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0, MOVEMENT_RANDOM, DI_NONE])
+        self.assertEqual([p.pref(i) for i in range(15)],
+                         [17, 0, THROW, RANDOM_PERCENT, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0, MOVEMENT_RANDOM, DI_NONE, 1])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
         self.assertEqual(p.row(OPT_FREEPRACTICE), 0)
 
@@ -804,20 +811,23 @@ class GrabHitModeTests(unittest.TestCase):
         p.run(15)
         self.assertEqual(p.info(22), 1)
 
-    def test_the_juggle_lasts_until_it_lands_then_half_a_second(self):
+    def test_the_juggle_lasts_half_a_second_once_the_cpu_could_act_landed_or_not(self):
+        # Out of hitstun without tumbling, high up: it would fall for over a second.
         p = self.thrown(high=True)
-        p.set_state(ASID_FALL, air=1)  # Out of hitstun without tumbling: it lands on its feet.
-        frames = 0
-        while p.state() == ASID_FALL:  # Falling, with no window running out.
-            self.assertEqual(p.info(23), 1)
-            p.run(1)
-            frames += 1
-        self.assertGreater(frames, 2 * GRAB_WINDOW)
-        self.assertEqual(p.state(), ASID_LANDING)  # On its feet, on the left platform.
-        p.run(GRAB_WINDOW)
-        self.assertEqual((p.info(21), p.info(23)), (1, 1))
+        p.set_state(ASID_FALL, air=1)
+        p.run(GRAB_WINDOW - 1)  # (The thrown CPU could act from the frame after the throw.)
+        self.assertEqual((p.state(), p.info(23), p.info(33)), (ASID_FALL, 1, GRAB_WINDOW))
         p.run(1)
         self.assertEqual((p.state(), p.info(21), p.info(23), p.info(0)), (ASID_WAIT, 0, 0, 0))
+        # A CPU that lands first gets no more for it: the count runs through its landing.
+        p = self.thrown()
+        p.set_state(ASID_FALL, air=1)
+        p.run(5)
+        self.assertEqual(p.state(), ASID_WAIT)  # Landed, on its feet.
+        p.run(GRAB_WINDOW - 6)
+        self.assertEqual((p.info(23), p.info(33)), (1, GRAB_WINDOW))
+        p.run(1)
+        self.assertEqual((p.info(23), p.info(0)), (0, 0))
 
     def test_a_hit_on_the_ground_starts_its_window_over(self):
         p = self.thrown()
@@ -951,6 +961,16 @@ class GrabTechChaseTests(unittest.TestCase):
             self.assertLess(frames, 400)
         return frames
 
+    def run_out_late(self, p):
+        """Up again and unhit, the CPU could act: half a second of it, pulsing
+        red, then it's back somewhere else, uncounted."""
+        self.assertEqual((p.state(), p.info(23), p.info(33), p.info(34)), (ASID_WAIT, 1, 1, 1))
+        p.run(GRAB_WINDOW - 1)
+        self.assertEqual((p.state(), p.info(23), p.info(33), p.info(34)), (ASID_WAIT, 1, GRAB_WINDOW, 1))
+        p.run(1)
+        self.assertEqual((p.state(), p.info(23), p.info(33), p.info(34)), (ASID_WAIT, 0, 0, 0))
+        self.assertEqual((p.info(0), p.info(22)), (0, 0))
+
     def test_the_landings_and_getups_follow_techchases_tyro_setting(self):
         p = Probe()
         landings = [p.m.call('TestGrabsPick', 0, roll) for roll in range(100)]
@@ -995,8 +1015,7 @@ class GrabTechChaseTests(unittest.TestCase):
                             self.assertIn(first, (ASID_PASSIVESTANDF, ASID_PASSIVESTANDB))
                             self.assertGreater(moved * (away if landing == AWAY else -away), 10)
                         self.assertGreaterEqual(frames, 26)  # The whole tech or getup.
-                        # Up again, unhit: it's back somewhere else, uncounted.
-                        self.assertEqual((p.state(), p.info(23), p.info(0), p.info(22)), (ASID_WAIT, 0, 0, 0))
+                        self.run_out_late(p)
 
     def test_a_missed_tech_gets_up_as_picked_right_away(self):
         for facing in (1, -1):
@@ -1013,7 +1032,7 @@ class GrabTechChaseTests(unittest.TestCase):
                         self.assertIn(state, (ASID_DOWNFOWARDU, ASID_DOWNBACKU))
                         self.assertGreater(moved * (1 if getup == ROLL_AWAY else -1), 10)  # You're on the left.
                     self.assertLessEqual(frames, 26 + 30 + 3)  # DownBound, then the getup.
-                    self.assertEqual((p.state(), p.info(23), p.info(0)), (ASID_WAIT, 0, 0))
+                    self.run_out_late(p)
 
     def test_a_missed_tech_picks_its_getup_as_it_lands(self):
         p = juggled(MISS)
@@ -1291,6 +1310,151 @@ class GrabDITests(unittest.TestCase):
                 self.assertEqual(len(set(sticks[:4])), 1)  # Its DI through the hitlag,
                 self.assertIn(sticks[0], DI_WAYS)
                 self.assertEqual(sticks[4], (stick, 0))  # then the tech roll's stick.
+
+
+class GrabLateTests(unittest.TestCase):
+    """Hit mode: once the juggled CPU could act again, it pulses red, Late
+    Frames OSD counts the frames under the match timer, and half a second of it
+    sends the CPU away. A hit or grab stops the count and shows it a second."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def late_juggle(self, prefs=None):
+        """Grabbed, thrown, and in the throw's hitstun high up, where it can't act."""
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, **(prefs or {})})
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.run(1)
+        p.set_state(ASID_THROWNF)
+        p.run(10)
+        p.set_state(ASID_DAMAGEFLYN, air=1)
+        p.m.call('TestGrabsMoveCPU', 10000, 3000000)
+        p.m.call('TestGrabsFall', 0, 1)
+        p.run(1)
+        return p
+
+    def overlay(self, p):
+        """The CPU's timing overlay: None, or its color and alpha."""
+        if not p.info(34): return None
+        color = p.info(35) & 0xFFFFFFFF
+        return (color >> 24, color >> 16 & 255, color >> 8 & 255), color & 255
+
+    def drawn(self, p):
+        """What Late Frames OSD draws: None, or its text, its rect's y and its color."""
+        if not p.m.call('TestGrabsDraw'): return None
+        color = p.m.call('TestGrabsDrawn', 2)
+        return (p.string(p.m.call('TestGrabsDrawn', 0)), signed(p.m.call('TestGrabsDrawn', 1)) / 1000,
+                (color >> 24, color >> 16 & 255, color >> 8 & 255, color & 255))
+
+    def test_late_frames_osd_is_on_saved_and_greyed_out_but_in_hit_mode(self):
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        self.assertEqual((p.row(OPT_LATE_OSD), p.row(OPT_LATE_OSD, 1), p.row(OPT_LATE_OSD, 2)), (1, 1, 5))  # Toggle.
+        p.menu(OPT_SUCCESS, HIT)
+        self.assertEqual(p.row(OPT_LATE_OSD, 1), 0)
+        for value in (0, 1, 0):
+            p.menu(OPT_LATE_OSD, value)
+            self.assertEqual(p.pref(LATE_OSD), value)
+        self.assertEqual(Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, LATE_OSD: 0}).row(OPT_LATE_OSD), 0)
+        self.assertEqual(Probe(prefs={SUCCESS: HIT}).row(OPT_LATE_OSD, 1), 1)  # Timed runs.
+
+    def test_it_isnt_late_in_hitstun_and_pulses_red_from_the_first_frame_it_could_act(self):
+        p = self.late_juggle()
+        for _ in range(20):
+            p.run(1)
+            self.assertEqual((p.info(33), self.overlay(p), self.drawn(p)), (0, None, None))
+        p.m.call('TestGrabsFall', 0, 0)  # Its hitstun ends.
+        alphas = []
+        for frame in range(1, 17):
+            p.run(1)
+            color, alpha = self.overlay(p)
+            self.assertEqual((p.info(33), color), (frame, LATE_RED))
+            self.assertEqual(self.drawn(p), ('Late %df' % frame, LATE_Y, LATE_RED + (255,)))
+            alphas.append(alpha)
+        self.assertEqual(alphas, LATE_PULSE * 2)
+
+    def test_half_a_second_of_it_sends_the_cpu_away_even_high_in_the_air(self):
+        p = self.late_juggle()
+        p.m.call('TestGrabsFall', 0, 0)
+        p.run(GRAB_WINDOW)
+        self.assertEqual((p.state(), p.info(23), p.info(33)), (ASID_DAMAGEFLYN, 1, GRAB_WINDOW))
+        self.assertGreater(p.spot()[1], 2000)  # Still far up.
+        p.run(1)
+        self.assertEqual((p.state(), p.info(23), p.info(33), self.overlay(p), p.info(0)), (ASID_WAIT, 0, 0, None, 0))
+        self.assertEqual(self.drawn(p)[0], 'Late %df' % GRAB_WINDOW)  # The count that ran out stays up.
+
+    def test_a_hit_stops_the_count_and_shows_how_late_it_was_for_a_second(self):
+        p = self.late_juggle()
+        p.m.call('TestGrabsFall', 0, 0)
+        p.run(7)
+        p.set_state(ASID_DAMAGEFLYN, hitlag=4, air=1)
+        p.m.call('TestGrabsFall', 0, 1)
+        p.run(1)
+        self.assertEqual((p.info(33), self.overlay(p), p.info(36), p.info(22), p.info(0)), (0, None, 7, 1, 1))
+        self.assertEqual(self.drawn(p), ('Late 7f', LATE_Y, LATE_RED + (255,)))
+        p.run(LATE_SHOW_FRAMES - 1)
+        self.assertEqual(self.drawn(p)[0], 'Late 7f')
+        p.run(1)
+        self.assertIsNone(self.drawn(p))
+        self.assertEqual(p.info(23), 1)  # The juggle goes on.
+
+    def test_a_hit_before_it_could_act_isnt_late(self):
+        p = self.late_juggle()
+        p.set_state(ASID_DAMAGEFLYN, hitlag=4, air=1)
+        p.m.call('TestGrabsFall', 0, 1)
+        p.run(1)
+        self.assertEqual((p.info(22), p.info(36), self.overlay(p), self.drawn(p)), (1, 0, None, None))
+
+    def test_a_late_regrab_stops_the_count_too(self):
+        p = self.late_juggle()
+        p.m.call('TestGrabsFall', 0, 0)
+        p.run(5)
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.run(1)
+        self.assertEqual((p.info(33), self.overlay(p), p.info(36)), (0, None, 5))
+        self.assertEqual(self.drawn(p)[0], 'Late 5f')
+
+    def test_a_tech_drops_the_count_until_the_cpu_could_act_again(self):
+        p = juggled(IN_PLACE)  # Thrown with no hitstun: it could act on the way down.
+        self.assertGreater(p.info(33), 0)
+        while p.state() == ASID_DAMAGEFLYN:
+            self.assertEqual(self.overlay(p)[0], LATE_RED)
+            p.run(1)
+        p.run(1)  # The think sees the tech.
+        while p.info(24):
+            self.assertEqual((p.info(33), self.overlay(p), self.drawn(p)), (0, None, None))
+            p.run(1)
+        self.assertEqual((p.state(), p.info(33), self.drawn(p)[0]), (ASID_WAIT, 1, 'Late 1f'))
+
+    def test_with_the_osd_off_it_still_pulses_and_goes(self):
+        p = self.late_juggle({LATE_OSD: 0})
+        p.m.call('TestGrabsFall', 0, 0)
+        p.run(5)
+        self.assertEqual((p.info(33), self.overlay(p)[0], self.drawn(p)), (5, LATE_RED, None))
+        p.run(GRAB_WINDOW - 4)
+        self.assertEqual((p.info(23), self.drawn(p)), (0, None))
+
+    def test_the_osd_goes_a_row_lower_with_the_grab_count_under_the_timer_and_hides_while_paused(self):
+        p = self.late_juggle()
+        p.m.call('TestGrabsFall', 0, 0)
+        p.run(3)
+        self.assertAlmostEqual(self.drawn(p)[1], LATE_Y, delta=.002)
+        p.menu(OPT_COUNTER, COUNTER_UNDER_TIMER)
+        self.assertAlmostEqual(self.drawn(p)[1], LATE_Y - LATE_UNDER_COUNTER, delta=.002)
+        p.m.call('TestGrabsPause', 1)
+        self.assertIsNone(self.drawn(p))
+        p.run(5)  # Paused, nothing counts.
+        p.m.call('TestGrabsPause', 0)
+        self.assertEqual(self.drawn(p)[0], 'Late 3f')
+
+    def test_throw_mode_and_hits_before_the_grab_are_never_late(self):
+        for prefs in ({FREE_PRACTICE: 1}, {FREE_PRACTICE: 1, SUCCESS: HIT}):
+            with self.subTest(prefs=prefs):
+                p = Probe(prefs=prefs)
+                p.place(-20, MAIN_LEFT, STAND, 1)
+                p.set_state(ASID_DAMAGEN1, hitlag=4)  # A hit before any grab: its own window.
+                for _ in range(GRAB_WINDOW):
+                    p.run(1)
+                    self.assertEqual((p.info(33), self.overlay(p), self.drawn(p)), (0, None, None))
 
 
 # The native tech and getup checks the event's inputs go through, run from the
