@@ -620,12 +620,15 @@ void Message_FreeObject(GOBJ *object) {
     for (unsigned i = 0; i < countof(layout_results); ++i) if (&layout_results[i].object == object) layout_results[i].live = 0;
 }
 void Message_Add(GOBJ *object, int queue) { if (!Message_LayoutAdd(object, queue)) ++layout_recent; }
+static COBJ layout_camera;
 void TestLayoutInit(void) {
     memset(layout_results, 0, sizeof(layout_results)); memset(layout_texts, 0, sizeof(layout_texts));
     layout_freed = layout_recent = 0;
     layout_pause = 0;
-    Message_LayoutInit(0);
+    memset(&layout_camera, 0, sizeof(layout_camera)); layout_camera.scissor_bottom = MSG_CLIPBOTTOM;
+    Message_LayoutInit(0, &layout_camera);
 }
+unsigned TestLayoutClip(void) { return layout_camera.scissor_bottom; }
 int Pause_CheckStatus(int kind) { return layout_pause; }
 void TestLayoutPause(int value) { layout_pause = value; }
 GOBJ *TestLayoutEmit(int queue, int id, int frame, int kind) {

@@ -127,10 +127,13 @@ TMOSDCell TMOSD_Cell(const TMOSDMap *map, int key, unsigned layout) {
         unsigned capacity = TMOSD_Capacity(layout);
         out.page = index / capacity; out.cell = index % capacity;
     }
-    /* Six 5.15-unit grid boxes fit between the screen top (y 24.27) and the
-     * OSD camera's clip at y -16.18, with ~10 px margins and ~15 px gaps. */
+    /* Rows 1-5 of the 5.15-unit grid boxes sit 6.65 apart from the screen top
+     * (y 24.27), with ~10 px margins and ~15 px gaps. Row 6 sits lower, between
+     * the stage and the screen bottom (y -24.27); see TM_OSD_GRID_LOW_Y. */
+    unsigned row = out.cell / TM_OSD_GRID_COLUMNS;
     out.x = layout == TM_OSD_PANEL ? -26.f : -23.2f + (out.cell % TM_OSD_GRID_COLUMNS) * 11.6f;
-    out.y = layout == TM_OSD_PANEL ? 18.f - out.cell * 3.4f : 20.7f - (out.cell / TM_OSD_GRID_COLUMNS) * 6.65f;
+    out.y = layout == TM_OSD_PANEL ? 18.f - out.cell * 3.4f :
+        row == TM_OSD_GRID_ROWS - 1 ? TM_OSD_GRID_LOW_Y : 20.7f - row * 6.65f;
     return out;
 }
 void TMOSD_HistoryPush(TMOSDHistory *h, int kind, int frame, uint32_t color, int turn, uint32_t native_frame) {

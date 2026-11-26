@@ -89,6 +89,8 @@ This section summarizes implemented Tyro-specific changes, newest version first.
 
 ### T11 (V1.4.1T11) - *2026-11-23*
 
+- **Globals and all events**
+    - **Fixed Grid**'s bottom row (row 6) moved down below the stage, level with the percent display, because it covered characters standing on zoomed-out stages like Battlefield and Dream Land. It can overlap a percent a little, but it fits between them when there are two players. Rows 1–5 didn't move.
 - **Event changes**
     - **Escape IC Grab (Beta)**
         - New **Handoff** setting (saved). **Down Throw** has the Ice Climbers hand you off: Popo down throws as soon as he has you, and Nana, standing on top of him, regrabs you the frame you're released. Then she holds you the way her CPU AI does: she pummels first about half the time, then throws you up, down, forward or back at random, or toward the ledge if she's close to it. Her down throw hands you back to Popo, and the chain goes on. **None** is the old hold.

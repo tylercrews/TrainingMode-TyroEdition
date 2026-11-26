@@ -17,6 +17,7 @@ static struct {
     unsigned frame, restore, mode;
     unsigned shown_page, shown_pages;
     int shown_cpu, canvas, seen;
+    COBJ *camera; /* The OSD camera, for its clip line. */
 } layout;
 static const char *category_names[TM_OSD_CATEGORIES] = {
     "Wavedash", "L-Cancel", "Act OoS", "Dashback", "Fighter-specific Tech",
@@ -69,12 +70,19 @@ static void hide_empty(void) {
     }
     if (layout.page_text) layout.page_text->hidden = 1;
 }
-void Message_LayoutInit(int canvas) {
+/* The OSD camera clips at y -16.18 to keep Recent stacks off the percent HUD.
+ * Fixed Grid's bottom row sits below that line, so the clip is lifted only
+ * while the shown page has a cell in that row. */
+static void clip_low_row(int low) {
+    if (layout.camera) layout.camera->scissor_bottom = low ? MSG_CLIPSCREEN : MSG_CLIPBOTTOM;
+}
+void Message_LayoutInit(int canvas, COBJ *camera) {
     /* Scene teardown owns all old objects/canvases; do not dereference stale
      * previous-scene pointers when OnStartMelee installs the new manager. */
     memset(&layout, 0, sizeof(layout));
     for (unsigned i = 0; i < TM_OSD_GRID_CELLS; ++i) layout.empty_key[i] = -1;
     layout.canvas = canvas;
+    layout.camera = camera;
     layout.mode = current_mode();
     layout.shown_page = layout.shown_pages = ~0u;
     /* Every match opens on the first page; a page left over from the editor or
@@ -365,7 +373,7 @@ static void cpu_tag(TMOSDCell cell, unsigned owner, unsigned mode) {
 }
 void Message_LayoutUpdate(void) {
     unsigned mode = current_mode();
-    if (!mode) { if (layout.mode) Message_LayoutRecent(); layout.mode = mode; return; }
+    if (!mode) { if (layout.mode) Message_LayoutRecent(); layout.mode = mode; clip_low_row(0); return; }
     uint32_t mask = Settings_Get(TM_SETTING_OSD_MASK, 0);
     if (layout.map.mask != mask) {
         TMOSD_MapReset(&layout.map, mask);
@@ -390,6 +398,7 @@ void Message_LayoutUpdate(void) {
     Playerblock *page_player = page_owner >= 0 ? Fighter_GetPlayerblock(page_owner) : 0;
     int cpu_page = page_player && page_player->p_kind == 1;
     uint32_t needed = 0;
+    int low_row = 0;
     hide_empty();
     for (unsigned key = 0; key < TM_OSD_KEYS; ++key) {
         GOBJ *object = layout.latest[key];
@@ -399,6 +408,7 @@ void Message_LayoutUpdate(void) {
             footer(object, mode); Message_LayoutGeometry(object);
         }
         TMOSDCell cell = TMOSD_Cell(&layout.map, key, mode);
+        if (mode == TM_OSD_FIXED && cell.key >= 0 && cell.page == (int)page && cell.cell >= TM_OSD_GRID_LOW_CELL) low_row = 1;
         if (cell.key >= 0 && cell.page == (int)page && page_owner < 0) cpu_tag(cell, key / TM_OSD_SLOTS, mode);
         if (cell.key < 0 || cell.page != (int)page || object) continue;
         unsigned i = cell.cell, rows = mode == TM_OSD_PANEL ? 9 : 2; /* Grid: title and "--". */
@@ -447,6 +457,7 @@ void Message_LayoutUpdate(void) {
         if (layout.empty[i] && !(needed & (1u << i))) {
             Text_Destroy(layout.empty[i]); layout.empty[i] = 0; layout.empty_key[i] = -1;
         }
+    clip_low_row(low_row);
     if (!layout.page_text) {
         layout.page_text = Text_CreateText(2, layout.canvas);
         layout.page_text->kerning = 1; layout.page_text->align = 0;

@@ -1957,10 +1957,13 @@ class OSDLayoutTests(unittest.TestCase):
         self.cells(ptr,{slot:slot*5+slot%5+1 for slot in range(6)})  # One OSD per row.
         for row in range(6):
             key=m.call("TMOSD_Key",0,IDS[row])
+            y=20.7-row*6.65 if row<5 else -19  # Row 6 drops below the stage, level with the percent HUD.
             self.assertEqual(signed(m.call("TestLayoutCell",ptr,key,1,2)),-2320+(row%5)*1160)
-            self.assertAlmostEqual(signed(m.call("TestLayoutCell",ptr,key,1,3)),round((20.7-row*6.65)*100),delta=1)
-        # 5.15-unit boxes stay under the screen top (24.27) and above the OSD clip (-16.18).
-        self.assertLess(20.7+2.575,24.27);self.assertGreater(20.7-5*6.65-2.575,-16.18)
+            self.assertAlmostEqual(signed(m.call("TestLayoutCell",ptr,key,1,3)),round(y*100),delta=1)
+        # 5.15-unit boxes: rows 1-5 stay under the screen top (24.27) and above the
+        # OSD clip (-16.18); row 6 is below that clip and above the screen bottom (-24.27).
+        self.assertLess(20.7+2.575,24.27);self.assertGreater(20.7-4*6.65-2.575,-16.18)
+        self.assertLess(-19+2.575,-16.18);self.assertGreater(-19-2.575,-24.27)
         for slot,id in enumerate(IDS):
             self.assertEqual(self.where(ptr,0,id,2),(slot//9,slot%9))
 
@@ -1976,6 +1979,24 @@ class OSDLayoutTests(unittest.TestCase):
             m.call("TestLayoutEmit",0,id,frame,id);m.call("TestLayoutTick",frame)
         self.assertEqual(m.call("TestLayoutPlaceholders"),0)
         self.assertEqual(m.call("TestLayoutPageHidden"),1)  # One page.
+
+    def test_osd_clip_lifts_only_while_fixed_grid_shows_its_bottom_row(self):
+        m=self.m
+        m.call("Settings_Set",GRID_CELL,SLOT[0],1)
+        self.start(1)
+        self.assertEqual(m.call("TestLayoutClip"),400)  # Nothing in row 6.
+        m.call("Settings_Set",GRID_CELL,SLOT[16],26)  # R6 C1; cells are read at match start.
+        self.start(1)
+        self.assertEqual(m.call("TestLayoutClip"),480)  # Its placeholder is below the old clip.
+        m.call("TestLayoutEmit",0,16,1,16);m.call("TestLayoutTick",1)
+        self.assertEqual(m.call("TestLayoutClip"),480)  # And so is its result.
+        m.write(14,16,0);m.call("TestLayoutTick",2)
+        self.assertEqual(m.call("TestLayoutClip"),400)  # Turned off: the cell is blank.
+        m.write(14,16,6);m.call("TestLayoutTick",3)
+        self.assertEqual(m.call("TestLayoutClip"),480)
+        for mode in (2,0):  # Practice Panel and Recent ignore cells and keep the clip.
+            m.call("Settings_Set",21,0,mode);m.call("TestLayoutTick",4+mode)
+            self.assertEqual(m.call("TestLayoutClip"),400)
 
     def test_assigned_cells_label_a_cpu_page_instead_of_tagging_cells(self):
         m=self.m

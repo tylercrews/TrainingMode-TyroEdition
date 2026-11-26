@@ -83,6 +83,7 @@ Code is a few hundred bytes. Text-pool use goes down; see [Plan to keep text mem
 - **Box height:** a grid box (joint scale Y = 3) is about 5.15 units tall. Recent stacks the same boxes exactly 5.15 apart.
 - **Before T6's grid change:** rows at y = 18 and 11 left about 37 px above the top box and about 18 px between the rows.
 - **T6:** rows at y = 20.7 − row × 6.65 (20.7, 14.05, 7.4, 0.75, −5.9, −12.55) leave about 10 px above row 1, about 15 px between rows and about 10 px above the clip line. The pause-menu page label moved into the gap between rows 2 and 3, because its old spot (y = −12) is now row 6.
+- **T11:** row 6 at −12.55 covered characters standing on the main stage of zoomed-out stages like Battlefield and Dream Land (in a Battlefield screenshot, Fox's feet were at about −13.4 and the percent digits spanned about −17.1 to −20.1). Row 6 moved to y = −19 (box −16.4 to −21.6): under the stage lip, level with the percent HUD, and about 27 px above the screen bottom. It can overlap a percent display. Since that's below the clip line, the clip is lifted to the full screen only while the shown Fixed Grid page has a cell in row 6. Rows 1–5 didn't move.
 
 | Rows | Row spacing | Gap between rows | Positions |
 |---|---|---|---|
@@ -128,7 +129,8 @@ What Fixed Grid keeps in the pool:
 
 ## Still to check in Dolphin
 
-- Row 1 at the very top and row 6 just above the percent display, on stages and in VS mode with a timer at the top.
+- Row 1 at the very top, on stages and in VS mode with a timer at the top.
+- Row 6 (T11, y = −19) clear of characters on Battlefield and Dream Land, fully on screen, and how much it overlaps the percents with one, two and four players.
 - The page label in the gap between rows 2 and 3.
 - Row text width on page 3 (`Item Throw Interrupts: R6 C5` is about as long as the longest color row).
 - That leaving page 3 brings back the checkbox on page 1's `OVERRIDE ALL OSDS OFF`. Page 3 hides Reset All's checkbox the same way gap rows are hidden, which the native page reload has always undone.

@@ -2948,7 +2948,7 @@ void Message_Init(void)
     GOBJ *cam_gobj = GObj_Create(19, 20, 0);
     COBJDesc *cam_desc = stc_event_vars.menu_assets->hud_cobjdesc;
     COBJ *cam_cobj = COBJ_LoadDescSetScissor(cam_desc);
-    cam_cobj->scissor_bottom = 400;
+    cam_cobj->scissor_bottom = MSG_CLIPBOTTOM;
     // init camera
     GObj_AddObject(cam_gobj, R13_U8(-0x3E55), cam_cobj);
     GOBJ_InitCamera(cam_gobj, Message_CObjThink, MSG_COBJLGXPRI);
@@ -2969,7 +2969,7 @@ void Message_Init(void)
 
     // store gobj pointer
     stc_msgmgr = mgr_gobj;
-    Message_LayoutInit(canvas);
+    Message_LayoutInit(canvas, cam_cobj);
 }
 GOBJ *Message_Display(int msg_kind, int queue_num, int msg_color, char *format, ...)
 {

@@ -455,7 +455,7 @@ typedef struct MsgData
 } MsgData;
 void OSD_DrawStickDiagram(Text *text, float x, float y, Vec2 direction);
 void Message_FreeObject(GOBJ *object);
-void Message_LayoutInit(int canvas);
+void Message_LayoutInit(int canvas, COBJ *camera);
 int Message_LayoutAdd(GOBJ *object, int queue);
 int Message_LayoutImport(GOBJ *object, int queue);
 void Message_LayoutUpdate(void);
@@ -540,6 +540,8 @@ enum MsgColors
 #define MSGTEXT_GXPRI MSG_GXPRI + 1
 #define MSG_COBJLGXLINKS (1 << MSG_GXLINK)
 #define MSG_COBJLGXPRI 8
+#define MSG_CLIPBOTTOM 400 // OSD camera scissor at y -16.18: keeps Recent stacks off the percent HUD
+#define MSG_CLIPSCREEN 480 // No clip, while Fixed Grid shows its bottom row (see Message_LayoutUpdate)
 
 typedef struct TipMgr
 {

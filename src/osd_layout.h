@@ -10,6 +10,10 @@
 #define TM_OSD_GRID_ROWS 6
 #define TM_OSD_GRID_CELLS (TM_OSD_GRID_COLUMNS * TM_OSD_GRID_ROWS) /* One page; a saved cell is 1 + its index. */
 #define TM_OSD_GRID_AUTO_CELLS 10 /* Auto OSDs fill the top two rows of each page. */
+/* The bottom row drops below the stage, level with the percent HUD, so it stays
+ * off characters on zoomed-out stages. Its first cell index: */
+#define TM_OSD_GRID_LOW_CELL ((TM_OSD_GRID_ROWS - 1) * TM_OSD_GRID_COLUMNS)
+#define TM_OSD_GRID_LOW_Y -19.f
 #define TM_OSD_PANEL_CELLS 9
 typedef char TMOSD_GridPositions[(TM_OSD_GRID_CELLS == TM_OSD_GRID_POSITIONS && TM_OSD_SLOTS == TM_OSD_GRID_SLOTS) ? 1 : -1];
 #define TM_OSD_HISTORY 4 /* Latest + three previous scores. */
