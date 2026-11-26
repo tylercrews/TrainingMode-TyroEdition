@@ -3,10 +3,11 @@
  * Guard and roll transitions as the decomp has them (see src/grabercise.c);
  * ground speed; floors that end, with rolls and run turnarounds stopping at
  * the end and everything else falling off; a knockback landing's tech or
- * knockdown and the getups, with the L/R and A timers they read; and
+ * knockdown and the getups, with the L/R and A timers they read; where the
+ * game reads DI (a throw's release, a hitlag's end) and takes Smash DI; and
  * Battlefield's or Final Destination's floors. Each frame runs the game's
- * order around the event's think: animation and scripts (s_link 1), then input
- * and interrupts (3) and physics (4). */
+ * order around the event's think: hitlag (s_link 0), animation and scripts
+ * (1), then input and interrupts (3) and physics (4). */
 #include "../src/grabercise.c"
 #include <stdarg.h>
 
@@ -154,6 +155,10 @@ static struct stats {
     // The tech chase: the first tech or knockdown, how far it moved, and its getup.
     int chase_state, getup_state;
     float chase_x, chase_last_x;
+    // DI: the Smash DI inputs the game took, the sticks it DI'd with (as a
+    // throw let go or a hitlag ended), and the last of them.
+    int sdi, di_reads;
+    float di_x, di_y;
 } st;
 
 static void Enter(int state, int length) {
@@ -266,12 +271,23 @@ static void KnockbackLanding(void) {
     }
 }
 
+/* Where the game DIs: the stick of last frame's input proc, as a throw lets go
+ * (ftCo_800DE7C0) or a hit's hitlag ends (ftCo_Damage_OnExitHitlag). */
+static void ReadDI(void) {
+    st.di_reads++;
+    st.di_x = ft[CPU_FT].input.lstick.X;
+    st.di_y = ft[CPU_FT].input.lstick.Y;
+}
 /* s_link 0 and 1: hitlag, then animations and their scripts. */
 static void Animate(void) {
     FighterData *f = &ft[CPU_FT];
     if (f->dmg.hitlag_frames > 0) {
         f->dmg.hitlag_frames -= 1;
-        if (f->dmg.hitlag_frames <= 0) { f->dmg.hitlag_frames = 0; f->flags.hitlag = f->flags.freeze = 0; }
+        if (f->dmg.hitlag_frames <= 0) {
+            f->dmg.hitlag_frames = 0;
+            f->flags.hitlag = f->flags.freeze = 0;
+            if (KnockedBack(f->state_id)) ReadDI();
+        }
         return;
     }
     int s = f->state_id;
@@ -489,10 +505,21 @@ static float DashRun(float v, float x) {
     return slower;
 }
 
+/* ftCo_Damage_OnEveryHitlag, each hitlag frame from the physics proc: a stick
+ * at least PlCo 0x4B0 (0.7) long with either tilt timer under 0x4B4 (4), a
+ * flick, is a Smash DI input, and both timers then read 254. */
+static void SmashDI(FighterData *f) {
+    float x = f->input.lstick.X, y = f->input.lstick.Y;
+    if (x * x + y * y < .7f * .7f) return;
+    if ((u8)f->input.timer_lstick_tilt_x >= 4 && (u8)f->input.timer_lstick_tilt_y >= 4) return;
+    st.sdi++;
+    f->input.timer_lstick_tilt_x = f->input.timer_lstick_tilt_y = 254;
+}
 /* s_link 4: speed and movement along the floor. */
 static void Physics(void) {
     FighterData *f = &ft[CPU_FT];
     int s = f->state_id;
+    if (Frozen(f) && KnockedBack(s)) SmashDI(f);
     if (Frozen(f) || Held(s) || s == ASID_SLEEP || s == ASID_REBIRTH) return;
     const Char *c = eng.c;
     float x = f->input.lstick.X, v = f->phys.self_vel_ground.X, frame = f->state.frame;
@@ -737,6 +764,14 @@ void TestGrabsState(int state, int hitlag, int air) {
     f->flags.hitlag = hitlag > 0;
     f->phys.air_state = air;
     f->phys.self_vel = (Vec3){0};
+    // A hit's damage entry (ftCo_8008DCE0) sets both tilt timers to 254.
+    if (hitlag > 0 && KnockedBack(state)) f->input.timer_lstick_tilt_x = f->input.timer_lstick_tilt_y = 254;
+}
+/* A throw lets go, in the thrower's animation before this frame's think: DI
+ * from last frame's stick, at once, into knockback in the air. */
+void TestGrabsRelease(void) {
+    ReadDI();
+    TestGrabsState(ASID_DAMAGEFLYN, 0, 1);
 }
 void TestGrabsPercent(int percent) { ft[CPU_FT].dmg.percent = percent; }
 void TestGrabsMoveCPU(int x1000, int y1000) { ft[CPU_FT].phys.pos.X = x1000 / 1000.f; ft[CPU_FT].phys.pos.Y = y1000 / 1000.f; }
@@ -777,6 +812,7 @@ int TestGrabsSpot(int key) {
     }
     return -1;
 }
+static int Units(float stick) { return stick * 127 + (stick < 0 ? -.5f : .5f); }
 int TestGrabsInfo(int key) {
     FighterData *f = &ft[CPU_FT];
     switch (key) {
@@ -810,6 +846,10 @@ int TestGrabsInfo(int key) {
         case 27: return (u8)f->input.timer_LR;
         case 28: return (u8)f->input.since_rapid_lr;
         case 29: return f->cpu.lstickY;
+        // The processed stick, in the CPU's units, and the DI way picked.
+        case 30: return Units(f->input.lstick.X);
+        case 31: return Units(f->input.lstick.Y);
+        case 32: return target.di;
     }
     return -1;
 }
@@ -851,6 +891,10 @@ int TestGrabsStat(int key) {
         case 32: return st.chase_state;
         case 33: return (st.chase_last_x - st.chase_x) * 1000;
         case 34: return st.getup_state;
+        case 35: return st.sdi;
+        case 36: return st.di_reads;
+        case 37: return Units(st.di_x);
+        case 38: return Units(st.di_y);
     }
     return -1;
 }

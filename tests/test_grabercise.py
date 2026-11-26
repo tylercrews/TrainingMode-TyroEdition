@@ -31,20 +31,24 @@ INSET, FROM_YOU, FROM_LAST = 8, 30, 25
 NEAR_END = 4  # A moving CPU's feet get this close to each end of its floor before it turns.
 GRAB_WINDOW = 30  # Frames a hit CPU stays, after the hitlag, for a follow-up grab.
 # Menu rows and saved preferences.
-(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_MOVEMENT, OPT_STANDING,
- OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS,
- OPT_EXIT) = range(18)
+(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_MOVEMENT,
+ OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER,
+ OPT_DEFAULTS, OPT_EXIT) = range(19)
 (BEST, FREE_PRACTICE, SUCCESS, PERCENT, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF,
- PREF_ROLL, COLLISION, MOVEMENT) = range(13)  # CPU Movement came last.
+ PREF_ROLL, COLLISION, MOVEMENT, DI) = range(14)  # CPU Movement came last, then CPU DI.
 STAND_STILL, STAND_SHIELD, STAND_RANDOM = range(3)  # Standing CPU's choices.
 MOVEMENT_RANDOM, MOVEMENT_STILL, MOVEMENT_MOVING = range(3)  # CPU Movement's.
 THROW, HIT = range(2)  # Success Criteria's.
 RANDOM_PERCENT = 0  # CPU Percent's first choice; choice n > 0 is (n - 1) * 10%.
+DI_NONE, DI_RANDOM = range(2)  # CPU DI's.
+# CPU DI's Random: the stick all the way one of its eight ways.
+DI_WAYS = {(127, 0), (89, 89), (0, 127), (-89, 89), (-127, 0), (-89, -89), (0, -127), (89, -89)}
 MOVE_ROWS = (OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL)
 MOVE_PREFS = (PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PREF_ROLL)
 # States, from the MexTK enum.
 ASID_WAIT, ASID_FALL, ASID_LANDING = 14, 29, 42
-ASID_CAPTUREPULLEDHI, ASID_CAPTUREWAITHI, ASID_THROWNF = 223, 224, 239
+ASID_CAPTUREPULLEDHI, ASID_CAPTUREWAITHI, ASID_THROWNF, ASID_THROWNHI = 223, 224, 239, 241
+ASID_SHOULDEREDWAIT, ASID_THROWNFF = 266, 271
 ASID_DAMAGEN1, ASID_DAMAGEN2, ASID_DAMAGEFLYN, ASID_DOWNBOUNDU = 78, 79, 88, 183
 ASID_CAPTURECAPTAIN, ASID_SLEEP = 275, 11
 ASID_GUARDON, ASID_GUARD, ASID_GUARDSETOFF = 178, 179, 181
@@ -80,7 +84,7 @@ class Probe:
         self.m = fixtures.Machine()
         load_probe(self.m, 'grabercise-probe.elf', 'TestGrabsLoaded')
         defaults = {BEST: 0, FREE_PRACTICE: 0, SUCCESS: THROW, PERCENT: RANDOM_PERCENT, STANDING: STAND_RANDOM,
-                    COLLISION: 0, MOVEMENT: MOVEMENT_RANDOM, **{pref: 1 for pref in MOVE_PREFS}}
+                    COLLISION: 0, MOVEMENT: MOVEMENT_RANDOM, DI: DI_NONE, **{pref: 1 for pref in MOVE_PREFS}}
         defaults.update(prefs or {})
         for index, value in defaults.items():
             self.m.call('TestGrabsPref', index, value)
@@ -121,9 +125,9 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_the_menu_has_the_stage_and_character_selects(self):
         p = Probe()
-        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(18)]
+        names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(19)]
         self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice',
-                                 'Success Criteria', 'CPU Percent', 'CPU Movement', 'Standing CPU',
+                                 'Success Criteria', 'CPU Percent', 'CPU DI', 'CPU Movement', 'Standing CPU',
                                  'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
                                  'Full Dash Dance', 'Half Dash Dance', 'Rolling',
                                  'Fighter Collision', 'Counter Position', 'Reset Event Settings', 'Exit'])
@@ -288,11 +292,11 @@ class GrabSettingsTests(unittest.TestCase):
 
     def test_reset_event_settings_restores_the_defaults_but_keeps_your_best(self):
         p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 9, PREF_WALK: 0, PREF_DASH: 0,
-                         COLLISION: 1, MOVEMENT: MOVEMENT_STILL})
+                         COLLISION: 1, MOVEMENT: MOVEMENT_STILL, DI: DI_RANDOM})
         p.menu(OPT_COUNTER, 3)
         p.select(OPT_DEFAULTS)
-        self.assertEqual([p.pref(i) for i in range(13)],
-                         [17, 0, THROW, RANDOM_PERCENT, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0, MOVEMENT_RANDOM])
+        self.assertEqual([p.pref(i) for i in range(14)],
+                         [17, 0, THROW, RANDOM_PERCENT, STAND_RANDOM, 1, 1, 1, 1, 1, 1, 0, MOVEMENT_RANDOM, DI_NONE])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
         self.assertEqual(p.row(OPT_FREEPRACTICE), 0)
 
@@ -900,11 +904,11 @@ class GrabHitModeTests(unittest.TestCase):
         self.assertEqual((p.state(), p.info(0), p.info(23)), (ASID_WAIT, 0, 0))
 
 
-def juggled(landing=None, getup=-1, x=10, height=30, you=-40, facing=1):
+def juggled(landing=None, getup=-1, x=10, height=30, you=-40, facing=1, di=DI_NONE):
     """Hit mode: grabbed, thrown, and falling in knockback onto open ground
     (under the top platform's right half), with its landing and a missed
-    tech's getup picked, or (None, -1) left to the event."""
-    p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT})
+    tech's getup picked, or (None, -1) left to the event, and CPU DI."""
+    p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, DI: di})
     p.place(-20, MAIN_LEFT, STAND, 1)
     p.set_state(ASID_CAPTUREPULLEDHI)
     p.run(1)
@@ -1110,6 +1114,183 @@ class GrabTechChaseTests(unittest.TestCase):
                 self.assertEqual(p.stat(32), ASID_DOWNBOUNDU)  # Knocked down,
                 p.run(1)
                 self.assertEqual((p.state(), p.info(21)), (ASID_WAIT, 0))  # and sent away at once.
+
+
+class GrabDITests(unittest.TestCase):
+    """Hit mode's CPU DI: None, or Random, a full stick one of its eight ways,
+    picked for each throw and each hit and held through it. The probe reads it
+    where the game does: as the throw lets go (TestGrabsRelease) and as the
+    hitlag ends, from the stick of the last input proc."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def stick(self, p): return p.info(11), p.info(29)  # cpu.lstickX and Y.
+    def processed(self, p): return p.info(30), p.info(31)  # input.lstick, in the same units.
+    def read(self, p): return p.stat(37), p.stat(38)  # The last stick the game DI'd with.
+
+    def hit_mode(self, di=DI_RANDOM):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, DI: di})
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        return p
+
+    def grab(self, p):
+        """A standard grab: the stick stays out of the hold, where it would mash."""
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.run(1)
+        p.set_state(ASID_CAPTUREWAITHI)
+        for _ in range(5):
+            p.run(1)
+            self.assertEqual((self.stick(p), p.info(10)), ((0, 0), 0))
+
+    def throw(self, p, state=ASID_THROWNF, frames=8):
+        """Thrown for `frames`, then let go: the sticks held, and what the release read."""
+        p.set_state(state)
+        held = []
+        for _ in range(frames):
+            p.run(1)
+            held.append(self.stick(p))
+            self.assertEqual(self.processed(p), held[-1])  # What the input proc decodes.
+        p.m.call('TestGrabsRelease')
+        return held, self.read(p)
+
+    def hits(self, p, count, hitlag=4):
+        """`count` hits high in the air, each run out: the way each held."""
+        ways = []
+        for _ in range(count):
+            p.set_state(ASID_DAMAGEFLYN, hitlag=hitlag, air=1)
+            held = []
+            for _ in range(hitlag - 1):  # The think sees hitlag - 1 frames of it.
+                p.run(1)
+                held.append(self.stick(p))
+                self.assertEqual(self.processed(p), held[-1])
+            self.assertEqual(len(set(held)), 1)  # One way, held through the hitlag.
+            reads = p.stat(36)
+            p.run(1)  # The hitlag ends: the game DIs with what was held,
+            self.assertEqual((p.stat(36), self.read(p)), (reads + 1, held[0]))
+            self.assertNotIn(self.stick(p), DI_WAYS)  # and the stick is let go.
+            ways.append(held[0])
+        return ways
+
+    def assertEvenly(self, ways):
+        self.assertEqual(set(ways), DI_WAYS)
+        for way in DI_WAYS:
+            self.assertAlmostEqual(ways.count(way) / len(ways), 1 / 8, delta=.07)
+
+    def test_cpu_di_is_none_or_random_and_saved(self):
+        p = self.hit_mode(DI_NONE)
+        self.assertEqual([p.string(p.m.call('TestGrabsRowChoice', OPT_DI, i)) for i in range(2)], ['None', 'Random'])
+        self.assertEqual((p.row(OPT_DI), p.row(OPT_DI, 2)), (DI_NONE, 1))  # The default; OPTKIND_STRING.
+        for choice in (DI_RANDOM, DI_NONE, DI_RANDOM):
+            p.menu(OPT_DI, choice)
+            self.assertEqual(p.pref(DI), choice)
+        self.assertEqual(self.hit_mode(DI_RANDOM).row(OPT_DI), DI_RANDOM)
+
+    def test_cpu_di_is_greyed_out_but_in_hit_mode(self):
+        self.assertEqual(Probe(prefs={SUCCESS: HIT, DI: DI_RANDOM}).row(OPT_DI, 1), 1)  # Timed runs.
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        self.assertEqual(p.row(OPT_DI, 1), 1)  # Throw.
+        p.menu(OPT_SUCCESS, HIT)
+        self.assertEqual(p.row(OPT_DI, 1), 0)
+        p.menu(OPT_SUCCESS, THROW)
+        self.assertEqual(p.row(OPT_DI, 1), 1)
+        self.assertEqual(self.hit_mode().row(OPT_DI, 1), 0)
+
+    def test_random_di_holds_one_way_through_each_throw_and_the_release_takes_it(self):
+        p = self.hit_mode()
+        ways = []
+        for _ in range(240):
+            self.grab(p)  # Each a regrab in the juggle, as a tech regrabbed is.
+            held, read = self.throw(p)
+            self.assertEqual(len(set(held)), 1)
+            self.assertIn(held[0], DI_WAYS)
+            self.assertEqual(read, held[0])
+            ways.append(read)
+            p.m.call('TestGrabsMoveCPU', -20000, 200000)
+            p.run(1)
+            self.assertEqual(self.stick(p), (0, 0))  # Let go, it holds nothing.
+        self.assertEvenly(ways)
+
+    def test_dks_cargo_throws_take_di_but_carrying_doesnt(self):
+        p = self.hit_mode()
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.run(1)
+        p.set_state(ASID_SHOULDEREDWAIT)  # Carried, where the stick would mash.
+        for _ in range(5):
+            p.run(1)
+            self.assertEqual(self.stick(p), (0, 0))
+        held, read = self.throw(p, ASID_THROWNFF)
+        self.assertEqual((len(set(held)), read), (1, held[0]))
+        self.assertIn(read, DI_WAYS)
+
+    def test_random_di_holds_one_way_through_each_hit_and_the_hitlags_end_takes_it(self):
+        p = juggled(height=3000, di=DI_RANDOM)
+        self.assertEvenly(self.hits(p, 240))
+        self.assertEqual(p.stat(35), 0)  # Held all along, never a flick: never a Smash DI.
+
+    def test_a_hit_during_anothers_hitlag_picks_again_without_a_smash_di(self):
+        p = juggled(height=3000, di=DI_RANDOM)
+        changed = 0
+        for _ in range(60):
+            p.set_state(ASID_DAMAGEFLYN, hitlag=8, air=1)
+            p.run(2)
+            first = self.stick(p)
+            p.set_state(ASID_DAMAGEFLYN, hitlag=8, air=1)  # More hitlag than was left: a new hit.
+            p.run(1)
+            second = self.stick(p)
+            self.assertIn(second, DI_WAYS)
+            changed += first != second
+            p.run(8)
+        self.assertGreater(changed, 40)  # About 7 in 8 pick another way.
+        self.assertEqual(p.stat(35), 0)
+
+    def test_random_di_takes_hits_before_the_grab_but_not_shield_hits(self):
+        p = self.hit_mode()
+        p.set_state(ASID_DAMAGEN1, hitlag=4)
+        p.run(1)
+        way = self.stick(p)
+        self.assertIn(way, DI_WAYS)
+        p.run(3)
+        self.assertEqual((self.read(p), p.stat(35)), (way, 0))
+        p = self.hit_mode()
+        p.m.call('TestGrabsShield', 1)
+        p.run(20)
+        p.set_state(ASID_GUARDSETOFF, hitlag=6)
+        for _ in range(6):
+            p.run(1)
+            self.assertEqual(self.stick(p), (0, 0))  # In shield, holding R and nothing else.
+            self.assertTrue(p.info(10) & PAD_TRIGGER_R)
+
+    def test_none_throw_mode_and_timed_runs_never_di(self):
+        for prefs in ({FREE_PRACTICE: 1, SUCCESS: HIT, DI: DI_NONE},  # None.
+                      {FREE_PRACTICE: 1, SUCCESS: THROW, DI: DI_RANDOM},  # Throw mode,
+                      {SUCCESS: HIT, DI: DI_RANDOM}):  # and timed runs, whatever's saved.
+            with self.subTest(prefs=prefs):
+                p = Probe(prefs=prefs)
+                p.place(-20, MAIN_LEFT, STAND, 1)
+                p.set_state(ASID_DAMAGEN1, hitlag=4)  # A hit before the grab,
+                for _ in range(4):
+                    p.run(1)
+                    self.assertEqual(self.stick(p), (0, 0))
+                self.assertEqual((p.stat(36), self.read(p)), (1, (0, 0)))
+                self.grab(p)  # and the throw.
+                held, read = self.throw(p, ASID_THROWNHI)
+                self.assertEqual((set(held), read), ({(0, 0)}, (0, 0)))
+
+    def test_a_juggle_with_random_di_still_techs_as_picked(self):
+        for landing, stick in ((AWAY, TECH_STICK), (TOWARD, -TECH_STICK)):
+            with self.subTest(landing=landing):
+                p = juggled(landing, height=3000, di=DI_RANDOM)
+                p.set_state(ASID_DAMAGEFLYN, hitlag=5, air=1)
+                p.m.call('TestGrabsFall', 0, 1)  # In hitstun.
+                p.run(1)
+                p.m.call('TestGrabsPlan', landing, -1)
+                sticks = [self.stick(p)]
+                for _ in range(4):
+                    p.run(1)
+                    sticks.append(self.stick(p))
+                self.assertEqual(len(set(sticks[:4])), 1)  # Its DI through the hitlag,
+                self.assertIn(sticks[0], DI_WAYS)
+                self.assertEqual(sticks[4], (stick, 0))  # then the tech roll's stick.
 
 
 # The native tech and getup checks the event's inputs go through, run from the

@@ -58,7 +58,8 @@ So here's what I have turned on as an aspiring fox player:
 So hopefully that gives you a better idea of how I practice! 
 Right now my favorite events are infinite mode Eggsercise and the Ledgedash training events. But I've done a ton of ledgedashing without much refresh practice, so I put a ton of effort into making the Under Fire event more fun so I could practice ledge refreshes instead of my fake double jump ones and help my edge play.
 
-## BUGS/FEATURES TO INVESTIGATE WORKING IN T11
+## BUGS/FEATURES TO INVESTIGATE WORKING IN T12
+- "smart" DI??
 - More Escape IC Grab (Beta) handoffs: the back throw regrab ("pitching"), the down air and forward air regrabs, Popo alone, and ledge handoffs. The down throw handoff and every handoff's escape hint are in since T11. See [what the rest would take](notes/ESCAPE-EVENTS-RESEARCH.md#what-the-other-handoffs-would-take)
 - add an edgeguarding distance for edgeguarding event where the cpu gets knocked from the edge of the stage as if they just got fox shined. practicing punishing that distance in particular would be extremely helpful. and seeing the hitstun
 - add the 2/3 ring and level tick to the rest of the up-b overlay gecko codes. Fox's and Falco's have them, but Sheik, Zelda, Mewtwo, Pikachu and Pichu still draw the offstage half in both the event and their codes. Add them to `UNDER_STAGE` in scripts/upb_overlay_numbers.py. Before giving the rest the 2/3 ring: Sheik's travel only checks for the ledge in the direction she faces, and aiming up and out from under the stage turns her to face away from it
@@ -93,8 +94,10 @@ This section summarizes implemented Tyro-specific changes, newest version first.
         - New **Handoff** setting (saved). **Down Throw** has the Ice Climbers hand you off: Popo down throws as soon as he has you, and Nana, standing on top of him, regrabs you the frame you're released. Then she holds you the way her CPU AI does: she pummels first about half the time, then throws you up, down, forward or back at random, or toward the ledge if she's close to it. Her down throw hands you back to Popo, and the chain goes on. **None** is the old hold.
         - The Handoff row describes how to escape the chosen handoff. **Help** has new rows on handoffs, DI, Nana's grab, and how to get out of each of the Ice Climbers' regrabs: the down air and forward air regrabs, the back throw regrab, Popo alone, the ledge, and wobbling.
         - With a handoff on, the HUD shows how many times you were regrabbed and how you got out: by mashing, a missed regrab, or Nana's throw. **Session Bests** only count None.
+    - **Grabs-ercise**
+        - New **CPU DI** setting (saved) for **Success Criteria: Hit**. **Random** has the CPU DI your throw and every hit: it holds the stick all the way in one of the 8 directions, a new one each time, and never Smash DIs. **None** is the old no-DI CPU.
 - **Program changes**
-    - The save record is still version 25: the Handoff uses 3 of word 84's spare bits.
+    - The save record is still version 25: the Handoff uses 3 of word 84's spare bits and Grabs-ercise's CPU DI 2.
 
 ### T10 (V1.4.1T10) - *2026-11-08 to 2026-11-23*
 

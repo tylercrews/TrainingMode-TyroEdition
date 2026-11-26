@@ -22,7 +22,8 @@
  * percent you pick or a random one. A juggle that knocks it down is a tech
  * chase: it techs in place, away or toward you, or misses and gets up, with
  * Techchase's Tyro setting's chances, and comes back somewhere else if it's
- * back on its feet unhit. Knocked off the top, it comes back at once.
+ * back on its feet unhit. Hit mode's CPU DI has it DI the throw and every hit
+ * a random way, or not at all. Knocked off the top, it comes back at once.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
  * runs before the fighters' input proc. The rules below are the native
@@ -114,7 +115,7 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_MOVEMENT, OPT_STANDING,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_MOVEMENT, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -140,6 +141,7 @@ static void ChangeMovement(GOBJ *menu, int value);
 static void ChangeStanding(GOBJ *menu, int value);
 static void ChangeSuccess(GOBJ *menu, int value);
 static void ChangePercent(GOBJ *menu, int value);
+static void ChangeDI(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
 
@@ -147,6 +149,7 @@ static const char *SuccessText[TM_GRABS_SUCCESS_COUNT] = { "Throw", "Hit" };
 static const char *PercentText[TM_GRABS_PERCENT_COUNT] = {
     "Random", "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%",
 };
+static const char *DIText[TM_GRABS_DI_COUNT] = { "None", "Random" };
 static const char *MovementText[TM_GRABS_MOVEMENT_COUNT] = { "Random", "Still Only", "Moving Only" };
 static const char *StandingText[TM_GRABS_STANDING_COUNT] = { "Stand", "Shield", "Random" };
 static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
@@ -215,6 +218,18 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "Hit only: Throw and timed runs are always 0%."},
         .disable = 1,
         .OnChange = ChangePercent,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "CPU DI",
+        .value_num = countof(DIText),
+        .values = DIText,
+        .desc = {"None: the CPU never DIs. Random: through each",
+                 "throw and hit, it holds the stick all the way",
+                 "one of its 8 ways, picked anew each time.",
+                 "Hit only: Throw and timed runs never DI."},
+        .disable = 1,
+        .OnChange = ChangeDI,
     },
     {
         .kind = OPTKIND_STRING,
@@ -376,6 +391,8 @@ static struct target {
     float last_lag;    // Last frame's hitlag: more now is a new hit.
     bool hit;          // Hit: left where it is, for a follow-up grab, until
     int hit_frames;    // this many frames after the last hit's hitlag pass GRAB_WINDOW.
+    int di;            // Hit mode's CPU DI: the way (DI_Sticks) this throw or hit holds,
+    float di_lag;      // -1 until picked, and last frame's hitlag: more now is a new hit.
     bool chase;        // Hit mode: knocked down or teching, until it's up again.
     int landing;       // Hit mode: how its next knockback landing goes (TC_TECH_*),
     int getup;         // and a missed tech's getup (TC_GETUP_*): -1 until picked.
@@ -389,23 +406,25 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH,
-    OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_MOVEMENT, TM_GRABS_STANDING, TM_GRABS_WALK,
-    TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
+static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN,
+    OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_DI, TM_GRABS_MOVEMENT, TM_GRABS_STANDING,
+    TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL,
+    TM_GRABS_COLLISION};
 typedef char grabercise_saved_rows[countof(saved_rows) == countof(saved_ids) ? 1 : -1];
-/* Each saved row's default: Throw, Random percents, movement and standing,
- * every movement on, Fighter Collision off. */
+/* Each saved row's default: Throw, Random percents, no DI, Random movement and
+ * standing, every movement on, Fighter Collision off. */
 static int SavedDefault(unsigned row) {
     if (row == OPT_SUCCESS) return TM_GRABS_SUCCESS_THROW;
     if (row == OPT_PERCENT) return TM_GRABS_PERCENT_RANDOM;
+    if (row == OPT_DI) return TM_GRABS_DI_NONE;
     if (row == OPT_MOVEMENT) return TM_GRABS_MOVEMENT_RANDOM;
     return row == OPT_STANDING ? TM_GRABS_STAND_RANDOM : row != OPT_COLLISION;
 }
 // Hit mode: a grab counts once a hit follows its throw. Free Practice only.
 static bool HitMode(void) { return FreePractice() && Options_Main[OPT_SUCCESS].val == TM_GRABS_SUCCESS_HIT; }
-// CPU Percent only does anything in Hit mode, so it's greyed out otherwise.
-static void GatePercent(void) { Options_Main[OPT_PERCENT].disable = !HitMode(); }
+// CPU Percent and CPU DI only do anything in Hit mode, so they're greyed out otherwise.
+static void GateHitRows(void) { Options_Main[OPT_PERCENT].disable = Options_Main[OPT_DI].disable = !HitMode(); }
 /* CPU Movement, Free Practice's: Random in timed runs. */
 static int Movement(void) {
     int movement = FreePractice() ? Options_Main[OPT_MOVEMENT].val : TM_GRABS_MOVEMENT_RANDOM;
@@ -428,13 +447,15 @@ static void ApplyPercent(void);
 static void ChangeSuccess(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_SUCCESS, value);
     grab_count = total_hits = 0;
-    GatePercent();
+    GateHitRows();
     ApplyPercent();
 }
 static void ChangePercent(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_PERCENT, value);
     ApplyPercent();
 }
+// The next throw or hit DIs as it says (DIInputs).
+static void ChangeDI(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_DI, value); }
 static void LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_rows); ++i) {
         EventOption *option = &Options_Main[saved_rows[i]];
@@ -532,7 +553,7 @@ static void EnterFreePractice(void) {
     reset_clock = true;
     stc_match->match.timer = MATCH_TIMER_COUNTUP;
     for (unsigned i = 0; i < countof(saved_rows); ++i) Options_Main[saved_rows[i]].disable = 0;
-    GatePercent();
+    GateHitRows();
     GateMovement();
     ShowCollision(Options_Main[OPT_COLLISION].val);
 }
@@ -726,6 +747,8 @@ static void Respawn(void) {
     target.landing = target.getup = -1;
     target.hit_frames = 0;
     target.air_frames = 0;
+    target.di = -1;
+    target.di_lag = 0;
     target.spot = spot;
 }
 
@@ -1122,7 +1145,7 @@ static bool LandingSoon(FighterData *ft) {
  * techs whenever it comes, with no press to time to it. A missed tech reads as
  * never pressed. A tech roll holds the stick away from you or toward you while
  * it can't drift (in hitstun, ft_80084EEC) or is about to land, and never in
- * hitlag, where it would DI. */
+ * hitlag, where it would DI (that stick is CPU DI's, DIInputs). */
 static void TechInputs(FighterData *ft) {
     if (target.landing < 0) target.landing = TC_PresetTech(TECH_PRESET, HSD_Randi(100));
     if (target.landing == TC_TECH_MISS) {
@@ -1156,6 +1179,50 @@ static void GetupInputs(FighterData *ft) {
 static void ChaseInputs(FighterData *ft) {
     if (ft->phys.air_state == 0) GetupInputs(ft);
     else if (KnockedBack(ft->state_id)) TechInputs(ft);
+}
+
+// Hit mode's DI -------------------------------------------------------------------
+
+/* CPU DI's Random: the stick all the way one of its eight ways, the gate's
+ * notches. A diagonal's 89 (0.70) on each axis makes a stick 0.99 long, as the
+ * Training Lab's are, past the 0.7 (PlCo 0x4B0) ASDI takes. */
+#define DI_DIAGONAL 89
+static const s8 DI_Sticks[][2] = {
+    {STICK_FULL, 0}, {DI_DIAGONAL, DI_DIAGONAL}, {0, STICK_FULL}, {-DI_DIAGONAL, DI_DIAGONAL},
+    {-STICK_FULL, 0}, {-DI_DIAGONAL, -DI_DIAGONAL}, {0, -STICK_FULL}, {DI_DIAGONAL, -DI_DIAGONAL},
+};
+static bool RandomDI(void) { return HitMode() && Options_Main[OPT_DI].val == TM_GRABS_DI_RANDOM; }
+/* Thrown by a throw, DK's cargo throws included, which lets go partway through. */
+static bool Thrown(int state) {
+    return (state >= ASID_THROWNF && state <= ASID_THROWNLWWOMEN) || (state >= ASID_THROWNFF && state <= ASID_THROWNFLW);
+}
+/* CPU DI (Hit mode): through a standard grab's throw and each hit's hitlag, the
+ * CPU holds the stick all the way one of its eight ways, picked at random for
+ * the throw and again for each hit (more hitlag than was left: a new hit, or one
+ * during another's). The game reads the stick of last frame's input proc as the
+ * throw lets go, in the thrower's animation (ftCo_800DE7C0, DI at once through
+ * ftCo_8008E5A4), and as the hitlag ends, in the hitlag proc
+ * (ftCo_Damage_OnExitHitlag: ASDI, then DI). Smash DI (ftCo_Damage_OnEveryHitlag)
+ * takes only a flick, a stick whose tilt timer is under PlCo 0x4B4 (4), so the
+ * processed stick and the timers are set as if it had been held all along: the
+ * input proc sees no flick, and counts the timers up from there. Hitlag in
+ * shield (GuardSetOff) isn't knockback, and a hold (CaptureWait, Shouldered)
+ * isn't a throw, where the stick would mash out. */
+static void DIInputs(FighterData *ft, int state) {
+    bool thrown = target.grabbed && Thrown(state), hit = KnockedBack(state) && Frozen(ft);
+    if (!RandomDI() || !(thrown || hit)) {
+        target.di = -1;
+        target.di_lag = 0;
+        return;
+    }
+    float lag = hit ? ft->dmg.hitlag_frames : 0;
+    if (target.di < 0 || lag > target.di_lag) target.di = HSD_Randi(countof(DI_Sticks));
+    target.di_lag = lag;
+    const s8 *stick = DI_Sticks[target.di];
+    ft->cpu.lstickX = stick[0];
+    ft->cpu.lstickY = stick[1];
+    ft->input.lstick = (Vec2){stick[0] / 127.f, stick[1] / 127.f};
+    ft->input.timer_lstick_tilt_x = ft->input.timer_lstick_tilt_y = 254;
 }
 
 static void Score(void) {
@@ -1192,6 +1259,7 @@ static void UpdateTarget(void) {
         // Hit mode: a grab in the juggle (a tech regrabbed) starts the juggle over at its throw.
         target.juggle = target.chase = false;
         target.landing = target.getup = -1;
+        DIInputs(ft, state); // The throw's DI.
         return;
     }
     if (ft->flags.dead) return;
@@ -1219,7 +1287,7 @@ static void UpdateTarget(void) {
     }
     // Any other grab's let go, a throw included: it's gone.
     bool away = target.held && !juggle;
-    /* A hit doesn't send it away at once: it stays, pressing nothing, for
+    /* A hit doesn't send it away at once: it stays, pressing nothing but its DI, for
      * GRAB_WINDOW frames after the hitlag, so a hit can lead into a grab, and
      * each new hit's hitlag starts the window over. A juggle's window starts
      * only once it lands. A knockdown, which no grab can catch, ends it then
@@ -1254,6 +1322,7 @@ static void UpdateTarget(void) {
         return;
     }
     if (juggle) ChaseInputs(ft);
+    DIInputs(ft, state); // Each hit's DI, in its hitlag.
     if (target.hit) return; // Left alone to be grabbed: back to its movement only at a new spot.
     Move(cpu, ft);
 }
