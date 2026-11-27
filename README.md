@@ -99,6 +99,7 @@ This section summarizes implemented Tyro-specific changes, newest version first.
     - **Grabs-ercise**
         - New **CPU DI** setting (saved) for **Success Criteria: Hit**. **Random** has the CPU DI your throw and every hit: it holds the stick all the way in one of the 8 directions, a new one each time, and never Smash DIs. **None** is the old no-DI CPU.
         - In **Success Criteria: Hit**, once the CPU can act again after your throw, a hit, or its tech or getup, it pulses red like the Missed L Cancel overlay and comes back somewhere else half a second later. CPUs were sometimes hanging in the air too long, because the juggle waited for them to land. New **Late Frames OSD** (saved, On by default) shows how many frames late you are under the match timer.
+    - **Eggs-ercise:** your percent is now the egg's health, so you can see how much damage is left before it breaks and the next egg appears. It counts down as you hit the egg and follows Free Practice's **Egg Damage Threshold**.
 - **Program changes**
     - The save record is still version 25: the Handoff uses 3 of word 84's spare bits and Grabs-ercise's CPU DI and Late Frames OSD 3.
 

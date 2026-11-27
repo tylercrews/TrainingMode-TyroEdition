@@ -227,5 +227,68 @@ class EggSpawnTests(unittest.TestCase):
         self.assertGreaterEqual(y, AIR_HEIGHT)
 
 
+DEFAULT_DAMAGE = 12  # TM_EGGS_DEFAULT_DAMAGE, the timed run's threshold.
+HUD, PERCENT, PENDING, EGGS, DESTROYED = range(5)
+
+
+class EggHealthPercentTests(unittest.TestCase):
+    """The player's percent shows the damage the egg takes before it breaks."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def start(self, free_practice=0):
+        self.m = fixtures.Machine()
+        load_probe(self.m, 'eggs-probe.elf', 'TestEggsLoaded')
+        self.m.call('TestEggsInit', TOP_LEFT, free_practice)
+
+    def health(self, key): return self.m.call('TestEggsHealth', key)
+    def percents(self): return self.health(HUD), self.health(PERCENT)
+    def hit(self, damage): self.m.call('TestEggsHit', damage)
+
+    def test_a_timed_run_shows_the_challenge_threshold(self):
+        self.start()
+        self.m.call('TestEggsThink')
+        self.assertEqual(self.percents(), (DEFAULT_DAMAGE, DEFAULT_DAMAGE))
+
+    def test_hits_count_it_down_and_the_next_egg_starts_full(self):
+        self.start()
+        self.hit(5)
+        self.assertEqual(self.percents(), (7, 7))
+        self.hit(4)
+        self.assertEqual(self.percents(), (3, 3))
+        self.hit(3)
+        self.assertEqual((self.health(EGGS), self.health(DESTROYED)), (1, 1))
+        self.assertEqual(self.percents(), (DEFAULT_DAMAGE, DEFAULT_DAMAGE))
+
+    def test_a_hit_past_the_health_breaks_the_egg(self):
+        self.start()
+        self.hit(10)
+        self.hit(14)
+        self.assertEqual(self.health(EGGS), 1)
+        self.assertEqual(self.percents(), (DEFAULT_DAMAGE, DEFAULT_DAMAGE))
+
+    def test_free_practice_follows_the_threshold_row(self):
+        self.start(free_practice=1)
+        self.m.call('TestEggsThreshold', 30)
+        self.assertEqual(self.percents(), (30, 30))
+        self.hit(10)
+        self.assertEqual(self.percents(), (20, 20))
+        self.m.call('TestEggsThreshold', 15)
+        self.assertEqual(self.percents(), (5, 5))
+        # Lowered below the damage already done, it reads 0 until the next hit.
+        self.m.call('TestEggsThreshold', 6)
+        self.assertEqual(self.percents(), (0, 0))
+        self.assertEqual(self.health(EGGS), 0)
+        self.hit(1)
+        self.assertEqual(self.health(EGGS), 1)
+        self.assertEqual(self.percents(), (6, 6))
+
+    def test_damage_on_the_player_doesnt_stick(self):
+        self.start()
+        self.m.call('TestEggsPending', 9)
+        self.assertEqual(self.health(PENDING), 0)
+        self.assertEqual(self.percents(), (DEFAULT_DAMAGE, DEFAULT_DAMAGE))
+
+
 if __name__ == '__main__':
     unittest.main()

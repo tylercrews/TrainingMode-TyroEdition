@@ -78,6 +78,11 @@ int GrColl_RaycastGround(Vec3 *pos, int *line, int *kind, Vec3 *unk1, int unk2, 
     if (y >= 0 && x >= -85 && x <= 85) { pos->Y = 0; return 1; }
     return 0;
 }
+static int hud_percent = -1, eggs_destroyed;
+void Fighter_SetHUDDamage(int player, u16 percent) { if (player == ft.ply) hud_percent = percent; }
+Effect *Effect_SpawnSync(int gfx_id, ...) { return 0; }
+void Item_PlayOnDestroySFXAgain(ItemData *item, int sfx, int volume, int panning) { }
+void Egg_Destroy(GOBJ *gobj) { ++eggs_destroyed; }
 GOBJ *Item_CreateItem2(SpawnItem *item) { spawned = *item; return &egg_object; }
 JOBJ *Item_GetBoneJOBJ(GOBJ *item, int bone) { return &egg_joint; }
 int Events_GetSavedScore(int event) { return 0; }
@@ -146,11 +151,14 @@ int TestEggsSpawned(int key) {
     }
     return -1;
 }
-/* The egg as the event sees it, with the engine's velocity for this frame. */
-int TestEggsFall(int velocity) {
+static void EggOut(void) {
     egg_object.userdata = &egg_item;
     egg_item.it_func = (void *)egg_callbacks;
     egg_gobj = &egg_object;
+}
+/* The egg as the event sees it, with the engine's velocity for this frame. */
+int TestEggsFall(int velocity) {
+    EggOut();
     egg_item.self_vel.Y = velocity / 1000.f;
     Event_Think(&event);
     return egg_item.self_vel.Y * 1000;
@@ -167,6 +175,26 @@ int TestEggsSpawnInfo(int key) {
     return -1;
 }
 void TestEggsReset(void) { Eggs_ResetSettings(0); }
+/* A hit on the egg that's out, then the next frame's think. */
+void TestEggsHit(int damage) {
+    EggOut();
+    egg_item.dmg.recent = damage;
+    Egg_OnTakeDamage(&egg_object);
+    Event_Think(&event);
+}
+/* Damage pending on the player when the think runs. */
+void TestEggsPending(int damage) { ft.dmg.percent_temp = damage; Event_Think(&event); }
+void TestEggsThreshold(int value) { Options_Main[OPT_DAMAGETHRESHOLD].val = value; Event_Think(&event); }
+int TestEggsHealth(int key) {
+    switch (key) {
+    case 0: return hud_percent;
+    case 1: return ft.dmg.percent;
+    case 2: return ft.dmg.percent_temp;
+    case 3: return egg_counter;
+    case 4: return eggs_destroyed;
+    }
+    return -1;
+}
 int TestEggsText(int text, int key) {
     switch (key) {
     case 0: return texts[text].trans.X * 1000;

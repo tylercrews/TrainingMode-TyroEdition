@@ -275,14 +275,34 @@ GOBJ *Egg_Spawn(void)
     return Item_CreateItem2(&item_egg);
 }
 
+/* The damage an egg takes to break. Timed runs use the challenge's. */
+static int Egg_Threshold(void)
+{
+    return stc_match->match.timer == MATCH_TIMER_COUNTUP ?
+        Options_Main[OPT_DAMAGETHRESHOLD].val : TM_EGGS_DEFAULT_DAMAGE;
+}
+
+/* The player's percent is the egg's health: the damage left before it breaks.
+ * Set every frame, so it follows a threshold change in the menu and comes back
+ * after a respawn. Nothing hits the player here, and Melee's knockback doesn't
+ * depend on the attacker's percent, so it changes nothing else. The native
+ * setter also sets Nana's. */
+static void Egg_ShowHealth(FighterData *hmn_data)
+{
+    int health = Egg_Threshold() - accumulated_damage;
+    if (health < 0)
+        health = 0; // A threshold lowered below the damage already done.
+    hmn_data->dmg.percent = health;
+    hmn_data->dmg.percent_temp = 0; // Pending damage, not a copy of the percent.
+    Fighter_SetHUDDamage(hmn_data->ply, health);
+}
+
 int Egg_OnTakeDamage(GOBJ *gobj)
 {
     // gfx and sfx
     ItemData *egg_data = egg_gobj->userdata;
     accumulated_damage += egg_data->dmg.recent;
-    int threshold = stc_match->match.timer == MATCH_TIMER_COUNTUP ?
-        Options_Main[OPT_DAMAGETHRESHOLD].val : TM_EGGS_DEFAULT_DAMAGE;
-    if (accumulated_damage >= threshold){
+    if (accumulated_damage >= Egg_Threshold()){
         Effect_SpawnSync(1232, gobj, egg_data->pos);
         Item_PlayOnDestroySFXAgain(egg_data, 244, 127, 64);
         
@@ -424,6 +444,8 @@ void Event_Think(GOBJ *event)
         cam->cam_pos.Y = egg_data->pos.Y + 15; // add so it's not awkwardly low
         cam->cam_pos.Z = egg_data->pos.Z;
     }
+
+    Egg_ShowHealth(hmn_data);
 
     // Update egg count, hide when paused
     if (Pause_CheckStatus(1) != 2)
