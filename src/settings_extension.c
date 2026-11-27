@@ -149,9 +149,15 @@ static const ExtensionPreference grab_punish_preferences[TM_GP_PREF_COUNT] = {
 #define RECORD_BIT(offset,bit) ((offset)*8+(bit))
 typedef char TMExtension_GrabPunishTopBits[(TM_GP_PERCENT_COUNT<=16 && TM_GP_MASH_COUNT<=8) ? 1 : -1];
 typedef char TMExtension_UpBMarthTopBit[(TM_UPB_MARTH_COUNT<=4) ? 1 : -1];
+/* Grabs-ercise's Trajectory DI outgrew its 2 bits in T11 the same way, and
+ * Late Frames OSD is right above them: its top bit is word 84's bit 19, which
+ * no record ever wrote (GRABS_DI_TOP_SHIFT, checked against the word below). */
+#define GRABS_DI_TOP_BIT RECORD_BIT(84,19)
+typedef char TMExtension_GrabsDITopBit[(TM_GRABS_DI_COUNT<=8) ? 1 : -1];
 static unsigned top_bit(unsigned field,unsigned index) {
     if(field==TM_SETTING_TECHCHASE) return index==TM_TECHCHASE_DISTANCE?RECORD_BIT(9,15):0;
     if(field==TM_SETTING_UPB_SWEETSPOT) return index==TM_UPB_MARTH?RECORD_BIT(56,31):0;
+    if(field==TM_SETTING_GRABERCISE) return index==TM_GRABS_DI?GRABS_DI_TOP_BIT:0;
     if(field!=TM_SETTING_GRAB_PUNISH) return 0;
     return index==TM_GP_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,22):index==TM_GP_MATE_PERCENT?RECORD_BIT(GP_TOP_BITS_OFFSET,23):
         index==TM_GP_MASH?RECORD_BIT(GP_TOP_BITS_OFFSET,31):0;
@@ -243,13 +249,21 @@ static int is_tech_followup(unsigned field,unsigned index) {
  * added after that, is word 84's bits 16..17 (GRABS_DI_SHIFT, above Escape IC
  * Grab's Handoff), with no bump: None, its default, is stored as 0, so the
  * zeros every migration to 25 writes read as None, and only a version 25
- * record owns it. A stored 2 or 3 isn't a choice yet and reads as None, so a
- * later DI can take the next value with no migration. Late Frames OSD (T11),
- * added after that, is word 84's bit 18, the same way: On, its default, is
- * stored as its distance from On, 0. */
+ * record owns it. Late Frames OSD (T11), added after that, is word 84's bit
+ * 18, the same way: On, its default, is stored as its distance from On, 0.
+ * CPU DI became Trajectory DI with the Training Lab's choices (T11), five, so
+ * it took bit 19 as its top bit (top_bit), and the other DI rows, appended
+ * after, took bits 20..28 the same way: Smash DI Amount (0, the default, is
+ * 0), Smash DI Direction and ASDI (Auto, the default, is 0). A stored value
+ * past the choices (Trajectory DI's 5 to 7, ASDI's 7) reads as the default and
+ * isn't repaired, so a later choice can take it with no migration. */
 #define GRABS_MOVEMENT_SHIFT 7
 #define GRABS_DI_SHIFT 16
 #define GRABS_LATE_OSD_SHIFT 18
+#define GRABS_DI_TOP_SHIFT 19
+#define GRABS_SDI_AMOUNT_SHIFT 20
+#define GRABS_SDI_DIR_SHIFT 23
+#define GRABS_ASDI_SHIFT 26
 static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
     {16,6,TM_GRABS_BEST_MAX+1,0}, {23,1,2,0}, {22,1,TM_GRABS_SUCCESS_COUNT,TM_GRABS_SUCCESS_THROW},
     {0,4,TM_GRABS_PERCENT_COUNT,TM_GRABS_PERCENT_RANDOM},
@@ -257,9 +271,12 @@ static const ExtensionPreference grabercise_preferences[TM_GRABS_PREF_COUNT] = {
     {24,1,2,1}, {25,1,2,1}, {26,1,2,1}, {29,1,2,1}, {30,1,2,1}, {27,1,2,1}, {28,1,2,0},
     {GRABS_MOVEMENT_SHIFT,2,TM_GRABS_MOVEMENT_COUNT,TM_GRABS_MOVEMENT_RANDOM},
     {GRABS_DI_SHIFT,2,TM_GRABS_DI_COUNT,TM_GRABS_DI_NONE}, {GRABS_LATE_OSD_SHIFT,1,2,1},
+    {GRABS_SDI_AMOUNT_SHIFT,3,TM_GRABS_SDI_AMOUNT_COUNT,0}, {GRABS_SDI_DIR_SHIFT,3,TM_GRABS_SDI_DIR_COUNT,TM_GRABS_SDI_AUTO},
+    {GRABS_ASDI_SHIFT,3,TM_GRABS_ASDI_COUNT,TM_GRABS_ASDI_AUTO},
 };
+/* Every T11 row: Trajectory DI and everything appended after it. */
 #define IS_GRABS_WORD_84(field,index) ((field)==TM_SETTING_GRABERCISE && \
-    ((index)==TM_GRABS_DI || (index)==TM_GRABS_LATE_OSD))
+    (index)>=TM_GRABS_DI && (index)<TM_GRABS_PREF_COUNT)
 /* Word 80: CPU Percent 0..3, the followup's high bits 4..5, the Stoplight's 6,
  * CPU Movement 7..8, Disable Dev Debug Menu 9. */
 typedef char TMExtension_Word80Bits[(TECH_FOLLOWUP_HIGH_SHIFT>=4 && (TECH_FOLLOWUP_HIGH_MASK<<TECH_FOLLOWUP_HIGH_SHIFT)<ENDING_BIT &&
@@ -308,8 +325,8 @@ typedef char TMExtension_EdgeguardUpBOverlay[(TM_EG_UPB_OVERLAY_CPU==TM_EG_UPB_O
  * with no version bump: Off, its default, or a color plus one, so its 16
  * values fill the bits and the zeros read as Off. Escape IC Grab's Handoff
  * (T11) took bits 13..15 the same way (see escape_ic_preferences), and
- * Grabs-ercise's CPU DI and Late Frames OSD (T11) bits 16..18 (see
- * grabercise_preferences). Bits 19..31 are free for a setting whose stored 0
+ * Grabs-ercise's DI rows and Late Frames OSD (T11) bits 16..28 (see
+ * grabercise_preferences). Bits 29..31 are free for a setting whose stored 0
  * is its default, with no version bump. IS_TARGETS_WORD_84 is every Target
  * Practice row in it. */
 #define TARGETS_COLOR_OFFSET 84
@@ -336,12 +353,18 @@ typedef char TMExtension_TargetsColors[(TM_TARGETS_SH_COLOR==6 && TM_TARGETS_FH_
 typedef char TMExtension_EscapeICHandoffBits[(ESCAPE_IC_HANDOFF_SHIFT==TARGETS_LOW_LINE_SHIFT+4 &&
     TM_ESC_IC_HANDOFF==1 && TM_ESC_IC_PREF_COUNT==2 && TM_ESC_IC_HANDOFF_COUNT<=1u<<3 &&
     ESCAPE_IC_HANDOFF_SHIFT+3<=32) ? 1 : -1];
-/* Grabs-ercise's CPU DI sits right above the Handoff in word 84, and Late
- * Frames OSD right above that. */
+/* Grabs-ercise's Trajectory DI sits right above the Handoff in word 84, Late
+ * Frames OSD right above that, then Trajectory DI's top bit and the other DI
+ * rows, each 3 bits, leaving bits 29..31 spare. */
 typedef char TMExtension_GrabsDIBits[(GRABS_DI_SHIFT==ESCAPE_IC_HANDOFF_SHIFT+3 &&
-    TM_GRABS_DI==TM_GRABS_MOVEMENT+1 && TM_GRABS_DI_NONE==0 && TM_GRABS_DI_COUNT<=1u<<2 &&
+    TM_GRABS_DI==TM_GRABS_MOVEMENT+1 && TM_GRABS_DI_NONE==0 && TM_GRABS_DI_COUNT<=1u<<3 &&
     GRABS_LATE_OSD_SHIFT==GRABS_DI_SHIFT+2 && TM_GRABS_LATE_OSD==TM_GRABS_DI+1 &&
-    TM_GRABS_LATE_OSD==TM_GRABS_PREF_COUNT-1 && GRABS_LATE_OSD_SHIFT+1<=32) ? 1 : -1];
+    GRABS_DI_TOP_SHIFT==GRABS_LATE_OSD_SHIFT+1 && GRABS_DI_TOP_BIT==RECORD_BIT(TARGETS_COLOR_OFFSET,GRABS_DI_TOP_SHIFT) &&
+    GRABS_SDI_AMOUNT_SHIFT==GRABS_DI_TOP_SHIFT+1 && TM_GRABS_SDI_AMOUNT==TM_GRABS_LATE_OSD+1 &&
+    TM_GRABS_SDI_AMOUNT_COUNT<=1u<<3 && GRABS_SDI_DIR_SHIFT==GRABS_SDI_AMOUNT_SHIFT+3 &&
+    TM_GRABS_SDI_DIR==TM_GRABS_SDI_AMOUNT+1 && TM_GRABS_SDI_DIR_COUNT<=1u<<3 && TM_GRABS_SDI_AUTO==0 &&
+    GRABS_ASDI_SHIFT==GRABS_SDI_DIR_SHIFT+3 && TM_GRABS_ASDI==TM_GRABS_SDI_DIR+1 && TM_GRABS_ASDI_COUNT<=1u<<3 &&
+    TM_GRABS_ASDI_AUTO==0 && TM_GRABS_ASDI==TM_GRABS_PREF_COUNT-1 && GRABS_ASDI_SHIFT+3<=29) ? 1 : -1];
 typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 &&
     TM_TARGETS_LINES==3 && TM_TARGETS_FULL_HOP==4 && TM_TARGETS_DOUBLE_JUMP==5 &&
     TARGETS_LINES_SHIFT+1==TARGETS_DOUBLE_JUMP_SHIFT &&
@@ -466,13 +489,15 @@ typedef char TMExtension_GridCells[(TM_OSD_GRID_SLOTS==22 && TM_OSD_GRID_POSITIO
     ESCAPES_OFFSET+ESCAPES_SIZE<=GRABS_OFFSET && GRABS_OFFSET+GRABS_SIZE<=TARGETS_COLOR_OFFSET &&
     TARGETS_COLOR_OFFSET+TARGETS_COLOR_SIZE<=TM_EXTENSION_SIZE) ? 1 : -1];
 /* Escape Samus Up-B's rows fill bits 0..10 and 31, and Escape IC Grab's 11..15. */
-/* Each Grabs-ercise row but Standing CPU, CPU Percent, CPU Movement and CPU DI
- * fills its bits exactly, so none needs repairing; a stored 3 in Standing CPU or
- * CPU Movement, or 14 or 15 in CPU Percent, reads as its default, Random, and a
- * stored 2 or 3 in CPU DI as None. */
-typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<6 && TM_GRABS_PREF_COUNT==15 &&
+/* Each Grabs-ercise row but Standing CPU, CPU Percent, CPU Movement,
+ * Trajectory DI and ASDI fills its bits exactly, so none needs repairing; a
+ * stored 3 in Standing CPU or CPU Movement, or 14 or 15 in CPU Percent, reads
+ * as its default, Random, a stored 5 to 7 in Trajectory DI as None, and a 7 in
+ * ASDI as Auto. */
+typedef char TMExtension_GrabsBits[(TM_GRABS_BEST_MAX+1==1u<<6 && TM_GRABS_PREF_COUNT==18 &&
     TM_GRABS_STANDING_COUNT==3 && TM_GRABS_SUCCESS_COUNT==2 && TM_GRABS_PERCENT_COUNT<=16 &&
-    TM_GRABS_MOVEMENT_COUNT==3 && TM_GRABS_DI_COUNT==2) ? 1 : -1];
+    TM_GRABS_MOVEMENT_COUNT==3 && TM_GRABS_DI_COUNT==5 && TM_GRABS_SDI_AMOUNT_COUNT==8 &&
+    TM_GRABS_SDI_DIR_COUNT==8 && TM_GRABS_ASDI_COUNT==7) ? 1 : -1];
 typedef char TMExtension_EscapeBits[(TM_ESC_POSITION_COUNT<=4 && TM_ESC_DISTANCE_COUNT<=4 &&
     TM_ESC_SIDE_COUNT<=4 && TM_ESC_PERCENT_COUNT<=32 && TM_ESC_GOAL_COUNT==2 &&
     TM_ESC_SAMUS_PREF_COUNT==5) ? 1 : -1];
@@ -768,9 +793,9 @@ int TMExtension_Prepare(uint8_t *r) {
         TM_SETTING_GRAB_PUNISH,TM_SETTING_UPB_SWEETSPOT,TM_SETTING_EGGS_COUNTER,TM_SETTING_PASSING,
         TM_SETTING_ESCAPE_SAMUS,TM_SETTING_ESCAPE_IC};
     /* Grabs-ercise is left out: every value of each of its rows is valid but
-     * Standing CPU's and CPU Movement's 3, CPU Percent's 14 and 15 and CPU DI's
-     * 2 and 3, which read as their defaults (see TMExtension_GrabsBits), so
-     * checking them would only cost time. */
+     * Standing CPU's and CPU Movement's 3, CPU Percent's 14 and 15, Trajectory
+     * DI's 5 to 7 and ASDI's 7, which read as their defaults (see
+     * TMExtension_GrabsBits), so checking them would only cost time. */
     for(unsigned f=0;f<sizeof(fields);++f) {
         unsigned field=fields[f], count=preference_count(field);
         for(unsigned i=0;i<count;++i) {
@@ -852,7 +877,7 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
     }
     /* Version 22 records own word 76, only version 23 and later records word
      * 80, and only a version 25 record Escape IC Grab's Handoff and
-     * Grabs-ercise's CPU DI and Late Frames OSD in word 84. */
+     * Grabs-ercise's DI rows and Late Frames OSD in word 84. */
     if(IS_ESCAPE(field)) {
         unsigned offset=preference_offset(field,index);
         int owned=supported(r)||((v23||v24) && offset!=TARGETS_COLOR_OFFSET)||

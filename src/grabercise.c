@@ -24,8 +24,9 @@
  * Techchase's Tyro setting's chances. Once it could act again, after the
  * throw, a hit, or its tech or getup, you're late: it pulses red, Late Frames
  * OSD counts the frames, and after half a second of it the CPU comes back
- * somewhere else. Hit mode's CPU DI has it DI the throw and every hit a random
- * way, or not at all. Knocked off the top, it comes back at once.
+ * somewhere else. Hit mode's DI rows are the Training Lab's: Trajectory DI for
+ * the throw and every hit (in, out, either, any of eight ways, or none), and
+ * for every hit Smash DI and ASDI. Knocked off the top, it comes back at once.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
  * runs before the fighters' input proc. The rules below are the native
@@ -118,8 +119,8 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_LATE_OSD,
-    OPT_MOVEMENT, OPT_STANDING,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_SDI_AMOUNT,
+    OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD, OPT_MOVEMENT, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -146,6 +147,9 @@ static void ChangeStanding(GOBJ *menu, int value);
 static void ChangeSuccess(GOBJ *menu, int value);
 static void ChangePercent(GOBJ *menu, int value);
 static void ChangeDI(GOBJ *menu, int value);
+static void ChangeSDIAmount(GOBJ *menu, int value);
+static void ChangeSDIDir(GOBJ *menu, int value);
+static void ChangeASDI(GOBJ *menu, int value);
 static void ChangeLateOSD(GOBJ *menu, int value);
 static void ChangeCounterPosition(GOBJ *menu, int value);
 static void ResetSettings(GOBJ *menu);
@@ -154,7 +158,18 @@ static const char *SuccessText[TM_GRABS_SUCCESS_COUNT] = { "Throw", "Hit" };
 static const char *PercentText[TM_GRABS_PERCENT_COUNT] = {
     "Random", "0%", "10%", "20%", "30%", "40%", "50%", "60%", "70%", "80%", "90%", "100%", "110%", "120%",
 };
-static const char *DIText[TM_GRABS_DI_COUNT] = { "None", "Random" };
+/* Trajectory DI's choices in menu order, the Training Lab's with None first,
+ * and the value each is saved as (TMGrabsDI keeps T11's first two). */
+enum tdi { TDI_NONE, TDI_RANDOM, TDI_IN, TDI_OUT, TDI_NATURAL, TDI_COUNT };
+static const char *DIText[TDI_COUNT] = { "None", "Random", "Inwards", "Outwards", "Natural" };
+static const u8 TDI_Saved[TDI_COUNT] = {
+    TM_GRABS_DI_NONE, TM_GRABS_DI_RANDOM, TM_GRABS_DI_IN, TM_GRABS_DI_OUT, TM_GRABS_DI_NATURAL,
+};
+typedef char grabercise_tdi[(int)TDI_COUNT == (int)TM_GRABS_DI_COUNT ? 1 : -1];
+static const char *SDIDirText[TM_GRABS_SDI_DIR_COUNT] = {
+    "Auto", "Random", "Away", "Towards", "Left", "Right", "Up", "Down",
+};
+static const char *ASDIText[TM_GRABS_ASDI_COUNT] = { "Auto", "Away", "Towards", "Left", "Right", "Up", "Down" };
 static const char *MovementText[TM_GRABS_MOVEMENT_COUNT] = { "Random", "Still Only", "Moving Only" };
 static const char *StandingText[TM_GRABS_STANDING_COUNT] = { "Stand", "Shield", "Random" };
 static const char *CounterPositionText[TM_EGGS_COUNTER_COUNT] = {
@@ -226,15 +241,49 @@ static EventOption Options_Main[OPT_COUNT] = {
     },
     {
         .kind = OPTKIND_STRING,
-        .name = "CPU DI",
+        .name = "Trajectory DI",
         .value_num = countof(DIText),
         .values = DIText,
-        .desc = {"None: the CPU never DIs. Random: through each",
-                 "throw and hit, it holds the stick all the way",
-                 "one of its 8 ways, picked anew each time.",
-                 "Hit only: Throw and timed runs never DI."},
+        .desc = {"How the CPU DIs your throw and each hit. Inwards,",
+                 "Outwards: at right angles to the launch, toward or",
+                 "away from you. Random: one of those or none. Natural:",
+                 "any of 8 ways, not down the first time. Hit only."},
         .disable = 1,
         .OnChange = ChangeDI,
+    },
+    {
+        .kind = OPTKIND_INT,
+        .name = "Smash DI Amount",
+        .value_num = TM_GRABS_SDI_AMOUNT_COUNT,
+        .format = "%d",
+        .desc = {"How many times the CPU Smash DIs each hit, every",
+                 "other frame of the hitlag, before its last frame's",
+                 "Trajectory DI and ASDI. Hit only."},
+        .disable = 1,
+        .OnChange = ChangeSDIAmount,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "Smash DI Direction",
+        .value_num = countof(SDIDirText),
+        .values = SDIDirText,
+        .desc = {"Which way the CPU Smash DIs. Auto: its Trajectory",
+                 "DI. Random: left or right on the ground, any way in",
+                 "the air. Away and Towards are from you. Hit only,",
+                 "with a Smash DI Amount."},
+        .disable = 1,
+        .OnChange = ChangeSDIDir,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "ASDI",
+        .value_num = countof(ASDIText),
+        .values = ASDIText,
+        .desc = {"The CPU's C-stick ASDI as each hit's hitlag ends.",
+                 "Auto: no C-stick, so its Trajectory DI ASDIs.",
+                 "Away and Towards are from you. Hit only."},
+        .disable = 1,
+        .OnChange = ChangeASDI,
     },
     {
         .kind = OPTKIND_TOGGLE,
@@ -407,8 +456,12 @@ static struct target {
     float last_lag;    // Last frame's hitlag: more now is a new hit.
     bool hit;          // Hit: left where it is, for a follow-up grab, until
     int hit_frames;    // this many frames after the last hit's hitlag pass GRAB_WINDOW.
-    int di;            // Hit mode's CPU DI: the way (DI_Sticks) this throw or hit holds,
-    float di_lag;      // -1 until picked, and last frame's hitlag: more now is a new hit.
+    int di;            // Hit mode's Trajectory DI for this throw or hit: a way (DI_Sticks), DI_INWARD,
+    float di_lag;      // DI_OUTWARD or DI_NO_STICK, -1 until picked; last frame's hitlag: more now is a new hit;
+    int di_count;      // and the throws and hits picked since it appeared (Natural's first never goes down).
+    s8 sdi[2];         // This hit's Smash DI stick (Auto takes Trajectory DI's),
+    int sdi_left;      // the Smash DI inputs it has left,
+    s8 asdi[2];        // and its C-stick ASDI.
     int late;          // Hit mode: the frames it could have acted since the last hit or throw, 0 until it can.
     bool chase;        // Hit mode: knocked down or teching, until it's up again.
     int landing;       // Hit mode: how its next knockback landing goes (TC_TECH_*),
@@ -423,26 +476,41 @@ static struct target {
 
 static bool FreePractice(void) { return stc_match->match.timer == MATCH_TIMER_COUNTUP; }
 
-static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_LATE_OSD, OPT_MOVEMENT, OPT_STANDING, OPT_WALK,
-    OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
-static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_DI, TM_GRABS_LATE_OSD, TM_GRABS_MOVEMENT,
-    TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN, TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF,
-    TM_GRABS_ROLL, TM_GRABS_COLLISION};
+static const u8 saved_rows[] = {OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_SDI_AMOUNT, OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD,
+    OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION};
+static const u8 saved_ids[] = {TM_GRABS_SUCCESS, TM_GRABS_PERCENT, TM_GRABS_DI, TM_GRABS_SDI_AMOUNT, TM_GRABS_SDI_DIR,
+    TM_GRABS_ASDI, TM_GRABS_LATE_OSD, TM_GRABS_MOVEMENT, TM_GRABS_STANDING, TM_GRABS_WALK, TM_GRABS_RUN,
+    TM_GRABS_DASH, TM_GRABS_DASH_FULL, TM_GRABS_DASH_HALF, TM_GRABS_ROLL, TM_GRABS_COLLISION};
 typedef char grabercise_saved_rows[countof(saved_rows) == countof(saved_ids) ? 1 : -1];
-/* Each saved row's default: Throw, Random percents, no DI, Random movement and
- * standing, every movement and Late Frames OSD on, Fighter Collision off. */
+/* Each saved row's default, as saved: Throw, Random percents, no DI of any
+ * kind (Smash DI Direction and ASDI Auto), Random movement and standing, every
+ * movement and Late Frames OSD on, Fighter Collision off. */
 static int SavedDefault(unsigned row) {
     if (row == OPT_SUCCESS) return TM_GRABS_SUCCESS_THROW;
     if (row == OPT_PERCENT) return TM_GRABS_PERCENT_RANDOM;
     if (row == OPT_DI) return TM_GRABS_DI_NONE;
+    if (row == OPT_SDI_AMOUNT) return 0;
+    if (row == OPT_SDI_DIR) return TM_GRABS_SDI_AUTO;
+    if (row == OPT_ASDI) return TM_GRABS_ASDI_AUTO;
     if (row == OPT_MOVEMENT) return TM_GRABS_MOVEMENT_RANDOM;
     return row == OPT_STANDING ? TM_GRABS_STAND_RANDOM : row != OPT_COLLISION;
 }
+/* A saved row's menu value: Trajectory DI's menu order isn't its saved order
+ * (TDI_Saved); every other row's is. */
+static int MenuValue(unsigned row, int saved) {
+    if (row != OPT_DI) return saved;
+    for (int i = 0; i < TDI_COUNT; ++i)
+        if (TDI_Saved[i] == saved) return i;
+    return TDI_NONE;
+}
 // Hit mode: a grab counts once a hit follows its throw. Free Practice only.
 static bool HitMode(void) { return FreePractice() && Options_Main[OPT_SUCCESS].val == TM_GRABS_SUCCESS_HIT; }
-// CPU Percent, CPU DI and Late Frames OSD only do anything in Hit mode, so they're greyed out otherwise.
+/* CPU Percent, the DI rows and Late Frames OSD only do anything in Hit mode, so
+ * they're greyed out otherwise, and Smash DI Direction is with no Smash DI. */
 static void GateHitRows(void) {
-    Options_Main[OPT_PERCENT].disable = Options_Main[OPT_DI].disable = Options_Main[OPT_LATE_OSD].disable = !HitMode();
+    static const u8 rows[] = {OPT_PERCENT, OPT_DI, OPT_SDI_AMOUNT, OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD};
+    for (unsigned i = 0; i < countof(rows); ++i) Options_Main[rows[i]].disable = !HitMode();
+    if (!Options_Main[OPT_SDI_AMOUNT].val) Options_Main[OPT_SDI_DIR].disable = 1;
 }
 /* CPU Movement, Free Practice's: Random in timed runs. */
 static int Movement(void) {
@@ -473,13 +541,21 @@ static void ChangePercent(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_PERCENT, value);
     ApplyPercent();
 }
-// The next throw or hit DIs as it says (DIInputs).
-static void ChangeDI(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_DI, value); }
+// The next throw or hit DIs as they say (DIInputs).
+static void ChangeDI(GOBJ *menu, int value) {
+    if (value >= 0 && value < TDI_COUNT) TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_DI, TDI_Saved[value]);
+}
+static void ChangeSDIAmount(GOBJ *menu, int value) {
+    TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_SDI_AMOUNT, value);
+    GateHitRows();
+}
+static void ChangeSDIDir(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_SDI_DIR, value); }
+static void ChangeASDI(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_ASDI, value); }
 static void ChangeLateOSD(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_LATE_OSD, value); }
 static void LoadSettings(void) {
     for (unsigned i = 0; i < countof(saved_rows); ++i) {
         EventOption *option = &Options_Main[saved_rows[i]];
-        option->val = option->val_prev = TM_GetSetting(TM_SETTING_GRABERCISE, saved_ids[i]);
+        option->val = option->val_prev = MenuValue(saved_rows[i], TM_GetSetting(TM_SETTING_GRABERCISE, saved_ids[i]));
     }
     // One movement always stays on, whatever a save says.
     int on = 0;
@@ -769,6 +845,7 @@ static void Respawn(void) {
     target.air_frames = 0;
     target.di = -1;
     target.di_lag = 0;
+    target.di_count = 0;
     target.late = 0;
     event_vars->set_timing_overlay(cpu, 0);
     target.spot = spot;
@@ -1167,7 +1244,7 @@ static bool LandingSoon(FighterData *ft) {
  * techs whenever it comes, with no press to time to it. A missed tech reads as
  * never pressed. A tech roll holds the stick away from you or toward you while
  * it can't drift (in hitstun, ft_80084EEC) or is about to land, and never in
- * hitlag, where it would DI (that stick is CPU DI's, DIInputs). */
+ * hitlag, where it would DI (that stick is the DI rows', DIInputs). */
 static void TechInputs(FighterData *ft) {
     if (target.landing < 0) target.landing = TC_PresetTech(TECH_PRESET, HSD_Randi(100));
     if (target.landing == TC_TECH_MISS) {
@@ -1205,46 +1282,180 @@ static void ChaseInputs(FighterData *ft) {
 
 // Hit mode's DI -------------------------------------------------------------------
 
-/* CPU DI's Random: the stick all the way one of its eight ways, the gate's
+/* The Training Lab's DI rows (CPUOnHit and CPUThink in lab.c) but its custom
+ * TDI: Trajectory DI for the throw and every hit, and for every hit Smash DI and
+ * the C-stick's ASDI, each picked as it starts. */
+
+/* Natural's ways: the stick all the way one of its eight ways, the gate's
  * notches. A diagonal's 89 (0.70) on each axis makes a stick 0.99 long, as the
- * Training Lab's are, past the 0.7 (PlCo 0x4B0) ASDI takes. */
+ * Training Lab's are, past the 0.7 (PlCo 0x4B0) that ASDI and Smash DI take.
+ * The first DI_LEVEL_OR_UP are level or up: as in the Training Lab, the first
+ * throw or hit since the CPU appeared never DIs down, where a grounded CPU
+ * would floorhug. */
 #define DI_DIAGONAL 89
 static const s8 DI_Sticks[][2] = {
-    {STICK_FULL, 0}, {DI_DIAGONAL, DI_DIAGONAL}, {0, STICK_FULL}, {-DI_DIAGONAL, DI_DIAGONAL},
-    {-STICK_FULL, 0}, {-DI_DIAGONAL, -DI_DIAGONAL}, {0, -STICK_FULL}, {DI_DIAGONAL, -DI_DIAGONAL},
+    {STICK_FULL, 0}, {-STICK_FULL, 0}, {DI_DIAGONAL, DI_DIAGONAL}, {-DI_DIAGONAL, DI_DIAGONAL}, {0, STICK_FULL},
+    {DI_DIAGONAL, -DI_DIAGONAL}, {-DI_DIAGONAL, -DI_DIAGONAL}, {0, -STICK_FULL},
 };
-static bool RandomDI(void) { return HitMode() && Options_Main[OPT_DI].val == TM_GRABS_DI_RANDOM; }
+#define DI_LEVEL_OR_UP 5
+// target.di's other picks: at right angles to the launch, one way or the other, or no stick.
+enum { DI_INWARD = countof(DI_Sticks), DI_OUTWARD, DI_NO_STICK };
 /* Thrown by a throw, DK's cargo throws included, which lets go partway through. */
 static bool Thrown(int state) {
     return (state >= ASID_THROWNF && state <= ASID_THROWNLWWOMEN) || (state >= ASID_THROWNFF && state <= ASID_THROWNFLW);
 }
-/* CPU DI (Hit mode): through a standard grab's throw and each hit's hitlag, the
- * CPU holds the stick all the way one of its eight ways, picked at random for
- * the throw and again for each hit (more hitlag than was left: a new hit, or one
- * during another's). The game reads the stick of last frame's input proc as the
+static int TowardYou(FighterData *ft) { return -AwayFromYou(ft); }
+
+/* Where a throw will send the CPU, before it lets go, as the Training Lab works
+ * it out: at the thrower's throw hitbox's angle (throw_hitbox[0], which
+ * ftCo_800DDDE4 launches with), the way the thrower faces, or back past 95
+ * degrees (as Marth's down throw goes). A back throw, whose thrower may turn
+ * around, goes the way the CPU faces. `toward` is the side DIing inwards
+ * leans to, against the launch: the thrower's. */
+static bool ThrowLaunch(FighterData *ft, Vec2 *launch, int *toward) {
+    GOBJ *attacker = ft->grab.attacker;
+    if (!attacker) return false;
+    FighterData *thrower = attacker->userdata;
+    float angle = thrower->throw_hitbox[0].angle * M_1DEGREE, reverse = 95 * M_1DEGREE;
+    if (thrower->state_id != ASID_THROWB) {
+        *toward = thrower->facing_direction * (angle < reverse ? -1 : 1);
+        if (angle >= reverse) angle = M_PI - angle;
+    } else {
+        *toward = ft->facing_direction;
+        if (angle > reverse) angle = M_PI - angle;
+    }
+    if (*toward > 0) angle = M_PI - angle;
+    launch->X = cos(angle);
+    launch->Y = sin(angle);
+    return true;
+}
+/* A hit's launch is its knockback, which damage entry (ftCo_8008DCE0) sets as
+ * it lands and the hitlag's end DIs (ftCo_8008E5A4). DIing inwards leans toward
+ * you, as the Training Lab's does. */
+static bool HitLaunch(FighterData *ft, Vec2 *launch, int *toward) {
+    launch->X = ft->phys.kb_vel.X;
+    launch->Y = ft->phys.kb_vel.Y;
+    *toward = TowardYou(ft);
+    return true;
+}
+
+/* A new throw's or hit's Trajectory DI (target.di). Random is the Training
+ * Lab's: Inwards, Outwards or none, a third each. */
+static void PickDI(void) {
+    static const u8 random[] = {TDI_IN, TDI_OUT, TDI_NONE};
+    int choice = Options_Main[OPT_DI].val;
+    if (choice == TDI_RANDOM) choice = random[HSD_Randi(countof(random))];
+    target.di_count++;
+    if (choice == TDI_IN) target.di = DI_INWARD;
+    else if (choice == TDI_OUT) target.di = DI_OUTWARD;
+    else if (choice == TDI_NATURAL) target.di = HSD_Randi(target.di_count > 1 ? countof(DI_Sticks) : DI_LEVEL_OR_UP);
+    else target.di = DI_NO_STICK;
+}
+/* This frame's Trajectory DI stick. Inwards and Outwards hold it all the way at
+ * right angles to the launch: turned back toward `toward`, or away from it,
+ * from a launch going up, and the other way round from one going down, the way
+ * the Training Lab's angles turn (the launch's, plus or minus 90 degrees). A
+ * launch with no length has no stick. */
+static void DIStick(FighterData *ft, bool thrown, s8 stick[2]) {
+    stick[0] = stick[1] = 0;
+    if (target.di >= 0 && target.di < DI_INWARD) {
+        stick[0] = DI_Sticks[target.di][0];
+        stick[1] = DI_Sticks[target.di][1];
+        return;
+    }
+    Vec2 launch;
+    int toward;
+    if (target.di != DI_INWARD && target.di != DI_OUTWARD) return;
+    if (!(thrown ? ThrowLaunch(ft, &launch, &toward) : HitLaunch(ft, &launch, &toward))) return;
+    float length = sqrtf(launch.X * launch.X + launch.Y * launch.Y);
+    if (length < .001f) return;
+    // Clockwise, (y, -x), or counterclockwise, (-y, x).
+    int clockwise = toward * (launch.Y >= 0 ? 1 : -1) * (target.di == DI_INWARD ? 1 : -1);
+    stick[0] = (s8)(clockwise * launch.Y / length * STICK_FULL);
+    stick[1] = (s8)(-clockwise * launch.X / length * STICK_FULL);
+}
+/* Smash DI Direction's and ASDI's own ways, in both rows' order from Away. */
+enum way { WAY_AWAY, WAY_TOWARD, WAY_LEFT, WAY_RIGHT, WAY_UP, WAY_DOWN };
+typedef char grabercise_ways[(TM_GRABS_SDI_DOWN - TM_GRABS_SDI_AWAY == WAY_DOWN &&
+    TM_GRABS_ASDI_DOWN - TM_GRABS_ASDI_AWAY == WAY_DOWN) ? 1 : -1];
+static void Way(int way, int toward, s8 stick[2]) {
+    static const s8 ways[][2] = {{-1, 0}, {1, 0}, {-1, 0}, {1, 0}, {0, 1}, {0, -1}};
+    stick[0] = ways[way][0] * STICK_FULL * (way <= WAY_TOWARD ? toward : 1);
+    stick[1] = ways[way][1] * STICK_FULL;
+}
+/* A new hit's Smash DI (target.sdi and sdi_left) and ASDI (target.asdi), as
+ * the Training Lab's: Random Smash DI goes left or right on the ground and any
+ * way in the air, and Auto leaves the C-stick alone. */
+static void PickHitDI(FighterData *ft) {
+    int toward = TowardYou(ft), sdi = Options_Main[OPT_SDI_DIR].val, asdi = Options_Main[OPT_ASDI].val;
+    target.sdi_left = Options_Main[OPT_SDI_AMOUNT].val;
+    target.sdi[0] = target.sdi[1] = target.asdi[0] = target.asdi[1] = 0;
+    if (sdi == TM_GRABS_SDI_RANDOM) {
+        if (ft->phys.air_state == 0) {
+            target.sdi[0] = HSD_Randi(2) ? STICK_FULL : -STICK_FULL;
+        } else {
+            float angle = HSD_Randf() * 2 * M_PI;
+            target.sdi[0] = (s8)(cos(angle) * STICK_FULL);
+            target.sdi[1] = (s8)(sin(angle) * STICK_FULL);
+        }
+    } else if (sdi >= TM_GRABS_SDI_AWAY && sdi < TM_GRABS_SDI_DIR_COUNT) {
+        Way(sdi - TM_GRABS_SDI_AWAY, toward, target.sdi);
+    }
+    if (asdi >= TM_GRABS_ASDI_AWAY && asdi < TM_GRABS_ASDI_COUNT) Way(asdi - TM_GRABS_ASDI_AWAY, toward, target.asdi);
+}
+/* Hit mode's DI, through a standard grab's throw and each hit's hitlag. A new
+ * hit is more hitlag than was left (a hit during another's too), and picks
+ * everything again. The game reads the stick of last frame's input proc as the
  * throw lets go, in the thrower's animation (ftCo_800DE7C0, DI at once through
- * ftCo_8008E5A4), and as the hitlag ends, in the hitlag proc
- * (ftCo_Damage_OnExitHitlag: ASDI, then DI). Smash DI (ftCo_Damage_OnEveryHitlag)
- * takes only a flick, a stick whose tilt timer is under PlCo 0x4B4 (4), so the
- * processed stick and the timers are set as if it had been held all along: the
- * input proc sees no flick, and counts the timers up from there. Hitlag in
+ * ftCo_8008E5A4, and no ASDI), and as the hitlag ends, in the hitlag proc
+ * (ftCo_Damage_OnExitHitlag: ASDI with the C-stick if it's 0.7 out
+ * (ftCo_800DF608), else with the stick if it is, then DI). Each hitlag frame
+ * before that, Smash DI (ftCo_Damage_OnEveryHitlag) takes a stick 0.7 out
+ * whose tilt timer is under PlCo 0x4B4 (4): a flick, which only a stick that
+ * crossed 0.25 since the last input proc makes. So through the throw, and each
+ * hitlag frame once its Smash DI inputs are spent, and always the last, which
+ * the game DIs with, the CPU holds its Trajectory DI with the processed stick
+ * and the timers set as if it had been held all along: the input proc sees no
+ * flick and counts the timers up from 254. Before that, from a frame whose
+ * stick was in, it flicks its Smash DI stick out every other frame, letting go
+ * in between, as fast as a hand can. The C-stick holds the ASDI through the
+ * hitlag, the processed stick with it, as the Training Lab sets them. Hitlag in
  * shield (GuardSetOff) isn't knockback, and a hold (CaptureWait, Shouldered)
  * isn't a throw, where the stick would mash out. */
 static void DIInputs(FighterData *ft, int state) {
     bool thrown = target.grabbed && Thrown(state), hit = KnockedBack(state) && Frozen(ft);
-    if (!RandomDI() || !(thrown || hit)) {
+    if (!HitMode() || !(thrown || hit)) {
         target.di = -1;
         target.di_lag = 0;
         return;
     }
     float lag = hit ? ft->dmg.hitlag_frames : 0;
-    if (target.di < 0 || lag > target.di_lag) target.di = HSD_Randi(countof(DI_Sticks));
+    if (target.di < 0 || lag > target.di_lag) {
+        PickDI();
+        if (hit) PickHitDI(ft);
+    }
     target.di_lag = lag;
-    const s8 *stick = DI_Sticks[target.di];
-    ft->cpu.lstickX = stick[0];
-    ft->cpu.lstickY = stick[1];
-    ft->input.lstick = (Vec2){stick[0] / 127.f, stick[1] / 127.f};
-    ft->input.timer_lstick_tilt_x = ft->input.timer_lstick_tilt_y = 254;
+    s8 stick[2];
+    DIStick(ft, thrown, stick);
+    if (hit && lag > 1 && target.sdi_left > 0) {
+        const s8 *sdi = Options_Main[OPT_SDI_DIR].val == TM_GRABS_SDI_AUTO ? stick : target.sdi;
+        bool in = fabs(ft->input.lstick.X) < TILT && fabs(ft->input.lstick.Y) < TILT;
+        ft->cpu.lstickX = in ? sdi[0] : 0;
+        ft->cpu.lstickY = in ? sdi[1] : 0;
+        if (in) target.sdi_left--;
+        return;
+    }
+    if (stick[0] || stick[1]) {
+        ft->cpu.lstickX = stick[0];
+        ft->cpu.lstickY = stick[1];
+        ft->input.lstick = (Vec2){stick[0] / 127.f, stick[1] / 127.f};
+        ft->input.timer_lstick_tilt_x = ft->input.timer_lstick_tilt_y = 254;
+    }
+    if (hit) {
+        ft->cpu.cstickX = target.asdi[0];
+        ft->cpu.cstickY = target.asdi[1];
+        ft->input.cstick = (Vec2){target.asdi[0] / 127.f, target.asdi[1] / 127.f};
+    }
 }
 
 // Hit mode: late ----------------------------------------------------------------

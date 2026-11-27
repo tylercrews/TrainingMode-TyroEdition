@@ -113,14 +113,20 @@ GRABS = 51  # TM_SETTING_GRABERCISE
 # after Fighter Collision, in word 80 bits 7-8, then CPU DI (T11: None,
 # Random), appended after that, in word 84 (version 25) bits 16-17, above
 # Escape IC Grab's Handoff, None stored as 0, then Late Frames OSD (T11, On by
-# default), in bit 18, On stored as 0. (offset, shift, width).
-GRABS_COUNTS = (64, 2, 2, 14, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2, 2)
-GRABS_DEFAULTS = (0, 0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1)
+# default), in bit 18, On stored as 0. CPU DI became Trajectory DI (T11), with
+# the Training Lab's five choices and bit 19 as its top bit, and Smash DI
+# Amount, Smash DI Direction and ASDI were appended in bits 20-28, each 0 by
+# default. (offset, shift, width), and Trajectory DI's top bit.
+GRABS_COUNTS = (64, 2, 2, 14, 3, 2, 2, 2, 2, 2, 2, 2, 3, 5, 2, 8, 8, 7)
+GRABS_DEFAULTS = (0, 0, 0, 0, 2, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0)
 GRABS_FIELDS = ((76, 16, 6), (76, 23, 1), (76, 22, 1), (80, 0, 4), (48, 27, 2), (76, 24, 1), (76, 25, 1),
-                (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1), (80, 7, 2), (84, 16, 2), (84, 18, 1))
+                (76, 26, 1), (76, 29, 1), (76, 30, 1), (76, 27, 1), (76, 28, 1), (80, 7, 2), (84, 16, 2), (84, 18, 1),
+                (84, 20, 3), (84, 23, 3), (84, 26, 3))
 GRABS_SUCCESS, GRABS_PERCENT, GRABS_STANDING, GRABS_WALK, GRABS_MOVEMENT, GRABS_DI = 2, 3, 4, 5, 12, 13
-GRABS_LATE_OSD = 14
-GRABS_DIS, GRABS_DI_SHIFT, GRABS_LATE_OSD_SHIFT = 2, 16, 18
+GRABS_LATE_OSD, GRABS_SDI_AMOUNT, GRABS_SDI_DIR, GRABS_ASDI = 14, 15, 16, 17
+GRABS_DIS, GRABS_DI_SHIFT, GRABS_LATE_OSD_SHIFT, GRABS_DI_TOP_SHIFT = 5, 16, 18, 19
+GRABS_DI_NATURAL, GRABS_DI_RANDOM = 1, 4  # CPU DI's old Random, a way of eight, and the Training Lab's Random.
+GRABS_TOP_BITS = {GRABS_DI: (84, GRABS_DI_TOP_SHIFT)}  # Each split row's top bit: (offset, bit).
 # Target Practice (T10): its timed best (8 bits), Free Practice and SH Double
 # Lasers in word 80 bits 10-17, 18 and 19, and Hop Peak Lines, appended, in bit
 # 29, each stored as itself. FH Multi Lasers, appended after (Off, All Combos and
@@ -782,11 +788,18 @@ class ExtensionTests(unittest.TestCase):
                 after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
                 offset, shift, width = GRABS_FIELDS[index]
                 word = int.from_bytes(after[offset:offset + 4], 'little')
-                self.assertEqual(word >> shift & ((1 << width) - 1), (value + count - GRABS_DEFAULTS[index]) % count)
+                stored = (value + count - GRABS_DEFAULTS[index]) % count
+                self.assertEqual(word >> shift & ((1 << width) - 1), stored & ((1 << width) - 1))
+                mask = ((1 << width) - 1) << shift
+                if index in GRABS_TOP_BITS:  # The rest of the value is in its top bit.
+                    top_offset, top = GRABS_TOP_BITS[index]
+                    self.assertEqual(top_offset, offset)
+                    self.assertEqual(word >> top & 1, stored >> width)
+                    mask |= 1 << top
                 # Nothing else in the record moves: the escape events' bits, bit
                 # 31, and byte 51's costume and Egg Counter Position included.
                 changed = bytearray(a ^ b for a, b in zip(after, before))
-                for k, byte in enumerate((((1 << width) - 1) << shift).to_bytes(4, 'little')):
+                for k, byte in enumerate(mask.to_bytes(4, 'little')):
                     changed[offset + k] &= ~byte & 0xFF
                 self.assertEqual(bytes(changed), bytes(len(changed)))
             snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
@@ -800,9 +813,12 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', GRABS, 7, 0)
         m.call('Settings_Set', GRABS, 9, 0)
         m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 2)  # Moving Only
-        m.call('Settings_Set', GRABS, GRABS_DI, 1)  # Random
+        m.call('Settings_Set', GRABS, GRABS_DI, GRABS_DI_RANDOM)
         m.call('Settings_Set', GRABS, GRABS_LATE_OSD, 0)  # Off
-        self.assertEqual(self.grabs(), (63, 0, 1, 13, 1, 1, 1, 0, 1, 0, 1, 0, 2, 1, 0))
+        m.call('Settings_Set', GRABS, GRABS_SDI_AMOUNT, 6)
+        m.call('Settings_Set', GRABS, GRABS_SDI_DIR, 7)  # Down
+        m.call('Settings_Set', GRABS, GRABS_ASDI, 2)  # Towards
+        self.assertEqual(self.grabs(), (63, 0, 1, 13, 1, 1, 1, 0, 1, 0, 1, 0, 2, GRABS_DI_RANDOM, 0, 6, 7, 2))
         self.assertEqual((self.escape(ESCAPE_SAMUS, 5), self.escape(ESCAPE_IC, 1)), ((0, 1, 0, 20, 0), (13,)))
 
     def test_standing_cpu_shares_byte_51_with_the_cpu_costume_and_egg_counter(self):
@@ -1439,7 +1455,7 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 84, 4), 'little'), 1 << ESCAPE_IC_HANDOFF_SHIFT)
         self.assertEqual(m.call('Settings_Get', ESCAPE_IC, 0), 13)
 
-    def test_grabercise_cpu_di_uses_only_word_84_bits_16_to_17_with_none_stored_as_0(self):
+    def test_grabercise_trajectory_di_uses_only_word_84_bits_16_17_and_19_with_none_stored_as_0(self):
         m = self.m
         self.version_23_record()  # Settings in words 80 and 12,
         m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # its own event's in word 80 and 76,
@@ -1447,27 +1463,28 @@ class ExtensionTests(unittest.TestCase):
         m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, 11); m.call('Settings_Set', ESCAPE_IC, ESCAPE_IC_HANDOFF, 1)
         word = lambda record: int.from_bytes(record[84:88], 'little')
         # and Target Practice's and the Handoff's bits under it in word 84, with Late Frames OSD's
-        # bit (On) and the spare bits over it.
-        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x2ABC << 18).to_bytes(4, 'little'))
+        # bit (On) between its two parts, and the other DI rows and the spare bits over them.
+        m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0xABC << 20).to_bytes(4, 'little'))
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        mask = 3 << GRABS_DI_SHIFT
+        mask = 3 << GRABS_DI_SHIFT | 1 << GRABS_DI_TOP_SHIFT
         self.assertEqual(word(before) & mask, 0)
         self.assertEqual(m.call('Settings_Get', GRABS, GRABS_DI), 0)  # 0 is None.
-        for value in (1, 0, 1):
+        for value in (1, 4, 0, 2, 3, 4):
             m.call('Settings_Set', GRABS, GRABS_DI, value)
             self.assertEqual(m.call('Settings_Get', GRABS, GRABS_DI), value)
             after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-            self.assertEqual((word(after) >> GRABS_DI_SHIFT & 3, word(after) & ~mask), (value, word(before)))
+            stored = (word(after) >> GRABS_DI_SHIFT & 3) | (word(after) >> GRABS_DI_TOP_SHIFT & 1) << 2
+            self.assertEqual((stored, word(after) & ~mask), (value, word(before)))
             self.assertEqual(after[:84], before[:84])
             self.assertEqual(after[:8], HEADER)  # No version bump.
         snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
-        for value in (GRABS_DIS, 3, 0xFFFFFFFF):  # Out of range is ignored.
+        for value in (GRABS_DIS, 7, 0xFFFFFFFF):  # Out of range is ignored.
             m.call('Settings_Set', GRABS, GRABS_DI, value)
             self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
-        # A stored 2 or 3 isn't a choice yet: it reads as None, and stays, as Grabs-ercise's other
-        # spare values do, so a later DI can take it with no migration.
-        for stored in range(GRABS_DIS, 4):
-            stray = word(snapshot) & ~mask | stored << GRABS_DI_SHIFT
+        # A stored 5 to 7 isn't a choice yet: it reads as None, and stays, as Grabs-ercise's other
+        # spare values do, so a later choice can take it with no migration.
+        for stored in range(GRABS_DIS, 8):
+            stray = word(snapshot) & ~mask | (stored & 3) << GRABS_DI_SHIFT | (stored >> 2) << GRABS_DI_TOP_SHIFT
             m.cpu.mem_write(EXT + 84, stray.to_bytes(4, 'little'))
             self.assertEqual(m.call('Settings_Get', GRABS, GRABS_DI), 0)
             self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), stray)
@@ -1475,35 +1492,76 @@ class ExtensionTests(unittest.TestCase):
         # Its neighbors' writes keep it, and they read as they were.
         m.call('Settings_Set', ESCAPE_IC, ESCAPE_IC_HANDOFF, 0); m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, 3)
         m.call('Settings_Set', GRABS, GRABS_PERCENT, 2); m.call('Settings_Set', GRABS, GRABS_MOVEMENT, 1)
-        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_DI), 1)
+        m.call('Settings_Set', GRABS, GRABS_LATE_OSD, 1); m.call('Settings_Set', GRABS, GRABS_SDI_AMOUNT, 3)
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_DI), 4)
         self.assertEqual((m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE),
                           m.call('Settings_Get', GRABS, GRABS_PERCENT), m.call('Settings_Get', GRABS, GRABS_SUCCESS)),
                          (0, 3, 2, 1))
-        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 18, 0x2ABC)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 23, 0xABC >> 3)  # Smash DI Amount changed.
 
-    def test_records_before_version_25_read_cpu_di_as_none_without_writing(self):
+    def test_grabercise_smash_di_and_asdi_use_only_word_84_bits_20_to_28_each_0_by_default(self):
+        m = self.m
+        self.version_23_record()  # Settings in words 80 and 12,
+        m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # its own event's in words 80 and 76,
+        m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, 11); m.call('Settings_Set', ESCAPE_IC, ESCAPE_IC_HANDOFF, 1)
+        m.call('Settings_Set', GRABS, GRABS_DI, GRABS_DI_RANDOM)  # and the rows under them in word 84,
+        m.call('Settings_Set', GRABS, GRABS_LATE_OSD, 0)
+        word = lambda record: int.from_bytes(record[84:88], 'little')
+        spare = word(m.cpu.mem_read(EXT, REGION_SIZE)) | 5 << 29  # and spare bits over them.
+        m.cpu.mem_write(EXT + 84, spare.to_bytes(4, 'little'))
+        for index, shift, count in ((GRABS_SDI_AMOUNT, 20, 8), (GRABS_SDI_DIR, 23, 8), (GRABS_ASDI, 26, 7)):
+            with self.subTest(index=index):
+                before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                mask = 7 << shift
+                self.assertEqual((word(before) & mask, m.call('Settings_Get', GRABS, index)), (0, 0))  # 0 is the default.
+                for value in (1, count - 1, 0, count // 2):
+                    m.call('Settings_Set', GRABS, index, value)
+                    self.assertEqual(m.call('Settings_Get', GRABS, index), value)
+                    after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                    self.assertEqual((word(after) >> shift & 7, word(after) & ~mask), (value, word(before)))
+                    self.assertEqual((after[:84], after[:8]), (before[:84], HEADER))  # No version bump.
+                snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+                for value in (count, 0xFFFFFFFF):  # Out of range is ignored.
+                    m.call('Settings_Set', GRABS, index, value)
+                    self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        # ASDI's 7 isn't a choice yet: it reads as Auto, and stays.
+        stray = word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) | 7 << 26
+        m.cpu.mem_write(EXT + 84, stray.to_bytes(4, 'little'))
+        self.assertEqual(m.call('Settings_Get', GRABS, GRABS_ASDI), 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), stray)
+        # The rows under them still read as they were, and the spare bits stay.
+        self.assertEqual((m.call('Settings_Get', GRABS, GRABS_DI), m.call('Settings_Get', GRABS, GRABS_LATE_OSD),
+                          m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE),
+                          m.call('Settings_Get', GRABS, GRABS_PERCENT)), (GRABS_DI_RANDOM, 0, 1, 11, 9))
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 29, 5)
+
+    def test_records_before_version_25_read_the_di_rows_as_their_defaults_without_writing(self):
         m = self.m
         m.call('Settings_Set', GRABS, GRABS_PERCENT, 9)  # A percent in word 80, which versions 23 and 24 own.
-        random = (1 << GRABS_DI_SHIFT).to_bytes(4, 'little')  # What a version 25 record would read as Random.
+        # What a version 25 record would read as Natural, 6 Smash DIs Down and ASDI Towards.
+        di = (1 << GRABS_DI_SHIFT | 6 << 20 | 7 << 23 | 2 << 26).to_bytes(4, 'little')
         for version, old in ((24, self.version_24_record()), (23, None), (22, self.version_22_record())):
             with self.subTest(version=version):
                 if old is None:
                     old = self.version_24_record(); old[4:6] = bytes((23, 76))
-                old[84:88] = random  # Spare score bytes are not a DI.
-                m.cpu.mem_write(EXT, bytes(old))
-                self.assertEqual(m.call('TMExtension_Read', EXT, GRABS, GRABS_DI), 0)
-                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+                for spare in (di, b'\xFF' * 4):  # Spare score bytes are not a DI.
+                    old[84:88] = spare
+                    m.cpu.mem_write(EXT, bytes(old))
+                    for index in (GRABS_DI, GRABS_SDI_AMOUNT, GRABS_SDI_DIR, GRABS_ASDI):
+                        self.assertEqual(m.call('TMExtension_Read', EXT, GRABS, index), 0)
+                    self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
         # Migrating zeroes word 84: None, and a write lands in its bits alone.
         self.assertEqual(m.call('Settings_Get', GRABS, GRABS_DI), 0)
-        m.call('Settings_Set', GRABS, GRABS_DI, 1)
-        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 84, 4), 'little'), 1 << GRABS_DI_SHIFT)
+        m.call('Settings_Set', GRABS, GRABS_DI, GRABS_DI_RANDOM)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 84, 4), 'little'), 1 << GRABS_DI_TOP_SHIFT)
 
     def test_grabercise_late_frames_osd_uses_only_word_84_bit_18_with_on_stored_as_0(self):
         m = self.m
         self.version_23_record()  # Settings in words 80 and 12,
-        m.call('Settings_Set', GRABS, GRABS_DI, 1)  # and CPU DI, Target Practice's and the Handoff's under it.
+        m.call('Settings_Set', GRABS, GRABS_DI, 1)  # and Trajectory DI's low bits, Target Practice's and the Handoff's under it,
         m.call('Settings_Set', TARGETS, TARGETS_LOW_LINE, 11); m.call('Settings_Set', ESCAPE_IC, ESCAPE_IC_HANDOFF, 1)
         word = lambda record: int.from_bytes(record[84:88], 'little')
+        # and its top bit, the other DI rows and the spare bits over it.
         m.cpu.mem_write(EXT + 84, (word(m.cpu.mem_read(EXT, REGION_SIZE)) | 0x155E << 19).to_bytes(4, 'little'))
         before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
         bit = 1 << GRABS_LATE_OSD_SHIFT

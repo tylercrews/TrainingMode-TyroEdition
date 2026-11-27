@@ -58,6 +58,18 @@ int sprintf(char *out, const char *format, ...) {
     va_end(args);
     return out - start;
 }
+/* The series, folded into a quarter turn, as edgeguard_probe.c's: Trajectory
+ * DI's throws and Random Smash DI's angles. */
+#define PROBE_PI 3.14159265f
+float sin(float a) {
+    while (a > PROBE_PI) a -= 2 * PROBE_PI;
+    while (a < -PROBE_PI) a += 2 * PROBE_PI;
+    if (a > PROBE_PI / 2) a = PROBE_PI - a;
+    if (a < -PROBE_PI / 2) a = -PROBE_PI - a;
+    float a2 = a * a;
+    return a * (1.f - a2 / 6.f * (1.f - a2 / 20.f * (1.f - a2 / 42.f * (1.f - a2 / 72.f))));
+}
+float cos(float a) { return sin(a + PROBE_PI / 2); }
 static unsigned NextRand(void) { seed = seed * 1103515245 + 12345; return seed >> 16 & 0x7FFF; }
 int HSD_Randi(int max) { return max > 0 ? NextRand() % max : 0; }
 float HSD_Randf(void) { return NextRand() / 32768.f; }
@@ -165,9 +177,13 @@ static struct stats {
     int chase_state, getup_state;
     float chase_x, chase_last_x;
     // DI: the Smash DI inputs the game took, the sticks it DI'd with (as a
-    // throw let go or a hitlag ended), and the last of them.
+    // throw let go or a hitlag ended), and the last of them; the last Smash
+    // DI's stick; and the last hitlag end's ASDI: 0 none, 1 the stick, 2 the
+    // C-stick, and the way it went.
     int sdi, di_reads;
-    float di_x, di_y;
+    float di_x, di_y, sdi_x, sdi_y;
+    int asdi_kind;
+    float asdi_x, asdi_y;
 } st;
 
 static void Enter(int state, int length) {
@@ -308,6 +324,16 @@ static void ReadDI(void) {
     st.di_x = ft[CPU_FT].input.lstick.X;
     st.di_y = ft[CPU_FT].input.lstick.Y;
 }
+/* ftCo_Damage_OnExitHitlag's ASDI, before its DI: the C-stick if it's PlCo
+ * 0x4B0 (0.7) out (ftCo_800DF608), else the stick if it is. */
+static int Out(Vec2 stick) { return stick.X * stick.X + stick.Y * stick.Y >= .7f * .7f; }
+static void ReadASDI(void) {
+    FighterData *f = &ft[CPU_FT];
+    st.asdi_kind = Out(f->input.cstick) ? 2 : Out(f->input.lstick) ? 1 : 0;
+    Vec2 way = st.asdi_kind == 2 ? f->input.cstick : f->input.lstick;
+    st.asdi_x = st.asdi_kind ? way.X : 0;
+    st.asdi_y = st.asdi_kind ? way.Y : 0;
+}
 /* s_link 0 and 1: hitlag, then animations and their scripts. */
 static void Animate(void) {
     FighterData *f = &ft[CPU_FT];
@@ -316,7 +342,10 @@ static void Animate(void) {
         if (f->dmg.hitlag_frames <= 0) {
             f->dmg.hitlag_frames = 0;
             f->flags.hitlag = f->flags.freeze = 0;
-            if (KnockedBack(f->state_id)) ReadDI();
+            if (KnockedBack(f->state_id)) {
+                ReadASDI();
+                ReadDI();
+            }
         }
         return;
     }
@@ -410,6 +439,7 @@ static void Input(void) {
     else timer_y = 254;
     f->input.timer_lstick_tilt_y = timer_y;
     f->input.lstick.Y = y;
+    f->input.cstick = (Vec2){f->cpu.cstickX / 127.f, f->cpu.cstickY / 127.f};
     // Newly pressed buttons, and the frames since A, B and L/R were (fighter.c's input proc).
     int held_before = f->input.held;
     f->input.held = f->cpu.held;
@@ -543,6 +573,8 @@ static void SmashDI(FighterData *f) {
     if (x * x + y * y < .7f * .7f) return;
     if ((u8)f->input.timer_lstick_tilt_x >= 4 && (u8)f->input.timer_lstick_tilt_y >= 4) return;
     st.sdi++;
+    st.sdi_x = x;
+    st.sdi_y = y;
     f->input.timer_lstick_tilt_x = f->input.timer_lstick_tilt_y = 254;
 }
 /* s_link 4: speed and movement along the floor. */
@@ -808,6 +840,20 @@ void TestGrabsRelease(void) {
     ReadDI();
     TestGrabsState(ASID_DAMAGEFLYN, 0, 1);
 }
+/* A hit's knockback, as damage entry sets it before the hitlag. */
+void TestGrabsKnockback(int x1000, int y1000) { ft[CPU_FT].phys.kb_vel = (Vec3){x1000 / 1000.f, y1000 / 1000.f, 0}; }
+/* You hold the CPU for a throw: your state (ThrowF, ThrowB...), the way you
+ * face, the throw hitbox's angle, and the way the CPU faces. */
+void TestGrabsThrower(int state, int facing, int angle, int cpu_facing) {
+    ft[CPU_FT].grab.attacker = &fighters[HMN_FT];
+    ft[HMN_FT].state_id = state;
+    ft[HMN_FT].facing_direction = facing;
+    ft[HMN_FT].throw_hitbox[0].angle = angle;
+    ft[CPU_FT].facing_direction = cpu_facing;
+}
+/* The stick as last frame's input proc left it, in the CPU's units: a stick
+ * still out as a hit lands (a tech roll's, say). */
+void TestGrabsLastStick(int x, int y) { ft[CPU_FT].input.lstick = (Vec2){x / 127.f, y / 127.f}; }
 void TestGrabsPercent(int percent) { ft[CPU_FT].dmg.percent = percent; }
 void TestGrabsMoveCPU(int x1000, int y1000) { ft[CPU_FT].phys.pos.X = x1000 / 1000.f; ft[CPU_FT].phys.pos.Y = y1000 / 1000.f; }
 void TestGrabsClock(int frames, int count) { stc_match->time_frames = frames; grab_count = count; }
@@ -824,6 +870,7 @@ int TestGrabsRow(int row, int key) {
         case 0: return option->val;
         case 1: return option->disable;
         case 2: return option->kind;
+        case 3: return option->value_num;
     }
     return -1;
 }
@@ -890,6 +937,11 @@ int TestGrabsInfo(int key) {
         case 34: return overlay.active;
         case 35: return overlay.color.r << 24 | overlay.color.g << 16 | overlay.color.b << 8 | overlay.color.a;
         case 36: return late_show_frames ? late_shown : 0;
+        // The C-stick, and the Smash DI inputs this hit has left.
+        case 37: return f->cpu.cstickX;
+        case 38: return f->cpu.cstickY;
+        case 39: return target.sdi_left;
+        case 40: return target.di_count;
     }
     return -1;
 }
@@ -935,6 +987,11 @@ int TestGrabsStat(int key) {
         case 36: return st.di_reads;
         case 37: return Units(st.di_x);
         case 38: return Units(st.di_y);
+        case 39: return Units(st.sdi_x);
+        case 40: return Units(st.sdi_y);
+        case 41: return st.asdi_kind;
+        case 42: return Units(st.asdi_x);
+        case 43: return Units(st.asdi_y);
     }
     return -1;
 }
