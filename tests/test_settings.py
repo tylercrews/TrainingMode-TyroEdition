@@ -1058,40 +1058,60 @@ class CharacterPreferenceTests(unittest.TestCase):
     def test_restore_constraints_costumes_and_forced_events_do_not_replace_choices(self):
         m=self.m;backup=0x8045A6C0+3344
         m.cpu.mem_write(backup+104,b'\x21');m.cpu.mem_write(backup+140,b'\x21')
-        m.call('Settings_Characters',0,-1,-1,1)
+        m.call('Settings_Characters',0,-1,-1,1,0)
         self.assertEqual(bytes(m.cpu.mem_read(backup+104,1)),b'\x02')
         self.assertEqual(bytes(m.cpu.mem_read(backup+140,1)),b'\x02')
         m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+140,b'\x09')
         m.cpu.mem_write(backup+107,b'\x03');m.cpu.mem_write(backup+143,b'\x04')
-        m.call('Settings_Characters',1,-1,-1,1)
+        m.call('Settings_Characters',1,-1,-1,1,0)
         saved=m.record();fresh=Machine();fresh.put(saved)
         fresh.cpu.mem_write(0x8045A6C0+0x1AE0,bytes(m.cpu.mem_read(0x8045A6C0+0x1AE0,88)))
-        fresh.call('Settings_Characters',0,-1,-1,1)
+        fresh.call('Settings_Characters',0,-1,-1,1,0)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1)),b'\x14')
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+140,1)),b'\x09')
         # Costumes persist with their character across a reboot.
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+143,1)),b'\x04')
-        fresh.cpu.mem_write(backup+107,b'\x03');fresh.call('Settings_Characters',0,-1,-1,1)
+        fresh.cpu.mem_write(backup+107,b'\x03');fresh.call('Settings_Characters',0,-1,-1,1,0)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')
         # Peach-only exercise and Fox-only CPU: local fallback, no global overwrite.
-        fresh.call('Settings_Characters',0,1<<4,1<<10,0)
+        fresh.call('Settings_Characters',0,1<<4,1<<10,0,0)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1)),b'\x0C')
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+140,1)),b'\x02')
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\0')
-        fresh.call('Settings_Characters',1,1<<4,1<<10,0)
+        fresh.call('Settings_Characters',1,1<<4,1<<10,0,0)
         self.assertEqual((fresh.call('Settings_Get',24,0),fresh.call('Settings_Get',24,1)),(20,9))
-        fresh.call('Settings_Characters',0,-1,-1,1)
+        fresh.call('Settings_Characters',0,-1,-1,1,0)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1)),b'\x14')
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+107,1)),b'\x03')  # Saved costume returns with Falco.
-        fresh.cpu.mem_write(backup+104,b'\x21');fresh.call('Settings_Characters',1,-1,-1,1)
+        fresh.cpu.mem_write(backup+104,b'\x21');fresh.call('Settings_Characters',1,-1,-1,1,0)
         self.assertEqual(fresh.call('Settings_Get',24,0),20)
+
+    def test_a_cpu_list_starts_on_the_events_default_when_the_saved_cpu_is_off_it(self):
+        # Powershield's CPU list: Falco (CSS icon 9) and Samus (14). Its default is Falco (external 20).
+        m=self.m;backup=0x8045A6C0+3344;cpus=1<<9|1<<14
+        m.cpu.mem_write(backup+140,b'\x09');m.cpu.mem_write(backup+143,b'\x02')
+        m.call('Settings_Characters',1,-1,-1,1,0)  # Marth is the saved CPU.
+        for default,expected in ((20,20),(0,16),(2,16)):  # Falco; none, or Fox, off the list: the lowest ID, Samus.
+            with self.subTest(default=default):
+                m.cpu.mem_write(backup+140,b'\x09')
+                m.call('Settings_Characters',0,-1,cpus,1,default)
+                self.assertEqual(bytes(m.cpu.mem_read(backup+140,1))[0],expected)
+                self.assertEqual(bytes(m.cpu.mem_read(backup+143,1)),b'\0')  # Marth's costume isn't kept.
+        # A saved CPU on the list wins over the default, and the human's slot ignores it.
+        m.call('Settings_Characters',1,-1,-1,1,0)
+        m.cpu.mem_write(backup+140,b'\x10');m.call('Settings_Characters',1,-1,-1,1,0)  # Samus is saved.
+        m.cpu.mem_write(backup+104,b'\x09')
+        m.call('Settings_Characters',0,1<<4,cpus,1,20)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+140,1))[0],16)
+        self.assertEqual(bytes(m.cpu.mem_read(backup+104,1)),b'\x0C')  # Peach-only: her list, not the default.
+        self.assertEqual(m.call('Settings_Get',24,1),16)
 
     def test_a_team_select_leaves_the_normal_characters_and_costumes_alone(self):
         m=self.m;backup=0x8045A6C0+3344
         m.cpu.mem_write(backup+104,b'\x02');m.cpu.mem_write(backup+107,b'\x03')
         m.cpu.mem_write(backup+140,b'\x09');m.cpu.mem_write(backup+143,b'\x04')
-        m.call('Settings_Characters',1,-1,-1,1)
+        m.call('Settings_Characters',1,-1,-1,1,0)
         record=m.record()
         # The select's exit backed up its team costumes, and other characters.
         m.cpu.mem_write(backup+104,b'\x14');m.cpu.mem_write(backup+107,b'\x01')
@@ -1103,7 +1123,7 @@ class CharacterPreferenceTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get',24,0),m.call('Settings_Get',38,0)),(2,3))
         # The same character in a team costume, the reported case.
         m.cpu.mem_write(backup+107,b'\x01');m.call('Settings_RestoreCharacters')
-        m.call('Settings_Characters',0,-1,-1,1)
+        m.call('Settings_Characters',0,-1,-1,1,0)
         self.assertEqual(bytes(m.cpu.mem_read(backup+107,1)),b'\x03')
 
     def test_a_team_select_with_nothing_saved_yet_saves_nothing(self):
@@ -1172,7 +1192,7 @@ class CharacterPreferenceTests(unittest.TestCase):
         m.call('Settings_SaveTeamSelect')
         fresh=Machine();fresh.put(m.record());fresh.cpu.mem_write(0x8045A6C0+0x1AE0,bytes(m.cpu.mem_read(0x8045A6C0+0x1AE0,88)))
         fresh.call('TMSettings_Prepare',RECORD,1)
-        fresh.call('Settings_Characters',0,-1,-1,0)
+        fresh.call('Settings_Characters',0,-1,-1,0,0)
         self.assertEqual(bytes(fresh.cpu.mem_read(backup+104,1))+bytes(fresh.cpu.mem_read(backup+140,1)),bytes((20,9)))
         self.native_css(fresh,0,1,20,9)
         fresh.call('Settings_OpenTeamSelect')
@@ -1252,18 +1272,18 @@ class CharacterPreferenceTests(unittest.TestCase):
         m.call('Settings_ApplyDoorForms')
         self.assertEqual(self.backup_kinds(m),(self.SHEIK,self.ZELDA))
         self.assertEqual(m.cpu.mem_read(self.EVENT_BACKUP,1)[0],self.SHEIK)  # Legacy events start from this.
-        m.call('Settings_Characters',1,-1,-1,1)
+        m.call('Settings_Characters',1,-1,-1,1,0)
         self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.ZELDA))
 
     def test_a_saved_form_survives_a_trip_through_the_css(self):
         m=self.m
         m.write(24,0,self.SHEIK);m.write(24,1,self.ZELDA)
         self.set_backup(m,2,2)
-        m.call('Settings_Characters',0,-1,-1,1)
+        m.call('Settings_Characters',0,-1,-1,1,0)
         m.call('Settings_LoadDoorForms')
         self.assertEqual(self.backup_kinds(m),(self.ZELDA,self.ZELDA))
         m.call('Settings_ApplyDoorForms')
-        m.call('Settings_Characters',1,-1,-1,1)
+        m.call('Settings_Characters',1,-1,-1,1,0)
         self.assertEqual((m.read(24,0),m.read(24,1)),(self.SHEIK,self.ZELDA))
 
     def test_a_team_select_remembers_each_doors_form(self):

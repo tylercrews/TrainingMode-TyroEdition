@@ -11,11 +11,11 @@ Everything here is inside Melee's existing main save entry, so it uses the game'
 | [Core settings record](#core-settings-record-0x1f240x1f4f) | `0x1F24..0x1F4F` | 44 bytes | 44 bytes | none |
 | [Event-played flags](#event-score-area-0x1a680x1b3f) (native) | `0x1A68..0x1A6F` | 8 bytes | native | none |
 | [Event high scores](#event-score-area-0x1a680x1b3f), slots 0..27 | `0x1A70..0x1ADF` | 112 bytes | 28 scores | none |
-| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b37) | `0x1AE0..0x1B37` | 88 bytes | 88 bytes | **1 spare bit** in word 80 (31) and **3** in word 84 (29-31) |
+| [`TYEX` extension record](#tyex-extension-record-0x1ae00x1b37) | `0x1AE0..0x1B37` | 88 bytes | 88 bytes | **1 spare bit** in word 80 (31) and **1** in word 84 (31) |
 | Ledgechase high score (slot 50) | `0x1B38..0x1B3B` | 4 bytes | 1 score | none |
 | Native completion word | `0x1B3C..0x1B3F` | 4 bytes | native | not ours |
 
-**Bottom line:** no whole bytes are free. Version 25 (T10) took the last 4, `0x1B34..0x1B37`, for Target Practice's line colors in word 84. Target Practice's Target Pointers took word 84's bit 8 after that, its Lowest Laser Lines bits 9-12, and in T11 Escape IC Grab's Handoff bits 13-15 and Grabs-ercise's DI rows and Late Frames OSD bits 16-28. Low Laser Puff Practice's Lowest Laser Lines took word 12's bit 15, and Edgeguard's Player and CPU Up-B Overlays its bits 16-17. What's left is 4 spare bits: word 80's bit 31 and word 84's bits 29-31, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
+**Bottom line:** no whole bytes are free. Version 25 (T10) took the last 4, `0x1B34..0x1B37`, for Target Practice's line colors in word 84. Target Practice's Target Pointers took word 84's bit 8 after that, its Lowest Laser Lines bits 9-12, and in T11 Escape IC Grab's Handoff bits 13-15, Grabs-ercise's DI rows and Late Frames OSD bits 16-28, and Powershield's Samus Pattern bits 29-30. Low Laser Puff Practice's Lowest Laser Lines took word 12's bit 15, and Edgeguard's Player and CPU Up-B Overlays its bits 16-17. What's left is 2 spare bits: word 80's bit 31 and word 84's bit 31, each free for any setting whose stored 0 is its default, with no version bump. The core record is full.
 
 The `TYEX` record fills 88 bytes (`0x1AE0..0x1B37`) that used to be unused event score slots 28..49. See the [score storage audit](SCORE-STORAGE-AUDIT.md) for how that space was proven safe. In particular, "Reset records" keeps these bytes on Tyro saves.
 
@@ -145,9 +145,9 @@ Tyro's own versioned record. Code: [src/settings_extension.c](../src/settings_ex
 | 72..75 | Grab Punish's team select, Edgeguard's newer recovery rows, Passing Practice, Up-B Sweetspot, Side-B Sweetspot | word 72 (table below) | — |
 | 76..79 | Escape Samus Up-B, Escape IC Grab, Grabs-ercise | word 76 (table below) | — |
 | 80..83 | Grabs-ercise, Techchase, Invincibility Stoplight, Disable Dev Debug Menu, Target Practice, Randall Timer Minimap, All Events, Up-B Sweetspot | word 80 (table below) | bit 31 |
-| 84..87 | Target Practice, Escape IC Grab, Grabs-ercise | word 84: the Hop Peak Lines' colors, Target Pointers, Lowest Laser Lines, the Handoff, the DI rows and Late Frames OSD (table below) | bits 29-31 |
+| 84..87 | Target Practice, Escape IC Grab, Grabs-ercise, Powershield | word 84: the Hop Peak Lines' colors, Target Pointers, Lowest Laser Lines, the Handoff, the DI rows and Late Frames OSD, and Samus Pattern (table below) | bit 31 |
 
-Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **1 spare bit** (31). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer Minimap word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines and Double Jump Height word 80 bits 29 and 30. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, Low Laser Puff Practice's Lowest Laser Lines bit 15 and Edgeguard's Up-B Overlays bits 16-17, so word 12 is full. Version 25 appended word 84 for Target Practice's line colors, which take bits 0-7, Target Pointers took bit 8, Lowest Laser Lines bits 9-12, Escape IC Grab's Handoff (T11) bits 13-15 and Grabs-ercise's DI rows and Late Frames OSD (T11) bits 16-28 with no version bump, leaving its **3 spare bits** (29-31).
+Free bits inside the record: words 72 and 76 are full (in T10, Side-B Sweetspot's Marth took word 72 bit 31, Grabs-ercise took word 76 bits 16-30, and Escape Samus's Goal took 31), leaving word 80's **1 spare bit** (31). Techchase took word 9 bit 15, byte 50 bits 3-4 and word 80 bits 4-5 in T10, the Invincibility Stoplight word 80 bit 6, Grabs-ercise byte 51 bits 3-4 and word 80 bits 7-8, Disable Dev Debug Menu word 80 bit 9, Target Practice word 80 bits 10-19, the Randall Timer Minimap word 80 bit 20, All Events (Alphabetized) word 80 bits 21-27, Up-B Sweetspot's Landing Line word 80 bit 28, and Target Practice's Hop Peak Lines and Double Jump Height word 80 bits 29 and 30. Word 12's six retired bits held the Ledgechase preset and action in versions 2..8, and could still hold them in a record that came up from there, until version 24 zeroed them in every migration. Target Practice's FH Multi Lasers took bits 6-8, Low Laser Puff Practice's Lowest Laser Lines bit 15 and Edgeguard's Up-B Overlays bits 16-17, so word 12 is full. Version 25 appended word 84 for Target Practice's line colors, which take bits 0-7, Target Pointers took bit 8, Lowest Laser Lines bits 9-12, Escape IC Grab's Handoff (T11) bits 13-15, Grabs-ercise's DI rows and Late Frames OSD (T11) bits 16-28 and Powershield's Samus Pattern (T11) bits 29-30 with no version bump, leaving its **1 spare bit** (31).
 
 ### Bit fields in the words
 
@@ -193,6 +193,8 @@ Bits 6-8 and 15-17 held Ledgechase's preset and action in versions 2-8. Version 
 | 30-31 | Ledgechase hop height |
 
 **Word 16: Powershield, Ledgechase**
+
+Powershield's Samus Pattern (T11) had no room here: it's word 84's bits 29-30 (below). Its height (bits 14-16) is Falco's Laser Height or Samus's Missile Height, whichever CPU you pick.
 
 | Bits | Setting |
 | --- | --- |
@@ -368,9 +370,9 @@ Every migration to version 23 zeroes this word, and rows are stored as their dis
 
 Both events' totals and session bests are RAM-only (below).
 
-**Word 84: Target Practice's line colors, Target Pointers and Lowest Laser Lines, Escape IC Grab's Handoff and Grabs-ercise's DI rows and Late Frames OSD** (T10, version 25)
+**Word 84: Target Practice's line colors, Target Pointers and Lowest Laser Lines, Escape IC Grab's Handoff, Grabs-ercise's DI rows and Late Frames OSD, and Powershield's Samus Pattern** (T10, version 25)
 
-The region's last 4 bytes, appended by version 25. Every migration to 25 zeroes the word, and each color is stored as its distance from its default, `(value + 15 - default) % 15`, the way Passing Practice's rows are, so those zeros read as the defaults. Target Pointers took bit 8 that way with no version bump, Lowest Laser Lines bits 9-12, Off stored as 0, and in T11 Escape IC Grab's Handoff bits 13-15 and Grabs-ercise's Trajectory DI bits 16-17 and 19, each with None stored as 0, Grabs-ercise's Late Frames OSD bit 18, On stored as 0, and its Smash DI Amount, Smash DI Direction and ASDI bits 20-28, each with its default stored as 0. Bits 29-31 can take a setting whose stored 0 is its default with no version bump. Version 24 and older records read the defaults.
+The region's last 4 bytes, appended by version 25. Every migration to 25 zeroes the word, and each color is stored as its distance from its default, `(value + 15 - default) % 15`, the way Passing Practice's rows are, so those zeros read as the defaults. Target Pointers took bit 8 that way with no version bump, Lowest Laser Lines bits 9-12, Off stored as 0, and in T11 Escape IC Grab's Handoff bits 13-15 and Grabs-ercise's Trajectory DI bits 16-17 and 19, each with None stored as 0, Grabs-ercise's Late Frames OSD bit 18, On stored as 0, its Smash DI Amount, Smash DI Direction and ASDI bits 20-28, each with its default stored as 0, and Powershield's Samus Pattern bits 29-30, Short Hop stored as 0. Bit 31 can take a setting whose stored 0 is its default with no version bump. Version 24 and older records read the defaults.
 
 | Bits | Setting |
 | --- | --- |
@@ -385,7 +387,8 @@ The region's last 4 bytes, appended by version 25. Every migration to 25 zeroes 
 | 20-22 | Grabs-ercise: Smash DI Amount (`TM_GRABS_SDI_AMOUNT`, T11, no version bump, appended after Late Frames OSD): 0 (default) to 7 Smash DI inputs a hit, stored as itself. Older records read 0 |
 | 23-25 | Grabs-ercise: Smash DI Direction (`TM_GRABS_SDI_DIR`, T11, no version bump): 0 Auto (default), 1 Random, 2 Away, 3 Towards, 4 Left, 5 Right, 6 Up, 7 Down, stored as itself. Older records read Auto |
 | 26-28 | Grabs-ercise: ASDI (`TM_GRABS_ASDI`, T11, no version bump): 0 Auto (default), 1 Away, 2 Towards, 3 Left, 4 Right, 5 Up, 6 Down, stored as itself. A stored 7 isn't a choice yet and reads as Auto without being repaired. Older records read Auto |
-| 29-31 | Free |
+| 29-30 | Powershield Training: Samus Pattern (`TM_PS_SAMUS_PATTERN`, T11, no version bump, appended to `TMPowershieldPreference`, whose other rows fill word 16): 0 Short Hop (default), 1 Platform, 2 Random, stored as itself. A stored 3 isn't a choice yet: the repair pass sets it back to Short Hop, as it does the Handoff, so a later pattern can take it with no migration. Older records read Short Hop |
+| 31 | Free |
 
 ## Not saved
 
@@ -400,6 +403,6 @@ These live in RAM only and reset when the game closes:
 
 ## Adding something new
 
-1. **A few bits:** use one of the free bits above, if the setting is small and fits next to related settings. Old records must already have 0 there, or the migration must clear it. Word 84's bits 29-31 are the most room left.
+1. **A few bits:** use one of the free bits above, if the setting is small and fits next to related settings. Old records must already have 0 there, or the migration must clear it. Word 80's bit 31 and word 84's bit 31 are all that's left.
 2. **Whole bytes:** none are left. The record fills the 88-byte region since version 25, and the static assert in [src/settings_extension.h](../src/settings_extension.h) stops the build if it outgrows it. Version 25 shows how the last append went: bump `TM_EXTENSION_VERSION` and `TM_EXTENSION_SIZE`, add a `versionN()` check for the previous version (and to every "this version or later" list in `settings_extension.c`), and zero the new bytes in `TMExtension_Prepare` when migrating.
 3. **More bytes:** would mean taking over real high-score slots, or a separate save file. Neither has been designed.

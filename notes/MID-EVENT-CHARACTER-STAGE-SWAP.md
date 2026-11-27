@@ -1,6 +1,6 @@
 # Swapping Characters or Stages Mid-Event
 
-**Status (October 28, 2026): Option A is implemented for stages** in Eggs-ercise, Training Lab, Low Laser Puff Practice and (since T8) Side-B Sweetspot and Edgeguard Training ([see below](#implemented-in-t5-change-stage)), **and for characters in Training Lab** ([see below](#implemented-in-t6-player-and-cpu-character)). Sources: TM source, the event-mode ASM hooks, and a disassembly of `build/Start.dol` (devkitPPC `powerpc-eabi-objdump`) checked against `GTME01.map`. Nothing has been tried in Dolphin yet.
+**Status (October 28, 2026): Option A is implemented for stages** in Eggs-ercise, Training Lab, Low Laser Puff Practice and (since T8) Side-B Sweetspot and Edgeguard Training ([see below](#implemented-in-t5-change-stage)), **and for characters in Training Lab** ([see below](#implemented-in-t6-player-and-cpu-character)). Later events added both, and since T11 Powershield Training does too: its CPU, Falco or Samus, comes from a training character select whose CPU list starts on Falco (`EventDesc.cpuDefault`), and any stage but the six legal ones restarts on Final Destination ([details](../docs/POWERSHIELD-TRAINING.md#characters-stages-and-samus)). Sources: TM source, the event-mode ASM hooks, and a disassembly of `build/Start.dol` (devkitPPC `powerpc-eabi-objdump`) checked against `GTME01.map`. Nothing has been tried in Dolphin yet.
 
 ## Question
 

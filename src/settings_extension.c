@@ -48,11 +48,23 @@ static const ExtensionPreference sweetspot_preferences[TM_SWEETSPOT_PREF_COUNT] 
 static const ExtensionPreference low_laser_preferences[TM_LOW_LASER_PREF_COUNT] = {
     {20,1,2,1}, {21,1,2,0}, {24,4,10,0}, {28,3,5,0}, {LOW_LASER_LOW_LINE_SHIFT,1,2,0},
 };
+/* Samus Pattern (T11), appended after word 16 filled, is word 84's bits
+ * 29..30 (POWERSHIELD_PATTERN_SHIFT, above Grabs-ercise's ASDI), with no
+ * version bump: Short Hop, its default, is stored as 0, so the zeros every
+ * migration to 25 writes read as Short Hop, and only a version 25 record owns
+ * it. A stored 3 isn't a choice: the repair pass sets it back to Short Hop, as
+ * it does Escape IC Grab's Handoff, so a later pattern can take it with no
+ * migration. */
+#define POWERSHIELD_PATTERN_SHIFT 29
 static const ExtensionPreference powershield_preferences[TM_PS_PREF_COUNT] = {
     {0,2,4,0}, {2,6,61,0}, {8,6,61,20}, {14,3,5,0},
     {17,1,2,0}, {18,2,4,0}, {20,1,2,1}, {21,1,2,1},
     {22,1,2,0}, {23,1,2,1},
+    {POWERSHIELD_PATTERN_SHIFT,2,TM_PS_SAMUS_PATTERN_COUNT,TM_PS_SAMUS_SHORT_HOP},
 };
+#define IS_POWERSHIELD_WORD_84(field,index) ((field)==TM_SETTING_POWERSHIELD && (index)==TM_PS_SAMUS_PATTERN)
+typedef char TMExtension_PowershieldPattern[(TM_PS_SAMUS_PATTERN==TM_PS_PREF_COUNT-1 &&
+    TM_PS_SAMUS_SHORT_HOP==0 && TM_PS_SAMUS_PATTERN_COUNT<=1u<<2 && POWERSHIELD_PATTERN_SHIFT+2<=31) ? 1 : -1];
 /* Appended word at bytes 20..23; older settings retain all of their bits. */
 static const ExtensionPreference reversal_preferences[TM_REV_PREF_COUNT] = {
     {0,4,REV_ACTION_COUNT,0}, {4,2,4,0}, {6,1,2,0}, {7,1,2,0}, {8,1,2,0},
@@ -365,6 +377,8 @@ typedef char TMExtension_GrabsDIBits[(GRABS_DI_SHIFT==ESCAPE_IC_HANDOFF_SHIFT+3 
     TM_GRABS_SDI_DIR==TM_GRABS_SDI_AMOUNT+1 && TM_GRABS_SDI_DIR_COUNT<=1u<<3 && TM_GRABS_SDI_AUTO==0 &&
     GRABS_ASDI_SHIFT==GRABS_SDI_DIR_SHIFT+3 && TM_GRABS_ASDI==TM_GRABS_SDI_DIR+1 && TM_GRABS_ASDI_COUNT<=1u<<3 &&
     TM_GRABS_ASDI_AUTO==0 && TM_GRABS_ASDI==TM_GRABS_PREF_COUNT-1 && GRABS_ASDI_SHIFT+3<=29) ? 1 : -1];
+/* Powershield's Samus Pattern takes bits 29..30, right above ASDI, leaving bit 31. */
+typedef char TMExtension_PowershieldPatternBits[(POWERSHIELD_PATTERN_SHIFT==GRABS_ASDI_SHIFT+3) ? 1 : -1];
 typedef char TMExtension_TargetsBits[(TM_TARGETS_BEST_MAX+1==1u<<8 &&
     TM_TARGETS_LINES==3 && TM_TARGETS_FULL_HOP==4 && TM_TARGETS_DOUBLE_JUMP==5 &&
     TARGETS_LINES_SHIFT+1==TARGETS_DOUBLE_JUMP_SHIFT &&
@@ -574,7 +588,8 @@ static unsigned preference_offset(unsigned field, unsigned index) {
     if(field==TM_SETTING_PASSING || (field==TM_SETTING_SWEETSPOT && index==TM_SWEETSPOT_MARTH)) return TEAM_CHARACTERS_OFFSET;
     if(field==TM_SETTING_GRABERCISE && index==TM_GRABS_STANDING) return COSTUME_WORD_OFFSET;
     if(field==TM_SETTING_TARGETS && index==TM_TARGETS_FULL_HOP) return TARGETS_FULL_HOP_OFFSET;
-    if(IS_TARGETS_WORD_84(field,index) || IS_ESCAPE_IC_HANDOFF(field,index) || IS_GRABS_WORD_84(field,index))
+    if(IS_TARGETS_WORD_84(field,index) || IS_ESCAPE_IC_HANDOFF(field,index) || IS_GRABS_WORD_84(field,index) ||
+        IS_POWERSHIELD_WORD_84(field,index))
         return TARGETS_COLOR_OFFSET;
     if((field==TM_SETTING_GRABERCISE && (index==TM_GRABS_PERCENT || index==TM_GRABS_MOVEMENT)) ||
         field==TM_SETTING_TARGETS || field==TM_SETTING_EVENT_LIST) return GRABS_OFFSET;
@@ -907,6 +922,8 @@ uint32_t TMExtension_Read(const uint8_t *r,unsigned field,unsigned index) {
         return action<10?action:0;
     }
     if(v11 && field==TM_SETTING_REVERSAL && index==TM_REV_ATTACK) return (r[20]&15)<14?r[20]&15:0;
+    /* Only a version 25 record owns word 84. */
+    if(IS_POWERSHIELD_WORD_84(field,index) && !supported(r)) return p->initial;
     if(field==TM_SETTING_POWERSHIELD && !supported(r) && !v8 && !v9 && !v10 && !v11 && !v12 && !v13 && !v14 && !v15 && !v16 && !v17 && !v18 && !v19 && !v20 && !v21 && !v22 && !v23 && !v24) return p->initial;
     /* Only a version 24 or later record owns word 12's retired bits: before
      * that, bit 15 could still hold Ledgechase's old action. */

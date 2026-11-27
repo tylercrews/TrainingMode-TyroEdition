@@ -236,8 +236,11 @@ enum TMLowLaserPreference {
 enum TMPowershieldPreference {
     TM_PS_FIRE_SPEED, TM_PS_DELAY_MIN, TM_PS_DELAY_MAX, TM_PS_HEIGHT,
     TM_PS_DIRECTION, TM_PS_MOVEMENT, TM_PS_NANA, TM_PS_OSDS,
-    TM_PS_SUPPRESS_GLOBAL, TM_PS_OVERLAY, TM_PS_PREF_COUNT
+    TM_PS_SUPPRESS_GLOBAL, TM_PS_OVERLAY,
+    TM_PS_SAMUS_PATTERN, /* T11: word 84 bits 29-30 (version 25, no bump). Short Hop, the default, is stored as 0. */
+    TM_PS_PREF_COUNT
 };
+enum TMPowershieldSamusPattern { TM_PS_SAMUS_SHORT_HOP, TM_PS_SAMUS_PLATFORM, TM_PS_SAMUS_RANDOM, TM_PS_SAMUS_PATTERN_COUNT };
 enum TMReversalPreference {
     TM_REV_ATTACK, TM_REV_DISTANCE, TM_REV_PLAYER_FACING, TM_REV_CPU_FACING,
     TM_REV_POSITION, TM_REV_PREF_COUNT
@@ -502,7 +505,9 @@ uint32_t Settings_Get(unsigned field, unsigned index);
 void Settings_Set(unsigned field, unsigned index, uint32_t value);
 int Settings_Status(void);
 void Settings_CommitPending(void);
-void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable);
+/* cpu_default: the CPU (CKIND_*) a restricted CPU list starts on when the saved
+ * one isn't on it; 0 (or one not on the list) takes the list's lowest ID. */
+void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable, int cpu_default);
 void Settings_RestoreCharacters(void);
 void Settings_OpenTeamSelect(void);
 void Settings_SaveTeamSelect(void);

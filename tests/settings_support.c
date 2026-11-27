@@ -55,7 +55,7 @@ unsigned Events_HomeEvent(unsigned page, unsigned event) { (void)page; return ev
 unsigned test_character_steps; /* Each hook call's step + 1, a nibble each. */
 void TestEventCharacters(unsigned step) {
     test_character_steps = test_character_steps << 4 | (step + 1);
-    if (step != TM_CHARACTERS_OPEN) Settings_Characters(step, -1, -1, 1);
+    if (step != TM_CHARACTERS_OPEN) Settings_Characters(step, -1, -1, 1, 0);
 }
 int TestTextCopyFormat(char *out, int limit, const char *format, void *args) {
     /* Native SetText fixture inputs are already formatted, as in the timing

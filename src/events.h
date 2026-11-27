@@ -118,6 +118,10 @@ typedef struct EventDesc
     u8 scoreType;
     u8 callbackPriority;
     EventMatchData *matchData;
+    /* Training CSS with a CPU list (allowed_characters.cpu): the CPU it starts
+     * on when the saved one isn't on the list (CKIND_*). 0 takes the list's
+     * lowest ID, as before. */
+    s8 cpuDefault;
 } EventDesc;
 typedef struct EventPage
 {

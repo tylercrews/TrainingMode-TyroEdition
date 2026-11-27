@@ -569,16 +569,19 @@ static EventMatchData Powershield_MatchData = {
     .useKOCounter = false,
     .timerSeconds = 0,
 };
+/* Falco's lasers or Samus's super missiles (T11), from the training character
+ * select, on the stage select's stage. */
 EventDesc Powershield = {
     .tyro_edited = true,
     .eventName = "Powershield Training\n",
-    .eventDescription = "Powershield Falco's laser!",
+    .eventDescription = "Powershield Falco's lasers or\nSamus's super missiles!",
     .eventFile = "powershield",
     .jumpTableIndex = -1,
-    .CSSType = SLCHRKIND_EVENT,
-    .allowed_characters = { .hmn = -1, .cpu = -1 },
-    .cpuKind = CKIND_FALCO,
-    .stage = GRKINDEXT_FD,
+    .CSSType = SLCHRKIND_TRAINING,
+    .allowed_characters = { .hmn = -1, .cpu = CSSID_FALCO | CSSID_SAMUS },
+    .cpuKind = -1,
+    .cpuDefault = CKIND_FALCO,
+    .stage = -1,
     .disable_hazards = true,
     .force_sopo = false,
     .scoreType = SCORETYPE_KO,
@@ -3882,7 +3885,7 @@ int Settings_EventCharacters(unsigned step) {
         // Fall through.
     default:
         Settings_Characters(step, desc->allowed_characters.hmn, desc->allowed_characters.cpu,
-            desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1);
+            desc->CSSType == SLCHRKIND_TRAINING && desc->cpuKind == -1, desc->cpuDefault);
         if (step == TM_CHARACTERS_RESTORE) Settings_LoadDoorForms();
     }
     return 0;

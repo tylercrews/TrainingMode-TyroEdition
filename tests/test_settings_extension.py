@@ -16,8 +16,11 @@ DEFAULTS = (0, 0, 1, 0, 0, 0, 0, 0, 7, 0, 0, 0)
 TECH_FOLLOWUP, TECH_DISTANCE, TECH_SIDE = 7, 10, 11
 LEDGE_COUNTS = (4, 2, 7, 15, 5, 8, 33, 12, 3, 3)
 LEDGE_DEFAULTS = (0, 0, 0, 0, 1, 7, 0, 0, 2, 0)
-PS_COUNTS = (4,61,61,5,2,4,2,2,2,2)
+PS_COUNTS = (4,61,61,5,2,4,2,2,2,2)  # Word 16's rows.
 PS_DEFAULTS = (0,0,20,0,0,0,1,1,0,1)
+# Powershield's Samus Pattern (T11, no version bump) is word 84 (version 25) bits 29-30:
+# Short Hop (stored 0, the default), Platform, Random.
+PS_PATTERN, PS_PATTERNS, PS_PATTERN_SHIFT = 10, 3, 29
 SHIELD_DEFAULT_BYTES = bytes.fromhex("00000100")
 SHIELD_FIELDS = ((33,(17,4,2,2,2),(0,0,0,0,0)), (34,(15,5,2,4,2),(0,0,1,0,0)))
 PS_DEFAULT_BYTES = bytes.fromhex("0014B000")
@@ -184,8 +187,9 @@ REGION_SIZE, OWNED_SIZE = 88, 88
 # Under Fire's Lava Overlay (index 2) and Remove Fleshy Pillars (index 3) live outside
 # FIELDS' tables: word 20 and word 9. Low Laser's Lowest Laser Lines (index 4) is word 12's
 # bit 15, which only version 24 and later records own, so the old-version migrations
-# FIELDS drives can't keep it; its own tests cover it.
-PREF_COUNTS = {29: 4, LOW_LASER: 5}
+# FIELDS drives can't keep it; its own tests cover it. Powershield's Samus Pattern (index
+# 10) is word 84's, which only version 25 records own, the same way.
+PREF_COUNTS = {29: 4, LOW_LASER: 5, 31: PS_PATTERN + 1}
 GRID = 37  # TM_SETTING_GRID_CELL: 22 five-bit cells in bytes 36..49.
 COSTUME = 38  # TM_SETTING_COSTUME: human byte 50, CPU byte 51.
 EGGS_COUNTER = 44  # TM_SETTING_EGGS_COUNTER: byte 51's top three bits.
@@ -1436,6 +1440,52 @@ class ExtensionTests(unittest.TestCase):
         self.assertEqual((m.call('Settings_Get', TARGETS, TARGETS_SH_COLOR), m.call('Settings_Get', TARGETS, TARGETS_LOW_LINE)),
                          (2, 3))
         self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))) >> 16, 0x5ABC)
+
+    def test_powershield_samus_pattern_uses_only_word_84_bits_29_30_with_short_hop_stored_as_0(self):
+        m = self.m
+        self.version_23_record()  # Settings in words 80 and 12,
+        for index, count in enumerate(PS_COUNTS): m.call('Settings_Set', 31, index, count - 1)  # Powershield's word 16,
+        word = lambda record: int.from_bytes(record[84:88], 'little')
+        # and every row under it in word 84 (the Handoff Down Throw, which is a choice), with bit 31 set.
+        around = (0x1ABCDD5E & ~(7 << ESCAPE_IC_HANDOFF_SHIFT)) | 1 << ESCAPE_IC_HANDOFF_SHIFT | 1 << 31
+        m.cpu.mem_write(EXT + 84, around.to_bytes(4, 'little'))
+        before = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        mask = 3 << PS_PATTERN_SHIFT
+        self.assertEqual(m.call('Settings_Get', 31, PS_PATTERN), 0)  # 0 is Short Hop.
+        for value in (1, 2, 0, 2):  # Platform, Random, Short Hop.
+            m.call('Settings_Set', 31, PS_PATTERN, value)
+            self.assertEqual(m.call('Settings_Get', 31, PS_PATTERN), value)
+            after = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+            self.assertEqual((word(after) >> PS_PATTERN_SHIFT & 3, word(after) & ~mask), (value, word(before)))
+            self.assertEqual(after[:84], before[:84])
+            self.assertEqual(after[:8], HEADER)  # No version bump.
+        snapshot = bytes(m.cpu.mem_read(EXT, REGION_SIZE))
+        for value in (PS_PATTERNS, 0xFFFFFFFF):  # Out of range is ignored.
+            m.call('Settings_Set', 31, PS_PATTERN, value)
+            self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), snapshot)
+        # A stored 3 isn't a pattern: it's repaired to Short Hop, and the rest of the word stays.
+        m.cpu.mem_write(EXT + 84, (word(snapshot) | mask).to_bytes(4, 'little'))
+        self.assertEqual(m.call('Settings_Get', 31, PS_PATTERN), 0)
+        self.assertEqual(word(bytes(m.cpu.mem_read(EXT, REGION_SIZE))), word(snapshot) & ~mask)
+        # Powershield's other rows, and its neighbours in word 84, read as they were.
+        self.assertEqual(tuple(m.call('Settings_Get', 31, i) for i in range(len(PS_COUNTS))), tuple(n - 1 for n in PS_COUNTS))
+        self.assertEqual(m.call('Settings_Get', ESCAPE_IC, ESCAPE_IC_HANDOFF), 1)
+
+    def test_records_before_version_25_read_the_samus_pattern_as_short_hop_without_writing(self):
+        m = self.m
+        m.call('Settings_Set', 31, 3, 4)  # Powershield's height, in word 16, which they all own.
+        random = (2 << PS_PATTERN_SHIFT).to_bytes(4, 'little')  # What a version 25 record would read as Random.
+        for version, old in ((24, self.version_24_record()), (22, self.version_22_record())):
+            with self.subTest(version=version):
+                old[84:88] = random  # Spare score bytes are not a pattern.
+                m.cpu.mem_write(EXT, bytes(old))
+                self.assertEqual(m.call('TMExtension_Read', EXT, 31, PS_PATTERN), 0)
+                self.assertEqual(m.call('TMExtension_Read', EXT, 31, 3), 4)
+                self.assertEqual(bytes(m.cpu.mem_read(EXT, REGION_SIZE)), bytes(old))
+        # Migrating zeroes word 84: Short Hop, and a write lands in its bits alone.
+        m.call('Settings_Set', 31, PS_PATTERN, 1)
+        self.assertEqual(int.from_bytes(m.cpu.mem_read(EXT + 84, 4), 'little'), 1 << PS_PATTERN_SHIFT)
+        self.assertEqual(m.call('Settings_Get', 31, 3), 4)
 
     def test_records_before_version_25_read_the_handoff_as_none_without_writing(self):
         m = self.m

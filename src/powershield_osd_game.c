@@ -79,7 +79,10 @@ void Powershield_Contact(ItemData *item, FighterData *ft, int kind) {
         kind == TM_LASER_HIT ? TM_PS_NO_SHIELD :
         ft->flags.reflect_enable && state == ASID_GUARDREFLECT ? TM_PS_REFLECT_ACTIVE :
         frame ? TM_PS_REFLECT_ENDED : TM_PS_NO_HARD_PRESS;
-    if (event_contact && item->kind == ITEM_FALCOLASER) event_contact(ft, kind, frame, reason);
+    /* The event's CPU shots: Falco's laser or Samus's missile (both kinds of
+     * missile share one item). */
+    if (event_contact && (item->kind == ITEM_FALCOLASER || item->kind == ITEM_SAMUSMISSILE))
+        event_contact(ft, kind, frame, reason);
     if (kind == TM_LASER_HIT || ft->flags.ms ||
         !(Settings_Get(TM_SETTING_OSD_MASK, 0) & (1u << OSD_Powershield))) return;
     /* This is a contact outcome, not a best-frame contest: both native reflect

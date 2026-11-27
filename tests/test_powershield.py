@@ -268,14 +268,18 @@ class EventTests(unittest.TestCase):
 
     def test_all_menu_values_reload_defaults_and_bounds_are_saved(self):
         m=self.m
-        defaults=(0,0,20,0,0,0,1,1,0,1)
-        self.assertEqual(tuple(m.call('TestPSPreference',i) for i in range(10)),defaults)
-        for row,value in [(0,3),(1,50),(2,12),(3,4),(4,1),(5,3),(6,0),(7,0),(8,1),(9,0)]:
-            m.call('TestPSChoice',row,value)
-        self.assertEqual(tuple(m.call('TestPSPreference',i) for i in range(10)),(3,12,12,4,1,3,0,0,1,0))
+        defaults=(0,0,20,0,0,0,1,1,0,1,0)
+        self.assertEqual(tuple(m.call('TestPSPreference',i) for i in range(11)),defaults)
+        # Each saved preference's menu row; Samus Pattern (10, T11) sits under the height.
+        self.assertEqual(tuple(m.call('TestPSPrefRow',i) for i in range(11)),(2,3,4,5,7,8,9,10,11,12,6))
+        for index,value in [(0,3),(1,50),(2,12),(3,4),(4,1),(5,3),(6,0),(7,0),(8,1),(9,0),(10,2)]:
+            m.call('TestPSChoice',index,value)
+        saved=(3,12,12,4,1,3,0,0,1,0,2)
+        self.assertEqual(tuple(m.call('TestPSPreference',i) for i in range(11)),saved)
         m.call('TestPSReenter')
         options=self.info(15)
-        self.assertEqual(tuple(struct.unpack('>h',m.cpu.mem_read(options+i*44+6,2))[0] for i in range(10)),(3,12,12,4,1,3,0,0,1,0))
+        self.assertEqual(tuple(struct.unpack('>h',m.cpu.mem_read(options+m.call('TestPSPrefRow',i)*44+6,2))[0]
+                               for i in range(11)),saved)
         self.assertEqual((self.info(4),self.info(5),self.info(6)),(1,1,1))
         self.assertEqual(m.call('TestPSDelay',12,12),1)  # Never HSD_Randi(0).
         self.assertEqual(m.call('TestPSDelay',0,60),61)  # Both endpoints available.
@@ -305,6 +309,308 @@ class EventTests(unittest.TestCase):
             else:
                 ft=self.info(17);self.m.cpu.mem_write(ft+8,struct.pack('>I',2));self.sample(11,14)
             self.assertEqual((self.info(0),self.info(9),self.color()),(-1,0,0))
+
+
+LEGAL = [('GrNLa.dat', 32, None), ('GrNBa.dat', 31, None), ('GrOp.dat', 28, None),
+         ('GrSt.dat', 8, {1, 2, 3, 4, 5, 6}), ('GrPs.dat', 3, {34, 35, 36, 51, 52, 53, 54})]
+FD, FOUNTAIN, OTHER_STAGE = 32, 2, 4  # GRKINDEXT_FD, _IZUMI, and Kongo Jungle.
+CKIND_FALCO, CKIND_SAMUS = 0x14, 0x10
+FD_EDGE = 85.5656967
+# Saved preferences (TM_PS_*) and their choices.
+SPEED, HEIGHT, DIRECTION, PATTERN = 0, 3, 4, 10
+FAST, RIGHT, LEFT = 3, 0, 1
+SHORT_HOP, PLATFORM, RANDOM = 0, 1, 2
+# Missile height above the floor below for Very Low, Low, Mid and High, and
+# how far the model's frame timing may move one. The rising missile comes out
+# where the full hop is 16 frames after B on its first airborne frame.
+TARGETS = {1: 10.0, 2: 13.0, 3: 16.5, 4: 20.5}
+TOLERANCE = .75
+RISING = 34.54
+# Menu rows.
+ROW_CHARACTERS, ROW_STAGE, ROW_HEIGHT, ROW_PATTERN, ROW_MOVEMENT, ROW_OVERLAY = 0, 1, 5, 6, 8, 12
+
+
+class SamusTests(unittest.TestCase):
+    """The production event's CPU against a frame model of Samus (see the probe)
+    on each legal stage's native collision lines from the ISO."""
+    @classmethod
+    def setUpClass(cls):
+        build()
+        import test_techchase
+        cls.floors = {name: test_techchase.native_floors(name) for name, _, _ in LEGAL}
+
+    def setUp(self):
+        self.m = fixtures.Machine()
+        load_probe(self.m)
+
+    def sim(self, key):
+        value = self.m.call('TestPSSim', key)
+        return value if value < 0x80000000 else value - 0x100000000
+    def row(self, row, key):
+        value = self.m.call('TestPSRow', row, key)
+        return value if value < 0x80000000 else value - 0x100000000
+    def text(self, address):
+        return bytes(self.m.cpu.mem_read(address, 96)).split(b'\0', 1)[0].decode()
+    def label(self, which, row):
+        return bytes(self.m.call('TestPSLabel', which, row, i) for i in range(80)).split(b'\0', 1)[0].decode()
+    def line(self, ax, ay, bx, by, flags=0, enabled=1):
+        return self.m.call('TestPSAddLine', *[round(v * 1000) for v in (ax, ay, bx, by)], flags, enabled)
+    def stage(self, filename, stage, normal):
+        self.m.call('TestPSStage', stage)
+        lines = []
+        for index, ax, ay, bx, by, flags in self.floors[filename]:
+            enabled = normal is None or index in normal
+            self.line(ax, ay, bx, by, flags, enabled)
+            if enabled:
+                a, b = sorted(((ax, ay), (bx, by)))
+                lines.append((a[0], a[1], b[0], b[1], bool(flags & 0x100)))
+        return lines
+    def fountain(self):
+        """Fountain where the game starts it: the main floor, the side platforms
+        at 16.125 and 22.125, and the top at 42.75 (notes/LEGAL-STAGE-PLATFORMS.md)."""
+        self.m.call('TestPSStage', FOUNTAIN)
+        self.line(-63.3476, 0, 63.3476, 0)
+        left = self.line(-49.5, 16.125, -21, 16.125, 0x100)
+        right = self.line(21, 22.125, 49.5, 22.125, 0x100)
+        self.line(-14.25, 42.75, 14.25, 42.75, 0x100)
+        lines = [(-63.3476, 0, 63.3476, 0, False), (-49.5, 16.125, -21, 16.125, True),
+                 (21, 22.125, 49.5, 22.125, True), (-14.25, 42.75, 14.25, 42.75, True)]
+        return lines, left, right
+    @staticmethod
+    def edges(lines):
+        return min(l[0] for l in lines if not l[4]), max(l[2] for l in lines if not l[4])
+    @staticmethod
+    def side_platform(lines, side):
+        platforms = [l for l in lines if l[4] and (l[0] + l[2]) / 2 * side > 10]
+        return min(platforms, key=lambda l: abs(l[0] + l[2])) if platforms else None
+    def match(self, samus=True, pattern=SHORT_HOP, height=1, direction=RIGHT, speed=FAST):
+        for index, value in ((SPEED, speed), (HEIGHT, height), (DIRECTION, direction), (PATTERN, pattern)):
+            self.m.call('TestPSSetPreference', index, value)
+        self.m.call('TestPSMatch', int(samus))
+    def run_frames(self, frames):
+        while frames > 0:  # A few frames a call, under the machine's instruction limit.
+            self.m.call('TestPSRun', min(frames, 4))
+            frames -= 4
+    def missiles(self):
+        keys = ('height', 'x', 'dir', 'smash', 'descending', 'from_platform', 'frame')
+        out = []
+        for i in range(self.sim(0)):
+            values = [self.m.call('TestPSMissile', i, k) for k in range(len(keys))]
+            values = [v - 0x100000000 if v >= 0x80000000 else v for v in values]
+            item = dict(zip(keys, values))
+            item['height'] /= 1000; item['x'] /= 1000
+            out.append(item)
+        return out
+    def clean(self):
+        self.assertEqual((self.sim(1), self.sim(2)), (0, 0))  # No wrong move or fastfall.
+
+    def test_falco_keeps_final_destinations_start_and_mirrors_for_left(self):
+        lines = self.stage(*LEGAL[0])
+        self.match(samus=False)
+        self.run_frames(1)
+        self.assertAlmostEqual(self.sim(8) / 1000, -60, places=2)  # You, where FD's spawn put you,
+        self.assertAlmostEqual(self.sim(6) / 1000, 60, places=2)   # and Falco where his did.
+        self.assertEqual((self.sim(9), self.sim(7)), (0, 0))
+        self.assertEqual((self.sim(10), self.sim(11)), (-1, -1))
+        self.assertEqual(self.sim(15), 1)  # Kept as the event's savestate.
+        self.m.call('TestPSChoice', DIRECTION, LEFT)
+        self.assertEqual(self.sim(16) & 4, 4)  # A mirrored load,
+        self.assertAlmostEqual(self.sim(8) / 1000, 60, places=2)
+        self.assertAlmostEqual(self.sim(6) / 1000, -60, places=2)
+
+    def test_falco_starts_on_every_stages_scaled_spot(self):
+        for filename, stage, normal in LEGAL[1:]:
+            with self.subTest(stage=filename):
+                lines = self.stage(filename, stage, normal)
+                left, right = self.edges(lines)
+                self.match(samus=False)
+                self.run_frames(1)
+                self.assertAlmostEqual(self.sim(6) / 1000, 60 * right / FD_EDGE, places=2)
+                self.assertAlmostEqual(self.sim(8) / 1000, -60 * -left / FD_EDGE, places=2)
+
+    def test_short_hop_missiles_fly_at_each_height_on_every_legal_stage(self):
+        for filename, stage, normal in LEGAL:
+            for height, target in TARGETS.items():
+                with self.subTest(stage=filename, height=height):
+                    lines = self.stage(filename, stage, normal)
+                    self.match(height=height)
+                    self.run_frames(400)
+                    self.clean()
+                    shots = self.missiles()
+                    self.assertGreaterEqual(len(shots), 4)
+                    for shot in shots:
+                        self.assertTrue(shot['smash'])        # Super missiles,
+                        self.assertTrue(shot['descending'])   # on the way down,
+                        self.assertEqual(shot['dir'], -1)     # at you,
+                        self.assertFalse(shot['from_platform'])
+                        self.assertLess(abs(shot['height'] - target), TOLERANCE)
+                    self.assertEqual(self.sim(3), 0)  # never landing on a platform.
+                    x = self.sim(6) / 1000
+                    for l in lines:  # She stands clear of any platform her short hop reaches.
+                        if l[4] and l[1] < 29:
+                            self.assertFalse(l[0] - 7.99 < x < l[2] + 7.99, (x, l))
+
+    def test_random_height_picks_each_of_the_four(self):
+        self.stage(*LEGAL[0])
+        self.m.call('TestPSRandom', 4, 0, 1, 2, 3)
+        self.match(height=0)
+        self.run_frames(500)
+        self.clean()
+        heights = sorted(round(s['height']) for s in self.missiles())
+        for target in TARGETS.values():
+            self.assertTrue(any(abs(h - target) < TOLERANCE + .5 for h in heights), (target, heights))
+
+    def test_platform_pattern_rises_to_the_side_platform_then_drops_and_fires_on_the_way_down(self):
+        for filename, stage, normal in LEGAL[1:]:
+            for height in (1, 4):
+                with self.subTest(stage=filename, height=height):
+                    lines = self.stage(filename, stage, normal)
+                    platform = self.side_platform(lines, 1)
+                    self.match(pattern=PLATFORM, height=height)
+                    self.run_frames(1)
+                    self.assertAlmostEqual(self.sim(6) / 1000, (platform[0] + platform[2]) / 2, places=2)
+                    self.run_frames(700)
+                    self.clean()
+                    shots = self.missiles()
+                    rising = [s for s in shots if not s['from_platform']]
+                    falling = [s for s in shots if s['from_platform']]
+                    self.assertGreaterEqual(len(rising), 3)
+                    self.assertGreaterEqual(len(falling), 3)
+                    self.assertGreaterEqual((self.sim(3), self.sim(4)), (3, 3))  # Platform landings, drops.
+                    for shot in rising:
+                        self.assertTrue(shot['smash'])
+                        self.assertFalse(shot['descending'])
+                        self.assertLess(abs(shot['height'] - RISING), 2.5)
+                    # A drop can't fire higher than pressing on its first frame:
+                    # 16 frames from -0.5 under gravity, plus the cannon.
+                    floor = max(ay + (by - ay) * ((platform[0] + platform[2]) / 2 - ax) / (bx - ax)
+                                for ax, ay, bx, by, plat in lines
+                                if not plat and ax <= (platform[0] + platform[2]) / 2 <= bx)
+                    highest = platform[1] - floor - 16 * .5 - .066 * 136 + 9.92
+                    for shot in falling:
+                        self.assertTrue(shot['smash'] and shot['descending'])
+                        self.assertLess(abs(shot['height'] - min(TARGETS[height], highest)), TOLERANCE)
+                    # They alternate: up, then down from the platform.
+                    order = [s['from_platform'] for s in shots]
+                    self.assertTrue(all(a != b for a, b in zip(order, order[1:])), order)
+                    self.assertTrue(all(s['dir'] == -1 for s in shots))
+
+    def test_direction_left_mirrors_samus_under_the_left_platform(self):
+        lines = self.stage(*LEGAL[1])  # Battlefield
+        platform = self.side_platform(lines, -1)
+        self.match(pattern=PLATFORM, direction=LEFT)
+        self.run_frames(1)
+        self.assertAlmostEqual(self.sim(6) / 1000, (platform[0] + platform[2]) / 2, places=2)
+        self.run_frames(500)
+        self.clean()
+        shots = self.missiles()
+        self.assertGreaterEqual(len(shots), 4)
+        self.assertTrue(all(s['dir'] == 1 for s in shots))
+
+    def test_random_pattern_mixes_short_hops_and_the_platform(self):
+        self.stage(*LEGAL[1])
+        self.m.call('TestPSRandom', 2, 0, 1, 0, 0)
+        self.match(pattern=RANDOM)
+        self.run_frames(900)
+        self.clean()
+        shots = self.missiles()
+        self.assertTrue(any(s['from_platform'] for s in shots))
+        self.assertTrue(any(not s['from_platform'] and s['descending'] for s in shots))  # A short hop,
+        self.assertTrue(any(not s['from_platform'] and not s['descending'] for s in shots))  # and a rise.
+
+    def test_final_destination_has_no_platform_so_its_patterns_short_hop(self):
+        self.stage(*LEGAL[0])
+        for pattern in (PLATFORM, RANDOM):
+            with self.subTest(pattern=pattern):
+                self.match(pattern=pattern)
+                self.assertEqual(self.text(self.m.call('TestPSRowValue', ROW_PATTERN, 1)), 'Platform (N/A)')
+                self.assertEqual(self.text(self.m.call('TestPSRowValue', ROW_PATTERN, 2)), 'Random (N/A)')
+                self.run_frames(300)
+                self.clean()
+                shots = self.missiles()
+                self.assertGreaterEqual(len(shots), 3)
+                self.assertTrue(all(s['descending'] and not s['from_platform'] for s in shots))
+                self.assertEqual(self.sim(4), 0)
+                self.assertAlmostEqual(self.sim(6) / 1000, 60, places=2)
+
+    def test_fountain_platforms_that_move_or_sink(self):
+        lines, left, right = self.fountain()
+        # Short Hop stands clear of the side platform even at its lowest.
+        self.match()
+        self.run_frames(1)
+        x = self.sim(6) / 1000
+        self.assertFalse(21 - 8 < x < 49.5 + 8, x)
+        # Platform: under the right platform, which rises, sinks and goes.
+        self.match(pattern=PLATFORM, height=2)
+        self.run_frames(1)
+        self.assertAlmostEqual(self.sim(6) / 1000, 35.25, places=2)
+        for dy, enabled in ((5000, 1), (-12000, 1), (0, 0), (0, 1)):
+            with self.subTest(dy=dy, enabled=enabled):
+                self.m.call('TestPSMoveLine', right, dy, enabled)
+                before = len(self.missiles())
+                self.run_frames(300)
+                self.clean()
+                shots = self.missiles()[before:]
+                self.assertGreaterEqual(len(shots), 2)
+                for shot in shots:
+                    self.assertTrue(shot['smash'])
+                    if shot['from_platform']:
+                        self.assertTrue(shot['descending'])
+                        self.assertLess(shot['height'], TARGETS[2] + TOLERANCE)
+                if not enabled:  # No platform: full hops back to the ground.
+                    self.assertFalse(any(s['from_platform'] for s in shots))
+
+    def test_another_stage_restarts_on_final_destination(self):
+        self.m.call('TestPSStage', OTHER_STAGE)
+        self.line(-50, 0, 50, 0)
+        self.match()
+        self.run_frames(5)
+        self.assertEqual(self.sim(12), FD)
+        self.assertEqual((self.sim(14), self.sim(0), self.sim(15)), (0, 0, 0))  # No inputs, no setup.
+        self.assertEqual((self.sim(18), self.sim(19)), (0, -1))  # Detached, as on Exit.
+
+    def test_rows_follow_the_cpu(self):
+        self.stage(*LEGAL[1])
+        self.match(samus=False)
+        self.assertEqual((self.row(ROW_PATTERN, 0), self.row(ROW_MOVEMENT, 0)), (1, 0))
+        self.assertEqual(self.text(self.row(ROW_HEIGHT, 2)), 'Laser Height')
+        self.assertEqual(self.text(self.row(ROW_OVERLAY, 2)), 'Laser Recovery Cue')
+        self.assertEqual(self.label(0, 0), 'Act out of Laser')
+        self.match(samus=True)
+        self.assertEqual((self.row(ROW_PATTERN, 0), self.row(ROW_MOVEMENT, 0)), (0, 1))
+        self.assertEqual(self.text(self.row(ROW_HEIGHT, 2)), 'Missile Height')
+        self.assertEqual(self.text(self.row(ROW_OVERLAY, 2)), 'Missile Recovery Cue')
+        self.assertEqual(self.text(self.m.call('TestPSRowValue', ROW_PATTERN, 1)), 'Platform')
+        self.assertEqual(self.label(0, 0), 'Act out of Missile')
+        self.m.call('TestPSContact', 0, 0, 4, 0)
+        self.assertEqual(self.label(0, 2), 'Missile hit')
+        self.m.call('TestPSContact', 2, 1, 0, 0)
+        self.assertEqual(self.label(1, 2), 'Reflected missile')
+
+    def test_change_characters_offers_falco_and_samus_and_change_stage_the_legal_six(self):
+        self.stage(*LEGAL[1])
+        self.match(samus=False)
+        self.assertEqual(self.row(ROW_CHARACTERS, 5), self.m.call('TestPSSwap', 6))
+        self.assertEqual(self.row(ROW_STAGE, 5), self.m.call('TestPSSwap', 5))
+        self.assertEqual(self.m.call('TestPSSwap', 0), 2)
+        self.assertEqual((self.text(self.m.call('TestPSSwap', 1)), self.text(self.m.call('TestPSSwap', 2))), ('Falco', 'Samus'))
+        self.assertEqual((self.m.call('TestPSSwap', 3), self.m.call('TestPSSwap', 4), self.m.call('TestPSSwap', 9)), (0, 0, 0))
+        self.assertEqual(self.m.call('TestPSSwap', 7), 1 << 1)  # Battlefield is current.
+        self.m.call('TestPSSwapCPU', 1)
+        self.assertEqual(self.m.call('TestPSSwap', 8), CKIND_SAMUS)
+        self.assertEqual((self.sim(18), self.sim(19)), (0, -1))  # Let go before the restart.
+
+    def test_samus_pattern_saves_and_moves_her(self):
+        lines = self.stage(*LEGAL[1])
+        platform = self.side_platform(lines, 1)
+        self.match()
+        self.run_frames(1)
+        spot = self.sim(6) / 1000
+        self.m.call('TestPSChoice', PATTERN, PLATFORM)
+        self.assertEqual(self.m.call('TestPSPreference', PATTERN), PLATFORM)
+        self.assertAlmostEqual(self.sim(6) / 1000, (platform[0] + platform[2]) / 2, places=2)
+        self.m.call('TestPSChoice', PATTERN, SHORT_HOP)
+        self.assertAlmostEqual(self.sim(6) / 1000, spot, places=2)
 
 
 class NativePowershieldTests(unittest.TestCase):

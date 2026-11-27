@@ -269,7 +269,7 @@ static const u8 character_costumes[26] = {
 static int character_allowed(unsigned kind, int mask) {
     return kind < 26 && (mask == -1 || ((u32)mask & (1u << character_css_id[kind])));
 }
-void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable) {
+void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_selectable, int cpu_default) {
     u8 *backup = (u8 *)stc_memcard + 3344;
     for (unsigned player = 0; player < 2; ++player) {
         unsigned offset = player ? 140 : 104, costume = player ? 143 : 107;
@@ -289,9 +289,13 @@ void Settings_Characters(unsigned save, int hmn_mask, int cpu_mask, int cpu_sele
         if (!character_allowed(kind, mask)) {
             kind = 2; /* Fox for an uninitialized unrestricted backup. */
             if (mask != -1) {
-                for (kind = 0; kind < 26; ++kind)
-                    if (character_allowed(kind, mask)) break;
-                if (kind == 26) continue; /* Empty whitelist: leave native behavior. */
+                /* The event's own default CPU, if it names one on the list. */
+                if (player && cpu_default > 0 && character_allowed(cpu_default, mask)) kind = cpu_default;
+                else {
+                    for (kind = 0; kind < 26; ++kind)
+                        if (character_allowed(kind, mask)) break;
+                    if (kind == 26) continue; /* Empty whitelist: leave native behavior. */
+                }
             }
         }
         if (kind != backup[offset]) {
