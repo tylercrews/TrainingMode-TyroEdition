@@ -1,4 +1,5 @@
 #include "events.h"
+#include "grab_mash.h"
 
 /* Grab Punish Practice (Doubles page): your teammate CPU grabs the enemy CPU, and you
  * punish the enemy (say with a JC up-smash) before they mash out, without
@@ -32,26 +33,9 @@
  *   Heavy         19   27   35   43   51   59   67   75   83   91   99
  *   Extreme       15   22   28   35   41   47   54   60   67   73   79
  *   Inhuman       13   18   24   29   34   40   45   50   56   61   66
- * Each setting is a number of mash inputs a second. Each input takes 6, so
- * the timer drops 1 + inputs a second / 10 a frame:
- *              inputs/s  a frame
- *   No Mash         0       1   nothing but the frame
- *   Light          10       2   a button every 6 frames
- *   Medium         20       3   a button every 3 frames (the default)
- *   Heavy          30       4   a button and a new stick direction, each
- *                               every 4 frames
- *   Extreme        40       5   a button and a new stick direction, each
- *                               every 3 frames
- *   Inhuman        50       6   a button every 2 frames and a new stick
- *                               direction every 3
- * The rates come from the event author's own mash practice (T10): 20 a second
- * comes easily, 25 is about average, 35 is a really solid stretch, and 40 was
- * the peak, reached only after practicing for a while. So Extreme is about the
- * best a practiced human does, and Inhuman is just past it. The game would
- * count up to 120 a second (a new button and stick direction every frame,
- * which this event's Inhuman used to be), but no one mashes that fast. Before
- * T10 the fourth setting was Very Heavy at 60 a second; Extreme keeps its saved
- * value, and Inhuman keeps Inhuman's.
+ * Each setting is a number of mash inputs a second, each taking 6, and
+ * grab_mash.h has their inputs and how they came about: Grabs-ercise's Hit mode
+ * CPU mashes the same way, from this event's saved setting.
  *
  * The grab ending isn't the end of the punish. The enemy lands in CaptureCut,
  * the ground release: 30 frames (20 for Donkey Kong), which nothing can cut
@@ -84,9 +68,6 @@
 
 // Teammate-to-enemy distance (center to center) each time the grab is tried.
 static const float Grab_Gaps[] = { 8, 5, 11, 14 };
-// Frames taken off the grab timer a frame by each mash setting, on average:
-// 1 + inputs a second / 10, for 0, 10, 20, 30, 40 and 50 inputs a second.
-static const int Mash_Rate[] = { 1, 2, 3, 4, 5, 6 };
 
 void Exit(GOBJ *menu);
 static void Reset(int same_attempt);
@@ -117,13 +98,6 @@ static const char *Values_Location[] = {
     "Under Left Plat", "Under Right Plat", "Left Corner", "Right Corner",
 };
 
-// Saved by position: Extreme took Very Heavy's value and Inhuman kept its own.
-enum mash { MASH_NONE, MASH_LIGHT, MASH_MEDIUM, MASH_HEAVY, MASH_EXTREME, MASH_INHUMAN };
-static const char *Values_Mash[] = {
-    "No Mash", "Light Mash", "Medium Mash", "Heavy Mash", "Extreme Mash", "Inhuman Mash",
-};
-typedef char grabpunish_mash_rates[(countof(Mash_Rate) == countof(Values_Mash)) ? 1 : -1];
-
 enum facing { FACING_RANDOM, FACING_TOWARD, FACING_AWAY };
 static const char *Values_Facing[] = { "Random", "Toward You", "Away From You" };
 
@@ -137,7 +111,7 @@ typedef char grabpunish_saved_rows[((int)OPT_GRAB_SPOT == TM_GP_GRAB_SPOT && (in
     (int)OPT_MASH == TM_GP_MASH && (int)OPT_FACING == TM_GP_FACING &&
     (int)OPT_RELEASE_HITS == TM_GP_RELEASE_HITS &&
     countof(Values_Location) == TM_GP_LOCATION_COUNT && countof(Values_Percent) == TM_GP_PERCENT_COUNT &&
-    countof(Values_Mash) == TM_GP_MASH_COUNT && countof(Values_Facing) == TM_GP_FACING_COUNT) ? 1 : -1];
+    countof(Values_Facing) == TM_GP_FACING_COUNT) ? 1 : -1];
 static void SaveSettings(GOBJ *menu, int value);
 static void ChangeReleaseHits(GOBJ *menu, int value);
 
@@ -190,8 +164,8 @@ static EventOption Options_Main[] = {
     {
         .kind = OPTKIND_STRING,
         .name = "CPU Mashing",
-        .values = Values_Mash,
-        .value_num = countof(Values_Mash),
+        .values = GrabMash_Text,
+        .value_num = MASH_COUNT,
         .val = MASH_MEDIUM,
         .val_prev = MASH_MEDIUM,
         .OnChange = SaveSettings,
@@ -598,7 +572,7 @@ static int WholeFrames(float frames) {
 static int FramesLeft(FighterData *enemy) {
     float timer = enemy->grab.grab_timer;
     if (timer <= 0) return 0;
-    return WholeFrames(timer / Mash_Rate[Options_Main[OPT_MASH].val]);
+    return WholeFrames(timer / GrabMash_Rate[Options_Main[OPT_MASH].val]);
 }
 // Frames until the enemy can act after the grab, 0 once they can.
 static int ReleaseFrames(GOBJ *fighter) {
@@ -606,32 +580,6 @@ static int ReleaseFrames(GOBJ *fighter) {
     if (ft->state_id != ASID_CAPTURECUT) return 0;
     int frames = WholeFrames((Fighter_GetCurrentAnimLength(fighter) - ft->state.frame) / ft->state.rate);
     return frames > 0 ? frames : 1;
-}
-
-/* Inputs a frame for each mash setting; frame counts from the grab. */
-static void Mash(FighterData *cpu, int frame) {
-    switch (Options_Main[OPT_MASH].val) {
-        case MASH_LIGHT:
-            if (frame % 6 < 3) cpu->cpu.held = PAD_BUTTON_A;
-            break;
-        case MASH_MEDIUM:
-            if (frame % 3 == 0) cpu->cpu.held = PAD_BUTTON_A;
-            break;
-        case MASH_HEAVY:
-            if (frame % 4 < 2) cpu->cpu.held = frame / 4 % 2 ? PAD_BUTTON_B : PAD_BUTTON_A;
-            cpu->cpu.lstickX = (frame + 2) / 4 % 2 ? 127 : -127;
-            break;
-        case MASH_EXTREME:
-            // A on frames 0, 3, 6..., the stick flipping on 2, 5, 8...
-            if (frame % 3 == 0) cpu->cpu.held = PAD_BUTTON_A;
-            cpu->cpu.lstickX = (frame + 1) / 3 % 2 ? 127 : -127;
-            break;
-        case MASH_INHUMAN:
-            // A on even frames, the stick flipping on 1, 4, 7...
-            if (frame % 2 == 0) cpu->cpu.held = PAD_BUTTON_A;
-            cpu->cpu.lstickX = (frame + 2) / 3 % 2 ? 127 : -127;
-            break;
-    }
 }
 
 static void HoldStill(int ply) {
@@ -655,10 +603,7 @@ static void SetGrabImmune(int ply, bool immune) {
 }
 
 static void StartGrab(FighterData *enemy) {
-    // As if the match were tied with handicap off (see the top of this file).
-    ftCommonData *common = *stc_ftcommon;
-    enemy->grab.grab_timer += common->grab_placing_mult * Fighter_GetCurrentPlacing(enemy_ply)
-        - common->grab_mash_per_handicap * (common->grab_max_handicap - Fighter_GetHandicap(enemy_ply));
+    GrabMash_EvenHold(enemy, enemy_ply); // As if the match were tied with handicap off (see the top of this file).
     SetGrabImmune(hmn_ply, false);
     attempt.frames_left = FramesLeft(enemy);
     phase = PHASE_GRAB;
@@ -822,7 +767,7 @@ void Event_Think(GOBJ *gobj) {
             attempt.hit_mate |= mate_hit;
             if (IsCaptured(enemy)) {
                 attempt.frames_left = FramesLeft(enemy);
-                Mash(enemy, phase_timer - 1);
+                GrabMash_Inputs(enemy, Options_Main[OPT_MASH].val, phase_timer - 1);
                 break;
             }
             if (attempt.hit_enemy) {

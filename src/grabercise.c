@@ -3,6 +3,7 @@
 #include "stage_swap.h"
 #include "fighter_swap.h"
 #include "techchase_logic.h"
+#include "grab_mash.h"
 
 /* Grabs-ercise (Minigames): Eggs-ercise with a CPU to grab instead of eggs to
  * break. The CPU you picked appears somewhere on the stage you picked: on a
@@ -26,7 +27,11 @@
  * OSD counts the frames, and after half a second of it the CPU comes back
  * somewhere else. Hit mode's DI rows are the Training Lab's: Trajectory DI for
  * the throw and every hit (in, out, either, any of eight ways, or none), and
- * for every hit Smash DI and ASDI. Knocked off the top, it comes back at once.
+ * for every hit Smash DI and ASDI. Its CPU Mashing is Grab Punish's, saved
+ * once for both: held, the CPU mashes at that rate, and a CPU that breaks free,
+ * or that a hold runs out on, wasn't thrown, so it isn't juggled: it comes back
+ * somewhere else once its release is over, unless you regrab it first. Knocked
+ * off the top, it comes back at once.
  *
  * The CPU moves through its own inputs (cpu.ai 15), set in the think, which
  * runs before the fighters' input proc. The rules below are the native
@@ -119,8 +124,8 @@ enum move { MOVE_STAND, MOVE_WALK, MOVE_RUN, MOVE_DASH, MOVE_DASH_FULL, MOVE_DAS
 #define TIMED_FRAMES 3600  // The timed run's minute.
 
 enum options_main {
-    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_SDI_AMOUNT,
-    OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD, OPT_MOVEMENT, OPT_STANDING,
+    OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_MASH, OPT_DI,
+    OPT_SDI_AMOUNT, OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD, OPT_MOVEMENT, OPT_STANDING,
     OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION,
     OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT, OPT_COUNT
 };
@@ -146,6 +151,7 @@ static void ChangeMovement(GOBJ *menu, int value);
 static void ChangeStanding(GOBJ *menu, int value);
 static void ChangeSuccess(GOBJ *menu, int value);
 static void ChangePercent(GOBJ *menu, int value);
+static void ChangeMash(GOBJ *menu, int value);
 static void ChangeDI(GOBJ *menu, int value);
 static void ChangeSDIAmount(GOBJ *menu, int value);
 static void ChangeSDIDir(GOBJ *menu, int value);
@@ -238,6 +244,19 @@ static EventOption Options_Main[OPT_COUNT] = {
                  "Hit only: Throw and timed runs are always 0%."},
         .disable = 1,
         .OnChange = ChangePercent,
+    },
+    {
+        .kind = OPTKIND_STRING,
+        .name = "CPU Mashing",
+        .value_num = MASH_COUNT,
+        .values = GrabMash_Text,
+        .val = MASH_MEDIUM,
+        .desc = {"How fast the CPU mashes out of your grab: Light",
+                 "10 to Inhuman 50 inputs a second. Once free, it",
+                 "comes back somewhere else unless you regrab it.",
+                 "Hit only. Shared with Grab Punish's CPU Mashing."},
+        .disable = 1,
+        .OnChange = ChangeMash,
     },
     {
         .kind = OPTKIND_STRING,
@@ -410,8 +429,8 @@ static EventOption Options_Main[OPT_COUNT] = {
         .kind = OPTKIND_FUNC,
         .name = "Reset Event Settings",
         .desc = {"Restore this event's defaults and restart in",
-                 "timed mode. Your best, the counter position and",
-                 "other events are unchanged."},
+                 "timed mode. Your best, the counter position, CPU",
+                 "Mashing and other events are unchanged."},
         .OnSelect = ResetSettings,
     },
     {
@@ -451,8 +470,10 @@ static struct target {
     bool shield;       // Standing: holding shield.
     bool grabbed;      // A standard grab caught it.
     bool held;         // Held by any grab: once it's let go, it's gone, but in Hit mode
-    bool juggle;       // it stays up after a standard grab to be hit,
+    bool thrown;       // a standard grab's throw (the hold's last state was a Thrown one)
+    bool juggle;       // leaves it up to be hit,
     bool scored;       // and the first hit counts.
+    int mash_frame;    // Hit mode: the frames this hold has mashed (CPU Mashing).
     float last_lag;    // Last frame's hitlag: more now is a new hit.
     bool hit;          // Hit: left where it is, for a follow-up grab, until
     int hit_frames;    // this many frames after the last hit's hitlag pass GRAB_WINDOW.
@@ -505,10 +526,11 @@ static int MenuValue(unsigned row, int saved) {
 }
 // Hit mode: a grab counts once a hit follows its throw. Free Practice only.
 static bool HitMode(void) { return FreePractice() && Options_Main[OPT_SUCCESS].val == TM_GRABS_SUCCESS_HIT; }
-/* CPU Percent, the DI rows and Late Frames OSD only do anything in Hit mode, so
- * they're greyed out otherwise, and Smash DI Direction is with no Smash DI. */
+/* CPU Percent, CPU Mashing, the DI rows and Late Frames OSD only do anything in
+ * Hit mode, so they're greyed out otherwise, and Smash DI Direction is with no
+ * Smash DI. */
 static void GateHitRows(void) {
-    static const u8 rows[] = {OPT_PERCENT, OPT_DI, OPT_SDI_AMOUNT, OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD};
+    static const u8 rows[] = {OPT_PERCENT, OPT_MASH, OPT_DI, OPT_SDI_AMOUNT, OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD};
     for (unsigned i = 0; i < countof(rows); ++i) Options_Main[rows[i]].disable = !HitMode();
     if (!Options_Main[OPT_SDI_AMOUNT].val) Options_Main[OPT_SDI_DIR].disable = 1;
 }
@@ -541,6 +563,9 @@ static void ChangePercent(GOBJ *menu, int value) {
     TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_PERCENT, value);
     ApplyPercent();
 }
+/* CPU Mashing is Grab Punish's saved setting, so a change here is one there too.
+ * The next frame of a hold mashes as it says (MashInputs). */
+static void ChangeMash(GOBJ *menu, int value) { TM_SetSetting(TM_SETTING_GRAB_PUNISH, TM_GP_MASH, value); }
 // The next throw or hit DIs as they say (DIInputs).
 static void ChangeDI(GOBJ *menu, int value) {
     if (value >= 0 && value < TDI_COUNT) TM_SetSetting(TM_SETTING_GRABERCISE, TM_GRABS_DI, TDI_Saved[value]);
@@ -565,6 +590,7 @@ static void LoadSettings(void) {
     Options_Main[OPT_FREEPRACTICE].val = Options_Main[OPT_FREEPRACTICE].val_prev =
         TM_GetSetting(TM_SETTING_GRABERCISE, TM_GRABS_FREE_PRACTICE);
     Options_Main[OPT_COUNTER].val = Options_Main[OPT_COUNTER].val_prev = TM_GetSetting(TM_SETTING_EGGS_COUNTER, 0);
+    Options_Main[OPT_MASH].val = Options_Main[OPT_MASH].val_prev = TM_GetSetting(TM_SETTING_GRAB_PUNISH, TM_GP_MASH);
     best = TM_GetSetting(TM_SETTING_GRABERCISE, TM_GRABS_BEST);
 }
 
@@ -839,7 +865,8 @@ static void Respawn(void) {
     target.last_state = ASID_WAIT;
     target.last_flag = false;
     target.run_phase = 0;
-    target.grabbed = target.held = target.juggle = target.scored = target.hit = target.chase = false;
+    target.grabbed = target.held = target.thrown = target.juggle = target.scored = target.hit = target.chase = false;
+    target.mash_frame = 0;
     target.landing = target.getup = -1;
     target.hit_frames = 0;
     target.air_frames = 0;
@@ -861,6 +888,15 @@ static bool Held(int state) {
         (state >= ASID_THROWNFF && state <= ASID_THROWNFLW) ||
         (state >= ASID_CAPTURECAPTAIN && state <= ASID_THROWNKIRBY) ||
         (state >= ASID_CAPTUREMEWTWO && state <= ASID_THROWNMEWTWOAIR);
+}
+/* Where Hit mode's CPU mashes: a standard grab's hold, where ftCommon_GrabMash
+ * takes its inputs on top of the 1 a frame (CapturePulled, CaptureWait:
+ * grab_mash.h), pummels included as Grab Punish's are, and DK's cargo carry,
+ * where it takes them without the 1 a frame (ftCo_Shouldered_Anim). Mashed out
+ * of a carry, both fighters are knocked back rather than let go. */
+static bool Mashable(int state) {
+    return (state >= ASID_CAPTUREPULLEDHI && state <= ASID_CAPTUREDAMAGELW) ||
+        (state >= ASID_SHOULDEREDWAIT && state <= ASID_SHOULDEREDTURN);
 }
 /* The states the CPU's own movement puts it in. Anything else (a hit, a
  * shield break) starts the grab window (UpdateTarget). */
@@ -1421,7 +1457,7 @@ static void PickHitDI(FighterData *ft) {
  * in between, as fast as a hand can. The C-stick holds the ASDI through the
  * hitlag, the processed stick with it, as the Training Lab sets them. Hitlag in
  * shield (GuardSetOff) isn't knockback, and a hold (CaptureWait, Shouldered)
- * isn't a throw, where the stick would mash out. */
+ * isn't a throw: there the CPU only mashes, as CPU Mashing says (MashInputs). */
 static void DIInputs(FighterData *ft, int state) {
     bool thrown = target.grabbed && Thrown(state), hit = KnockedBack(state) && Frozen(ft);
     if (!HitMode() || !(thrown || hit)) {
@@ -1456,6 +1492,20 @@ static void DIInputs(FighterData *ft, int state) {
         ft->cpu.cstickY = target.asdi[1];
         ft->input.cstick = (Vec2){target.asdi[0] / 127.f, target.asdi[1] / 127.f};
     }
+}
+
+/* Hit mode's CPU Mashing (Grab Punish's, grab_mash.h): from the first frame of
+ * each hold, counted on through a pummel or a carry, the CPU mashes at its
+ * rate. A release, a throw or a regrab starts the count over. Each hold starts
+ * as Grab Punish's do, as if the match were tied with handicap off, so its
+ * Mashing Info holds here too. */
+static void MashInputs(FighterData *ft, int state) {
+    if (!HitMode() || !Mashable(state)) {
+        target.mash_frame = 0;
+        return;
+    }
+    if (!target.mash_frame && JustGrabbed(state)) GrabMash_EvenHold(ft, ft->ply);
+    GrabMash_Inputs(ft, Options_Main[OPT_MASH].val, target.mash_frame++);
 }
 
 // Hit mode: late ----------------------------------------------------------------
@@ -1540,19 +1590,24 @@ static void UpdateTarget(void) {
             if (!HitMode()) Score();
         }
         target.held = true;
+        target.thrown = Thrown(state); // As it's let go: thrown, or released.
         target.hit = false; // A hit that led into the grab: its window is over.
         // Hit mode: a grab in the juggle (a tech regrabbed) starts the juggle over at its throw.
         target.juggle = target.chase = false;
         target.landing = target.getup = -1;
         StopLate(true); // A late grab: the count stops at it.
+        MashInputs(ft, state);
         DIInputs(ft, state); // The throw's DI.
         return;
     }
     if (ft->flags.dead) return;
-    /* Hit mode: let go after a standard grab, the CPU stays up to be hit. A hit
-     * is new hitlag, or more hitlag than was left: a hit during another's.
-     * Each one adds to the hits, and the first counts. */
-    bool juggle = target.grabbed && HitMode();
+    /* Hit mode: let go by a standard grab's throw, the CPU stays up to be hit.
+     * A hold that runs out, or that it mashes out of, isn't a throw: like any
+     * other let go, it's gone once the release is over, unless it's regrabbed
+     * first, and hitting it there doesn't count. A hit is new hitlag, or more
+     * hitlag than was left: a hit during another's. Each one adds to the hits,
+     * and the first counts. */
+    bool juggle = target.grabbed && target.thrown && HitMode();
     if (juggle) {
         if (!target.juggle) {
             target.juggle = target.hit = true; // Pressing nothing, as after a hit,
@@ -1572,7 +1627,7 @@ static void UpdateTarget(void) {
         }
         target.last_lag = ft->dmg.hitlag_frames; // (the throw itself isn't a hit).
     }
-    // Any other grab's let go, a throw included: it's gone.
+    // Any other let go, another grab's throw or a release: it's gone.
     bool away = target.held && !juggle;
     /* A hit doesn't send it away at once: it stays, pressing nothing but its DI, for
      * GRAB_WINDOW frames after the hitlag, so a hit can lead into a grab, and
@@ -1661,6 +1716,7 @@ void Event_Init(GOBJ *gobj) {
     LoadSettings();
     // A retry may reuse the module: rebuild the gating from the saved mode.
     for (unsigned i = 0; i < countof(saved_rows); ++i) Options_Main[saved_rows[i]].disable = 1;
+    Options_Main[OPT_MASH].disable = 1; // Saved as Grab Punish's, not in saved_rows.
     if (Options_Main[OPT_FREEPRACTICE].val) EnterFreePractice();
     else ShowCollision(0);
     StageSwap_Init();

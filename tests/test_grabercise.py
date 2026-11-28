@@ -37,10 +37,10 @@ LATE_PULSE = [180, 140, 100, 60, 20, 60, 100, 140]  # and its pulse (TM_CUE_RED_
 LATE_Y, LATE_UNDER_COUNTER = 12.9, 6.65  # Late Frames OSD: under the match timer, or a grid row lower.
 COUNTER_UNDER_TIMER = 4  # Counter Position's Under Timer.
 # Menu rows and saved preferences.
-(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_DI, OPT_SDI_AMOUNT,
- OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD, OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL,
- OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(23)
-OPT_COUNT = 23
+(OPT_RETRY, OPT_STAGE, OPT_CHARACTERS, OPT_FREEPRACTICE, OPT_SUCCESS, OPT_PERCENT, OPT_MASH, OPT_DI,
+ OPT_SDI_AMOUNT, OPT_SDI_DIR, OPT_ASDI, OPT_LATE_OSD, OPT_MOVEMENT, OPT_STANDING, OPT_WALK, OPT_RUN, OPT_DASH,
+ OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL, OPT_COLLISION, OPT_COUNTER, OPT_DEFAULTS, OPT_EXIT) = range(24)
+OPT_COUNT = 24
 # CPU Movement came last, then CPU DI (now Trajectory DI) and Late Frames OSD, then the other DI rows.
 (BEST, FREE_PRACTICE, SUCCESS, PERCENT, STANDING, PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF,
  PREF_ROLL, COLLISION, MOVEMENT, DI, LATE_OSD, SDI_AMOUNT, SDI_DIR, ASDI) = range(18)
@@ -60,11 +60,19 @@ SDI_AUTO, SDI_RANDOM, SDI_AWAY, SDI_TOWARD, SDI_LEFT, SDI_RIGHT, SDI_UP, SDI_DOW
 SDI_MENU = ['Auto', 'Random', 'Away', 'Towards', 'Left', 'Right', 'Up', 'Down']
 ASDI_AUTO, ASDI_AWAY, ASDI_TOWARD, ASDI_LEFT, ASDI_RIGHT, ASDI_UP, ASDI_DOWN = range(7)  # ASDI's.
 ASDI_MENU = ['Auto', 'Away', 'Towards', 'Left', 'Right', 'Up', 'Down']
+# CPU Mashing: Grab Punish's choices and saved value (Medium its default), and the
+# grab timer each takes a frame (grab_mash.h).
+NO_MASH, LIGHT, MEDIUM, HEAVY, EXTREME, INHUMAN = range(6)
+MASH_MENU = ['No Mash', 'Light Mash', 'Medium Mash', 'Heavy Mash', 'Extreme Mash', 'Inhuman Mash']
+MASH_RATES = (1, 2, 3, 4, 5, 6)
+MASH_BUTTONS = 0xF00  # A, B, X and Y.
+MASH_INPUT = 6        # Timer taken by a fresh button, and by a new stick direction.
 MOVE_ROWS = (OPT_WALK, OPT_RUN, OPT_DASH, OPT_DASH_FULL, OPT_DASH_HALF, OPT_ROLL)
 MOVE_PREFS = (PREF_WALK, PREF_RUN, PREF_DASH, PREF_DASH_FULL, PREF_DASH_HALF, PREF_ROLL)
 # States, from the MexTK enum.
 ASID_WAIT, ASID_FALL, ASID_LANDING = 14, 29, 42
 ASID_CAPTUREPULLEDHI, ASID_CAPTUREWAITHI, ASID_THROWNF, ASID_THROWNHI = 223, 224, 239, 241
+ASID_CAPTUREDAMAGEHI, ASID_CAPTUREWAITLW, ASID_CAPTURECUT = 225, 227, 229
 ASID_SHOULDEREDWAIT, ASID_THROWNFF = 266, 271
 ASID_DAMAGEN1, ASID_DAMAGEN2, ASID_DAMAGEFLYN, ASID_DOWNBOUNDU = 78, 79, 88, 183
 ASID_THROWF, ASID_THROWB, ASID_THROWHI, ASID_THROWLW = 219, 220, 221, 222
@@ -98,9 +106,11 @@ def signed(value): return value - (1 << 32) if value >> 31 else value
 
 
 class Probe:
-    def __init__(self, stage=BATTLEFIELD, character=FOX, signed_timer=0, prefs=None, follower=False):
+    def __init__(self, stage=BATTLEFIELD, character=FOX, signed_timer=0, prefs=None, follower=False, mash=NO_MASH):
+        """`mash` is Grab Punish's saved CPU Mashing, which Grabs-ercise reads."""
         self.m = fixtures.Machine()
         load_probe(self.m, 'grabercise-probe.elf', 'TestGrabsLoaded')
+        self.m.call('TestGrabsMashPref', mash)
         defaults = {BEST: 0, FREE_PRACTICE: 0, SUCCESS: THROW, PERCENT: RANDOM_PERCENT, STANDING: STAND_RANDOM,
                     COLLISION: 0, MOVEMENT: MOVEMENT_RANDOM, DI: DI_NONE, LATE_OSD: 1, SDI_AMOUNT: 0,
                     SDI_DIR: SDI_AUTO, ASDI: ASDI_AUTO,
@@ -147,7 +157,7 @@ class GrabSettingsTests(unittest.TestCase):
         p = Probe()
         names = [p.string(p.m.call('TestGrabsRowName', row)) for row in range(OPT_COUNT)]
         self.assertEqual(names, ['Retry', 'Change Stage', 'Change Characters', 'Free Practice',
-                                 'Success Criteria', 'CPU Percent', 'Trajectory DI', 'Smash DI Amount',
+                                 'Success Criteria', 'CPU Percent', 'CPU Mashing', 'Trajectory DI', 'Smash DI Amount',
                                  'Smash DI Direction', 'ASDI', 'Late Frames OSD', 'CPU Movement', 'Standing CPU',
                                  'Full Speed Walk', 'Full Speed Run', 'Traveling Dash Dance',
                                  'Full Dash Dance', 'Half Dash Dance', 'Rolling',
@@ -314,7 +324,7 @@ class GrabSettingsTests(unittest.TestCase):
     def test_reset_event_settings_restores_the_defaults_but_keeps_your_best(self):
         p = Probe(prefs={BEST: 17, FREE_PRACTICE: 1, SUCCESS: HIT, PERCENT: 9, PREF_WALK: 0, PREF_DASH: 0,
                          COLLISION: 1, MOVEMENT: MOVEMENT_STILL, DI: DI_RANDOM, LATE_OSD: 0, SDI_AMOUNT: 5,
-                         SDI_DIR: SDI_UP, ASDI: ASDI_DOWN})
+                         SDI_DIR: SDI_UP, ASDI: ASDI_DOWN}, mash=INHUMAN)
         p.menu(OPT_COUNTER, 3)
         p.select(OPT_DEFAULTS)
         self.assertEqual([p.pref(i) for i in range(PREF_COUNT)],
@@ -323,6 +333,8 @@ class GrabSettingsTests(unittest.TestCase):
         self.assertEqual([p.row(row) for row in (OPT_DI, OPT_SDI_AMOUNT, OPT_SDI_DIR, OPT_ASDI)], [0, 0, 0, 0])
         self.assertEqual((p.info(17), p.info(4)), (3, 1))
         self.assertEqual(p.row(OPT_FREEPRACTICE), 0)
+        # CPU Mashing is Grab Punish's too, so it stays, like the shared counter position.
+        self.assertEqual((p.info(41), p.row(OPT_MASH)), (INHUMAN, INHUMAN))
 
 
 class GrabSpawnTests(unittest.TestCase):
@@ -1600,6 +1612,197 @@ class GrabDITests(unittest.TestCase):
         held, read = self.throw(p)  # No C-stick throughout,
         self.assertEqual((len(set(held)), read), (1, held[0]))
         self.assertEqual(p.stat(35), 0)  # and no Smash DI.
+
+
+class GrabMashTests(unittest.TestCase):
+    """CPU Mashing: Grab Punish's choices and saved setting, mashed through Hit
+    mode's holds, and a CPU that breaks free isn't thrown, so isn't juggled."""
+    @classmethod
+    def setUpClass(cls): build()
+
+    def hit_mode(self, mash=MEDIUM, prefs=None):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT, **(prefs or {})}, mash=mash)
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        return p
+
+    def inputs(self, p): return p.info(10), p.info(11)  # The CPU's buttons and stick.
+
+    def grabbed(self, p, timer=None):
+        """A standard grab, with the grab timer it sets as it connects (or none, so it holds)."""
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        if timer is not None:
+            p.m.call('TestGrabsGrabTimer', timer)
+        p.run(1)
+        p.set_state(ASID_CAPTUREWAITHI)
+
+    def mashed_out(self, mash=EXTREME):
+        """Grabbed at 0% (a 75-frame hold) and mashed out, on the release's first frame."""
+        p = self.hit_mode(mash)
+        self.grabbed(p, 75)
+        while p.state() != ASID_CAPTURECUT:
+            p.run(1)
+        return p
+
+    def test_its_grab_punishs_choices_and_saved_setting(self):
+        p = Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT}, mash=EXTREME)
+        self.assertEqual([p.string(p.m.call('TestGrabsRowChoice', OPT_MASH, i)) for i in range(p.row(OPT_MASH, 3))],
+                         MASH_MENU)
+        self.assertEqual(p.row(OPT_MASH), EXTREME)  # Grab Punish's, read as the event starts.
+        for choice in (NO_MASH, INHUMAN, LIGHT):
+            p.menu(OPT_MASH, choice)
+            self.assertEqual(p.info(41), choice)  # And written back there.
+        self.assertEqual(Probe(mash=HEAVY).row(OPT_MASH), HEAVY)
+
+    def test_its_greyed_out_but_in_hit_mode(self):
+        self.assertEqual(Probe(prefs={SUCCESS: HIT}).row(OPT_MASH, 1), 1)  # Timed runs.
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        self.assertEqual(p.row(OPT_MASH, 1), 1)  # Throw.
+        p.menu(OPT_SUCCESS, HIT)
+        self.assertEqual(p.row(OPT_MASH, 1), 0)
+        p.menu(OPT_SUCCESS, THROW)
+        self.assertEqual(p.row(OPT_MASH, 1), 1)
+        self.assertEqual(Probe(prefs={FREE_PRACTICE: 1, SUCCESS: HIT}).row(OPT_MASH, 1), 0)
+
+    # What ftCommon_GrabMash (8007DC08) takes from the timer: 1 a frame, then 6
+    # for any fresh button and 6 if the stick crossed into a new direction, as
+    # Grab Punish's test counts it.
+    def test_each_setting_takes_what_it_says_off_the_timer_through_the_hold(self):
+        for mash, rate in enumerate(MASH_RATES):
+            with self.subTest(mash=MASH_MENU[mash]):
+                p = self.hit_mode(mash)
+                self.grabbed(p)
+                p.run(11)  # In step with every setting's pattern.
+                (held, direction), taken = self.inputs(p), 0
+                for _ in range(48):  # A whole number of every setting's patterns.
+                    p.run(1)
+                    now_held, now_direction = self.inputs(p)
+                    taken += 1 + MASH_INPUT * bool(now_held & ~held & MASH_BUTTONS)
+                    if now_direction and now_direction != direction:
+                        taken += MASH_INPUT
+                        direction = now_direction
+                    held = now_held
+                self.assertEqual(taken, 48 * rate)
+
+    def test_a_cpu_breaks_free_when_grab_punishs_hold_says(self):
+        # A 75-frame hold (0%), as Grab Punish's table has it: No Mash 75, Light 38,
+        # Medium 25, Heavy 19, Extreme 15, Inhuman 13, within the frame a press takes to count.
+        for mash, frames in zip(range(6), (75, 38, 25, 19, 15, 13)):
+            with self.subTest(mash=MASH_MENU[mash]):
+                p = self.hit_mode(mash)
+                p.set_state(ASID_CAPTUREPULLEDHI)
+                p.m.call('TestGrabsGrabTimer', 75)
+                held = 0
+                while p.state() != ASID_CAPTURECUT and held < 100:
+                    p.run(1)
+                    held += 1
+                self.assertAlmostEqual(held, frames, delta=1)
+
+    def test_each_hold_is_grab_punishs_as_if_the_match_were_tied_with_handicap_off(self):
+        # The grab's own timer at 0%, with the CPU second (placing 1) and handicap 5:
+        # 30 + 8 x (9 - 5) + 15 x (3 - 1) = 92. The hold takes the 17 back off, once.
+        for mash in (NO_MASH, MEDIUM):
+            with self.subTest(mash=MASH_MENU[mash]):
+                p = self.hit_mode(mash)
+                p.m.call('TestGrabsStanding', 1, 5)
+                p.set_state(ASID_CAPTUREPULLEDHI)
+                p.m.call('TestGrabsGrabTimer', 92)
+                p.run(1)
+                self.assertEqual(p.info(42), 75 - 1)  # Less the first frame's tick.
+        p.set_state(ASID_CAPTUREWAITHI)  # (Medium's.) Not again: just the ticks and the mash from here.
+        p.run(6)
+        self.assertEqual(p.info(42), 75 - 7 - 2 * MASH_INPUT)
+        # Throw mode leaves the game's timer alone: nothing there mashes.
+        p = Probe(prefs={FREE_PRACTICE: 1})
+        p.place(-20, MAIN_LEFT, STAND, 1)
+        p.m.call('TestGrabsStanding', 1, 5)
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.m.call('TestGrabsGrabTimer', 92)
+        p.run(1)
+        self.assertEqual(p.info(42), 92 - 1)
+
+    def test_it_mashes_through_pummels_and_dks_carry_but_not_a_throw(self):
+        p = self.hit_mode(INHUMAN)
+        self.grabbed(p)
+        for state in (ASID_CAPTUREWAITHI, ASID_CAPTUREDAMAGEHI, ASID_CAPTUREWAITLW, ASID_SHOULDEREDWAIT):
+            p.set_state(state)
+            pressed = []
+            for _ in range(6):
+                p.run(1)
+                buttons, stick = self.inputs(p)
+                pressed.append(bool(buttons & MASH_BUTTONS))
+                self.assertIn(stick, (-127, 127), state)  # Inhuman's stick never rests.
+            self.assertEqual(pressed.count(True), 3, state)  # A every other frame.
+        p.set_state(ASID_THROWNF)  # No DI: the throw presses nothing.
+        for _ in range(8):
+            p.run(1)
+            self.assertEqual(self.inputs(p), (0, 0))
+
+    def test_throw_mode_timed_runs_and_no_mash_press_nothing_in_the_hold(self):
+        for prefs, mash in (({FREE_PRACTICE: 1}, INHUMAN), ({SUCCESS: HIT}, INHUMAN),
+                            ({FREE_PRACTICE: 1, SUCCESS: HIT}, NO_MASH)):
+            with self.subTest(prefs=prefs, mash=mash):
+                p = Probe(prefs=prefs, mash=mash)
+                p.place(-20, MAIN_LEFT, STAND, 1)
+                self.grabbed(p)
+                for _ in range(12):
+                    p.run(1)
+                    self.assertEqual(self.inputs(p), (0, 0))
+
+    def test_breaking_free_isnt_a_throw_so_the_cpu_comes_back_somewhere_else(self):
+        p = self.mashed_out()
+        for _ in range(30):  # The ground release: nothing pressed, no juggle, no late count.
+            self.assertEqual((p.state(), self.inputs(p), p.info(43), p.info(23), p.info(33), p.info(2)),
+                             (ASID_CAPTURECUT, (0, 0), 0, 0, 0, 1))
+            p.run(1)
+        # It could act: back somewhere else, uncounted.
+        self.assertEqual((p.state(), p.info(2), p.info(23), p.info(0), p.info(22)), (ASID_WAIT, 0, 0, 0, 0))
+
+    def test_a_hold_that_runs_out_isnt_juggled_either(self):
+        p = self.hit_mode(NO_MASH)
+        self.grabbed(p, 20)
+        p.run(19)
+        self.assertEqual(p.state(), ASID_CAPTURECUT)
+        p.run(30)
+        self.assertEqual((p.state(), p.info(2), p.info(23), p.info(0)), (ASID_WAIT, 0, 0, 0))
+
+    def test_a_hit_in_the_release_doesnt_count(self):
+        p = self.mashed_out()
+        p.run(5)
+        p.set_state(ASID_DAMAGEN1, hitlag=4)
+        p.run(3)
+        self.assertEqual((p.state(), p.info(22), p.info(0), p.info(23)), (ASID_DAMAGEN1, 0, 0, 0))  # Its hitlag.
+        p.run(1)
+        self.assertEqual((p.state(), p.info(2), p.info(22), p.info(0)), (ASID_WAIT, 0, 0, 0))
+
+    def test_a_regrab_in_the_release_mashes_anew_and_its_throw_is_juggled(self):
+        p = self.mashed_out(MEDIUM)
+        p.run(10)
+        p.set_state(ASID_CAPTUREPULLEDHI)
+        p.m.call('TestGrabsGrabTimer', 75)  # The regrab's own hold.
+        p.run(1)
+        self.assertEqual((p.state(), p.info(43), p.info(10) & MASH_BUTTONS != 0), (ASID_CAPTUREPULLEDHI, 0, True))
+        p.set_state(ASID_THROWNF)
+        p.run(8)
+        p.m.call('TestGrabsRelease')
+        p.m.call('TestGrabsMoveCPU', -20000, 200000)
+        p.run(1)
+        self.assertEqual((p.info(43), p.info(23), p.info(2), p.info(0)), (1, 1, 1, 0))  # Thrown: juggled.
+        p.set_state(ASID_DAMAGEFLYN, hitlag=4, air=1)
+        p.run(1)
+        self.assertEqual((p.info(0), p.info(22)), (1, 1))  # And its hit counts.
+
+    def test_mashed_out_of_dks_carry_it_isnt_juggled(self):
+        p = self.hit_mode()
+        self.grabbed(p)
+        p.set_state(ASID_SHOULDEREDWAIT)
+        p.run(10)
+        # ftCo_Shouldered_Anim knocks both back: the CPU's knockback, with hitlag.
+        p.set_state(ASID_DAMAGEFLYN, hitlag=3, air=1)
+        p.m.call('TestGrabsMoveCPU', -20000, 20000)
+        p.run(2)
+        self.assertEqual((p.state(), p.info(23), p.info(22)), (ASID_DAMAGEFLYN, 0, 0))
+        p.run(1)
+        self.assertEqual((p.state(), p.info(2), p.info(0)), (ASID_WAIT, 0, 0))
 
 
 class GrabLateTests(unittest.TestCase):

@@ -21,6 +21,7 @@ static ftCommonData common;
 static int stale[11];
 static unsigned prefs[TM_GRABS_PREF_COUNT];
 static unsigned counter_pref;
+static unsigned mash_pref; // Grab Punish's CPU Mashing, which Grabs-ercise shares.
 static int retries, ended, post_sfx, records, error_sfx, pref_writes;
 static int stage_kind;
 static unsigned seed = 12345;
@@ -77,11 +78,13 @@ float HSD_Randf(void) { return NextRand() / 32768.f; }
 static u32 Read(unsigned field, unsigned index) {
     if (field == TM_SETTING_GRABERCISE && index < TM_GRABS_PREF_COUNT) return prefs[index];
     if (field == TM_SETTING_EGGS_COUNTER) return counter_pref;
+    if (field == TM_SETTING_GRAB_PUNISH && index == TM_GP_MASH) return mash_pref;
     return 0;
 }
 static void Write(unsigned field, unsigned index, u32 value) {
     if (field == TM_SETTING_GRABERCISE && index < TM_GRABS_PREF_COUNT) { prefs[index] = value; pref_writes++; }
     if (field == TM_SETTING_EGGS_COUNTER) counter_pref = value;
+    if (field == TM_SETTING_GRAB_PUNISH && index == TM_GP_MASH) mash_pref = value;
 }
 static const TMSettingsAPI api = {Read, Write, 0};
 
@@ -153,6 +156,8 @@ static struct engine {
     float pending;   // A new dash's push, applied by its first physics (xE8).
     int dash_entered;
     int down_wait;   // DownWait's frames left before it stands up on its own (PlCo 0x424).
+    int grab_timing; // A test set the grab timer, so a hold counts it down (GrabBreakout),
+    int mash_dir;    // and the stick's last direction there.
 } eng;
 /* Tech and getup lengths; techs and getup rolls move ROLL_SPEED a frame for
  * their first ROLL_FRAMES, forward (F) or back (B) from the way they face. */
@@ -198,6 +203,10 @@ GOBJ *Fighter_GetSubcharGObj(int player, int ms) {
     return player == CPU_FT && ft[CPU_FT].flags.has_follower ? &nana_gobj : 0;
 }
 int *Fighter_GetStaleMoveTable(int player) { return stale; }
+// The CPU's place (0 first) and handicap (9 off), which a grab's hold counts.
+static int placing, handicap;
+int Fighter_GetCurrentPlacing(int player) { return player == CPU_FT ? placing : 0; }
+int Fighter_GetHandicap(int player) { return player == CPU_FT ? handicap : 9; }
 int Fighter_GetExternalID(int player) { return player ? CKIND_MARTH : CKIND_FOX; }
 int Fighter_GetCostumeID(int player) { return 0; }
 void Fighter_SetPosition(int ply, int ms, Vec3 *pos) { }
@@ -335,6 +344,22 @@ static void ReadASDI(void) {
     st.asdi_y = st.asdi_kind ? way.Y : 0;
 }
 /* s_link 0 and 1: hitlag, then animations and their scripts. */
+/* ftCommon_GrabMash, as CapturePulled's and CaptureWait's animation runs it,
+ * once a test has set the grab timer: 1 off it a frame, 6 (the x3A8 CaptureWait
+ * passes) for a fresh A, B, X or Y, and 6 when the stick goes a new direction
+ * (the mash's is all the way out); at 0 the grab lets go into the ground
+ * release (ftCo_CaptureCut_Enter), 30 frames, then Wait. */
+#define MASH_INPUT 6
+static void GrabBreakout(FighterData *f) {
+    f->grab.grab_timer -= 1;
+    if (f->input.down & (PAD_BUTTON_A | PAD_BUTTON_B | PAD_BUTTON_X | PAD_BUTTON_Y)) f->grab.grab_timer -= MASH_INPUT;
+    int dir = f->input.lstick.X > .5f ? 1 : f->input.lstick.X < -.5f ? -1 : eng.mash_dir;
+    if (dir != eng.mash_dir) {
+        eng.mash_dir = dir;
+        f->grab.grab_timer -= MASH_INPUT;
+    }
+    if (f->grab.grab_timer <= 0) Enter(ASID_CAPTURECUT, 30);
+}
 static void Animate(void) {
     FighterData *f = &ft[CPU_FT];
     if (f->dmg.hitlag_frames > 0) {
@@ -386,6 +411,15 @@ static void Animate(void) {
             break;
         case ASID_LANDING:
             if (frame >= 4) Enter(ASID_WAIT, 60);
+            break;
+        case ASID_CAPTUREPULLEDHI:
+        case ASID_CAPTUREWAITHI:
+        case ASID_CAPTUREPULLEDLW:
+        case ASID_CAPTUREWAITLW:
+            if (eng.grab_timing) GrabBreakout(f);
+            break;
+        case ASID_CAPTURECUT:
+            if (frame >= eng.anim_len) Enter(ASID_WAIT, 60);
             break;
         case ASID_RUNBRAKE:
             if (f->phys.self_vel_ground.X == 0 || frame >= 20) Enter(ASID_WAIT, 60);
@@ -743,6 +777,7 @@ static void ResetStats(void) {
 
 void TestGrabsLoaded(void) { }
 void TestGrabsPref(int index, int value) { prefs[index] = value; }
+void TestGrabsMashPref(int value) { mash_pref = value; }
 /* stage: 0 Battlefield, 1 Final Destination. */
 void TestGrabsInit(int stage_id, int character, int signed_timer) {
     *event_vars_ptr_loc = &vars;
@@ -754,6 +789,12 @@ void TestGrabsInit(int stage_id, int character, int signed_timer) {
     gx_link = 0;
     *stc_ftcommon = &common;
     common.x260 = 60;
+    // PlCo's grab hold terms: 8 a handicap step under the most, 9, and 15 a place.
+    common.grab_mash_per_handicap = 8;
+    common.grab_max_handicap = 9;
+    common.grab_placing_mult = 15;
+    placing = 0;
+    handicap = 9;
     BuildStage(stage_id);
     for (int i = 0; i < 2; ++i) {
         fighters[i].userdata = &ft[i];
@@ -855,6 +896,14 @@ void TestGrabsThrower(int state, int facing, int angle, int cpu_facing) {
  * still out as a hit lands (a tech roll's, say). */
 void TestGrabsLastStick(int x, int y) { ft[CPU_FT].input.lstick = (Vec2){x / 127.f, y / 127.f}; }
 void TestGrabsPercent(int percent) { ft[CPU_FT].dmg.percent = percent; }
+/* The grab timer, as a grab sets it when it connects: from then the hold counts
+ * it down and lets go at 0 (GrabBreakout). */
+void TestGrabsStanding(int place, int cap) { placing = place; handicap = cap; }
+void TestGrabsGrabTimer(int timer) {
+    ft[CPU_FT].grab.grab_timer = timer;
+    eng.grab_timing = 1;
+    eng.mash_dir = 0;
+}
 void TestGrabsMoveCPU(int x1000, int y1000) { ft[CPU_FT].phys.pos.X = x1000 / 1000.f; ft[CPU_FT].phys.pos.Y = y1000 / 1000.f; }
 void TestGrabsClock(int frames, int count) { stc_match->time_frames = frames; grab_count = count; }
 void TestGrabsBest(int value) { best = value; }
@@ -942,6 +991,10 @@ int TestGrabsInfo(int key) {
         case 38: return f->cpu.cstickY;
         case 39: return target.sdi_left;
         case 40: return target.di_count;
+        // CPU Mashing: Grab Punish's saved setting, the grab timer, and whether the hold ended in a throw.
+        case 41: return mash_pref;
+        case 42: return (int)f->grab.grab_timer;
+        case 43: return target.thrown;
     }
     return -1;
 }
